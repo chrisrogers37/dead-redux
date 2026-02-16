@@ -11,6 +11,16 @@ const displayFont = Playfair_Display({
 export const metadata: Metadata = {
   title: "Dead Redux",
   description: "A new Grateful Dead show every day",
+  metadataBase: new URL("https://dead-redux.vercel.app"),
+  openGraph: {
+    type: "website",
+    siteName: "Dead Redux",
+    title: "Dead Redux",
+    description: "A new Grateful Dead show every day",
+  },
+  twitter: {
+    card: "summary_large_image",
+  },
 };
 
 export default function RootLayout({

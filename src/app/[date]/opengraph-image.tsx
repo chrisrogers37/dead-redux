@@ -1,0 +1,150 @@
+import { ImageResponse } from "next/og";
+import { getDailyShow, isValidDateStr } from "@/lib/daily-show";
+
+export const runtime = "edge";
+
+export const alt = "Dead Redux — Today's Grateful Dead Show";
+export const size = { width: 1200, height: 630 };
+export const contentType = "image/png";
+
+export default async function OGImage({
+  params,
+}: {
+  params: Promise<{ date: string }>;
+}) {
+  const { date } = await params;
+
+  if (!isValidDateStr(date)) {
+    return new ImageResponse(
+      (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "100%",
+            height: "100%",
+            backgroundColor: "#0D0D0F",
+            color: "#F5E6C8",
+            fontSize: 48,
+            fontFamily: "serif",
+          }}
+        >
+          Dead Redux
+        </div>
+      ),
+      { ...size }
+    );
+  }
+
+  const show = getDailyShow(date);
+
+  const dateObj = new Date(date + "T00:00:00Z");
+  const formattedDate = dateObj.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+
+  return new ImageResponse(
+    (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "100%",
+          height: "100%",
+          backgroundColor: "#0D0D0F",
+          color: "#F5E6C8",
+          padding: "60px",
+          position: "relative",
+        }}
+      >
+        {/* Subtle background gradient */}
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background:
+              "radial-gradient(ellipse at 20% 50%, rgba(26,58,107,0.15) 0%, transparent 50%), radial-gradient(ellipse at 80% 50%, rgba(212,42,42,0.12) 0%, transparent 50%)",
+            display: "flex",
+          }}
+        />
+
+        {/* Top: Site name */}
+        <div
+          style={{
+            fontSize: 24,
+            letterSpacing: "0.15em",
+            textTransform: "uppercase",
+            color: "#D4A843",
+            marginBottom: 20,
+            display: "flex",
+          }}
+        >
+          Dead Redux
+        </div>
+
+        {/* Lightning bolt divider */}
+        <div
+          style={{
+            width: 200,
+            height: 2,
+            background:
+              "linear-gradient(90deg, transparent, #D42A2A, #F5E6C8, #1A3A6B, transparent)",
+            marginBottom: 40,
+            display: "flex",
+          }}
+        />
+
+        {/* Venue name */}
+        <div
+          style={{
+            fontSize: 52,
+            fontFamily: "serif",
+            textAlign: "center",
+            lineHeight: 1.2,
+            maxWidth: 900,
+            display: "flex",
+          }}
+        >
+          {show.venue}
+        </div>
+
+        {/* Location + date */}
+        <div
+          style={{
+            fontSize: 28,
+            color: "#E8DCC8",
+            opacity: 0.7,
+            marginTop: 20,
+            display: "flex",
+          }}
+        >
+          {show.location} · {formattedDate}
+        </div>
+
+        {/* Bottom: CTA */}
+        <div
+          style={{
+            position: "absolute",
+            bottom: 40,
+            fontSize: 18,
+            color: "#E8DCC8",
+            opacity: 0.4,
+            display: "flex",
+          }}
+        >
+          A new Grateful Dead show every day
+        </div>
+      </div>
+    ),
+    { ...size }
+  );
+}
