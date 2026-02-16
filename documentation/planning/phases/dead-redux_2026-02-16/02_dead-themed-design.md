@@ -1,5 +1,8 @@
 # Phase 02: Dead-Themed Visual Design
 
+> **Status:** 🔧 IN PROGRESS
+> **Started:** 2026-02-16
+
 ## PR Title
 `feat: dead-themed visual design with dancing bears and psychedelic aesthetic`
 
@@ -19,7 +22,7 @@
 - `src/app/globals.css` — add custom properties, background patterns, animations
 - `src/app/[date]/page.tsx` — wrap content in themed layout, add bears
 - `src/components/ShowPlayer.tsx` — add themed wrapper around iframe
-- `tailwind.config.ts` — extend theme with Dead color palette
+- ~~`tailwind.config.ts`~~ — N/A, Tailwind v4 uses CSS `@theme` in globals.css
 
 ## Files Deleted
 - None
@@ -48,49 +51,32 @@ Key visual elements:
 
 ## Detailed Implementation Plan
 
-### Step 1: Color Palette & Tailwind Config
+### Step 1: Color Palette & Theme (Tailwind v4 CSS `@theme`)
 
-Update `tailwind.config.ts` to add the Dead color palette:
+> **Plan correction:** Project uses Tailwind v4 which uses CSS `@theme` directives, not `tailwind.config.ts`. All theme customization goes in `globals.css`.
 
-```typescript
-import type { Config } from "tailwindcss";
+Add the Dead color palette, fonts, and animations via `@theme` in `globals.css`:
 
-const config: Config = {
-  content: [
-    "./src/**/*.{js,ts,jsx,tsx,mdx}",
-  ],
-  theme: {
-    extend: {
-      colors: {
-        dead: {
-          red: "#D42A2A",
-          blue: "#1A3A6B",
-          cream: "#F5E6C8",
-          gold: "#D4A843",
-          bone: "#E8DCC8",
-          charcoal: "#1C1C1E",
-          ink: "#0D0D0F",
-        },
-      },
-      fontFamily: {
-        display: ["var(--font-display)", "serif"],
-        body: ["var(--font-body)", "system-ui", "sans-serif"],
-      },
-      animation: {
-        "bear-walk": "bear-walk 12s linear infinite",
-      },
-      keyframes: {
-        "bear-walk": {
-          "0%": { transform: "translateX(-100%)" },
-          "100%": { transform: "translateX(calc(100vw + 100%))" },
-        },
-      },
-    },
-  },
-  plugins: [],
-};
+```css
+@theme {
+  --color-dead-red: #D42A2A;
+  --color-dead-blue: #1A3A6B;
+  --color-dead-cream: #F5E6C8;
+  --color-dead-gold: #D4A843;
+  --color-dead-bone: #E8DCC8;
+  --color-dead-charcoal: #1C1C1E;
+  --color-dead-ink: #0D0D0F;
 
-export default config;
+  --font-display: var(--font-playfair-display), serif;
+  --font-body: system-ui, sans-serif;
+
+  --animate-bear-walk: bear-walk 12s linear infinite;
+}
+
+@keyframes bear-walk {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(calc(100vw + 100%)); }
+}
 ```
 
 **Color rationale:**

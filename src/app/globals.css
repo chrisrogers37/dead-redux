@@ -1,1 +1,59 @@
 @import "tailwindcss";
+
+@theme {
+  --color-dead-red: #D42A2A;
+  --color-dead-blue: #1A3A6B;
+  --color-dead-cream: #F5E6C8;
+  --color-dead-gold: #D4A843;
+  --color-dead-bone: #E8DCC8;
+  --color-dead-charcoal: #1C1C1E;
+  --color-dead-ink: #0D0D0F;
+
+  --font-display: var(--font-playfair-display), serif;
+  --font-body: system-ui, sans-serif;
+
+  --animate-bear-walk: bear-walk 12s linear infinite;
+}
+
+@keyframes bear-walk {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(calc(100vw + 100%));
+  }
+}
+
+body {
+  background-color: var(--color-dead-ink);
+  background-image:
+    radial-gradient(ellipse at 20% 50%, rgba(26, 58, 107, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 50%, rgba(212, 42, 42, 0.06) 0%, transparent 50%);
+  min-height: 100vh;
+}
+
+.bolt-divider {
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    #D42A2A 20%,
+    #F5E6C8 50%,
+    #1A3A6B 80%,
+    transparent 100%
+  );
+  opacity: 0.4;
+}
+
+.player-glow {
+  box-shadow:
+    0 0 40px rgba(212, 42, 42, 0.1),
+    0 0 80px rgba(26, 58, 107, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-bear-walk {
+    animation: none;
+    display: none;
+  }
+}

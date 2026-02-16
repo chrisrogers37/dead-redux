@@ -1,5 +1,8 @@
 # Phase 01: Core Infrastructure & Daily Show Page
 
+**Status:** 🔧 IN PROGRESS
+**Started:** 2026-02-16
+
 ## PR Title
 `feat: core daily show page with Relisten API and Archive.org embed`
 

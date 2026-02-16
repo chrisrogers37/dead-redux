@@ -1,5 +1,12 @@
 import type { Metadata } from "next";
+import { Playfair_Display } from "next/font/google";
 import "./globals.css";
+
+const displayFont = Playfair_Display({
+  subsets: ["latin"],
+  variable: "--font-playfair-display",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Dead Redux",
@@ -12,8 +19,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="bg-neutral-950 text-neutral-100 antialiased">
+    <html lang="en" className={displayFont.variable}>
+      <body className="bg-dead-ink text-dead-cream antialiased font-body">
         {children}
       </body>
     </html>
