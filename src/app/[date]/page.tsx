@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getDailyShow, isValidDateStr, getTodayDateStr } from "@/lib/daily-show";
 import { fetchShowDetails, pickBestSource } from "@/lib/relisten";
 import { ShowPlayer } from "@/components/ShowPlayer";
+import { ShareButtons } from "@/components/ShareButtons";
 import { DancingBears } from "@/components/DancingBears";
 import { StealYourFace } from "@/components/StealYourFace";
 
@@ -77,6 +78,13 @@ export default async function DailyShowPage({ params }: PageProps) {
             </div>
           )}
         </div>
+
+        {/* Share */}
+        <ShareButtons
+          showDate={show.date}
+          venue={show.venue}
+          location={show.location}
+        />
 
         {/* Footer */}
         <div className="text-center text-xs text-dead-bone/30 pt-4">

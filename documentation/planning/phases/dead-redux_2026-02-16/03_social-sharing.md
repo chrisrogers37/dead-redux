@@ -1,3 +1,4 @@
+<!-- Status: 🔧 IN PROGRESS | Started: 2026-02-16 -->
 # Phase 03: Social Sharing
 
 ## PR Title
@@ -173,7 +174,7 @@ export default async function OGImage({
             display: "flex",
           }}
         >
-          {show.location} &middot; {formattedDate}
+          {show.location} · {formattedDate}
         </div>
 
         {/* Bottom: CTA */}
@@ -222,7 +223,7 @@ export function ShareButtons({ showDate, venue, location }: ShareButtonsProps) {
 
   const url = typeof window !== "undefined"
     ? window.location.href
-    : `https://deadredux.com/${showDate}`;
+    : `https://dead-redux.vercel.app/${showDate}`;
 
   const text = `Today's Dead show: ${venue}, ${location} — ${showDate}`;
 
@@ -354,7 +355,7 @@ Update `src/app/layout.tsx` metadata to include base OG tags:
 export const metadata: Metadata = {
   title: "Dead Redux",
   description: "A new Grateful Dead show every day",
-  metadataBase: new URL("https://deadredux.com"),
+  metadataBase: new URL("https://dead-redux.vercel.app"),
   openGraph: {
     type: "website",
     siteName: "Dead Redux",
@@ -367,7 +368,7 @@ export const metadata: Metadata = {
 };
 ```
 
-**Note on `metadataBase`:** Set this to the actual production URL once deployed. During development, the OG images will still work locally via the dev server. If the domain isn't `deadredux.com`, update this value accordingly.
+**Note on `metadataBase`:** Set this to the actual production URL once deployed. During development, the OG images will still work locally via the dev server. If the domain isn't `dead-redux.vercel.app`, update this value accordingly.
 
 ---
 
