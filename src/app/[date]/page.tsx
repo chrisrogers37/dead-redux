@@ -4,6 +4,7 @@ import { fetchShowDetails, pickBestSource } from "@/lib/relisten";
 import { ShowPlayer } from "@/components/ShowPlayer";
 import { ShareButtons } from "@/components/ShareButtons";
 import { DancingBears } from "@/components/DancingBears";
+import { ShowInfo } from "@/components/ShowInfo";
 import { StealYourFace } from "@/components/StealYourFace";
 
 interface PageProps {
@@ -84,6 +85,16 @@ export default async function DailyShowPage({ params }: PageProps) {
           showDate={show.date}
           venue={show.venue}
           location={show.location}
+        />
+
+        {/* Show details */}
+        <ShowInfo
+          showDate={show.date}
+          venue={show.venue}
+          location={show.location}
+          tourName={details?.tour?.name ?? null}
+          avgRating={show.avgRating}
+          source={bestSource}
         />
 
         {/* Footer */}

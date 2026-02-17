@@ -1,3 +1,4 @@
+<!-- Status: 🔧 IN PROGRESS | Started: 2026-02-17 -->
 # Phase 04: Show Info Display
 
 ## PR Title
@@ -205,7 +206,7 @@ export function ShowInfo({
           {source?.description && (
             <div className="text-xs text-dead-bone/40 leading-relaxed">
               <p className="font-medium text-dead-bone/50 mb-1">Source</p>
-              <p>{source.description}</p>
+              <p className="whitespace-pre-line">{source.description}</p>
             </div>
           )}
 
