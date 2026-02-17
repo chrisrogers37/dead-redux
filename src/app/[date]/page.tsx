@@ -98,7 +98,7 @@ export default async function DailyShowPage({ params }: PageProps) {
         />
 
         {/* Footer */}
-        <div className="text-center text-xs text-dead-bone/30 pt-4">
+        <div className="text-center text-xs text-dead-bone/30 pt-4 space-y-2">
           <p>
             Powered by{" "}
             <a
@@ -117,6 +117,11 @@ export default async function DailyShowPage({ params }: PageProps) {
               className="underline hover:text-dead-bone/50"
             >
               Archive.org
+            </a>
+          </p>
+          <p>
+            <a href="/archive" className="underline hover:text-dead-bone/50">
+              Past Shows
             </a>
           </p>
         </div>

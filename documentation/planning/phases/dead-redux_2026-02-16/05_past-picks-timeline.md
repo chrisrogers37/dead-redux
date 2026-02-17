@@ -1,3 +1,4 @@
+<!-- Status: ✅ COMPLETE | Started: 2026-02-17 | Completed: 2026-02-17 | PR: #5 -->
 # Phase 05: Past Picks Timeline
 
 ## PR Title
@@ -14,8 +15,7 @@
 - `src/lib/__tests__/archive.test.ts`
 
 ## Files Modified
-- `src/app/[date]/page.tsx` — add NavBar component
-- `src/app/layout.tsx` — add NavBar to layout (or keep per-page if preferred)
+- `src/app/[date]/page.tsx` — add subtle Archive link in footer
 
 ## Files Deleted
 - None
@@ -97,58 +97,34 @@ export function getLaunchDate(): string {
   return "2026-02-16";
 }
 
-/**
- * Get all daily picks from launch date to today.
- */
-export function getAllPastPicks(): DailyPick[] {
-  const launch = getLaunchDate();
-  const today = new Date().toISOString().split("T")[0];
-
-  // Don't generate picks if we haven't launched yet
-  if (today < launch) return [];
-
-  return getDailyPicksRange(launch, today);
-}
 ```
+
+**Note:** `getAllPastPicks()` was removed during challenge review. The archive page calls `getDailyPicksRange(getLaunchDate(), getTodayDateStr())` directly, keeping the utility layer pure and testable with no wall-clock coupling.
 
 ### Step 2: NavBar Component
 
-Create `src/components/NavBar.tsx`:
+Create `src/components/NavBar.tsx` — used **only on the archive page** to provide a way back to today's show. The daily show page stays immersive; it links to the archive subtly in its footer instead.
 
 ```tsx
 import Link from "next/link";
 
-interface NavBarProps {
-  /** Currently active page */
-  active?: "today" | "archive";
-}
-
-export function NavBar({ active }: NavBarProps) {
+export function NavBar() {
   return (
     <nav className="flex items-center justify-center gap-6 text-xs text-dead-bone/40 py-4">
       <Link
         href="/"
-        className={`hover:text-dead-bone/70 transition-colors ${
-          active === "today" ? "text-dead-cream/70" : ""
-        }`}
+        className="hover:text-dead-bone/70 transition-colors"
       >
         Today&apos;s Show
       </Link>
       <span className="text-dead-bone/20">/</span>
-      <Link
-        href="/archive"
-        className={`hover:text-dead-bone/70 transition-colors ${
-          active === "archive" ? "text-dead-cream/70" : ""
-        }`}
-      >
-        Archive
-      </Link>
+      <span className="text-dead-cream/70">Archive</span>
     </nav>
   );
 }
 ```
 
-**Design:** Minimal two-link nav centered at the top. No heavy navigation bars — just text links with a separator.
+**Design:** Minimal nav centered at the top of the archive page only. "Archive" is static text (already on that page), "Today's Show" is a link back. No props needed — this component is archive-specific.
 
 ### Step 3: Timeline Component
 
@@ -157,7 +133,7 @@ Create `src/components/Timeline.tsx`:
 ```tsx
 import Link from "next/link";
 import type { DailyPick } from "@/lib/archive";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatRating } from "@/lib/format";
 
 interface TimelineProps {
   picks: DailyPick[];
@@ -203,7 +179,7 @@ export function Timeline({ picks }: TimelineProps) {
           {/* Rating badge */}
           {pick.show.avgRating > 0 && (
             <span className="text-xs text-dead-gold/50 tabular-nums shrink-0">
-              {pick.show.avgRating.toFixed(1)}
+              {formatRating(pick.show.avgRating)}
             </span>
           )}
 
@@ -233,7 +209,8 @@ Create `src/app/archive/page.tsx`:
 
 ```tsx
 import type { Metadata } from "next";
-import { getAllPastPicks } from "@/lib/archive";
+import { getDailyPicksRange, getLaunchDate } from "@/lib/archive";
+import { getTodayDateStr } from "@/lib/daily-show";
 import { Timeline } from "@/components/Timeline";
 import { NavBar } from "@/components/NavBar";
 
@@ -242,8 +219,12 @@ export const metadata: Metadata = {
   description: "Browse past daily Grateful Dead show picks",
 };
 
+export const revalidate = 3600; // Re-generate at most once per hour
+
 export default function ArchivePage() {
-  const picks = getAllPastPicks();
+  const today = getTodayDateStr();
+  const launch = getLaunchDate();
+  const picks = today >= launch ? getDailyPicksRange(launch, today) : [];
 
   return (
     <main className="min-h-screen p-4">
@@ -275,29 +256,30 @@ export default function ArchivePage() {
 }
 ```
 
-### Step 5: Add NavBar to Daily Show Page
+### Step 5: Add Archive Link to Daily Show Page Footer
 
-Update `src/app/[date]/page.tsx` to include the NavBar:
+Update `src/app/[date]/page.tsx` — add a subtle "Archive" link in the existing footer, keeping the daily show page immersive (no top NavBar).
 
-**Add import at the top:**
-```tsx
-import { NavBar } from "@/components/NavBar";
-```
-
-**Add NavBar at the top of the content area** (inside the `<main>` tag, before the SYF watermark or as the first child of the content `<div>`):
+**Add to the existing footer section** (after the Relisten & Archive.org credits):
 
 ```tsx
-      {/* Content */}
-      <div className="relative z-10 w-full max-w-2xl mx-auto space-y-8">
-        {/* Nav */}
-        <NavBar active="today" />
-
-        {/* Site title */}
-        {/* ... rest of existing content ... */}
-      </div>
+        {/* Footer */}
+        <div className="text-center text-xs text-dead-bone/30 pt-4 space-y-2">
+          <p>
+            Powered by{" "}
+            <a href="https://relisten.net/grateful-dead" target="_blank" rel="noopener noreferrer"
+               className="underline hover:text-dead-bone/50">Relisten</a>
+            {" "}&amp;{" "}
+            <a href="https://archive.org/details/GratefulDead" target="_blank" rel="noopener noreferrer"
+               className="underline hover:text-dead-bone/50">Archive.org</a>
+          </p>
+          <p>
+            <a href="/archive" className="underline hover:text-dead-bone/50">Past Shows</a>
+          </p>
+        </div>
 ```
 
-Place it as the first element inside the content div, above the "Dead Redux" title.
+This replaces the existing footer. The only change is wrapping the content in `space-y-2` and adding the "Past Shows" link below the credits.
 
 ### Step 6: Tests
 
@@ -363,15 +345,15 @@ describe("getLaunchDate", () => {
 1. **Archive page:** Visit `/archive` — see a list of past daily picks in reverse chronological order
 2. **Empty state:** If launch date is in the future, see "No shows in the archive yet" message
 3. **Navigation:** Click a pick in the timeline — navigates to `/{featuredDate}` and shows that day's show
-4. **NavBar on show page:** "Today's Show" and "Archive" links visible, "Today's Show" is highlighted
-5. **NavBar on archive page:** Same links, "Archive" is highlighted
+4. **NavBar on archive page:** "Today's Show" link and "Archive" label visible at top
+5. **Footer link on show page:** "Past Shows" link visible in footer, navigates to `/archive`
 6. **Mobile:** Timeline rows stack properly at 375px, no horizontal overflow
 7. **Back navigation:** Browser back button from a show page returns to archive
 
 ### Automated Tests
 
 - `archive.test.ts` — tests for `getDailyPick`, `getDailyPicksRange`, `getLaunchDate`
-- All Phase 01 tests still pass
+- All existing tests still pass
 
 ---
 
@@ -400,13 +382,13 @@ describe("getLaunchDate", () => {
 - [ ] Picks are in reverse chronological order
 - [ ] Each pick shows: featured date, venue, show location/date, rating
 - [ ] Clicking a pick navigates to the correct show page
-- [ ] NavBar appears on both show page and archive page
-- [ ] Active state is correct on NavBar for each page
+- [ ] NavBar appears on archive page with "Today's Show" link
+- [ ] "Past Shows" link appears in daily show page footer
 - [ ] Empty state renders when no picks exist
-- [ ] Show count displays in footer
+- [ ] Show count displays in archive footer
 - [ ] Mobile layout works at 375px
 - [ ] Archive tests pass
-- [ ] All Phase 01 tests still pass
+- [ ] All existing tests still pass
 - [ ] `npm run build` succeeds
 
 ---
@@ -417,5 +399,5 @@ describe("getLaunchDate", () => {
 - **Do NOT add infinite scroll or pagination yet.** For the first year (365 items), a simple list is fine. Add pagination later if the list gets unwieldy.
 - **Do NOT add a calendar view yet.** A simple reverse-chronological list is clearer and easier to implement. A calendar widget can be a future enhancement.
 - **Do NOT add filtering or search to the archive.** Keep it simple — scroll and browse. Advanced features can come later.
-- **Do NOT put the NavBar in the root layout.** Keep it per-page so that the main show page can control its placement within the design (inside the centered content area, not spanning full width).
+- **Do NOT put the NavBar on the daily show page.** The show page is meant to be immersive and minimal. The archive link lives in the footer. NavBar is archive-page only.
 - **Do NOT add "next day" / "previous day" navigation arrows on the show page.** This adds complexity and the archive page serves the browsing use case. Can be added later if users want it.
