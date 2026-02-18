@@ -21,6 +21,13 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
   },
+  other: {
+    "mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-status-bar-style": "black-translucent",
+    "apple-mobile-web-app-title": "Dead Redux",
+    "theme-color": "#0D0D0F",
+  },
 };
 
 export default function RootLayout({
