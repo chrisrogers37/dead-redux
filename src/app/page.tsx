@@ -1,11 +1,19 @@
-import { redirect } from "next/navigation";
-import { getTodayDateStr } from "@/lib/daily-show";
+import { getDailyShow, getTodayDateStr } from "@/lib/daily-show";
+import { fetchShowDetails, pickBestSource } from "@/lib/relisten";
+import { ShowPageContent } from "@/components/ShowPageContent";
 
-/**
- * Root page redirects to today's date URL.
- * This ensures the URL always reflects the current day's show.
- */
-export default function Home() {
+export default async function Home() {
   const today = getTodayDateStr();
-  redirect(`/${today}`);
+  const show = getDailyShow(today);
+  const details = await fetchShowDetails(show.date);
+  const bestSource = details ? pickBestSource(details.sources) : null;
+
+  return (
+    <ShowPageContent
+      show={show}
+      bestSource={bestSource}
+      tourName={details?.tour?.name ?? null}
+      isToday={true}
+    />
+  );
 }
