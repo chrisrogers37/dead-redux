@@ -50,7 +50,7 @@ export default async function DailyShowPage({ params }: PageProps) {
           <p className="text-xs font-medium uppercase tracking-[0.2em] text-dead-gold">
             {isToday ? "Today\u2019s Show" : show.date}
           </p>
-          <h2 className="font-display text-2xl md:text-3xl text-dead-cream">
+          <h2 className="font-display text-xl sm:text-2xl md:text-3xl text-dead-cream">
             {show.venue}
           </h2>
           <p className="text-sm text-dead-bone/70">

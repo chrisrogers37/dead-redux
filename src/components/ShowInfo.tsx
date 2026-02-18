@@ -39,8 +39,9 @@ export function ShowInfo({
       {/* Toggle button */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-center gap-2 py-2 text-xs
-                   text-dead-bone/40 hover:text-dead-bone/70 transition-colors cursor-pointer"
+        className="mx-auto flex items-center justify-center gap-2 py-2 px-5 rounded-full text-xs
+                   text-dead-bone/50 hover:text-dead-bone/80 border border-dead-bone/10 hover:border-dead-bone/20
+                   transition-colors cursor-pointer"
         aria-expanded={expanded}
         aria-controls="show-info-panel"
       >
