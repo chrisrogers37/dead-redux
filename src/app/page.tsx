@@ -2,6 +2,9 @@ import { getDailyShow, getTodayDateStr } from "@/lib/daily-show";
 import { fetchShowDetails, pickBestSource } from "@/lib/relisten";
 import { ShowPageContent } from "@/components/ShowPageContent";
 
+// Revalidate every hour so the page picks up a new show each day
+export const revalidate = 3600;
+
 export default async function Home() {
   const today = getTodayDateStr();
   const show = getDailyShow(today);
