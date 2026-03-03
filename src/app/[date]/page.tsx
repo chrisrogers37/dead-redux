@@ -3,6 +3,9 @@ import { getDailyShow, isValidDateStr, getTodayDateStr } from "@/lib/daily-show"
 import { fetchShowDetails, pickBestSource } from "@/lib/relisten";
 import { ShowPageContent } from "@/components/ShowPageContent";
 
+// Revalidate every hour so the page picks up a new show each day
+export const revalidate = 3600;
+
 interface PageProps {
   params: Promise<{ date: string }>;
 }
