@@ -35,6 +35,7 @@ export default async function DailyShowPage({ params }: PageProps) {
       bestSource={bestSource}
       tourName={details?.tour?.name ?? null}
       isToday={isToday}
+      featuredDate={date}
     />
   );
 }

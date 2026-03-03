@@ -17,6 +17,7 @@ export default async function Home() {
       bestSource={bestSource}
       tourName={details?.tour?.name ?? null}
       isToday={true}
+      featuredDate={today}
     />
   );
 }

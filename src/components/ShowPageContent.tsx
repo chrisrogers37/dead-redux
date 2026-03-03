@@ -3,6 +3,7 @@ import { ShareButtons } from "@/components/ShareButtons";
 import { DancingBears } from "@/components/DancingBears";
 import { ShowInfo } from "@/components/ShowInfo";
 import { StealYourFace } from "@/components/StealYourFace";
+import { formatDate } from "@/lib/format";
 import type { ShowSummary, Source } from "@/lib/types";
 
 interface ShowPageContentProps {
@@ -10,6 +11,7 @@ interface ShowPageContentProps {
   bestSource: Source | null;
   tourName: string | null;
   isToday: boolean;
+  featuredDate: string;
 }
 
 export function ShowPageContent({
@@ -17,6 +19,7 @@ export function ShowPageContent({
   bestSource,
   tourName,
   isToday,
+  featuredDate,
 }: ShowPageContentProps) {
   return (
     <main className="relative min-h-screen flex flex-col items-center justify-center p-4 overflow-hidden">
@@ -36,8 +39,13 @@ export function ShowPageContent({
         {/* Show info */}
         <div className="text-center space-y-1">
           <p className="text-xs font-medium uppercase tracking-[0.2em] text-dead-gold">
-            {isToday ? "Today\u2019s Show" : show.date}
+            {isToday ? "Today\u2019s Show" : formatDate(featuredDate)}
           </p>
+          {isToday && (
+            <p className="text-xs text-dead-bone/50">
+              {formatDate(featuredDate)}
+            </p>
+          )}
           <h2 className="font-display text-xl sm:text-2xl md:text-3xl text-dead-cream">
             {show.venue}
           </h2>
