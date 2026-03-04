@@ -40,8 +40,8 @@ export function ShowInfo({
       <button
         onClick={() => setExpanded(!expanded)}
         className="mx-auto flex items-center justify-center gap-2 py-2 px-5 rounded-full text-xs
-                   text-dead-bone/50 hover:text-dead-bone/80 border border-dead-bone/10 hover:border-dead-bone/20
-                   transition-colors cursor-pointer"
+                   text-dead-bone/50 hover:text-dead-pink border border-dead-purple/20 hover:border-dead-pink/40
+                   hover:bg-dead-pink/5 transition-colors cursor-pointer"
         aria-expanded={expanded}
         aria-controls="show-info-panel"
       >
@@ -64,7 +64,7 @@ export function ShowInfo({
       {expanded && (
         <div
           id="show-info-panel"
-          className="mt-2 rounded-xl border border-dead-cream/10 bg-dead-charcoal/30 p-5 space-y-5"
+          className="mt-2 rounded-xl border border-dead-purple/20 bg-dead-charcoal/40 p-5 space-y-5"
         >
           {/* Quick stats row */}
           <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-dead-bone/60">

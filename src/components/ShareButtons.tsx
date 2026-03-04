@@ -38,8 +38,8 @@ export function ShareButtons({ showDate, venue, location }: ShareButtonsProps) {
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs
-                   border border-dead-cream/10 bg-dead-cream/5 text-dead-cream/70
-                   hover:border-dead-cream/20 hover:bg-dead-cream/10 hover:text-dead-cream
+                   border border-dead-purple/20 bg-dead-purple/5 text-dead-cream/70
+                   hover:border-dead-pink/40 hover:bg-dead-pink/10 hover:text-dead-pink
                    transition-colors"
         aria-label="Share on Twitter"
       >
@@ -53,8 +53,8 @@ export function ShareButtons({ showDate, venue, location }: ShareButtonsProps) {
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs
-                   border border-dead-cream/10 bg-dead-cream/5 text-dead-cream/70
-                   hover:border-dead-cream/20 hover:bg-dead-cream/10 hover:text-dead-cream
+                   border border-dead-purple/20 bg-dead-purple/5 text-dead-cream/70
+                   hover:border-dead-cyan/40 hover:bg-dead-cyan/10 hover:text-dead-cyan
                    transition-colors"
         aria-label="Share on Facebook"
       >
@@ -66,8 +66,8 @@ export function ShareButtons({ showDate, venue, location }: ShareButtonsProps) {
       <button
         onClick={copyLink}
         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs
-                   border border-dead-cream/10 bg-dead-cream/5 text-dead-cream/70
-                   hover:border-dead-cream/20 hover:bg-dead-cream/10 hover:text-dead-cream
+                   border border-dead-purple/20 bg-dead-purple/5 text-dead-cream/70
+                   hover:border-dead-green/40 hover:bg-dead-green/10 hover:text-dead-green
                    transition-colors cursor-pointer"
         aria-label="Copy link"
       >

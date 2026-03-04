@@ -20,6 +20,11 @@ export default function ArchivePage() {
 
   return (
     <main className="relative min-h-screen flex flex-col items-center p-4 overflow-hidden">
+      {/* Psychedelic background orbs */}
+      <div className="psychedelic-orb w-80 h-80 -top-40 -right-40 bg-pink-500/15" />
+      <div className="psychedelic-orb w-72 h-72 top-1/3 -left-36 bg-purple-500/15" style={{ animationDelay: "3s" }} />
+      <div className="psychedelic-orb w-64 h-64 bottom-1/4 right-1/4 bg-cyan-400/10" style={{ animationDelay: "5s" }} />
+
       {/* Background SYF watermark */}
       <StealYourFace className="absolute inset-0 flex items-center justify-center text-dead-cream" />
 
@@ -30,7 +35,7 @@ export default function ArchivePage() {
 
         {/* Header */}
         <div className="text-center space-y-2 py-8">
-          <h1 className="font-display text-3xl text-dead-cream">Archive</h1>
+          <h1 className="font-display text-3xl rainbow-text">Archive</h1>
           <p className="text-xs text-dead-bone/40">
             Every show we&apos;ve featured, newest first
           </p>
@@ -41,7 +46,7 @@ export default function ArchivePage() {
         <Timeline picks={picks} />
 
         {/* Footer */}
-        <div className="text-center text-xs text-dead-bone/30 py-8">
+        <div className="text-center text-xs text-dead-bone/40 py-8">
           <p>
             {picks.length} show{picks.length !== 1 ? "s" : ""} featured so far
           </p>

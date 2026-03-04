@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Playfair_Display } from "next/font/google";
+import { PsychedelicClouds } from "@/components/PsychedelicClouds";
 import "./globals.css";
 
 const displayFont = Playfair_Display({
@@ -38,6 +39,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={displayFont.variable}>
       <body className="bg-dead-ink text-dead-cream antialiased font-body">
+        <PsychedelicClouds />
         {children}
       </body>
     </html>

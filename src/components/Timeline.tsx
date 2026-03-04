@@ -23,7 +23,7 @@ export function Timeline({ picks }: TimelineProps) {
           key={pick.featuredDate}
           href={`/${pick.featuredDate}`}
           className="group flex items-baseline gap-4 py-3 px-4 -mx-4 rounded-lg
-                     hover:bg-dead-cream/5 transition-colors"
+                     hover:bg-dead-purple/10 transition-colors"
         >
           {/* Featured date */}
           <time
@@ -45,7 +45,7 @@ export function Timeline({ picks }: TimelineProps) {
 
           {/* Rating badge */}
           {pick.show.avgRating > 0 && (
-            <span className="text-xs text-dead-gold/50 tabular-nums shrink-0">
+            <span className="text-xs text-dead-gold/60 group-hover:text-dead-gold tabular-nums shrink-0 transition-colors">
               {formatRating(pick.show.avgRating)}
             </span>
           )}
