@@ -92,6 +92,12 @@
   100% { transform: rotate(360deg) scale(1); }
 }
 
+@keyframes cloud-drift {
+  0%, 100% { transform: translateX(0px); }
+  25% { transform: translateX(15px); }
+  75% { transform: translateX(-15px); }
+}
+
 body {
   background-color: var(--color-dead-ink);
   background-image:
@@ -183,6 +189,9 @@ body {
     animation: none;
   }
   .psychedelic-orb {
+    animation: none;
+  }
+  .psychedelic-cloud {
     animation: none;
   }
 }
