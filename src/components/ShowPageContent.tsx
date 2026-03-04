@@ -20,6 +20,12 @@ export function ShowPageContent({
 }: ShowPageContentProps) {
   return (
     <main className="relative min-h-screen flex flex-col items-center justify-center p-4 overflow-hidden">
+      {/* Psychedelic background orbs */}
+      <div className="psychedelic-orb w-96 h-96 -top-48 -left-48 bg-purple-500/20" />
+      <div className="psychedelic-orb w-80 h-80 top-1/4 -right-40 bg-pink-500/15" style={{ animationDelay: "2s" }} />
+      <div className="psychedelic-orb w-72 h-72 bottom-1/4 -left-36 bg-cyan-400/10" style={{ animationDelay: "4s" }} />
+      <div className="psychedelic-orb w-64 h-64 -bottom-32 right-1/4 bg-green-400/10" style={{ animationDelay: "6s" }} />
+
       {/* Background SYF watermark */}
       <StealYourFace className="absolute inset-0 flex items-center justify-center text-dead-cream" />
 
@@ -27,7 +33,7 @@ export function ShowPageContent({
       <div className="relative z-10 w-full max-w-2xl mx-auto space-y-8">
         {/* Site title */}
         <div className="text-center">
-          <h1 className="font-display text-4xl md:text-5xl tracking-tight text-dead-cream">
+          <h1 className="font-display text-4xl md:text-5xl tracking-tight rainbow-text">
             Dead Redux
           </h1>
           <div className="bolt-divider mt-3 mx-auto max-w-xs" />
@@ -35,7 +41,7 @@ export function ShowPageContent({
 
         {/* Show info */}
         <div className="text-center space-y-1">
-          <p className="text-xs font-medium uppercase tracking-[0.2em] text-dead-gold">
+          <p className="text-xs font-medium uppercase tracking-[0.2em] text-dead-gold animate-[float_6s_ease-in-out_infinite]">
             {isToday ? "Today\u2019s Show" : show.date}
           </p>
           <h2 className="font-display text-xl sm:text-2xl md:text-3xl text-dead-cream">
@@ -47,7 +53,7 @@ export function ShowPageContent({
         </div>
 
         {/* Player */}
-        <div className="player-glow rounded-xl overflow-hidden border border-dead-cream/10">
+        <div className="player-glow rounded-xl overflow-hidden border border-dead-purple/30">
           {bestSource ? (
             <ShowPlayer archiveId={bestSource.upstreamIdentifier} />
           ) : (
@@ -86,14 +92,14 @@ export function ShowPageContent({
         />
 
         {/* Footer */}
-        <div className="text-center text-xs text-dead-bone/30 pt-4 space-y-2">
+        <div className="text-center text-xs text-dead-bone/40 pt-4 space-y-2">
           <p>
             Powered by{" "}
             <a
               href="https://relisten.net/grateful-dead"
               target="_blank"
               rel="noopener noreferrer"
-              className="underline hover:text-dead-bone/50"
+              className="underline hover:text-dead-pink"
             >
               Relisten
             </a>
@@ -102,13 +108,13 @@ export function ShowPageContent({
               href="https://archive.org/details/GratefulDead"
               target="_blank"
               rel="noopener noreferrer"
-              className="underline hover:text-dead-bone/50"
+              className="underline hover:text-dead-pink"
             >
               Archive.org
             </a>
           </p>
           <p>
-            <a href="/archive" className="underline hover:text-dead-bone/50">
+            <a href="/archive" className="underline hover:text-dead-pink">
               Past Shows
             </a>
           </p>

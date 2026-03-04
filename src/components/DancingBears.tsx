@@ -1,24 +1,29 @@
 const BEAR_COLORS = [
-  "#D42A2A", // red
-  "#D4A843", // gold
-  "#1A3A6B", // blue
-  "#2D8B46", // green
-  "#D46A2A", // orange
+  "#FF2D55", // hot pink
+  "#FF6EC7", // neon pink
+  "#A855F7", // purple
+  "#5856D6", // indigo
+  "#00FFFF", // cyan
+  "#39FF14", // neon green
+  "#FFD700", // gold
+  "#FF6EC7", // pink again
+  "#FF2D55", // hot pink again
 ];
 
-function Bear({ color, delay }: { color: string; delay: number }) {
+function Bear({ color, delay, size = 40 }: { color: string; delay: number; size?: number }) {
   return (
     <div
-      className="inline-block mx-3 animate-bear-walk"
+      className="inline-block mx-4 animate-bear-walk"
       style={{ animationDelay: `${delay}s` }}
     >
       <svg
-        width="32"
-        height="36"
+        width={size}
+        height={size * 1.125}
         viewBox="0 0 32 36"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
         aria-hidden="true"
+        style={{ filter: `drop-shadow(0 0 8px ${color})` }}
       >
         {/* Head */}
         <circle cx="16" cy="6" r="5" fill={color} />
@@ -41,12 +46,12 @@ function Bear({ color, delay }: { color: string; delay: number }) {
 export function DancingBears() {
   return (
     <div
-      className="fixed bottom-4 left-0 w-full overflow-hidden pointer-events-none opacity-30"
+      className="fixed bottom-4 left-0 w-full overflow-hidden pointer-events-none opacity-70"
       aria-hidden="true"
     >
       <div className="flex whitespace-nowrap">
         {BEAR_COLORS.map((color, i) => (
-          <Bear key={i} color={color} delay={i * 2.4} />
+          <Bear key={i} color={color} delay={i * 1.3} size={44} />
         ))}
       </div>
     </div>

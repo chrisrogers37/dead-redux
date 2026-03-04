@@ -1,18 +1,26 @@
 @import "tailwindcss";
 
 @theme {
-  --color-dead-red: #D42A2A;
-  --color-dead-blue: #1A3A6B;
+  --color-dead-red: #FF2D55;
+  --color-dead-blue: #5856D6;
   --color-dead-cream: #F5E6C8;
-  --color-dead-gold: #D4A843;
+  --color-dead-gold: #FFD700;
   --color-dead-bone: #E8DCC8;
   --color-dead-charcoal: #1C1C1E;
-  --color-dead-ink: #0D0D0F;
+  --color-dead-ink: #0A0012;
+  --color-dead-purple: #A855F7;
+  --color-dead-pink: #FF6EC7;
+  --color-dead-cyan: #00FFFF;
+  --color-dead-green: #39FF14;
 
   --font-display: var(--font-playfair-display), serif;
   --font-body: system-ui, sans-serif;
 
   --animate-bear-walk: bear-walk 12s linear infinite;
+  --animate-rainbow-shift: rainbow-shift 6s ease infinite;
+  --animate-psychedelic-bg: psychedelic-bg 20s ease infinite;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-pulse-glow: pulse-glow 3s ease-in-out infinite;
 }
 
 @keyframes bear-walk {
@@ -24,36 +32,157 @@
   }
 }
 
+@keyframes rainbow-shift {
+  0% { filter: hue-rotate(0deg); }
+  50% { filter: hue-rotate(180deg); }
+  100% { filter: hue-rotate(360deg); }
+}
+
+@keyframes psychedelic-bg {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.6;
+    filter: blur(40px);
+  }
+  50% {
+    opacity: 1;
+    filter: blur(60px);
+  }
+}
+
+@keyframes spin-slow {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes rainbow-text {
+  0% { color: #FF2D55; }
+  14% { color: #FF6EC7; }
+  28% { color: #A855F7; }
+  42% { color: #5856D6; }
+  57% { color: #00FFFF; }
+  71% { color: #39FF14; }
+  85% { color: #FFD700; }
+  100% { color: #FF2D55; }
+}
+
+@keyframes tie-dye-rotate {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.1); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
 body {
   background-color: var(--color-dead-ink);
   background-image:
-    radial-gradient(ellipse at 20% 50%, rgba(26, 58, 107, 0.08) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 50%, rgba(212, 42, 42, 0.06) 0%, transparent 50%);
+    radial-gradient(ellipse at 20% 20%, rgba(168, 85, 247, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(255, 45, 85, 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 80%, rgba(88, 86, 214, 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse at 10% 70%, rgba(0, 255, 255, 0.08) 0%, transparent 40%),
+    radial-gradient(ellipse at 90% 60%, rgba(255, 110, 199, 0.08) 0%, transparent 40%);
   min-height: 100vh;
 }
 
 .bolt-divider {
-  height: 2px;
+  height: 3px;
   background: linear-gradient(
     90deg,
     transparent 0%,
-    #D42A2A 20%,
-    #F5E6C8 50%,
-    #1A3A6B 80%,
+    #FF2D55 10%,
+    #FF6EC7 20%,
+    #A855F7 30%,
+    #5856D6 40%,
+    #00FFFF 50%,
+    #39FF14 60%,
+    #FFD700 70%,
+    #FF6EC7 80%,
+    #FF2D55 90%,
     transparent 100%
   );
-  opacity: 0.4;
+  opacity: 0.8;
+  background-size: 200% 100%;
+  animation: psychedelic-bg 4s ease infinite;
 }
 
 .player-glow {
   box-shadow:
-    0 0 40px rgba(212, 42, 42, 0.1),
-    0 0 80px rgba(26, 58, 107, 0.08);
+    0 0 30px rgba(168, 85, 247, 0.25),
+    0 0 60px rgba(255, 45, 85, 0.15),
+    0 0 100px rgba(88, 86, 214, 0.1);
+}
+
+.rainbow-text {
+  background: linear-gradient(
+    90deg,
+    #FF2D55,
+    #FF6EC7,
+    #A855F7,
+    #5856D6,
+    #00FFFF,
+    #39FF14,
+    #FFD700,
+    #FF2D55
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: psychedelic-bg 4s ease infinite;
+}
+
+.trippy-border {
+  border-image: linear-gradient(
+    90deg,
+    #FF2D55,
+    #FF6EC7,
+    #A855F7,
+    #5856D6,
+    #00FFFF,
+    #39FF14,
+    #FFD700,
+    #FF2D55
+  ) 1;
+}
+
+.psychedelic-orb {
+  position: absolute;
+  border-radius: 50%;
+  animation: pulse-glow 3s ease-in-out infinite, tie-dye-rotate 20s linear infinite;
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .animate-bear-walk {
     animation: none;
     display: none;
+  }
+  .rainbow-text {
+    animation: none;
+  }
+  .bolt-divider {
+    animation: none;
+  }
+  .psychedelic-orb {
+    animation: none;
   }
 }
