@@ -11,11 +11,11 @@ export function ShowPlayer({ archiveId }: ShowPlayerProps) {
   const embedUrl = `https://archive.org/embed/${archiveId}?playlist=1`;
 
   return (
-    <div className="relative w-full bg-dead-charcoal/50">
+    <div className="relative w-full bg-dead-charcoal/30">
       {/* Skeleton pulse while loading */}
       {!loaded && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="animate-pulse text-dead-bone/20 text-sm">Loading player...</div>
+          <div className="animate-pulse text-dead-bone/30 text-sm">Loading player...</div>
         </div>
       )}
       <iframe

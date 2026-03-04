@@ -3,6 +3,9 @@ import { ShareButtons } from "@/components/ShareButtons";
 import { DancingBears } from "@/components/DancingBears";
 import { ShowInfo } from "@/components/ShowInfo";
 import { StealYourFace } from "@/components/StealYourFace";
+import { WhimsicalUnicorn } from "@/components/WhimsicalUnicorn";
+import { WhimsicalForest } from "@/components/WhimsicalForest";
+import { PastelRainbow } from "@/components/PastelRainbow";
 import type { ShowSummary, Source } from "@/lib/types";
 
 interface ShowPageContentProps {
@@ -20,14 +23,22 @@ export function ShowPageContent({
 }: ShowPageContentProps) {
   return (
     <main className="relative min-h-screen flex flex-col items-center justify-center p-4 overflow-hidden">
-      {/* Psychedelic background orbs */}
-      <div className="psychedelic-orb w-96 h-96 -top-48 -left-48 bg-purple-500/20" />
-      <div className="psychedelic-orb w-80 h-80 top-1/4 -right-40 bg-pink-500/15" style={{ animationDelay: "2s" }} />
-      <div className="psychedelic-orb w-72 h-72 bottom-1/4 -left-36 bg-cyan-400/10" style={{ animationDelay: "4s" }} />
-      <div className="psychedelic-orb w-64 h-64 -bottom-32 right-1/4 bg-green-400/10" style={{ animationDelay: "6s" }} />
+      {/* Soft pastel background orbs */}
+      <div className="psychedelic-orb w-96 h-96 -top-48 -left-48 bg-dead-lavender/30" />
+      <div className="psychedelic-orb w-80 h-80 top-1/4 -right-40 bg-dead-peach/25" style={{ animationDelay: "2s" }} />
+      <div className="psychedelic-orb w-72 h-72 bottom-1/4 -left-36 bg-dead-sky/20" style={{ animationDelay: "4s" }} />
+      <div className="psychedelic-orb w-64 h-64 -bottom-32 right-1/4 bg-dead-mint/20" style={{ animationDelay: "6s" }} />
 
       {/* Background SYF watermark */}
-      <StealYourFace className="absolute inset-0 flex items-center justify-center text-dead-cream" />
+      <StealYourFace className="absolute inset-0 flex items-center justify-center" />
+
+      {/* Unicorn accents */}
+      <div className="absolute top-12 right-8 opacity-40 hidden md:block animate-[float_8s_ease-in-out_infinite]">
+        <WhimsicalUnicorn />
+      </div>
+      <div className="absolute bottom-32 left-6 opacity-30 hidden lg:block animate-[float_10s_ease-in-out_infinite]" style={{ animationDelay: "3s" }}>
+        <WhimsicalUnicorn flip />
+      </div>
 
       {/* Content */}
       <div className="relative z-10 w-full max-w-2xl mx-auto space-y-8">
@@ -44,16 +55,21 @@ export function ShowPageContent({
           <p className="text-xs font-medium uppercase tracking-[0.2em] text-dead-gold animate-[float_6s_ease-in-out_infinite]">
             {isToday ? "Today\u2019s Show" : show.date}
           </p>
-          <h2 className="font-display text-xl sm:text-2xl md:text-3xl text-dead-cream">
+          <h2 className="font-display text-xl sm:text-2xl md:text-3xl text-dead-bone">
             {show.venue}
           </h2>
-          <p className="text-sm text-dead-bone/70">
+          <p className="text-sm text-dead-bone/60">
             {show.location} &middot; {show.date}
           </p>
         </div>
 
+        {/* Small rainbow accent */}
+        <div className="flex justify-center">
+          <PastelRainbow size="small" />
+        </div>
+
         {/* Player */}
-        <div className="player-glow rounded-xl overflow-hidden border border-dead-purple/30">
+        <div className="watercolor-card overflow-hidden">
           {bestSource ? (
             <ShowPlayer archiveId={bestSource.upstreamIdentifier} />
           ) : (
@@ -80,6 +96,9 @@ export function ShowPageContent({
           venue={show.venue}
           location={show.location}
         />
+
+        {/* Forest divider */}
+        <WhimsicalForest />
 
         {/* Show details */}
         <ShowInfo
