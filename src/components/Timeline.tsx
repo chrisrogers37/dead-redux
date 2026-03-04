@@ -9,7 +9,7 @@ interface TimelineProps {
 export function Timeline({ picks }: TimelineProps) {
   if (picks.length === 0) {
     return (
-      <div className="text-center py-16 text-dead-bone/40">
+      <div className="text-center py-16 text-dead-bone/55">
         <p>No shows in the archive yet.</p>
         <p className="text-sm mt-2">Check back tomorrow!</p>
       </div>
@@ -28,31 +28,31 @@ export function Timeline({ picks }: TimelineProps) {
           {/* Featured date */}
           <time
             dateTime={pick.featuredDate}
-            className="text-xs text-dead-bone/40 tabular-nums shrink-0 w-24"
+            className="text-xs text-dead-bone/55 tabular-nums shrink-0 w-24"
           >
             {formatDate(pick.featuredDate)}
           </time>
 
           {/* Show info */}
           <div className="min-w-0 flex-1">
-            <p className="text-sm text-dead-bone/80 group-hover:text-dead-bone transition-colors truncate">
+            <p className="text-sm text-dead-bone/90 group-hover:text-dead-bone transition-colors truncate">
               {pick.show.venue}
             </p>
-            <p className="text-xs text-dead-bone/40 truncate">
+            <p className="text-xs text-dead-bone/55 truncate">
               {pick.show.location} &middot; {formatDate(pick.show.date)}
             </p>
           </div>
 
           {/* Rating badge */}
           {pick.show.avgRating > 0 && (
-            <span className="text-xs text-dead-gold/60 group-hover:text-dead-gold tabular-nums shrink-0 transition-colors">
+            <span className="text-xs text-dead-gold/75 group-hover:text-dead-gold tabular-nums shrink-0 transition-colors">
               {formatRating(pick.show.avgRating)}
             </span>
           )}
 
           {/* Soundboard badge */}
           {pick.show.hasSoundboard && (
-            <span className="text-[10px] text-dead-gold/40 uppercase tracking-wider shrink-0">
+            <span className="text-[10px] text-dead-gold/60 uppercase tracking-wider shrink-0">
               SBD
             </span>
           )}

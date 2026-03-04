@@ -40,7 +40,7 @@ export function ShowInfo({
       <button
         onClick={() => setExpanded(!expanded)}
         className="mx-auto flex items-center justify-center gap-2 py-2 px-5 rounded-full text-xs
-                   text-dead-bone/50 hover:text-dead-pink border border-dead-lavender/30 hover:border-dead-pink/40
+                   text-dead-bone/65 hover:text-dead-pink border border-dead-lavender/30 hover:border-dead-pink/40
                    hover:bg-dead-pink/5 transition-colors cursor-pointer"
         aria-expanded={expanded}
         aria-controls="show-info-panel"
@@ -67,7 +67,7 @@ export function ShowInfo({
           className="mt-2 watercolor-card p-5 space-y-5"
         >
           {/* Quick stats row */}
-          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-dead-bone/60">
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-dead-bone/75">
             {avgRating > 0 && (
               <span>
                 <span className="text-dead-gold">{formatRating(avgRating)}</span>/10 rating
@@ -89,7 +89,7 @@ export function ShowInfo({
                 <div key={setIndex}>
                   {/* Set header */}
                   {set.name && (
-                    <h4 className="text-xs font-medium uppercase tracking-widest text-dead-bone/40 mb-2">
+                    <h4 className="text-xs font-medium uppercase tracking-widest text-dead-bone/55 mb-2">
                       {set.name}
                     </h4>
                   )}
@@ -101,9 +101,9 @@ export function ShowInfo({
                         key={trackIndex}
                         className="flex items-baseline justify-between text-sm"
                       >
-                        <span className="text-dead-bone/80">{track.title}</span>
+                        <span className="text-dead-bone/90">{track.title}</span>
                         {track.duration > 0 && (
-                          <span className="text-dead-bone/40 text-xs ml-3 tabular-nums shrink-0">
+                          <span className="text-dead-bone/55 text-xs ml-3 tabular-nums shrink-0">
                             {formatDuration(track.duration)}
                           </span>
                         )}
@@ -117,8 +117,8 @@ export function ShowInfo({
 
           {/* Source info */}
           {source?.description && (
-            <div className="text-xs text-dead-bone/40 leading-relaxed">
-              <p className="font-medium text-dead-bone/50 mb-1">Source</p>
+            <div className="text-xs text-dead-bone/55 leading-relaxed">
+              <p className="font-medium text-dead-bone/65 mb-1">Source</p>
               <p className="whitespace-pre-line">{source.description}</p>
             </div>
           )}
@@ -129,7 +129,7 @@ export function ShowInfo({
               href={relistenUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs text-dead-gold/60 hover:text-dead-gold transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs text-dead-gold/75 hover:text-dead-gold transition-colors"
             >
               View on Relisten
               <svg
