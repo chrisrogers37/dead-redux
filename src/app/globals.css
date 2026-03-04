@@ -4,7 +4,7 @@
   --color-dead-red: #E8889B;
   --color-dead-blue: #8BB8E8;
   --color-dead-cream: #FFF8F0;
-  --color-dead-gold: #D4A056;
+  --color-dead-gold: #B8872E;
   --color-dead-bone: #5C4F3D;
   --color-dead-charcoal: #F5EDE3;
   --color-dead-ink: #FFF8F0;
@@ -150,20 +150,21 @@ body {
 .rainbow-text {
   background: linear-gradient(
     90deg,
-    #E8889B,
-    #E8A0B8,
-    #C8B8E0,
-    #8BB8E8,
-    #A0D4D4,
-    #A8D4A0,
-    #F0E0A8,
-    #E8889B
+    #D4607A,
+    #C87098,
+    #9A80C0,
+    #6898D0,
+    #70B0B0,
+    #78B070,
+    #C8B868,
+    #D4607A
   );
   background-size: 200% auto;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: psychedelic-bg 6s ease infinite;
+  filter: drop-shadow(0 1px 2px rgba(92, 79, 61, 0.15));
 }
 
 .trippy-border {
@@ -188,10 +189,11 @@ body {
 }
 
 .watercolor-card {
-  background: linear-gradient(135deg, rgba(255, 248, 240, 0.9), rgba(245, 237, 227, 0.8));
-  border: 1px solid rgba(184, 160, 212, 0.2);
+  background: linear-gradient(135deg, rgba(255, 248, 240, 0.95), rgba(245, 237, 227, 0.9));
+  border: 1px solid rgba(184, 160, 212, 0.3);
   border-radius: 1rem;
-  box-shadow: 0 2px 12px rgba(184, 160, 212, 0.1);
+  box-shadow: 0 2px 12px rgba(184, 160, 212, 0.15);
+  backdrop-filter: blur(8px);
 }
 
 .vine-divider {

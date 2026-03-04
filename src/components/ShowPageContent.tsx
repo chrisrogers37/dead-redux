@@ -58,7 +58,7 @@ export function ShowPageContent({
           <h2 className="font-display text-xl sm:text-2xl md:text-3xl text-dead-bone">
             {show.venue}
           </h2>
-          <p className="text-sm text-dead-bone/60">
+          <p className="text-sm text-dead-bone/75">
             {show.location} &middot; {show.date}
           </p>
         </div>
@@ -73,7 +73,7 @@ export function ShowPageContent({
           {bestSource ? (
             <ShowPlayer archiveId={bestSource.upstreamIdentifier} />
           ) : (
-            <div className="text-center py-16 text-dead-bone/50">
+            <div className="text-center py-16 text-dead-bone/65">
               <p>No audio source available for this show.</p>
               <p className="text-sm mt-2">
                 Try{" "}
@@ -111,7 +111,7 @@ export function ShowPageContent({
         />
 
         {/* Footer */}
-        <div className="text-center text-xs text-dead-bone/40 pt-4 space-y-2">
+        <div className="text-center text-xs text-dead-bone/55 pt-4 space-y-2">
           <p>
             Powered by{" "}
             <a
