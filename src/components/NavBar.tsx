@@ -9,8 +9,8 @@ export function NavBar() {
       >
         Today&apos;s Show
       </Link>
-      <span className="text-dead-purple/40">/</span>
-      <span className="text-dead-cream/70">Archive</span>
+      <span className="text-dead-lavender/40">/</span>
+      <span className="text-dead-bone/70">Archive</span>
     </nav>
   );
 }

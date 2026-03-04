@@ -22,8 +22,8 @@ export function Timeline({ picks }: TimelineProps) {
         <Link
           key={pick.featuredDate}
           href={`/${pick.featuredDate}`}
-          className="group flex items-baseline gap-4 py-3 px-4 -mx-4 rounded-lg
-                     hover:bg-dead-purple/10 transition-colors"
+          className="group flex items-baseline gap-4 py-3 px-4 -mx-4 rounded-xl
+                     hover:bg-dead-lavender/10 transition-colors"
         >
           {/* Featured date */}
           <time
@@ -35,7 +35,7 @@ export function Timeline({ picks }: TimelineProps) {
 
           {/* Show info */}
           <div className="min-w-0 flex-1">
-            <p className="text-sm text-dead-cream/80 group-hover:text-dead-cream transition-colors truncate">
+            <p className="text-sm text-dead-bone/80 group-hover:text-dead-bone transition-colors truncate">
               {pick.show.venue}
             </p>
             <p className="text-xs text-dead-bone/40 truncate">

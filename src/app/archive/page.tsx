@@ -5,6 +5,8 @@ import { Timeline } from "@/components/Timeline";
 import { NavBar } from "@/components/NavBar";
 import { StealYourFace } from "@/components/StealYourFace";
 import { DancingBears } from "@/components/DancingBears";
+import { WhimsicalForest } from "@/components/WhimsicalForest";
+import { PastelRainbow } from "@/components/PastelRainbow";
 
 export const metadata: Metadata = {
   title: "Archive | Dead Redux",
@@ -20,13 +22,13 @@ export default function ArchivePage() {
 
   return (
     <main className="relative min-h-screen flex flex-col items-center p-4 overflow-hidden">
-      {/* Psychedelic background orbs */}
-      <div className="psychedelic-orb w-80 h-80 -top-40 -right-40 bg-pink-500/15" />
-      <div className="psychedelic-orb w-72 h-72 top-1/3 -left-36 bg-purple-500/15" style={{ animationDelay: "3s" }} />
-      <div className="psychedelic-orb w-64 h-64 bottom-1/4 right-1/4 bg-cyan-400/10" style={{ animationDelay: "5s" }} />
+      {/* Soft pastel background orbs */}
+      <div className="psychedelic-orb w-80 h-80 -top-40 -right-40 bg-dead-peach/20" />
+      <div className="psychedelic-orb w-72 h-72 top-1/3 -left-36 bg-dead-lavender/20" style={{ animationDelay: "3s" }} />
+      <div className="psychedelic-orb w-64 h-64 bottom-1/4 right-1/4 bg-dead-sky/15" style={{ animationDelay: "5s" }} />
 
       {/* Background SYF watermark */}
-      <StealYourFace className="absolute inset-0 flex items-center justify-center text-dead-cream" />
+      <StealYourFace className="absolute inset-0 flex items-center justify-center" />
 
       {/* Content */}
       <div className="relative z-10 w-full max-w-2xl mx-auto">
@@ -42,8 +44,16 @@ export default function ArchivePage() {
           <div className="bolt-divider mt-3 mx-auto max-w-xs" />
         </div>
 
+        {/* Small rainbow accent */}
+        <div className="flex justify-center pb-4">
+          <PastelRainbow size="small" />
+        </div>
+
         {/* Timeline */}
         <Timeline picks={picks} />
+
+        {/* Forest divider */}
+        <WhimsicalForest className="mt-8" />
 
         {/* Footer */}
         <div className="text-center text-xs text-dead-bone/40 py-8">

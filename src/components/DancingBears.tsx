@@ -1,13 +1,13 @@
 const BEAR_COLORS = [
-  "#FF2D55", // hot pink
-  "#FF6EC7", // neon pink
-  "#A855F7", // purple
-  "#5856D6", // indigo
-  "#00FFFF", // cyan
-  "#39FF14", // neon green
-  "#FFD700", // gold
-  "#FF6EC7", // pink again
-  "#FF2D55", // hot pink again
+  "#E8889B", // soft rose
+  "#F0C8A8", // peach
+  "#F0E0A8", // butter yellow
+  "#A8D4A0", // mint green
+  "#A8D0F0", // sky blue
+  "#C8B8E0", // lavender
+  "#E8A0B8", // pink
+  "#B8E0C8", // seafoam
+  "#D4A056", // warm gold
 ];
 
 function Bear({ color, delay, size = 40 }: { color: string; delay: number; size?: number }) {
@@ -23,7 +23,7 @@ function Bear({ color, delay, size = 40 }: { color: string; delay: number; size?
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
         aria-hidden="true"
-        style={{ filter: `drop-shadow(0 0 8px ${color})` }}
+        style={{ filter: `drop-shadow(0 2px 4px rgba(0,0,0,0.08))` }}
       >
         {/* Head */}
         <circle cx="16" cy="6" r="5" fill={color} />
@@ -38,6 +38,9 @@ function Bear({ color, delay, size = 40 }: { color: string; delay: number; size?
         {/* Legs — mid-step */}
         <ellipse cx="12" cy="29" rx="2.5" ry="5" fill={color} transform="rotate(-10 12 29)" />
         <ellipse cx="20" cy="30" rx="2.5" ry="5" fill={color} transform="rotate(10 20 30)" />
+        {/* Eyes */}
+        <circle cx="14" cy="5.5" r="0.8" fill="white" opacity="0.8" />
+        <circle cx="18" cy="5.5" r="0.8" fill="white" opacity="0.8" />
       </svg>
     </div>
   );
@@ -46,12 +49,12 @@ function Bear({ color, delay, size = 40 }: { color: string; delay: number; size?
 export function DancingBears() {
   return (
     <div
-      className="fixed bottom-4 left-0 w-full overflow-hidden pointer-events-none opacity-70"
+      className="fixed bottom-4 left-0 w-full overflow-hidden pointer-events-none opacity-80"
       aria-hidden="true"
     >
       <div className="flex whitespace-nowrap">
         {BEAR_COLORS.map((color, i) => (
-          <Bear key={i} color={color} delay={i * 1.3} size={44} />
+          <Bear key={i} color={color} delay={i * 1.5} size={44} />
         ))}
       </div>
     </div>
