@@ -53,7 +53,9 @@ export function ShowPageContent({
         {/* Show info */}
         <div className="text-center space-y-1">
           <p className="text-xs font-medium uppercase tracking-[0.2em] text-dead-gold animate-[float_6s_ease-in-out_infinite]">
-            {isToday ? "Today\u2019s Show" : show.date}
+            {isToday
+              ? `Today\u2019s Show \u00B7 ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}`
+              : show.date}
           </p>
           <h2 className="font-display text-xl sm:text-2xl md:text-3xl text-dead-bone">
             {show.venue}

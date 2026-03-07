@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { getDailyPicksRange, getLaunchDate } from "@/lib/archive";
-import { getTodayDateStr } from "@/lib/daily-show";
 import { Timeline } from "@/components/Timeline";
 import { NavBar } from "@/components/NavBar";
 import { StealYourFace } from "@/components/StealYourFace";
@@ -16,9 +15,11 @@ export const metadata: Metadata = {
 export const revalidate = 3600;
 
 export default function ArchivePage() {
-  const today = getTodayDateStr();
+  const today = new Date();
+  today.setUTCDate(today.getUTCDate() - 1);
+  const yesterday = today.toISOString().split("T")[0];
   const launch = getLaunchDate();
-  const picks = today >= launch ? getDailyPicksRange(launch, today) : [];
+  const picks = yesterday >= launch ? getDailyPicksRange(launch, yesterday) : [];
 
   return (
     <main className="relative min-h-screen flex flex-col items-center p-4 overflow-hidden">
