@@ -5,7 +5,7 @@ import { ShareCard } from "@/lib/share-card";
 
 export const runtime = "edge";
 
-export const alt = "Dead Redux — Today's Grateful Dead Show";
+export const alt = "Dead Redux — Featured Grateful Dead Show";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 

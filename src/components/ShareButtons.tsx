@@ -1,13 +1,7 @@
 "use client";
 
 import { useState, useSyncExternalStore } from "react";
-
-interface ShareButtonsProps {
-  featuredDate: string;
-  showDate: string;
-  venue: string;
-  location: string;
-}
+import { shareContent, type SharedShow } from "@/lib/share";
 
 // Whether the browser has a share sheet does not change while the page is open.
 function subscribe() {
@@ -20,7 +14,7 @@ const pillClass = `inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full tex
   border border-dead-lavender/30 bg-white/50 text-dead-bone/90 hover:text-dead-bone
   transition-colors`;
 
-export function ShareButtons({ featuredDate, showDate, venue, location }: ShareButtonsProps) {
+export function ShareButtons(show: SharedShow) {
   const [copied, setCopied] = useState(false);
   // False on the server and during hydration, so the first client render matches the server's.
   const canShare = useSyncExternalStore(
@@ -29,13 +23,7 @@ export function ShareButtons({ featuredDate, showDate, venue, location }: ShareB
     () => false
   );
 
-  // The featured day's own page, so a link shared from the home page keeps opening this show.
-  const url = `https://dead-redux.vercel.app/${featuredDate}`;
-
-  const text = `Today's Dead show: ${venue}, ${location} — ${showDate}`;
-
-  const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
-  const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
+  const { url, text, twitterUrl, facebookUrl } = shareContent(show);
 
   async function share() {
     try {
@@ -98,7 +86,6 @@ export function ShareButtons({ featuredDate, showDate, venue, location }: ShareB
       <button
         onClick={copyLink}
         className={`${pillClass} hover:border-dead-mint/40 hover:bg-dead-mint/10 cursor-pointer`}
-        aria-label="Copy link"
       >
         <LinkIcon />
         {copied ? "Copied!" : "Copy link"}
