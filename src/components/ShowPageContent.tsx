@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ShowPlayer } from "@/components/ShowPlayer";
 import { ShareButtons } from "@/components/ShareButtons";
 import { DancingBears } from "@/components/DancingBears";
@@ -108,8 +109,6 @@ export function ShowPageContent({
         {/* Show details */}
         <ShowInfo
           showDate={show.date}
-          venue={show.venue}
-          location={show.location}
           tourName={tourName}
           avgRating={show.avgRating}
           source={bestSource}
@@ -138,9 +137,13 @@ export function ShowPageContent({
             </a>
           </p>
           <p>
-            <a href="/archive" className="underline hover:text-dead-pink">
+            <Link
+              href="/archive"
+              prefetch={false}
+              className="underline hover:text-dead-pink"
+            >
               Past Shows
-            </a>
+            </Link>
           </p>
         </div>
       </div>
