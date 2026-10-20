@@ -45,6 +45,9 @@ const schedule: PickSchedule = {
   skipped: [],
 };
 
+const showsText = JSON.stringify(known, null, 2);
+const scheduleText = JSON.stringify(schedule, null, 2) + "\n";
+
 const YEARS = [
   { year: "1977", show_count: 2 },
   { year: "1981", show_count: 2 },
@@ -67,17 +70,11 @@ const REFRESHED = [
   record("1990-03-29", 21),
 ];
 
-const KEPT_1977 = [
-  record("1977-05-08", 12),
-  record("1977-05-09", 4),
-  record("1981-08-06", 0),
-  record("1981-08-07", 3),
-  record("1981-08-08", 1),
-  record("1990-03-29", 21),
-];
+/** 1977 as the catalog has it, the rest refreshed. */
+const KEPT_1977 = [...known.slice(0, 2), ...REFRESHED.slice(2)];
 
-/** An HTTP status to fail with, or a body to answer 200 with. */
-type Answer = { status: number } | { body: unknown };
+/** A 503 to fail with, or a body to answer 200 with. */
+type Answer = { status: 503 } | { body: unknown };
 
 function count(requests: string[], path: string): number {
   return requests.filter((requested) => requested === path).length;
@@ -93,17 +90,12 @@ function fakeRelisten(overrides: Record<string, Answer[]> = {}) {
       const path = url.slice(url.indexOf("/years"));
       const nth = count(requests, path);
       requests.push(path);
-      const scripted = overrides[path];
-      let answer: Answer = { status: 404 };
-      if (scripted) {
-        answer = scripted[Math.min(nth, scripted.length - 1)];
-      } else if (path in HEALTHY) {
-        answer = { body: HEALTHY[path] };
-      }
+      const answers = overrides[path] ?? [{ body: HEALTHY[path] }];
+      const answer = answers[Math.min(nth, answers.length - 1)];
       if ("status" in answer) {
         return new Response("unavailable", {
           status: answer.status,
-          statusText: answer.status === 503 ? "Service Unavailable" : "Not Found",
+          statusText: "Service Unavailable",
         });
       }
       return new Response(JSON.stringify(answer.body), { status: 200 });
@@ -123,13 +115,9 @@ function fakeRelisten(overrides: Record<string, Answer[]> = {}) {
 
 describe("refreshCatalog", () => {
   let dir: string;
-  let showsText: string;
-  let scheduleText: string;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "refresh-catalog-"));
-    showsText = JSON.stringify(known, null, 2);
-    scheduleText = JSON.stringify(schedule, null, 2) + "\n";
     writeFileSync(join(dir, "shows.json"), showsText);
     writeFileSync(join(dir, "pick-schedule.json"), scheduleText);
   });
@@ -176,59 +164,60 @@ describe("refreshCatalog", () => {
     expect(f.err).toEqual([]);
   });
 
-  it("keeps a year that fails every attempt, writes the rest and exits 1 naming it", async () => {
-    const f = fakeRelisten({ "/years/1977": [{ status: 503 }] });
+  it.each<{ name: string; answer: Answer; reason: string }>([
+    {
+      name: "a request that fails every attempt",
+      answer: { status: 503 },
+      reason: "503 Service Unavailable",
+    },
+    {
+      name: "an empty answer",
+      answer: { body: { shows: [] } },
+      reason: "answered 0 show(s) where the year list reports 2",
+    },
+    {
+      name: "an answer missing a show",
+      answer: { body: { shows: [relistenShow("1977-05-08", 13)] } },
+      reason: "answered 1 show(s) where the year list reports 2",
+    },
+    {
+      name: "an answer with an extra show",
+      answer: {
+        body: {
+          shows: [
+            relistenShow("1977-05-08", 13),
+            relistenShow("1977-05-09", 4),
+            relistenShow("1977-05-10", 1),
+          ],
+        },
+      },
+      reason: "answered 3 show(s) where the year list reports 2",
+    },
+  ])("counts $name as a failed year: kept, the rest written, exit 1", async (c) => {
+    const f = fakeRelisten({ "/years/1977": [c.answer] });
     const code = await refreshCatalog(dir, TODAY, f.io);
     expect(code).toBe(1);
     expect(count(f.requests, "/years/1977")).toBe(3);
     expect(readCatalog()).toEqual(KEPT_1977);
     expect(readSchedule().rotation).toContain("1981-08-08");
     expect(f.err).toEqual([
-      `  Failed to fetch ${API}/years/1977: 503 Service Unavailable`,
+      `  Failed to fetch ${API}/years/1977: ${c.reason}`,
       "\nThese years failed to load, so their shows were kept as they were: 1977",
     ]);
   });
 
-  it.each([
-    {
-      name: "an empty answer",
-      count: 2,
-      shows: [],
-      reason: "answered with no shows",
-    },
-    {
-      name: "an answer missing a show",
-      count: 2,
-      shows: [relistenShow("1977-05-08", 13)],
-      reason: "answered 1 show(s) where the year list reports 2",
-    },
-    {
-      name: "an answer with an extra show",
-      count: 2,
-      shows: [
-        relistenShow("1977-05-08", 13),
-        relistenShow("1977-05-09", 4),
-        relistenShow("1977-05-10", 1),
-      ],
-      reason: "answered 3 show(s) where the year list reports 2",
-    },
-    {
-      name: "an empty answer the year list agrees with",
-      count: 0,
-      shows: [],
-      reason: "answered with no shows",
-    },
-  ])("counts $name as a failed year", async (c) => {
+  it("fails a year the year list reports no shows for, without requesting it", async () => {
+    // The year list and the answer agree on zero, which must still not empty the year.
     const f = fakeRelisten({
-      "/years": [{ body: [{ year: "1977", show_count: c.count }, YEARS[1], YEARS[2]] }],
-      "/years/1977": [{ body: { shows: c.shows } }],
+      "/years": [{ body: [{ year: "1977", show_count: 0 }, YEARS[1], YEARS[2]] }],
+      "/years/1977": [{ body: { shows: [] } }],
     });
     const code = await refreshCatalog(dir, TODAY, f.io);
     expect(code).toBe(1);
-    expect(count(f.requests, "/years/1977")).toBe(3);
+    expect(count(f.requests, "/years/1977")).toBe(0);
     expect(readCatalog()).toEqual(KEPT_1977);
     expect(f.err).toEqual([
-      `  Failed to fetch ${API}/years/1977: ${c.reason}`,
+      "  1977 has no shows in Relisten's year list",
       "\nThese years failed to load, so their shows were kept as they were: 1977",
     ]);
   });

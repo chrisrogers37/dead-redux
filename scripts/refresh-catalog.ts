@@ -103,23 +103,29 @@ export async function refreshCatalog(
   const years = await fetchJson<RelistenYear[]>(io, `${API_BASE}/years`);
   io.log(`Found ${years.length} years of touring\n`);
 
-  // Step 2: Fetch shows for each year. An answer must list as many shows as
-  // the year list reports, and at least one: one that leaves shows out would
-  // take away their recordings, so it is retried like a failed request. A
-  // year that still fails after its retries is recorded, and the run exits 1
-  // once everything else is written.
+  // Step 2: Fetch shows for each year. An answer that leaves shows out would
+  // take away their recordings, so one that doesn't match the year list's
+  // count is retried like a failed request. A year that still fails after its
+  // retries is recorded, and the run exits 1 once everything else is written.
   const fetched: ShowSummary[] = [];
   const refreshedYears: string[] = [];
   const failedYears: string[] = [];
 
   for (const year of years) {
+    // Only an empty answer could match a count of zero, and an empty answer is
+    // never trusted, so such a year fails without a request.
+    if (year.show_count < 1) {
+      io.error(`  ${year.year} has no shows in Relisten's year list`);
+      failedYears.push(year.year);
+      continue;
+    }
+
     io.log(`Fetching ${year.year} (${year.show_count} shows)...`);
     try {
       const yearData = await fetchJson<RelistenYearResponse>(
         io,
         `${API_BASE}/years/${year.year}`,
         ({ shows }) => {
-          if (shows.length === 0) throw new Error("answered with no shows");
           if (shows.length !== year.show_count) {
             throw new Error(
               `answered ${shows.length} show(s) where the year list reports ${year.show_count}`
@@ -146,7 +152,8 @@ export async function refreshCatalog(
     io.log(`\nKept ${delisted.length} show(s) Relisten no longer lists: ${delisted.join(", ")}`);
   }
 
-  // A catalog year the year list leaves out keeps its shows too, and counts as failed.
+  // The merge kept every catalog year that wasn't refreshed. Those not already
+  // failed are years the year list left out: they count as failed too.
   const unlisted = unrefreshed.filter((year) => !failedYears.includes(year));
   for (const year of unlisted) {
     io.error(`  ${year} is in the catalog but not in Relisten's year list`);
