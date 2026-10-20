@@ -23,6 +23,10 @@ describe("formatDate", () => {
     expect(formatDate("1977-05-08")).toBe("May 8, 1977");
     expect(formatDate("1995-07-09")).toBe("July 9, 1995");
   });
+
+  it("leaves a partial date as written", () => {
+    expect(formatDate("1977-XX-XX")).toBe("1977-XX-XX");
+  });
 });
 
 describe("formatRating", () => {

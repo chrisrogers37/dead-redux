@@ -7,10 +7,12 @@ import { StealYourFace } from "@/components/StealYourFace";
 import { WhimsicalUnicorn } from "@/components/WhimsicalUnicorn";
 import { WhimsicalForest } from "@/components/WhimsicalForest";
 import { PastelRainbow } from "@/components/PastelRainbow";
+import { formatDate } from "@/lib/format";
 import type { ShowSummary, Source } from "@/lib/types";
 
 interface ShowPageContentProps {
   show: ShowSummary;
+  featuredDate: string;
   bestSource: Source | null;
   tourName: string | null;
   isToday: boolean;
@@ -18,6 +20,7 @@ interface ShowPageContentProps {
 
 export function ShowPageContent({
   show,
+  featuredDate,
   bestSource,
   tourName,
   isToday,
@@ -55,7 +58,7 @@ export function ShowPageContent({
         <div className="text-center space-y-1">
           <p className="text-xs font-medium uppercase tracking-[0.2em] text-dead-gold animate-[float_6s_ease-in-out_infinite]">
             {isToday
-              ? `Today\u2019s Show \u00B7 ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}`
+              ? `Today\u2019s Show \u00B7 ${formatDate(featuredDate)}`
               : show.date}
           </p>
           <h2 className="font-display text-xl sm:text-2xl md:text-3xl text-dead-bone">
