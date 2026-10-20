@@ -298,11 +298,13 @@ function start(gl) {
     /* The show. */
     if (playing) { showPos = Math.min(total - 0.001, showPos + dt); locate(); report(false); }
     const targetEnergy = energyOf(index);
-    energy += (targetEnergy - energy) * Math.min(1, dt * 0.12);
+    /* State changes blend over about eight seconds; under reduced motion they land at once. */
+    const blend = reduced ? 1 : Math.min(1, dt * 0.12);
+    energy += (targetEnergy - energy) * blend;
     const f = total > 0 ? showPos / total : 0;
     skyMat.uniforms.uEnergy.value = energy;
-    skyMat.uniforms.uC0.value.lerp(stopAt(STOPS_A, f), Math.min(1, dt * 0.12));
-    skyMat.uniforms.uC1.value.lerp(stopAt(STOPS_B, f), Math.min(1, dt * 0.12));
+    skyMat.uniforms.uC0.value.lerp(stopAt(STOPS_A, f), blend);
+    skyMat.uniforms.uC1.value.lerp(stopAt(STOPS_B, f), blend);
     skyMat.uniforms.uC2.value.copy(skyMat.uniforms.uC0.value).lerp(skyMat.uniforms.uPage.value, 0.7);
     hemi.color.copy(skyMat.uniforms.uC0.value).lerp(new THREE.Color(0xffffff), 0.3);
     if (!reduced) {
