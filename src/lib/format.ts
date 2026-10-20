@@ -34,10 +34,10 @@ export function formatDate(dateStr: string): string {
 
 /**
  * Drop a leading track number from a track title.
- * "01 Tuning" → "Tuning"; "4th Of July" stays as written.
+ * "01 Tuning" and "01-Tuning" → "Tuning"; "4th Of July" and "900,000 Tons of Steel" stay as written.
  */
 export function stripTrackNumber(title: string): string {
-  return title.replace(/^\d{1,3}(?:[.)]|\s+-)?\s+/, "");
+  return title.replace(/^\d{1,3}(?:(?:[.)]|\s+-)?\s+|-(?=[A-Za-z]))/, "");
 }
 
 /**

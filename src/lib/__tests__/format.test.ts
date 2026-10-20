@@ -34,12 +34,15 @@ describe("stripTrackNumber", () => {
     expect(stripTrackNumber("01 Tuning")).toBe("Tuning");
     expect(stripTrackNumber("1. Jack Straw")).toBe("Jack Straw");
     expect(stripTrackNumber("12 - Morning Dew")).toBe("Morning Dew");
+    expect(stripTrackNumber("01-Little Red Rooster")).toBe("Little Red Rooster");
+    expect(stripTrackNumber("05 - 900,000 Tons of Steel")).toBe("900,000 Tons of Steel");
   });
 
   it("leaves other titles as written", () => {
     expect(stripTrackNumber("Tuning")).toBe("Tuning");
     expect(stripTrackNumber("4th Of July")).toBe("4th Of July");
     expect(stripTrackNumber("1977 Jam")).toBe("1977 Jam");
+    expect(stripTrackNumber("900,000 Tons of Steel")).toBe("900,000 Tons of Steel");
   });
 });
 
