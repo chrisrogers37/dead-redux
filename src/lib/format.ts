@@ -41,6 +41,18 @@ export function stripTrackNumber(title: string): string {
   return title.replace(/^\d{1,3}(?:[.)]\s+|\s*-\s+|\s*-(?=[A-Za-z])|\s+)/, "");
 }
 
+// The extensions are listed because song titles such as "C.C.Rider", "U.S.Blues" and
+// "Johnny B.Goode" also end in a dot and a word.
+const PLACEHOLDER_TITLE = /\.(?:mp3|flac|shn|wav|ogg|m4a|aiff?)$|^track \d+$/i;
+
+/**
+ * Whether a track title is a placeholder rather than a song title. Some Relisten sources list
+ * their files' names ("4-26-69d1t01.mp3") or bare numbers ("Track 7") as track titles.
+ */
+export function isPlaceholderTitle(title: string): boolean {
+  return PLACEHOLDER_TITLE.test(title.trim());
+}
+
 // The named entities source text uses; numeric ones are decoded by code point.
 const NAMED_ENTITIES: Record<string, string> = {
   amp: "&",

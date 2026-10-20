@@ -3,6 +3,7 @@ import {
   formatDuration,
   formatDate,
   formatRating,
+  isPlaceholderTitle,
   notesToLines,
   stripTrackNumber,
   toPlainText,
@@ -57,6 +58,36 @@ describe("stripTrackNumber", () => {
     expect(stripTrackNumber("900,000 Tons of Steel")).toBe("900,000 Tons of Steel");
     expect(stripTrackNumber("4-26-69d1t01.mp3")).toBe("4-26-69d1t01.mp3");
     expect(stripTrackNumber("1.5 Hours")).toBe("1.5 Hours");
+  });
+});
+
+describe("isPlaceholderTitle", () => {
+  it("recognizes an audio file's name", () => {
+    expect(isPlaceholderTitle("4-26-69d1t01.mp3")).toBe(true);
+    expect(isPlaceholderTitle("gd72_09_10.sbdsbdpatch_d3_t09.mp3")).toBe(true);
+    expect(isPlaceholderTitle("gd1984-02-21t01.mp3")).toBe(true);
+    expect(isPlaceholderTitle("gd1985-06-30s1t01.flac")).toBe(true);
+    expect(isPlaceholderTitle("gd77-05-08d2t03.shn")).toBe(true);
+    expect(isPlaceholderTitle("GD77-05-08D2T03.MP3")).toBe(true);
+    expect(isPlaceholderTitle("4-26-69d1t01.mp3 ")).toBe(true);
+  });
+
+  it("recognizes a bare track number", () => {
+    expect(isPlaceholderTitle("Track 1")).toBe(true);
+    expect(isPlaceholderTitle("Track 43")).toBe(true);
+    expect(isPlaceholderTitle("track 07")).toBe(true);
+  });
+
+  it("leaves song titles alone, including ones written with dots", () => {
+    expect(isPlaceholderTitle("Dupree's Diamond Blues")).toBe(false);
+    expect(isPlaceholderTitle("Mountains Of The Moon >")).toBe(false);
+    expect(isPlaceholderTitle("C.C.Rider")).toBe(false);
+    expect(isPlaceholderTitle("U.S.Blues")).toBe(false);
+    expect(isPlaceholderTitle("Johnny B.Goode")).toBe(false);
+    expect(isPlaceholderTitle("St. Stephen")).toBe(false);
+    expect(isPlaceholderTitle("mp3")).toBe(false);
+    expect(isPlaceholderTitle("Track")).toBe(false);
+    expect(isPlaceholderTitle("Tracks Of My Tears")).toBe(false);
   });
 });
 
