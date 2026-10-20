@@ -102,6 +102,7 @@ export function ShowPageContent({
           showDate={show.date}
           venue={show.venue}
           location={show.location}
+          isToday={isToday}
         />
 
         {/* Forest divider */}
