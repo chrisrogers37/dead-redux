@@ -53,7 +53,7 @@ function start(gl) {
     }
     const nose = Math.hypot(x, z - 26);
     if (nose < 9) h -= 2.5 * (1 - nose / 9);
-    if (d > 100) h -= ((d - 100) / 10) * 5.5;
+    if (d > 118) h -= ((d - 118) / 10) * 5.5;
     return h;
   }
   const ground = new THREE.PlaneGeometry(260, 260, phone ? 52 : 80, phone ? 52 : 80);
@@ -66,8 +66,12 @@ function start(gl) {
 
   /* The ring road and the lightning path, as flat bands just above the ground. */
   const bandMat = new THREE.MeshLambertMaterial({ color: 0x8e8a82 });
-  const ring = new THREE.Mesh(new THREE.RingGeometry(112, 118, 64).rotateX(-Math.PI / 2), bandMat);
-  ring.position.y = 2.75;
+  /* The ring lies on the ground, so it follows the shore's gentle rise and fall. */
+  const ringGeo = new THREE.RingGeometry(112, 118, 160, 2).rotateX(-Math.PI / 2);
+  const ringPos = ringGeo.attributes.position;
+  for (let i = 0; i < ringPos.count; i++) ringPos.setY(i, height(ringPos.getX(i), ringPos.getZ(i)) + 0.2);
+  ringGeo.computeVertexNormals();
+  const ring = new THREE.Mesh(ringGeo, bandMat);
   scene.add(ring);
   const BOLT = [G(100, 4), G(118, 92), G(82, 108), G(100, 196)];
   for (let s = 0; s < BOLT.length - 1; s++) {
@@ -109,7 +113,7 @@ function start(gl) {
     [/esau/i, (g) => { g.add(mesh(new THREE.BoxGeometry(1.6, 5, 1.2), stone, -1.2, 2.5, 0), mesh(new THREE.BoxGeometry(1.6, 4.2, 1.2), stone, 1.2, 2.1, 0)); }],
     [/grey|gray/i, (g) => { g.add(mesh(new THREE.DodecahedronGeometry(3), new THREE.MeshLambertMaterial({ color: 0x7d7a74, flatShading: true }), 0, 2.4, 0)); }],
     [/snow/i, (g) => { g.add(mesh(new THREE.ConeGeometry(3, 7, 7), stone, 0, 3.5, 0), mesh(new THREE.ConeGeometry(1.4, 2.6, 7), new THREE.MeshLambertMaterial({ color: 0xeceae4, flatShading: true }), 0, 5.7, 0)); }],
-    [/fire/i, (g) => { g.add(mesh(new THREE.ConeGeometry(2.2, 5, 7), new THREE.MeshLambertMaterial({ color: 0x4a3a30, flatShading: true }), 0, 2.5, 0), mesh(new THREE.ConeGeometry(1, 2.4, 6), new THREE.MeshLambertMaterial({ color: 0xff7a2a, emissive: 0xff7a2a, emissiveIntensity: 0.8 }), 0, 6.2, 0)); const l = new THREE.PointLight(0xff8a3a, 1.5, 30); l.position.set(0, 6.5, 0); g.add(l); }],
+    [/fire/i, (g) => { g.add(mesh(new THREE.ConeGeometry(2.2, 5, 7), new THREE.MeshLambertMaterial({ color: 0x4a3a30, flatShading: true }), 0, 2.5, 0), mesh(new THREE.ConeGeometry(1, 2.4, 6), new THREE.MeshLambertMaterial({ color: 0xff7a2a, emissive: 0xff7a2a, emissiveIntensity: 0.8 }), 0, 6.2, 0)); const l = new THREE.PointLight(0xff8a3a, 40, 30); l.position.set(0, 6.5, 0); g.add(l); }],
     [/samson/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(0.6, 0.6, 6, 8), stone, -1.5, 3, 0)); const p = mesh(new THREE.CylinderGeometry(0.6, 0.6, 6, 8), stone, 1.5, 2.8, 0); p.rotation.z = -0.25; g.add(p, mesh(new THREE.BoxGeometry(4.4, 0.6, 1), stone, 0, 6.3, 0)); }],
     [/wheel/i, (g) => { const w = mesh(new THREE.TorusGeometry(3.2, 0.4, 6, 16), wood, 0, 3.6, 0); g.add(w); moving.push({ obj: w, kind: "spin" }); }],
     [/miracle/i, (g) => { const s = mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.9 }), 0, 4, 0); g.add(s); moving.push({ obj: s, kind: "bob" }); }],
@@ -192,9 +196,10 @@ function start(gl) {
       }`,
   });
   scene.add(new THREE.Mesh(new THREE.SphereGeometry(500, 24, 12), skyMat));
-  const hemi = new THREE.HemisphereLight(0xe8b04b, 0x1a1613, 1.1);
+  /* Light intensities are in physical units, so the soft daylight look needs a factor of pi. */
+  const hemi = new THREE.HemisphereLight(0xe8b04b, 0x1a1613, 1.1 * Math.PI);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff2dc, 0.5);
+  const sun = new THREE.DirectionalLight(0xfff2dc, 0.5 * Math.PI);
   sun.position.set(60, 100, 40);
   scene.add(sun);
 
