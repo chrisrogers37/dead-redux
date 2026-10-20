@@ -56,7 +56,8 @@ export function firstRepeatIndex(schedule: PickSchedule): number {
 /**
  * Add shows new to the catalog to the rotation, just before its first repeat,
  * which moves no date before that point. Refuses once the rotation has
- * reached that point, since the dates after it have been featured.
+ * reached that point, since the dates after it have been featured. Adding no
+ * shows always leaves the schedule as it is.
  *
  * @param today - Today's date string "YYYY-MM-DD".
  */
@@ -65,6 +66,7 @@ export function addToRotation(
   shows: string[],
   today: string
 ): PickSchedule {
+  if (shows.length === 0) return schedule;
   const index = firstRepeatIndex(schedule);
   if (dayNumber(schedule.rotationStart) + index <= dayNumber(today)) {
     throw new Error(
@@ -74,4 +76,22 @@ export function addToRotation(
   const rotation = [...schedule.rotation];
   rotation.splice(index, 0, ...shows);
   return { ...schedule, rotation };
+}
+
+/**
+ * Put the catalog's new shows in the rotation with addToRotation. A show is
+ * new when the schedule neither rotates nor skips it.
+ *
+ * @param catalogDates - Every show date in the catalog.
+ * @param today - Today's date string "YYYY-MM-DD".
+ * @returns The schedule with the new shows in place, and the shows added.
+ */
+export function placeNewShows(
+  schedule: PickSchedule,
+  catalogDates: string[],
+  today: string
+): { schedule: PickSchedule; added: string[] } {
+  const placed = new Set([...schedule.rotation, ...schedule.skipped.map((entry) => entry.show)]);
+  const added = catalogDates.filter((date) => !placed.has(date));
+  return { schedule: addToRotation(schedule, added, today), added };
 }
