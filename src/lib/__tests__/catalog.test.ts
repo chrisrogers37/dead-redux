@@ -22,10 +22,11 @@ describe("mergeCatalog", () => {
   ];
   // The 1977 fetch failed; 1981 and 1990 loaded, and 1981-08-06 was not among them.
   const fetched = [record("1990-03-29", 21), record("1981-08-07", 3)];
-  const { catalog, delisted } = mergeCatalog(known, fetched, ["1977"]);
+  const { catalog, delisted, unrefreshed } = mergeCatalog(known, fetched, ["1981", "1990"]);
 
-  it("keeps a year that failed to load exactly as the catalog has it", () => {
+  it("keeps a year that wasn't refreshed exactly as the catalog has it, and reports it", () => {
     expect(catalog.filter((show) => show.date.startsWith("1977"))).toEqual(known.slice(0, 2));
+    expect(unrefreshed).toEqual(["1977"]);
   });
 
   it("keeps a show Relisten no longer lists, with no recordings left", () => {
@@ -45,5 +46,34 @@ describe("mergeCatalog", () => {
       "1981-08-07",
       "1990-03-29",
     ]);
+  });
+
+  it("zeroes every show Relisten no longer lists, whatever its count, in catalog order", () => {
+    const known = [
+      record("1969-02-27", 7),
+      record("1969-02-28", 1),
+      record("1972-05-04", 3),
+      record("1972-05-11", 2),
+      record("1972-05-26", 5),
+    ];
+    // Both years loaded; Relisten answered out of date order and left three shows out.
+    const fetched = [record("1972-05-26", 6), record("1969-02-28", 2)];
+    const { catalog, delisted, unrefreshed } = mergeCatalog(known, fetched, ["1969", "1972"]);
+    expect(delisted).toEqual(["1969-02-27", "1972-05-04", "1972-05-11"]);
+    expect(catalog).toEqual([
+      { ...known[0], sourceCount: 0 },
+      fetched[1],
+      { ...known[2], sourceCount: 0 },
+      { ...known[3], sourceCount: 0 },
+      fetched[0],
+    ]);
+    expect(unrefreshed).toEqual([]);
+  });
+
+  it("keeps every show when no year was refreshed", () => {
+    const empty = mergeCatalog(known, [], []);
+    expect(empty.catalog).toEqual(known);
+    expect(empty.delisted).toEqual([]);
+    expect(empty.unrefreshed).toEqual(["1977", "1981", "1990"]);
   });
 });
