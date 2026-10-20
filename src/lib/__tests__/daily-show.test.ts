@@ -15,24 +15,17 @@ describe("getDailyShow", () => {
     expect(show.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it("returns the same show for the same date", () => {
-    const show1 = getDailyShow("2026-02-16");
-    const show2 = getDailyShow("2026-02-16");
-    expect(show1.date).toBe(show2.date);
-    expect(show1.venue).toBe(show2.venue);
-  });
-
-  it("returns different shows for different dates", () => {
-    const show1 = getDailyShow("2026-02-16");
-    const show2 = getDailyShow("2026-02-17");
-    // Technically could collide, but extremely unlikely with 2000+ shows
-    expect(show1.date).not.toBe(show2.date);
-  });
-
   it("returns a show for any arbitrary date", () => {
     const show = getDailyShow("1999-12-31");
     expect(show).toHaveProperty("date");
     expect(show).toHaveProperty("venue");
+  });
+
+  it("keeps the show the site featured on each day", () => {
+    expect(getDailyShow("2026-02-16").date).toBe("1970-03-07"); // Santa Monica Civic Auditorium
+    expect(getDailyShow("2026-03-01").date).toBe("1992-06-29"); // Deer Creek Music Center
+    expect(getDailyShow("2026-10-19").date).toBe("1987-03-27"); // Hartford Civic Center
+    expect(getDailyShow("2026-10-20").date).toBe("1986-07-04"); // Rich Stadium
   });
 });
 
