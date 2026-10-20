@@ -1,4 +1,4 @@
-import { getDailyShow } from "./daily-show";
+import { getDailyShow, getTodayDateStr } from "./daily-show";
 import type { ShowSummary } from "./types";
 
 export interface DailyPick {
@@ -48,4 +48,16 @@ export function getDailyPicksRange(
  */
 export function getLaunchDate(): string {
   return "2026-02-16";
+}
+
+/**
+ * Get every past pick, from launch through yesterday, newest first.
+ * A day's pick joins the archive once that day is over.
+ *
+ * @param today - Today's date string. Defaults to today in the site's time zone.
+ */
+export function getArchivePicks(today: string = getTodayDateStr()): DailyPick[] {
+  return getDailyPicksRange(getLaunchDate(), today).filter(
+    (pick) => pick.featuredDate < today
+  );
 }

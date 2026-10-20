@@ -1,6 +1,5 @@
 import { ImageResponse } from "next/og";
-import { getDailyPicksRange, getLaunchDate } from "@/lib/archive";
-import { getTodayDateStr } from "@/lib/daily-show";
+import { getArchivePicks } from "@/lib/archive";
 
 export const runtime = "edge";
 
@@ -9,11 +8,7 @@ export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
 export default async function OGImage() {
-  const today = getTodayDateStr();
-  const launch = getLaunchDate();
-  const count = today >= launch
-    ? getDailyPicksRange(launch, today).length
-    : 0;
+  const count = getArchivePicks().length;
 
   return new ImageResponse(
     (

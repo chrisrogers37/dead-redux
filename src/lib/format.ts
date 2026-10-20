@@ -15,18 +15,20 @@ export function formatDuration(seconds: number): string {
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
+// Built once: constructing a formatter on every call is slow.
+const dateFormat = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
 /**
  * Format an ISO date string into a readable date.
  * "1977-05-08" → "May 8, 1977"
  */
 export function formatDate(dateStr: string): string {
-  const date = new Date(dateStr + "T00:00:00Z");
-  return date.toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+  return dateFormat.format(new Date(dateStr + "T00:00:00Z"));
 }
 
 /**

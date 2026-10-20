@@ -1,10 +1,8 @@
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 import { getDailyShow, isValidDateStr, getTodayDateStr } from "@/lib/daily-show";
 import { fetchShowDetails, pickBestSource } from "@/lib/relisten";
 import { ShowPageContent } from "@/components/ShowPageContent";
-
-// Revalidate every hour so the page picks up a new show each day
-export const revalidate = 3600;
 
 interface PageProps {
   params: Promise<{ date: string }>;
@@ -21,6 +19,8 @@ export async function generateMetadata({ params }: PageProps) {
 }
 
 export default async function DailyShowPage({ params }: PageProps) {
+  // The "Today's Show" label depends on the date, so the page renders on every visit.
+  await connection();
   const { date } = await params;
   if (!isValidDateStr(date)) notFound();
 
@@ -32,6 +32,7 @@ export default async function DailyShowPage({ params }: PageProps) {
   return (
     <ShowPageContent
       show={show}
+      featuredDate={date}
       bestSource={bestSource}
       tourName={details?.tour?.name ?? null}
       isToday={isToday}

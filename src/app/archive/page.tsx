@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { getDailyPicksRange, getLaunchDate } from "@/lib/archive";
+import { connection } from "next/server";
+import { getArchivePicks } from "@/lib/archive";
 import { Timeline } from "@/components/Timeline";
 import { NavBar } from "@/components/NavBar";
 import { StealYourFace } from "@/components/StealYourFace";
@@ -12,14 +13,10 @@ export const metadata: Metadata = {
   description: "Browse past daily Grateful Dead show picks",
 };
 
-export const revalidate = 3600;
-
-export default function ArchivePage() {
-  const today = new Date();
-  today.setUTCDate(today.getUTCDate() - 1);
-  const yesterday = today.toISOString().split("T")[0];
-  const launch = getLaunchDate();
-  const picks = yesterday >= launch ? getDailyPicksRange(launch, yesterday) : [];
+export default async function ArchivePage() {
+  // The archive runs through yesterday, so it renders on every visit.
+  await connection();
+  const picks = getArchivePicks();
 
   return (
     <main className="relative min-h-screen flex flex-col items-center p-4 overflow-hidden">

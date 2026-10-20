@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
+  getArchivePicks,
   getDailyPick,
   getDailyPicksRange,
   getLaunchDate,
 } from "../archive";
+import { getTodayDateStr } from "../daily-show";
 
 describe("getDailyPick", () => {
   it("returns a pick with featured date and show", () => {
@@ -44,5 +46,26 @@ describe("getLaunchDate", () => {
   it("returns a valid date string", () => {
     const date = getLaunchDate();
     expect(date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe("getArchivePicks", () => {
+  it("runs from launch through yesterday, newest first", () => {
+    const picks = getArchivePicks("2026-10-20");
+    expect(picks[0].featuredDate).toBe("2026-10-19");
+    expect(picks[picks.length - 1].featuredDate).toBe(getLaunchDate());
+    expect(picks).toHaveLength(246);
+  });
+
+  it("is empty until the launch day is over", () => {
+    expect(getArchivePicks(getLaunchDate())).toHaveLength(0);
+  });
+
+  it("gains a day at midnight Eastern", () => {
+    const before = getArchivePicks(getTodayDateStr(new Date("2026-10-20T03:59:59Z")));
+    const after = getArchivePicks(getTodayDateStr(new Date("2026-10-20T04:00:00Z")));
+    expect(before[0].featuredDate).toBe("2026-10-18");
+    expect(after[0].featuredDate).toBe("2026-10-19");
+    expect(after).toHaveLength(before.length + 1);
   });
 });

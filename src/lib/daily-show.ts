@@ -3,6 +3,16 @@ import type { ShowSummary } from "./types";
 
 const shows: ShowSummary[] = showCatalog as ShowSummary[];
 
+/** The site's day turns over at midnight in this time zone. */
+const TIME_ZONE = "America/New_York";
+
+const dayFormat = new Intl.DateTimeFormat("en-US", {
+  timeZone: TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
 /**
  * Simple string hash function (djb2).
  * Deterministic: same input always produces same output.
@@ -16,23 +26,27 @@ function hashString(str: string): number {
 }
 
 /**
- * Get today's show based on the current date.
+ * Get the show featured on a date.
  * Uses the date string as a seed to deterministically select a show.
  * Everyone visiting on the same day sees the same show.
  *
- * @param dateStr - ISO date string "YYYY-MM-DD". Defaults to today (UTC).
+ * @param dateStr - ISO date string "YYYY-MM-DD".
  */
-export function getDailyShow(dateStr?: string): ShowSummary {
-  const date = dateStr ?? new Date().toISOString().split("T")[0];
-  const index = hashString(`dead-redux-${date}`) % shows.length;
+export function getDailyShow(dateStr: string): ShowSummary {
+  const index = hashString(`dead-redux-${dateStr}`) % shows.length;
   return shows[index];
 }
 
 /**
- * Get the date string for today in UTC.
+ * Get today's date string ("YYYY-MM-DD") in the site's time zone.
+ *
+ * @param now - The moment to read. Defaults to the current time.
  */
-export function getTodayDateStr(): string {
-  return new Date().toISOString().split("T")[0];
+export function getTodayDateStr(now: Date = new Date()): string {
+  const parts = Object.fromEntries(
+    dayFormat.formatToParts(now).map((part): [string, string] => [part.type, part.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 /**
