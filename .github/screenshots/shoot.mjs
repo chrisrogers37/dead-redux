@@ -68,6 +68,18 @@ const RECORDINGS = [
     click: "[data-action='lean-back']",
     waitFor: "[data-mode='leanback']",
   },
+  // Roaming: focus the scene, then hold each key for its milliseconds, in order.
+  {
+    device: "desktop",
+    name: "roam",
+    click: "canvas",
+    keys: [
+      ["ArrowUp", 3000],
+      ["ArrowLeft", 1200],
+      ["ArrowUp", 3000],
+      ["ArrowRight", 800],
+    ],
+  },
 ];
 
 // How long each recording runs once the page has loaded and any control is pressed.
@@ -161,7 +173,7 @@ try {
     await context.close();
   }
 
-  for (const { device, name, click, waitFor } of RECORDINGS) {
+  for (const { device, name, click, waitFor, keys } of RECORDINGS) {
     const options = DEVICES[device];
     // Frames arrive at the viewport's CSS size, whatever the device scale factor.
     const context = await browser.newContext({
@@ -177,17 +189,31 @@ try {
     await page.goto(url.href);
     if (click) {
       // A control missing from the page is logged and skipped, not an error.
-      if ((await page.locator(click).count()) === 0) {
+      // Scripts may draw the control after load, so it gets time to appear.
+      const found = await page.waitForSelector(click, { timeout: 15_000 }).then(
+        () => true,
+        () => false
+      );
+      if (!found) {
         console.log(`${file}: ${click} absent`);
         await context.close();
         continue;
       }
       await page.click(click);
-      await page
-        .waitForSelector(waitFor, { timeout: 15_000 })
-        .catch(() => console.log(`${file}: waitFor timed out; recording anyway`));
+      if (waitFor) {
+        await page
+          .waitForSelector(waitFor, { timeout: 15_000 })
+          .catch(() => console.log(`${file}: waitFor timed out; recording anyway`));
+      }
     }
-    await page.waitForTimeout(RECORD_MS);
+    let held = 0;
+    for (const [key, ms] of keys ?? []) {
+      await page.keyboard.down(key);
+      await page.waitForTimeout(ms);
+      await page.keyboard.up(key);
+      held += ms;
+    }
+    await page.waitForTimeout(Math.max(RECORD_MS - held, 0));
     const video = page.video();
     // The video is complete only once its context closes.
     await context.close();
