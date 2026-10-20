@@ -7,6 +7,7 @@ import { getDailyShow } from "../daily-show";
 import {
   addToRotation,
   firstRepeatIndex,
+  placeNewShows,
   showDateFor,
   type PickSchedule,
 } from "../pick-schedule";
@@ -15,6 +16,8 @@ const schedule: PickSchedule = pickSchedule;
 const openingPicks: Record<string, string> = pickSchedule.openingPicks;
 const { rotationStart, rotation, skipped } = pickSchedule;
 const catalogDates = showCatalog.map((show) => show.date);
+const featured = new Set(Object.values(openingPicks));
+const firstRepeatDay = addDays(rotationStart, firstRepeatIndex(schedule));
 
 function sha256(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -44,13 +47,24 @@ describe("the pick schedule", () => {
     );
   });
 
+  it("keeps the order of the whole rotation", () => {
+    // New shows go in at the first repeat, so a refresh that adds some changes
+    // this pin and the first-repeat index, never the pin above.
+    expect(sha256(rotation)).toBe(
+      "1211c1ab2f4b2936c80b325f1e77587e5b3ef609c2dc9460e0d4aaeae18cbdcd"
+    );
+  });
+
+  it("starts with the 1,825 shows no opening pick featured", () => {
+    expect(firstRepeatIndex(schedule)).toBe(1825);
+  });
+
   it("accounts for every catalog show once, in the rotation or skipped", () => {
     const scheduled = [...rotation, ...skipped.map((entry) => entry.show)];
     expect(scheduled.sort()).toEqual([...catalogDates].sort());
   });
 
   it("brings back a show the opening picks featured only after every other show", () => {
-    const featured = new Set(Object.values(openingPicks));
     const returning = rotation.slice(firstRepeatIndex(schedule));
     expect(returning.filter((show) => !featured.has(show))).toEqual([]);
   });
@@ -88,8 +102,6 @@ describe("the pick schedule", () => {
 });
 
 describe("addToRotation", () => {
-  const firstRepeatDay = addDays(rotationStart, firstRepeatIndex(schedule));
-
   it("adds a new show just before the first repeat and moves no date before it", () => {
     const next = addToRotation(schedule, ["2099-01-01"], "2026-10-20");
     expect(next.rotation).toHaveLength(rotation.length + 1);
@@ -101,7 +113,34 @@ describe("addToRotation", () => {
     expect(moved).toEqual([]);
   });
 
+  it("keeps the shows the opening picks featured last, right after the new show", () => {
+    const next = addToRotation(schedule, ["2099-01-01"], "2026-10-20");
+    // Found here rather than with firstRepeatIndex, so a wrong firstRepeatIndex can't pass.
+    const firstFeatured = next.rotation.findIndex((show) => featured.has(show));
+    expect(next.rotation[firstFeatured - 1]).toBe("2099-01-01");
+    expect(next.rotation.slice(firstFeatured).filter((show) => !featured.has(show))).toEqual([]);
+  });
+
   it("refuses once the rotation has reached its first repeat", () => {
     expect(() => addToRotation(schedule, ["2099-01-01"], firstRepeatDay)).toThrow();
+  });
+});
+
+describe("placeNewShows", () => {
+  it("puts a show new to the catalog in the rotation, where addToRotation places it", () => {
+    const { schedule: next, added } = placeNewShows(
+      schedule,
+      [...catalogDates, "2099-01-01"],
+      "2026-10-20"
+    );
+    expect(added).toEqual(["2099-01-01"]);
+    // addToRotation's tests show that this moves no date before the first repeat.
+    expect(next).toEqual(addToRotation(schedule, added, "2026-10-20"));
+  });
+
+  it("leaves the schedule as it is when nothing is new, even after the first repeat", () => {
+    const { schedule: next, added } = placeNewShows(schedule, catalogDates, firstRepeatDay);
+    expect(added).toEqual([]);
+    expect(next).toEqual(schedule);
   });
 });
