@@ -250,7 +250,7 @@ function start(gl) {
     const side = new THREE.Vector3().crossVectors(tg, new THREE.Vector3(0, 1, 0)).normalize();
     const x = p.x + side.x * 2.5, z = p.z + side.z * 2.5;
     const ahead = at(u + 30 / curveLength);
-    return { pos: new THREE.Vector3(x, height(x, z) + 4.5, z), look: new THREE.Vector3(ahead.x, ahead.y + 2, ahead.z) };
+    return { pos: new THREE.Vector3(x, height(x, z) + 4.5, z), look: new THREE.Vector3(ahead.x, ahead.y + 6, ahead.z) };
   }
   const forward = () => new THREE.Vector3(-Math.sin(walker.heading), 0, -Math.cos(walker.heading));
   function userInput() {
@@ -360,14 +360,14 @@ function start(gl) {
         camera.lookAt(p0.x, p0.y, p0.z);
       } else {
         /* A slow crane along the path, high above the bears, whether or not the show is playing. */
-        driftU += (1.5 / curveLength) * dt;
+        driftU += (2.5 / curveLength) * dt;
         const p = at(driftU), tg = tangentAt(driftU);
         const side = new THREE.Vector3().crossVectors(tg, up).normalize();
         const sway = 2 * Math.sin((elapsed * Math.PI * 2) / 30);
         const x = p.x + side.x * sway, z = p.z + side.z * sway;
         camera.position.set(x, height(x, z) + 9, z);
         const ahead = at(driftU + 28 / curveLength);
-        camera.lookAt(ahead.x, ahead.y + 1.5, ahead.z);
+        camera.lookAt(ahead.x, ahead.y + 8, ahead.z);
       }
     }
 
