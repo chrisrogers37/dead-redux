@@ -6,8 +6,6 @@ import { formatDuration, formatRating } from "@/lib/format";
 
 interface ShowInfoProps {
   showDate: string;
-  venue: string;
-  location: string;
   tourName: string | null;
   avgRating: number;
   source: Source | null;
@@ -15,8 +13,6 @@ interface ShowInfoProps {
 
 export function ShowInfo({
   showDate,
-  venue,
-  location,
   tourName,
   avgRating,
   source,
