@@ -34,11 +34,24 @@ jobs:
           node-version: 24
       - run: npm install
       - run: npx playwright install --with-deps --only-shell chromium
+      # Playwright records video with its own ffmpeg.
+      - run: npx playwright install ffmpeg
       - id: shoot
         run: node shoot.mjs
         env:
           SITE_URL: ${{ github.event.deployment_status.environment_url || inputs.url }}
           OUT_DIR: ${{ runner.temp }}/screenshots
+      # MP4 copies of the recordings play on phones.
+      - name: Convert recordings to MP4
+        working-directory: ${{ runner.temp }}/screenshots
+        run: |
+          shopt -s nullglob
+          sudo apt-get update -q
+          sudo apt-get install -y -q ffmpeg
+          for f in *.webm; do
+            ffmpeg -hide_banner -loglevel error -i "$f" \
+              -c:v libx264 -pix_fmt yuv420p -crf 20 -movflags +faststart "${f%.webm}.mp4"
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: screenshots-${{ steps.shoot.outputs.host }}-${{ github.sha }}

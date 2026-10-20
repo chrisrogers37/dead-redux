@@ -1,4 +1,5 @@
-import { appendFile, mkdir, writeFile } from "fs/promises";
+import { appendFile, mkdir, mkdtemp, writeFile } from "fs/promises";
+import { tmpdir } from "os";
 import { join } from "path";
 import { chromium, request } from "playwright";
 
@@ -57,6 +58,21 @@ const STEP_SETTLE_MS = 1000;
 // Full-page shots stop at this many screens; the archive lists every day.
 const MAX_SCREENS = 4;
 
+// Short recordings show the motion that stills cannot. Lean-back records on the TV.
+const RECORDINGS = [
+  { device: "desktop", name: "home" },
+  { device: "phone", name: "home" },
+  {
+    device: "tv",
+    name: "leanback",
+    click: "[data-action='lean-back']",
+    waitFor: "[data-mode='leanback']",
+  },
+];
+
+// How long each recording runs once the page has loaded and any control is pressed.
+const RECORD_MS = 10_000;
+
 const site = new URL(process.env.SITE_URL);
 if (site.protocol !== "https:") {
   throw new Error(`SITE_URL must be an https URL, got ${process.env.SITE_URL}`);
@@ -70,7 +86,8 @@ if (process.env.GITHUB_OUTPUT) {
 const outDir = process.env.OUT_DIR;
 await mkdir(outDir, { recursive: true });
 
-const browser = await chromium.launch();
+// The runner has no GPU, so WebGL runs in software.
+const browser = await chromium.launch({ args: ["--enable-unsafe-swiftshader"] });
 try {
   for (const [device, options] of Object.entries(DEVICES)) {
     const context = await browser.newContext(options);
@@ -142,6 +159,41 @@ try {
     }
 
     await context.close();
+  }
+
+  for (const { device, name, click, waitFor } of RECORDINGS) {
+    const options = DEVICES[device];
+    const scale = options.deviceScaleFactor ?? 1;
+    const size = {
+      width: options.viewport.width * scale,
+      height: options.viewport.height * scale,
+    };
+    const context = await browser.newContext({
+      ...options,
+      recordVideo: { dir: await mkdtemp(join(tmpdir(), "recording-")), size },
+    });
+    const page = await context.newPage();
+    const url = new URL("/", site);
+    const file = `${device}-${name}.webm`;
+    await page.goto(url.href);
+    if (click) {
+      // A control missing from the page is logged and skipped, not an error.
+      if ((await page.locator(click).count()) === 0) {
+        console.log(`${file}: ${click} absent`);
+        await context.close();
+        continue;
+      }
+      await page.click(click);
+      await page
+        .waitForSelector(waitFor, { timeout: 15_000 })
+        .catch(() => console.log(`${file}: waitFor timed out; recording anyway`));
+    }
+    await page.waitForTimeout(RECORD_MS);
+    const video = page.video();
+    // The video is complete only once its context closes.
+    await context.close();
+    await video.saveAs(join(outDir, file));
+    console.log(`${file}  ${url}`);
   }
 
   const api = await request.newContext();
