@@ -64,8 +64,11 @@ body { background-color: var(--sheet); color: var(--cream); min-height: 100vh; }
 .parade .frame-a { animation: bear-step 500ms steps(1) infinite; }
 .parade .frame-b { animation: bear-step 500ms steps(1) infinite reverse; }
 
-/* Lean-back: the bands slide apart. */
-.band-top { transition: transform 800ms cubic-bezier(0.2, 0.7, 0.2, 1); }
+/* Lean-back: the bands meet in the middle of the screen, then slide apart to the edges. */
+@keyframes band-top-apart { from { transform: translateY(calc(50vh - 200px)); } to { transform: none; } }
+@keyframes band-bottom-apart { from { transform: translateY(calc(160px - 50vh)); } to { transform: none; } }
+.band-top { animation: band-top-apart 800ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.band-bottom { animation: band-bottom-apart 800ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 [data-idle="1"] .fades { opacity: 0.4; transition: opacity 600ms; }
 [data-idle] { cursor: none; }
 

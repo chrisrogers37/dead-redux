@@ -243,7 +243,7 @@ export function PosterHome({ show, featuredDate, bestSource, tourName }: Props) 
             <h1 className="t-head text-[96px] leading-[96px] mt-2">{dayPart}, {yearPart} · {show.venue}</h1>
           </div>
           {/* Band 3 at the bottom */}
-          <div className="absolute bottom-0 left-0 right-0 h-[160px] bg-band z-10 flex items-center justify-between px-16">
+          <div className="band-bottom absolute bottom-0 left-0 right-0 h-[160px] bg-band z-10 flex items-center justify-between px-16">
             <BearCrossing runKey={stepKey} size={28} />
             <div>
               <p className="text-[48px] leading-[56px] font-head text-cream" style={{ fontVariationSettings: '"opsz" 48, "SOFT" 50' }}>{current.title}</p>
