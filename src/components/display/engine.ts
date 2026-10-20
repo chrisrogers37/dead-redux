@@ -32,7 +32,10 @@ float field(vec2 p, float t, float w, out vec2 q, out vec2 r) {
   r = vec2(fbm(p + w * q + vec2(1.7, 9.2) + 0.15 * t), fbm(p + w * q + vec2(8.3, 2.8) - 0.12 * t));
   return fbm(p + w * r);
 }
-float ink(float v) { return smoothstep(0.3, 0.8, v); }
+/* Three separations, each inking its own band of the field: orange the middle tones, the second ink the upper tones, cream the peaks. */
+float inkA(float v) { return smoothstep(0.30, 0.48, v) * (1.0 - smoothstep(0.62, 0.80, v)); }
+float inkB(float v) { return smoothstep(0.54, 0.72, v); }
+float inkC(float v) { return 0.8 * smoothstep(0.80, 0.94, v); }
 void main() {
   vec2 uv = gl_FragCoord.xy / uRes;
   vec2 c = (gl_FragCoord.xy - 0.5 * uRes) / min(uRes.x, uRes.y);
@@ -43,7 +46,8 @@ void main() {
   vec2 q; vec2 r;
   float v = field(p, t, w, q, r);
   float d = distance(uv, uDrop.xy);
-  float ring = exp(-pow((d - 0.06 * uDrop.z) * 22.0, 2.0)) * exp(-uDrop.z * 0.4);
+  float rr = (d - 0.06 * uDrop.z) * 22.0;
+  float ring = exp(-rr * rr) * exp(-uDrop.z * 0.4);
   v += 0.5 * ring;
   vec3 col = mix(uC0, uC1, clamp(v * 1.5 - 0.1, 0.0, 1.0));
   col = mix(col, uC2, clamp(length(q), 0.0, 1.0) * 0.6);
@@ -54,9 +58,10 @@ void main() {
     vec2 q0; vec2 r0; vec2 q1; vec2 r1;
     float v0 = field(p - off, t, w, q0, r0) + 0.5 * ring;
     float v1 = field(p + off, t, w, q1, r1) + 0.5 * ring;
-    vec3 i0 = uC0 * ink(v0); vec3 i1 = uC1 * ink(v1); vec3 i2 = uC2 * ink(v);
-    col = 1.0 - (1.0 - i0) * (1.0 - i1) * (1.0 - i2);
-    a = max(max(ink(v0), ink(v1)), ink(v));
+    /* The inks print opaque, one over another in order, as a screen print does, so the misregistered edges show the ink beneath. */
+    float k0 = inkA(v0); float k1 = inkB(v1); float k2 = inkC(v);
+    col = mix(mix(mix(uC3, uC0, k0), uC1, k1), uC2, k2);
+    a = max(max(k0, k1), k2);
   }
   if (uBoil > 0.5 && uEnergy > 0.6) {
     float b = noise(p * 18.0 + vec2(0.0, -uTime * 0.6) + uSeed);
