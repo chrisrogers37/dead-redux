@@ -1,24 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 
 interface ShareButtonsProps {
+  featuredDate: string;
   showDate: string;
   venue: string;
   location: string;
 }
 
-export function ShareButtons({ showDate, venue, location }: ShareButtonsProps) {
-  const [copied, setCopied] = useState(false);
+// Whether the browser has a share sheet does not change while the page is open.
+function subscribe() {
+  return () => {};
+}
 
-  const url = typeof window !== "undefined"
-    ? window.location.href
-    : `https://dead-redux.vercel.app/${showDate}`;
+// Every pill shares this look and adds its own hover tint. Hover darkens the text,
+// so a hovered pill never loses contrast.
+const pillClass = `inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm
+  border border-dead-lavender/30 bg-white/50 text-dead-bone/90 hover:text-dead-bone
+  transition-colors`;
+
+export function ShareButtons({ featuredDate, showDate, venue, location }: ShareButtonsProps) {
+  const [copied, setCopied] = useState(false);
+  // False on the server and during hydration, so the first client render matches the server's.
+  const canShare = useSyncExternalStore(
+    subscribe,
+    () => typeof navigator.share === "function",
+    () => false
+  );
+
+  // The featured day's own page, so a link shared from the home page keeps opening this show.
+  const url = `https://dead-redux.vercel.app/${featuredDate}`;
 
   const text = `Today's Dead show: ${venue}, ${location} — ${showDate}`;
 
   const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
   const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
+
+  async function share() {
+    try {
+      await navigator.share({ text, url });
+    } catch {
+      // Closing the share sheet rejects too; there is nothing to do.
+    }
+  }
 
   async function copyLink() {
     try {
@@ -31,50 +56,64 @@ export function ShareButtons({ showDate, venue, location }: ShareButtonsProps) {
   }
 
   return (
-    <div className="flex items-center justify-center gap-3">
-      {/* Twitter/X */}
-      <a
-        href={twitterUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs
-                   border border-dead-lavender/30 bg-white/50 text-dead-bone/70
-                   hover:border-dead-pink/40 hover:bg-dead-pink/10 hover:text-dead-pink
-                   transition-colors"
-        aria-label="Share on Twitter"
-      >
-        <XIcon />
-        Share
-      </a>
+    <div className="flex flex-wrap items-center justify-center gap-3">
+      {/* The device's share sheet where there is one, otherwise X and Facebook */}
+      {canShare ? (
+        <button
+          onClick={share}
+          className={`${pillClass} hover:border-dead-pink/40 hover:bg-dead-pink/10 cursor-pointer`}
+        >
+          <ShareIcon />
+          Share
+        </button>
+      ) : (
+        <>
+          {/* X */}
+          <a
+            href={twitterUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${pillClass} hover:border-dead-pink/40 hover:bg-dead-pink/10`}
+            aria-label="Share on X"
+          >
+            <XIcon />
+            Share on X
+          </a>
 
-      {/* Facebook */}
-      <a
-        href={facebookUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs
-                   border border-dead-lavender/30 bg-white/50 text-dead-bone/70
-                   hover:border-dead-sky/40 hover:bg-dead-sky/10 hover:text-dead-blue
-                   transition-colors"
-        aria-label="Share on Facebook"
-      >
-        <FacebookIcon />
-        Share
-      </a>
+          {/* Facebook */}
+          <a
+            href={facebookUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${pillClass} hover:border-dead-sky/40 hover:bg-dead-sky/10`}
+            aria-label="Share on Facebook"
+          >
+            <FacebookIcon />
+            Share on Facebook
+          </a>
+        </>
+      )}
 
       {/* Copy link */}
       <button
         onClick={copyLink}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs
-                   border border-dead-lavender/30 bg-white/50 text-dead-bone/70
-                   hover:border-dead-mint/40 hover:bg-dead-mint/10 hover:text-dead-green
-                   transition-colors cursor-pointer"
+        className={`${pillClass} hover:border-dead-mint/40 hover:bg-dead-mint/10 cursor-pointer`}
         aria-label="Copy link"
       >
         <LinkIcon />
-        {copied ? "Copied!" : "Copy Link"}
+        {copied ? "Copied!" : "Copy link"}
       </button>
     </div>
+  );
+}
+
+function ShareIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7" />
+      <path d="M16 6l-4-4-4 4" />
+      <path d="M12 2v13" />
+    </svg>
   );
 }
 

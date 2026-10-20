@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { getDailyShow, isValidDateStr, getTodayDateStr } from "@/lib/daily-show";
+import { formatDate } from "@/lib/format";
 import { fetchShowDetails, pickBestSource } from "@/lib/relisten";
 import { ShowPageContent } from "@/components/ShowPageContent";
 
@@ -14,7 +15,7 @@ export async function generateMetadata({ params }: PageProps) {
   const show = getDailyShow(date);
   return {
     title: `${show.venue} — ${show.date} | Dead Redux`,
-    description: `Today's Grateful Dead show: ${show.venue}, ${show.location} on ${show.date}`,
+    description: `Featured on ${formatDate(date)}: ${show.venue}, ${show.location}, ${formatDate(show.date)}`,
   };
 }
 

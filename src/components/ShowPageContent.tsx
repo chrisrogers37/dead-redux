@@ -98,6 +98,7 @@ export function ShowPageContent({
 
         {/* Share */}
         <ShareButtons
+          featuredDate={featuredDate}
           showDate={show.date}
           venue={show.venue}
           location={show.location}
