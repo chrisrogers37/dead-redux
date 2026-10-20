@@ -262,4 +262,4 @@ This follows the exact same visual style as the existing show page OG image (sam
 
 - **Do NOT change the Timeline or NavBar components.** This phase only modifies the archive page layout and adds the OG image.
 - **Do NOT add the `player-glow` effect to the archive page.** There's no player on this page — the glow effect is specific to the audio player container.
-- **Do NOT change the archive page's ISR revalidation.** The `revalidate = 3600` setting is correct for this page.
+- ~~**Do NOT change the archive page's ISR revalidation.** The `revalidate = 3600` setting is correct for this page.~~ Superseded: the archive now renders on every visit (`await connection()` in `src/app/archive/page.tsx`), so its list always ends on yesterday.

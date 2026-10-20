@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { getDailyShow, isValidDateStr } from "@/lib/daily-show";
+import { formatDate } from "@/lib/format";
 
 export const runtime = "edge";
 
@@ -39,13 +40,7 @@ export default async function OGImage({
 
   const show = getDailyShow(date);
 
-  const dateObj = new Date(date + "T00:00:00Z");
-  const formattedDate = dateObj.toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+  const formattedDate = formatDate(date);
 
   return new ImageResponse(
     (
