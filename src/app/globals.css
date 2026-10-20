@@ -1,232 +1,86 @@
 @import "tailwindcss";
 
-@theme {
-  --color-dead-red: #E8889B;
-  --color-dead-blue: #8BB8E8;
-  --color-dead-cream: #FFF8F0;
-  --color-dead-gold: #B8872E;
-  --color-dead-bone: #5C4F3D;
-  --color-dead-charcoal: #F5EDE3;
-  --color-dead-ink: #FFF8F0;
-  --color-dead-purple: #B8A0D4;
-  --color-dead-pink: #E8A0B8;
-  --color-dead-cyan: #A0D4D4;
-  --color-dead-green: #A8D4A0;
-  --color-dead-lavender: #C8B8E0;
-  --color-dead-peach: #F0C8A8;
-  --color-dead-mint: #B8E0C8;
-  --color-dead-butter: #F0E0A8;
-  --color-dead-sky: #A8D0F0;
-
-  --font-display: var(--font-playfair-display), serif;
-  --font-body: system-ui, sans-serif;
-
-  --animate-bear-walk: bear-walk 14s linear infinite;
-  --animate-rainbow-shift: rainbow-shift 8s ease infinite;
-  --animate-psychedelic-bg: psychedelic-bg 20s ease infinite;
-  --animate-float: float 6s ease-in-out infinite;
-  --animate-pulse-glow: pulse-glow 4s ease-in-out infinite;
+:root {
+  --sheet: #1C1A34;
+  --cream: #F1E9D8;
+  --muted: #B8B3D1;
+  --orange: #F2A33A;
+  --band: #2A2748;
+  --line: #3A376A;
+  --page: var(--sheet);
 }
 
-@keyframes bear-walk {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(calc(100vw + 100%));
-  }
+@theme inline {
+  --color-sheet: var(--sheet);
+  --color-cream: var(--cream);
+  --color-muted: var(--muted);
+  --color-orange: var(--orange);
+  --color-band: var(--band);
+  --color-line: var(--line);
+  --font-head: var(--font-fraunces), serif;
+  --font-bill: var(--font-archivo), sans-serif;
 }
 
-@keyframes rainbow-shift {
-  0% { filter: hue-rotate(0deg); }
-  50% { filter: hue-rotate(30deg); }
-  100% { filter: hue-rotate(0deg); }
-}
+body { background-color: var(--sheet); color: var(--cream); min-height: 100vh; }
 
-@keyframes psychedelic-bg {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
+/* Type. Fraunces for the headline (soft, wonky, at its largest optical size); Archivo condensed for the bill. */
+/* They sit in the components layer so a size utility on the same element wins. */
+@layer components {
+  .t-head  { font: 900 168px/152px var(--font-fraunces), serif; font-variation-settings: "opsz" 144, "SOFT" 100, "WONK" 1; letter-spacing: -0.02em; text-transform: uppercase; }
+  .t-venue { font: 700 24px/32px var(--font-archivo), sans-serif; font-variation-settings: "wdth" 75; letter-spacing: 0.08em; text-transform: uppercase; }
+  .t-bill  { font: 700 14px/20px var(--font-archivo), sans-serif; font-variation-settings: "wdth" 75; letter-spacing: 0.2em; text-transform: uppercase; }
+  .t-tag   { font: 700 13px/16px var(--font-archivo), sans-serif; font-variation-settings: "wdth" 75; letter-spacing: 0.12em; text-transform: uppercase; }
+  .t-print { font: 500 16px/24px var(--font-archivo), sans-serif; font-variation-settings: "wdth" 90; }
+  .t-meta  { font: 500 14px/20px var(--font-archivo), sans-serif; font-variation-settings: "wdth" 90; font-variant-numeric: tabular-nums; }
+  .t-now   { font: 600 20px/28px var(--font-fraunces), serif; font-variation-settings: "opsz" 20, "SOFT" 50; }
+  @media (max-width: 639px) {
+    .t-head  { font-size: 84px; line-height: 80px; }
+    .t-venue { font-size: 16px; line-height: 24px; }
+    .t-bill  { font-size: 13px; line-height: 16px; }
   }
 }
 
-@keyframes float {
-  0%, 100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-8px);
-  }
-}
+/* The double rule of the sheet: the border is the outer rule; the inner rule is drawn over the bands so it frames the whole sheet. */
+.sheet { position: relative; border: 2px solid var(--cream); }
+.sheet::before { content: ""; position: absolute; inset: 8px; border: 1px solid var(--cream); pointer-events: none; z-index: 20; }
 
-@keyframes pulse-glow {
-  0%, 100% {
-    opacity: 0.3;
-    filter: blur(40px);
-  }
-  50% {
-    opacity: 0.5;
-    filter: blur(50px);
-  }
-}
+/* The silkscreen: each pass wipes down over the band it prints; the normal style is the printed state. */
+@keyframes squeegee { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes appear { from { opacity: 0; } to { opacity: 1; } }
+.pass-1 { animation: squeegee 300ms cubic-bezier(0.4, 0, 0.2, 1) 600ms both; }
+.pass-2 { animation: squeegee 300ms cubic-bezier(0.4, 0, 0.2, 1) 1400ms both; }
+.pass-wm-1 { animation: appear 200ms linear 2400ms both; }
+.pass-wm-2 { animation: appear 200ms linear 2800ms both; }
+.pass-wm-3 { animation: appear 200ms linear 3200ms both; }
+.border-bear { animation: appear 120ms linear both; animation-delay: calc(6000ms + var(--i, 0) * 120ms); }
 
-@keyframes spin-slow {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
+/* The bear frames. */
+.bear .frame-b { opacity: 0; }
+@keyframes bear-step { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
+.bear.step .frame-a { animation: bear-step 500ms steps(1) 1; }
+.bear.step .frame-b { animation: bear-step 500ms steps(1) 1 reverse; }
+@keyframes parade { from { transform: translateX(-300px); } to { transform: translateX(calc(100vw + 8px)); } }
+.parade { animation: parade 68s linear both; }
+.parade .frame-a { animation: bear-step 500ms steps(1) infinite; }
+.parade .frame-b { animation: bear-step 500ms steps(1) infinite reverse; }
 
-@keyframes rainbow-text {
-  0% { color: #E8889B; }
-  14% { color: #E8A0B8; }
-  28% { color: #B8A0D4; }
-  42% { color: #8BB8E8; }
-  57% { color: #A0D4D4; }
-  71% { color: #A8D4A0; }
-  85% { color: #D4A056; }
-  100% { color: #E8889B; }
-}
+/* Lean-back: the bands slide apart. */
+.band-top { transition: transform 800ms cubic-bezier(0.2, 0.7, 0.2, 1); }
+[data-idle="1"] .fades { opacity: 0.4; transition: opacity 600ms; }
+[data-idle] { cursor: none; }
 
-@keyframes tie-dye-rotate {
-  0% { transform: rotate(0deg) scale(1); }
-  50% { transform: rotate(180deg) scale(1.05); }
-  100% { transform: rotate(360deg) scale(1); }
-}
+:focus-visible { outline: 3px solid var(--orange); outline-offset: 3px; }
 
-@keyframes cloud-drift {
-  0%, 100% { transform: translateX(0px); }
-  25% { transform: translateX(12px); }
-  75% { transform: translateX(-12px); }
-}
-
-@keyframes gentle-sway {
-  0%, 100% { transform: rotate(-2deg); }
-  50% { transform: rotate(2deg); }
-}
-
-body {
-  background-color: var(--color-dead-ink);
-  background-image:
-    radial-gradient(ellipse at 20% 20%, rgba(200, 184, 224, 0.25) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 15%, rgba(240, 200, 168, 0.2) 0%, transparent 50%),
-    radial-gradient(ellipse at 50% 80%, rgba(168, 208, 240, 0.2) 0%, transparent 50%),
-    radial-gradient(ellipse at 10% 70%, rgba(184, 224, 200, 0.15) 0%, transparent 40%),
-    radial-gradient(ellipse at 90% 60%, rgba(232, 160, 184, 0.15) 0%, transparent 40%);
-  min-height: 100vh;
-}
-
-.bolt-divider {
-  height: 3px;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    #E8889B 10%,
-    #E8A0B8 20%,
-    #B8A0D4 30%,
-    #8BB8E8 40%,
-    #A0D4D4 50%,
-    #A8D4A0 60%,
-    #F0E0A8 70%,
-    #F0C8A8 80%,
-    #E8889B 90%,
-    transparent 100%
-  );
-  opacity: 0.7;
-  background-size: 200% 100%;
-  animation: psychedelic-bg 6s ease infinite;
-  border-radius: 2px;
-}
-
-.player-glow {
-  box-shadow:
-    0 4px 20px rgba(184, 160, 212, 0.15),
-    0 8px 40px rgba(232, 160, 184, 0.1);
-}
-
-.rainbow-text {
-  background: linear-gradient(
-    90deg,
-    #D4607A,
-    #C87098,
-    #9A80C0,
-    #6898D0,
-    #70B0B0,
-    #78B070,
-    #C8B868,
-    #D4607A
-  );
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: psychedelic-bg 6s ease infinite;
-  filter: drop-shadow(0 1px 2px rgba(92, 79, 61, 0.15));
-}
-
-.trippy-border {
-  border-image: linear-gradient(
-    90deg,
-    #E8889B,
-    #E8A0B8,
-    #B8A0D4,
-    #8BB8E8,
-    #A0D4D4,
-    #A8D4A0,
-    #F0E0A8,
-    #E8889B
-  ) 1;
-}
-
-.psychedelic-orb {
-  position: absolute;
-  border-radius: 50%;
-  animation: pulse-glow 4s ease-in-out infinite, tie-dye-rotate 30s linear infinite;
-  pointer-events: none;
-}
-
-.watercolor-card {
-  background: linear-gradient(135deg, rgba(255, 248, 240, 0.95), rgba(245, 237, 227, 0.9));
-  border: 1px solid rgba(184, 160, 212, 0.3);
-  border-radius: 1rem;
-  box-shadow: 0 2px 12px rgba(184, 160, 212, 0.15);
-  backdrop-filter: blur(8px);
-}
-
-.vine-divider {
-  height: 2px;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    #B8E0C8 15%,
-    #A8D4A0 30%,
-    #C8B8E0 50%,
-    #E8A0B8 70%,
-    #F0C8A8 85%,
-    transparent 100%
-  );
-  opacity: 0.5;
-  border-radius: 2px;
-}
+.display { display: block; width: 100%; height: 100%; pointer-events: none; }
+.display-css { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.display-css > div { position: absolute; width: 60%; height: 60%; border-radius: 50%; }
+.display-css > .g1 { left: 5%; top: 5%; background: radial-gradient(circle, rgba(242,163,58,0.85) 0%, transparent 70%); animation: drift1 97s ease-in-out infinite alternate; }
+.display-css > .g2 { left: 40%; top: 20%; background: radial-gradient(circle, rgba(52,196,220,0.85) 0%, transparent 70%); animation: drift2 113s ease-in-out infinite alternate; }
+.display-css > .g3 { left: 20%; top: 45%; background: radial-gradient(circle, rgba(140,75,184,0.85) 0%, transparent 70%); animation: drift3 131s ease-in-out infinite alternate; }
+@keyframes drift1 { to { transform: translate(18%, 12%); } }
+@keyframes drift2 { to { transform: translate(-16%, 10%); } }
+@keyframes drift3 { to { transform: translate(10%, -18%); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-bear-walk {
-    animation: none;
-    display: none;
-  }
-  .rainbow-text {
-    animation: none;
-  }
-  .bolt-divider {
-    animation: none;
-  }
-  .psychedelic-orb {
-    animation: none;
-  }
-  .psychedelic-cloud {
-    animation: none;
-  }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
 }
