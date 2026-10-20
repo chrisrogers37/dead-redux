@@ -1,5 +1,5 @@
 import type { ShowDetails, Source, Set, Track } from "./types";
-import { stripTrackNumber } from "./format";
+import { stripTrackNumber, toPlainText } from "./format";
 
 const API_BASE = "https://api.relisten.net/api/v2/artists/grateful-dead";
 
@@ -103,10 +103,11 @@ function parseSource(s: RelistenSource): Source {
     flacType: s.flac_type,
     description: s.description,
     taperNotes: s.taper_notes,
-    source: s.source,
-    taper: s.taper,
-    lineage: s.lineage,
-    transferrer: s.transferrer,
+    // These fields can hold HTML; the page shows them as plain text.
+    source: s.source && toPlainText(s.source),
+    taper: s.taper && toPlainText(s.taper),
+    lineage: s.lineage && toPlainText(s.lineage),
+    transferrer: s.transferrer && toPlainText(s.transferrer),
     sets: (s.sets ?? []).map(parseSet),
   };
 }

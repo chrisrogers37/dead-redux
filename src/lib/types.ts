@@ -46,7 +46,9 @@ export interface Source {
   duration: number;
   numReviews: number;
   flacType: string;
+  /** As Relisten sends it, HTML included; the page shows it through notesToLines. */
   description: string | null;
+  /** As Relisten sends it, HTML included. */
   taperNotes: string | null;
   source: string | null;
   taper: string | null;
