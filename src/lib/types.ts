@@ -54,6 +54,8 @@ export interface Source {
   taper: string | null;
   lineage: string | null;
   transferrer: string | null;
+  /** Most of its track titles are placeholders (see isPlaceholderTitle), not song titles. */
+  unlabeled: boolean;
   sets: Set[];
 }
 
@@ -63,6 +65,7 @@ export interface Set {
 }
 
 export interface Track {
+  /** The song title, or "Track <trackPosition>" when the source gives a placeholder instead. */
   title: string;
   duration: number;
   trackPosition: number;

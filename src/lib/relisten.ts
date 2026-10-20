@@ -1,5 +1,5 @@
 import type { ShowDetails, Source, Set, Track } from "./types";
-import { stripTrackNumber, toPlainText } from "./format";
+import { isPlaceholderTitle, stripTrackNumber, toPlainText } from "./format";
 
 const API_BASE = "https://api.relisten.net/api/v2/artists/grateful-dead";
 
@@ -17,7 +17,7 @@ interface RelistenShowResponse {
   avg_rating: number;
 }
 
-interface RelistenSource {
+export interface RelistenSource {
   id: number;
   uuid: string;
   upstream_identifier: string;
@@ -89,7 +89,7 @@ function parseShowResponse(data: RelistenShowResponse): ShowDetails {
   };
 }
 
-function parseSource(s: RelistenSource): Source {
+export function parseSource(s: RelistenSource): Source {
   return {
     id: s.id,
     uuid: s.uuid,
@@ -108,8 +108,14 @@ function parseSource(s: RelistenSource): Source {
     taper: s.taper && toPlainText(s.taper),
     lineage: s.lineage && toPlainText(s.lineage),
     transferrer: s.transferrer && toPlainText(s.transferrer),
+    unlabeled: isUnlabeled(s),
     sets: (s.sets ?? []).map(parseSet),
   };
+}
+
+function isUnlabeled(s: RelistenSource): boolean {
+  const titles = (s.sets ?? []).flatMap((set) => (set.tracks ?? []).map((t) => t.title));
+  return titles.filter(isPlaceholderTitle).length * 2 > titles.length;
 }
 
 function parseSet(s: RelistenSet): Set {
@@ -121,7 +127,7 @@ function parseSet(s: RelistenSet): Set {
 
 function parseTrack(t: RelistenTrack): Track {
   return {
-    title: stripTrackNumber(t.title),
+    title: isPlaceholderTitle(t.title) ? `Track ${t.track_position}` : stripTrackNumber(t.title),
     duration: t.duration,
     trackPosition: t.track_position,
     mp3Url: t.mp3_url,
@@ -131,12 +137,14 @@ function parseTrack(t: RelistenTrack): Track {
 
 /**
  * Pick the best available source for a show.
- * Prefers: soundboard > highest weighted rating > most reviews.
+ * Prefers: song titles > soundboard > highest weighted rating > most reviews. A source whose
+ * titles are mostly placeholders comes after every labeled one, so the page can show a setlist.
  */
 export function pickBestSource(sources: Source[]): Source | null {
   if (sources.length === 0) return null;
 
   const sorted = [...sources].sort((a, b) => {
+    if (a.unlabeled !== b.unlabeled) return a.unlabeled ? 1 : -1;
     if (a.isSoundboard !== b.isSoundboard) return a.isSoundboard ? -1 : 1;
     if (a.avgRatingWeighted !== b.avgRatingWeighted)
       return b.avgRatingWeighted - a.avgRatingWeighted;
