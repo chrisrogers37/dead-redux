@@ -241,7 +241,17 @@ function start(gl) {
   const t0 = tangentAt(0); walker.heading = Math.atan2(-t0.x, -t0.z);
   const keys = { fwd: false, back: false, left: false, right: false };
   let mode = reduced ? "walk" : "descent";
-  let attractU = 0, idleTimer = 0, elapsed = 0, drag = null, dragSpeed = 0;
+  let attractU = 0, driftU = 0, idleTimer = 0, elapsed = 0, drag = null, dragSpeed = 0;
+  /* The attract walk and the drift start this far behind the last bear, so the five walk ahead in view. */
+  const TRAIL = (4 * 2.6 + 14) / curveLength;
+  /* The attract camera: beside the path at a little above head height, looking 30 m up the path. */
+  function attractPose(u) {
+    const p = at(u), tg = tangentAt(u);
+    const side = new THREE.Vector3().crossVectors(tg, new THREE.Vector3(0, 1, 0)).normalize();
+    const x = p.x + side.x * 2.5, z = p.z + side.z * 2.5;
+    const ahead = at(u + 30 / curveLength);
+    return { pos: new THREE.Vector3(x, height(x, z) + 4.5, z), look: new THREE.Vector3(ahead.x, ahead.y + 2, ahead.z) };
+  }
   const forward = () => new THREE.Vector3(-Math.sin(walker.heading), 0, -Math.cos(walker.heading));
   function userInput() {
     if (mode !== "drift") mode = "walk";
@@ -263,7 +273,7 @@ function start(gl) {
   new MutationObserver(() => {
     const lean = main.dataset.mode === "leanback";
     playing = main.dataset.state === "playing";
-    if (lean && mode !== "drift") mode = "drift";
+    if (lean && mode !== "drift") { mode = "drift"; driftU = (index + frac) / N - TRAIL; }
     if (!lean && mode === "drift") { mode = "walk"; idleTimer = 0; }
   }).observe(main, { attributes: true, attributeFilter: ["data-mode", "data-state"] });
 
@@ -330,31 +340,34 @@ function start(gl) {
       if (moving_ && !reduced) camera.position.y += 0.12 * Math.sin(elapsed * 9);
       if (!reduced) { idleTimer += dt; if (idleTimer > 15) { mode = "attract"; attractU = nearestU(walker.x, walker.z); } }
     } else if (mode === "descent") {
+      /* From above the summit, where the island reads as the mark, north up the screen, down to the attract walk's first pose. */
       const k = easeOut(elapsed / 6);
-      const p0 = at(0), fw = forward();
-      camera.position.set(p0.x * k, 140 + (p0.y + 3.2 - 140) * k, p0.z * k);
-      lookTarget.set(p0.x * k + fw.x * (k * 2 + 0.05), (p0.y + 3.2) * k, p0.z * k + fw.z * (k * 2 + 0.05)); // a hair off vertical at the top, so the view is never straight down
+      const end = attractPose(-TRAIL);
+      camera.position.set(end.pos.x * k, 140 + (end.pos.y - 140) * k, end.pos.z * k);
+      lookTarget.set(end.look.x * k, end.look.y * k, -3 + (end.look.z + 3) * k);
       camera.lookAt(lookTarget);
-      if (elapsed >= 6) { mode = "attract"; attractU = 0; }
+      if (elapsed >= 6) { mode = "attract"; attractU = -TRAIL; }
     } else if (mode === "attract") {
-      attractU += (10 / curveLength) * dt;
-      const p = at(attractU), ahead = at(attractU + 0.015);
-      camera.position.set(p.x, p.y + 3.2, p.z);
-      camera.lookAt(ahead.x, ahead.y + 3.2, ahead.z);
-      walker.x = p.x; walker.z = p.z; const tg = tangentAt(attractU); walker.heading = Math.atan2(-tg.x, -tg.z);
+      attractU += (6 / curveLength) * dt;
+      const pose = attractPose(attractU);
+      camera.position.copy(pose.pos);
+      camera.lookAt(pose.look);
+      walker.x = pose.pos.x; walker.z = pose.pos.z; const tg = tangentAt(attractU); walker.heading = Math.atan2(-tg.x, -tg.z);
     } else if (mode === "drift") {
       if (reduced) {
         const p0 = at(0);
         camera.position.set(0, height(0, 0) + 8, 0);
         camera.lookAt(p0.x, p0.y, p0.z);
       } else {
-        const u = uLead - 4 / curveLength;
-        const p = at(u), tg = tangentAt(u);
+        /* A slow crane along the path, high above the bears, whether or not the show is playing. */
+        driftU += (1.5 / curveLength) * dt;
+        const p = at(driftU), tg = tangentAt(driftU);
         const side = new THREE.Vector3().crossVectors(tg, up).normalize();
         const sway = 2 * Math.sin((elapsed * Math.PI * 2) / 30);
-        camera.position.set(p.x + side.x * sway, p.y + 5, p.z + side.z * sway);
-        const lead = bears[0].g.position;
-        camera.lookAt(lead.x, lead.y + 2, lead.z);
+        const x = p.x + side.x * sway, z = p.z + side.z * sway;
+        camera.position.set(x, height(x, z) + 9, z);
+        const ahead = at(driftU + 28 / curveLength);
+        camera.lookAt(ahead.x, ahead.y + 1.5, ahead.z);
       }
     }
 
