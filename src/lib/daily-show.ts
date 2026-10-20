@@ -1,7 +1,11 @@
 import showCatalog from "../../data/shows.json";
+import pickSchedule from "../../data/pick-schedule.json";
+import { showDateFor, type PickSchedule } from "./pick-schedule";
 import type { ShowSummary } from "./types";
 
 const shows: ShowSummary[] = showCatalog as ShowSummary[];
+const showsByDate = new Map(shows.map((show) => [show.date, show]));
+const schedule: PickSchedule = pickSchedule;
 
 /** The site's day turns over at midnight in this time zone. */
 const TIME_ZONE = "America/New_York";
@@ -14,27 +18,19 @@ const dayFormat = new Intl.DateTimeFormat("en-US", {
 });
 
 /**
- * Simple string hash function (djb2).
- * Deterministic: same input always produces same output.
- */
-function hashString(str: string): number {
-  let hash = 5381;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash * 33) ^ str.charCodeAt(i);
-  }
-  return hash >>> 0; // Convert to unsigned 32-bit integer
-}
-
-/**
  * Get the show featured on a date.
- * Uses the date string as a seed to deterministically select a show.
- * Everyone visiting on the same day sees the same show.
+ * Everyone visiting on the same day sees the same show, and a date keeps its
+ * show for good.
  *
  * @param dateStr - ISO date string "YYYY-MM-DD".
  */
 export function getDailyShow(dateStr: string): ShowSummary {
-  const index = hashString(`dead-redux-${dateStr}`) % shows.length;
-  return shows[index];
+  const showDate = showDateFor(schedule, dateStr);
+  const show = showsByDate.get(showDate);
+  if (!show) {
+    throw new Error(`${showDate} is in data/pick-schedule.json but not in data/shows.json`);
+  }
+  return show;
 }
 
 /**
