@@ -1,4 +1,5 @@
 import type { ShowDetails, Source, Set, Track } from "./types";
+import { stripTrackNumber } from "./format";
 
 const API_BASE = "https://api.relisten.net/api/v2/artists/grateful-dead";
 
@@ -30,6 +31,9 @@ interface RelistenSource {
   description: string | null;
   taper_notes: string | null;
   source: string | null;
+  taper: string | null;
+  lineage: string | null;
+  transferrer: string | null;
   sets: RelistenSet[];
 }
 
@@ -100,6 +104,9 @@ function parseSource(s: RelistenSource): Source {
     description: s.description,
     taperNotes: s.taper_notes,
     source: s.source,
+    taper: s.taper,
+    lineage: s.lineage,
+    transferrer: s.transferrer,
     sets: (s.sets ?? []).map(parseSet),
   };
 }
@@ -113,7 +120,7 @@ function parseSet(s: RelistenSet): Set {
 
 function parseTrack(t: RelistenTrack): Track {
   return {
-    title: t.title,
+    title: stripTrackNumber(t.title),
     duration: t.duration,
     trackPosition: t.track_position,
     mp3Url: t.mp3_url,

@@ -33,6 +33,25 @@ export function formatDate(dateStr: string): string {
 }
 
 /**
+ * Drop a leading track number from a track title.
+ * "01 Tuning" → "Tuning"; "4th Of July" stays as written.
+ */
+export function stripTrackNumber(title: string): string {
+  return title.replace(/^\d{1,3}(?:[.)]|\s+-)?\s+/, "");
+}
+
+/**
+ * Split source notes into plain-text lines. A `<br />` tag or a newline ends a
+ * line, other tags are dropped, and blank lines are left out.
+ */
+export function notesToLines(notes: string): string[] {
+  return notes
+    .split(/<br\s*\/?>|\n/i)
+    .map((line) => line.replace(/<[^>]*>/g, "").trim())
+    .filter(Boolean);
+}
+
+/**
  * Format a rating to one decimal place.
  * 9.570934 → "9.6"
  */

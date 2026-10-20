@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatDuration, formatDate, formatRating } from "../format";
+import { formatDuration, formatDate, formatRating, notesToLines, stripTrackNumber } from "../format";
 
 describe("formatDuration", () => {
   it("formats seconds to mm:ss", () => {
@@ -26,6 +26,32 @@ describe("formatDate", () => {
 
   it("leaves a partial date as written", () => {
     expect(formatDate("1977-XX-XX")).toBe("1977-XX-XX");
+  });
+});
+
+describe("stripTrackNumber", () => {
+  it("drops a leading track number", () => {
+    expect(stripTrackNumber("01 Tuning")).toBe("Tuning");
+    expect(stripTrackNumber("1. Jack Straw")).toBe("Jack Straw");
+    expect(stripTrackNumber("12 - Morning Dew")).toBe("Morning Dew");
+  });
+
+  it("leaves other titles as written", () => {
+    expect(stripTrackNumber("Tuning")).toBe("Tuning");
+    expect(stripTrackNumber("4th Of July")).toBe("4th Of July");
+    expect(stripTrackNumber("1977 Jam")).toBe("1977 Jam");
+  });
+});
+
+describe("notesToLines", () => {
+  it("ends a line at each <br /> and drops other tags", () => {
+    expect(
+      notesToLines('<div class="set_info">Set 1</div><br />Jack Straw, <b>Deal</b><br/><br>Set 2')
+    ).toEqual(["Set 1", "Jack Straw, Deal", "Set 2"]);
+  });
+
+  it("ends a line at each newline and leaves out blank lines", () => {
+    expect(notesToLines("Set 1\n\nJack Straw, Deal\r\n")).toEqual(["Set 1", "Jack Straw, Deal"]);
   });
 });
 

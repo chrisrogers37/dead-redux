@@ -49,6 +49,9 @@ export interface Source {
   description: string | null;
   taperNotes: string | null;
   source: string | null;
+  taper: string | null;
+  lineage: string | null;
+  transferrer: string | null;
   sets: Set[];
 }
 
