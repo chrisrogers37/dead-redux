@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { formatDuration, formatDate, formatRating } from "../format";
+import {
+  formatDuration,
+  formatDate,
+  formatRating,
+  notesToLines,
+  stripTrackNumber,
+  toPlainText,
+} from "../format";
 
 describe("formatDuration", () => {
   it("formats seconds to mm:ss", () => {
@@ -26,6 +33,75 @@ describe("formatDate", () => {
 
   it("leaves a partial date as written", () => {
     expect(formatDate("1977-XX-XX")).toBe("1977-XX-XX");
+  });
+});
+
+describe("stripTrackNumber", () => {
+  it("drops a leading track number", () => {
+    expect(stripTrackNumber("01 Tuning")).toBe("Tuning");
+    expect(stripTrackNumber("1. Jack Straw")).toBe("Jack Straw");
+    expect(stripTrackNumber("12 - Morning Dew")).toBe("Morning Dew");
+    expect(stripTrackNumber("01-Little Red Rooster")).toBe("Little Red Rooster");
+    expect(stripTrackNumber("05 - 900,000 Tons of Steel")).toBe("900,000 Tons of Steel");
+    expect(stripTrackNumber("101 Jack Straw")).toBe("Jack Straw");
+    expect(stripTrackNumber("8) Beat It On Down the Line")).toBe("Beat It On Down the Line");
+    expect(stripTrackNumber("12- Morning Dew")).toBe("Morning Dew");
+    expect(stripTrackNumber("12 -Tuning")).toBe("Tuning");
+    expect(stripTrackNumber("18 (I Can't Get No) Satisfaction")).toBe("(I Can't Get No) Satisfaction");
+  });
+
+  it("leaves other titles as written", () => {
+    expect(stripTrackNumber("Tuning")).toBe("Tuning");
+    expect(stripTrackNumber("4th Of July")).toBe("4th Of July");
+    expect(stripTrackNumber("1977 Jam")).toBe("1977 Jam");
+    expect(stripTrackNumber("900,000 Tons of Steel")).toBe("900,000 Tons of Steel");
+    expect(stripTrackNumber("4-26-69d1t01.mp3")).toBe("4-26-69d1t01.mp3");
+    expect(stripTrackNumber("1.5 Hours")).toBe("1.5 Hours");
+  });
+});
+
+describe("notesToLines", () => {
+  it("ends a line at each <br /> and drops other tags", () => {
+    expect(
+      notesToLines('<div class="set_info">Set 1</div><br />Jack Straw, <b>Deal</b><br/><br>Set 2')
+    ).toEqual(["Set 1", "Jack Straw, Deal", "Set 2"]);
+  });
+
+  it("ends a line at each newline and leaves out blank lines", () => {
+    expect(notesToLines("Set 1\n\nJack Straw, Deal\r\n")).toEqual(["Set 1", "Jack Straw, Deal"]);
+  });
+
+  it("ends a line at a <br> with attributes or in capitals", () => {
+    expect(notesToLines('Set 1<br style="color:red" />Jack')).toEqual(["Set 1", "Jack"]);
+    expect(notesToLines("Set 1<BR>Jack Straw")).toEqual(["Set 1", "Jack Straw"]);
+  });
+
+  it("decodes entities in each line", () => {
+    expect(notesToLines("Me &amp; My Uncle-&gt; Big River<br />E: U.S. Blues")).toEqual([
+      "Me & My Uncle-> Big River",
+      "E: U.S. Blues",
+    ]);
+  });
+});
+
+describe("toPlainText", () => {
+  it("drops tags and decodes entities", () => {
+    expect(toPlainText("<b>flac16</b> SBD&gt; Master")).toBe("flac16 SBD> Master");
+    expect(toPlainText("Me &amp; My Uncle-&gt; Big River")).toBe("Me & My Uncle-> Big River");
+    expect(toPlainText("&quot;Dark Star&quot; &#39;72 &#x26; more")).toBe("\"Dark Star\" '72 & more");
+  });
+
+  it("drops tags before decoding, so an encoded bracket stays as text", () => {
+    expect(toPlainText("Master &lt;- Reel &gt; DAT")).toBe("Master <- Reel > DAT");
+  });
+
+  it("keeps a bracket that does not start a tag", () => {
+    const text = "standard stereo configuration< (mic stand at approx. 7.5' height) > Sony TC-D5M";
+    expect(toPlainText(text)).toBe(text);
+  });
+
+  it("collapses whitespace, &nbsp; included", () => {
+    expect(toPlainText("  SBD&nbsp;&gt;\n  DAT  ")).toBe("SBD > DAT");
   });
 });
 

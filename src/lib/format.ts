@@ -33,6 +33,54 @@ export function formatDate(dateStr: string): string {
 }
 
 /**
+ * Drop a leading track number from a track title. "01 Tuning", "1. Tuning", "8) Tuning",
+ * "12 - Tuning", "12- Tuning", "12 -Tuning" and "01-Tuning" all become "Tuning";
+ * "4th Of July", "1977 Jam" and a file name such as "4-26-69d1t01.mp3" stay as written.
+ */
+export function stripTrackNumber(title: string): string {
+  return title.replace(/^\d{1,3}(?:[.)]\s+|\s*-\s+|\s*-(?=[A-Za-z])|\s+)/, "");
+}
+
+// The named entities source text uses; numeric ones are decoded by code point.
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  nbsp: " ",
+};
+
+/**
+ * Turn source text that may hold HTML into plain text: tags are dropped, then
+ * entities are decoded, and each run of whitespace becomes one space. Only a "<"
+ * followed by a letter, "/" or "!" starts a tag, so "configuration< (mic stand) >"
+ * stays as written. "<b>flac16</b> SBD&gt; Master" → "flac16 SBD> Master".
+ */
+export function toPlainText(html: string): string {
+  return html
+    .replace(/<[a-z!/][^>]*>/gi, "")
+    .replace(/&(?:#(\d+)|#x([0-9a-f]+)|(amp|lt|gt|quot|nbsp));/gi, (entity, dec, hex, name) => {
+      if (name) return NAMED_ENTITIES[name.toLowerCase()];
+      const code = dec ? Number(dec) : parseInt(hex, 16);
+      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : entity;
+    })
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Split source notes into plain-text lines. A `<br>` tag, with or without
+ * attributes, or a newline ends a line; each line goes through toPlainText, and
+ * blank lines are left out.
+ */
+export function notesToLines(notes: string): string[] {
+  return notes
+    .split(/<br\b[^>]*>|\n/i)
+    .map(toPlainText)
+    .filter(Boolean);
+}
+
+/**
  * Format a rating to one decimal place.
  * 9.570934 → "9.6"
  */
