@@ -25,10 +25,11 @@ const dateFormat = new Intl.DateTimeFormat("en-US", {
 
 /**
  * Format an ISO date string into a readable date.
- * "1977-05-08" → "May 8, 1977"
+ * "1977-05-08" → "May 8, 1977"; a partial date like "1977-XX-XX" stays as written.
  */
 export function formatDate(dateStr: string): string {
-  return dateFormat.format(new Date(dateStr + "T00:00:00Z"));
+  const date = new Date(dateStr + "T00:00:00Z");
+  return isNaN(date.getTime()) ? dateStr : dateFormat.format(date);
 }
 
 /**
