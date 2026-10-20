@@ -163,14 +163,13 @@ try {
 
   for (const { device, name, click, waitFor } of RECORDINGS) {
     const options = DEVICES[device];
-    const scale = options.deviceScaleFactor ?? 1;
-    const size = {
-      width: options.viewport.width * scale,
-      height: options.viewport.height * scale,
-    };
+    // Frames arrive at the viewport's CSS size, whatever the device scale factor.
     const context = await browser.newContext({
       ...options,
-      recordVideo: { dir: await mkdtemp(join(tmpdir(), "recording-")), size },
+      recordVideo: {
+        dir: await mkdtemp(join(tmpdir(), "recording-")),
+        size: options.viewport,
+      },
     });
     const page = await context.newPage();
     const url = new URL("/", site);
