@@ -204,7 +204,7 @@ export function LinerNotesHome({ show, featuredDate, bestSource, tourName }: Pro
       </div>
 
       {!leanback && (
-        <div className="relative z-10 mx-auto w-full max-w-[640px] px-4 pb-16">
+        <div className="relative z-10 mx-auto w-full max-w-[880px] px-4 pb-16">
           <header className="flex items-center justify-between pt-8">
             <span className="t-eyebrow text-muted">Dead Redux</span>
             <Link href="/archive" prefetch={false} className="t-meta text-muted hover:text-ink">Archive</Link>
@@ -257,7 +257,7 @@ export function LinerNotesHome({ show, featuredDate, bestSource, tourName }: Pro
                           className={`relative w-full h-8 max-sm:h-11 flex items-center gap-3 text-left ${isCurrent ? "text-ink" : "text-ink"}`}>
                           {isCurrent && <span className="absolute -left-6 max-sm:-left-4 top-0 bottom-0 w-[3px] bg-accent" aria-hidden="true" />}
                           <span className="w-8 t-tag text-muted">{isCurrent ? "" : String(i + 1).padStart(2, "0")}</span>
-                          <span className="t-body flex-1 truncate">{tr.title}</span>
+                          <span className="t-body flex-1 truncate max-sm:whitespace-normal max-sm:line-clamp-2 max-sm:text-[14px] max-sm:leading-5">{tr.title}</span>
                           <span className="t-meta text-muted">{clock(tr.duration)}</span>
                         </button>
                       </li>
@@ -308,7 +308,7 @@ export function LinerNotesHome({ show, featuredDate, bestSource, tourName }: Pro
               const i = index + d;
               const tr = tracks[i];
               return (
-                <li key={d} className={`text-[24px] leading-8 font-mono px-2 py-1 rounded bg-page ${d === 0 ? "" : "opacity-60"}`}>
+                <li key={d} className={`text-[24px] leading-8 font-mono px-2 py-1 rounded bg-page ${d === 0 ? "" : "opacity-60"} ${tr ? "" : "invisible"}`}>
                   {tr ? tr.title : "\u00a0"}
                 </li>
               );
