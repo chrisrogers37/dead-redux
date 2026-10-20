@@ -111,6 +111,8 @@ function startWebGL(canvas: HTMLCanvasElement, gl: WebGLRenderingContext, option
     canvas.width = options.internalWidth;
     canvas.height = options.disc ? options.internalWidth : Math.max(1, Math.round((options.internalWidth * h) / w));
     gl.viewport(0, 0, canvas.width, canvas.height);
+    // A resize clears the canvas, so the still frame is drawn again.
+    if (options.still) requestAnimationFrame(() => draw(600));
   };
   resize(); const ro = new ResizeObserver(resize); ro.observe(canvas);
   const draw = (t: number) => {
@@ -152,7 +154,11 @@ function startCanvas2D(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D,
   small.width = sw; small.height = sh;
   const sctx = small.getContext("2d"); if (!sctx) return () => {};
   const img = sctx.createImageData(sw, sh);
-  const resize = () => { canvas.width = Math.max(1, Math.round(canvas.clientWidth / 2)); canvas.height = Math.max(1, Math.round(canvas.clientHeight / 2)); };
+  const resize = () => {
+    canvas.width = Math.max(1, Math.round(canvas.clientWidth / 2)); canvas.height = Math.max(1, Math.round(canvas.clientHeight / 2));
+    // A resize clears the canvas, so the still frame is drawn again.
+    if (options.still) requestAnimationFrame(() => draw(600));
+  };
   resize(); const ro = new ResizeObserver(resize); ro.observe(canvas);
   const draw = (t: number) => {
     options.update(t, params);
