@@ -49,7 +49,7 @@ body {
 /* Entrance. Each element's normal style is its final state, so reduced motion simply renders it. */
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes rule { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-@keyframes bear-in { from { transform: translateX(-260px); } to { transform: none; } }
+@keyframes bear-in { from { transform: translateX(-260px); opacity: 0; } 1% { opacity: 1; } to { transform: none; opacity: 1; } }
 @keyframes bear-step { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
 @keyframes parade { from { transform: translateX(-240px); } to { transform: translateX(calc(100vw + 8px)); } }
 
@@ -64,11 +64,12 @@ body {
 
 /* The bear: frame A is always drawn; frame B is drawn over it and blinks while walking. */
 .bear .frame-b { opacity: 0; }
-.bear.walking .frame-a { animation: bear-step 500ms steps(1) infinite; }
-.bear.walking .frame-b { animation: bear-step 500ms steps(1) infinite reverse; }
 .bear.entering { animation: bear-in 2000ms linear 7000ms both; }
 .bear.entering .frame-a { animation: bear-step 500ms steps(1) 7000ms 4; }
 .bear.entering .frame-b { animation: bear-step 500ms steps(1) 7000ms 4 reverse; }
+/* Walking comes after entering, so a track change's steps win over the entrance's. */
+.bear.walking .frame-a { animation: bear-step 500ms steps(1) infinite; }
+.bear.walking .frame-b { animation: bear-step 500ms steps(1) infinite reverse; }
 .bear { transition: top 1000ms linear; }
 
 .parade { animation: parade var(--parade-s, 30s) linear both; }
