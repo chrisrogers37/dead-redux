@@ -98,7 +98,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday }: Props) {
           </div>
           <div className="hud right-6 top-6 max-sm:right-3 max-sm:top-3 flex gap-2 max-sm:flex-col max-sm:items-end">
             {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the world starts once per page load */}
-            <a href="/archive" className="plate t-row text-muted hover:text-ink max-sm:hidden">Archive</a>
+            <a href="/archive" className="plate t-row text-muted hover:text-ink h-11 flex items-center max-sm:hidden">Archive</a>
             <button type="button" data-action="lean-back" onClick={() => setLeanback(true)} aria-label="Lean back" className="plate t-body text-ink h-11 flex items-center">
               <span className="max-sm:hidden">Lean back</span>
               <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="1" /><path d="M8 21h8" /></svg>

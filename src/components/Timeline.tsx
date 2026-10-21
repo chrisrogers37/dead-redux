@@ -22,7 +22,7 @@ export function Timeline({ picks }: TimelineProps) {
         <a
           key={pick.featuredDate}
           href={`/${pick.featuredDate}`}
-          className="grid grid-cols-[8rem_1fr_auto] gap-x-4 py-3 px-4 -mx-4 rounded hover:bg-line"
+          className="grid grid-cols-[8rem_1fr_auto] sm:grid-cols-[10rem_1fr_auto] gap-x-4 py-3 px-4 -mx-4 rounded hover:bg-line"
         >
           {/* Featured date */}
           <time
