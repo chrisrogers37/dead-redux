@@ -14,10 +14,9 @@ export default async function OGImage() {
   return new ImageResponse(
     (
       <ShareCard
-        eyebrow="Dead Redux"
-        headline="Archive"
-        line={`${count} show${count !== 1 ? "s" : ""} featured`}
-        footer="A new Grateful Dead show every day"
+        eyebrow="Archive"
+        headline={`${count} show${count !== 1 ? "s" : ""} featured`}
+        footer="Dead Redux · A new Grateful Dead show every day"
       />
     ),
     { ...size }

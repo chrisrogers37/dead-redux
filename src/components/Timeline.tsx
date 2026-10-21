@@ -1,4 +1,3 @@
-import Link from "next/link";
 import type { DailyPick } from "@/lib/archive";
 import { formatDate, formatRating } from "@/lib/format";
 
@@ -9,54 +8,54 @@ interface TimelineProps {
 export function Timeline({ picks }: TimelineProps) {
   if (picks.length === 0) {
     return (
-      <div className="text-center py-16 text-dead-bone/55">
-        <p>No shows in the archive yet.</p>
-        <p className="text-sm mt-2">Check back tomorrow!</p>
+      <div className="text-center py-16">
+        <p className="t-body text-muted">No shows in the archive yet.</p>
+        <p className="t-row text-muted mt-2">Check back tomorrow!</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-1">
+      {/* Each row is a full page load, so the world module starts on the dated page. */}
       {picks.map((pick) => (
-        <Link
+        <a
           key={pick.featuredDate}
           href={`/${pick.featuredDate}`}
-          className="group flex items-baseline gap-4 py-3 px-4 -mx-4 rounded-xl
-                     hover:bg-dead-lavender/10 transition-colors"
+          className="grid grid-cols-[8rem_1fr_auto] gap-x-4 py-3 px-4 -mx-4 rounded hover:bg-line"
         >
           {/* Featured date */}
           <time
             dateTime={pick.featuredDate}
-            className="text-xs text-dead-bone/55 tabular-nums shrink-0 w-24"
+            className="t-body text-ink tabular-nums"
           >
             {formatDate(pick.featuredDate)}
           </time>
 
           {/* Show info */}
-          <div className="min-w-0 flex-1">
-            <p className="text-sm text-dead-bone/90 group-hover:text-dead-bone transition-colors truncate">
+          <div className="min-w-0">
+            <p className="t-body text-ink">
               {pick.show.venue}
             </p>
-            <p className="text-xs text-dead-bone/55 truncate">
+            <p className="t-row text-muted">
               {pick.show.location} &middot; {formatDate(pick.show.date)}
             </p>
           </div>
 
-          {/* Rating badge */}
-          {pick.show.avgRating > 0 && (
-            <span className="text-xs text-dead-gold/75 group-hover:text-dead-gold tabular-nums shrink-0 transition-colors">
-              {formatRating(pick.show.avgRating)}
-            </span>
-          )}
-
-          {/* Soundboard badge */}
-          {pick.show.hasSoundboard && (
-            <span className="text-[10px] text-dead-gold/60 uppercase tracking-wider shrink-0">
-              SBD
-            </span>
-          )}
-        </Link>
+          {/* Rating and soundboard badges */}
+          <div className="flex items-baseline justify-end gap-3">
+            {pick.show.avgRating > 0 && (
+              <span className="t-row text-muted">
+                {formatRating(pick.show.avgRating)}
+              </span>
+            )}
+            {pick.show.hasSoundboard && (
+              <span className="t-tag text-muted">
+                SBD
+              </span>
+            )}
+          </div>
+        </a>
       ))}
     </div>
   );
