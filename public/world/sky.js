@@ -1,13 +1,12 @@
 /* eslint-disable */
 import * as THREE from "three";
 
-/* The sky of liquid light, and the two lights that take their colour from it. */
-export function buildSky(scene, phone, seed) {
-  const OCT = phone ? 3 : 4;
+/* The sky of liquid light, with its octave count as a uniform the downgrade can lower, and the two lights that take their colour from it. */
+export function buildSky(scene, octaves, seed) {
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
     uniforms: {
-      uTime: { value: 0 }, uSeed: { value: seed }, uEnergy: { value: 0.5 },
+      uTime: { value: 0 }, uSeed: { value: seed }, uEnergy: { value: 0.5 }, uOct: { value: octaves },
       uC0: { value: new THREE.Color(0xe8b04b) }, uC1: { value: new THREE.Color(0xd6508a) }, uC2: { value: new THREE.Color(0x3a2238) }, uPage: { value: new THREE.Color(0x0b0b0d) },
       uDrop: { value: new THREE.Vector3(0.5, 0.5, 99) },
     },
@@ -16,10 +15,11 @@ export function buildSky(scene, phone, seed) {
       precision mediump float;
       varying vec3 vDir;
       uniform float uTime, uSeed, uEnergy; uniform vec3 uC0, uC1, uC2, uPage, uDrop;
+      uniform int uOct;
       float hash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
       float noise(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
         return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y); }
-      float fbm(vec2 p) { float v = 0.0; float a = 0.5; for (int i = 0; i < ${OCT}; i++) { v += a * noise(p); p = p * 2.03 + vec2(1.7, 9.2); a *= 0.5; } return v; }
+      float fbm(vec2 p) { float v = 0.0; float a = 0.5; for (int i = 0; i < 4; i++) { if (i >= uOct) break; v += a * noise(p); p = p * 2.03 + vec2(1.7, 9.2); a *= 0.5; } return v; }
       void main() {
         vec3 d = normalize(vDir);
         vec2 p = d.xz / (d.y + 0.35) * 1.2;

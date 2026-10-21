@@ -7,6 +7,7 @@ import { buildBears } from "./bears.js";
 import { buildSky } from "./sky.js";
 import { bindInput } from "./input.js";
 import { ensureContext } from "./audio.js";
+import { budgetFor, median, pickTier, SLOW_MS, stepDown, WINDOW } from "./quality.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
    The setlist is the path; each song is a landmark; five bears walk it ahead of the listener. */
@@ -15,7 +16,8 @@ const container = document.getElementById("world");
 const main = document.querySelector("main");
 const data = JSON.parse(document.getElementById("world-data").textContent);
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-const phone = window.matchMedia("(max-width: 639px)").matches;
+const tier = pickTier();
+const budget = budgetFor(tier);
 const hasShow = data.tracks.length > 0;
 /* Without a recording the clock still sums over one stand-in track; it never shapes the path or places a landmark. */
 const tracks = hasShow ? data.tracks : [{ title: "Set", duration: 600 }];
@@ -31,6 +33,7 @@ if (container.dataset.world !== "fallback") {
   const gl = canvas.getContext("webgl2", { antialias: false, powerPreference: "low-power", alpha: false });
   if (!gl) {
     container.dataset.world = "fallback";
+    document.dispatchEvent(new CustomEvent("world:ready", { detail: { webgl: false, tier, scale: 0 } }));
   } else {
     container.appendChild(canvas);
     start(gl);
@@ -39,36 +42,45 @@ if (container.dataset.world !== "fallback") {
 
 function start(gl) {
   const renderer = new THREE.WebGLRenderer({ canvas, context: gl, antialias: false, powerPreference: "low-power" });
-  renderer.setPixelRatio(1);
-  const scale = phone ? 0.6 : 0.7; // lower to 0.5 if a software-rendered recording stutters
+  renderer.setPixelRatio(budget.pixelRatio);
+  /* What the world renders at now: the tier's rung 0, until a slow device steps it down. */
+  let quality = { scale: budget.scale, shadows: false, octaves: budget.octaves, bears: budget.bears, stageLight: false };
+  let rung = 0;
+  /* Under reduced motion there is no loop: one frame for each input or state change, always at rung 0. */
+  let pending = 0;
+  function requestRender() {
+    if (!reduced || pending) return;
+    pending = requestAnimationFrame((now) => { pending = 0; frame(now); });
+  }
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x141418, 80, 320);
-  const camera = new THREE.PerspectiveCamera(60, 1, 0.5, 900);
+  const camera = new THREE.PerspectiveCamera(budget.fov, 1, 0.5, 900);
 
   function resize() {
     const w = Math.max(1, container.clientWidth), h = Math.max(1, container.clientHeight);
-    renderer.setSize(Math.round(w * scale), Math.round(h * scale), false);
+    renderer.setSize(Math.round(w * quality.scale), Math.round(h * quality.scale), false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    requestRender();
   }
   resize();
   new ResizeObserver(resize).observe(container);
 
   /* ---------- the island ---------- */
-  buildIsland(scene, phone);
+  buildIsland(scene, budget.grid);
 
   /* ---------- the path and the landmarks ---------- */
   const path = buildPath(N);
   const { points, curve, curveLength, at, tangentAt } = path;
-  const builders = makeBuilders(phone);
+  const builders = makeBuilders(tier === "phone", budget.flameLight);
   const { moving } = builders;
   placeLandmarks(scene, path, tracks, N, hasShow, builders);
 
   /* ---------- the bears ---------- */
-  const bears = buildBears(scene, phone);
+  const bears = buildBears(scene, budget.bears);
 
   /* ---------- the sky ---------- */
-  const { skyMat, hemi } = buildSky(scene, phone, data.seed);
+  const { skyMat, hemi } = buildSky(scene, budget.octaves, data.seed);
 
   /* ---------- the show clock ---------- */
   /* The audio element owns the clock: the world keeps the player's last report (sent on each timeupdate, on play and on pause)
@@ -76,6 +88,7 @@ function start(gl) {
   let playing = false, showPos = 0, index = 0, frac = 0;
   let clock = { index: 0, position: 0, duration: tracks[0].duration, at: performance.now() };
   document.addEventListener("player:now", (e) => { clock = e.detail; });
+  document.addEventListener("player:track", requestRender);
   function locate(now) {
     const i = Math.max(0, Math.min(N - 1, clock.index));
     const d = clock.duration > 0 ? clock.duration : tracks[i].duration;
@@ -115,6 +128,7 @@ function start(gl) {
   function userInput() {
     if (mode !== "drift") mode = "walk";
     idleTimer = 0;
+    requestRender();
   }
   const input = bindInput(container, walker, userInput);
   const { keys } = input;
@@ -124,6 +138,7 @@ function start(gl) {
     playing = main.dataset.state === "playing";
     if (lean && mode !== "drift") { mode = "drift"; driftU = (index + frac) / N - TRAIL; }
     if (!lean && mode === "drift") { mode = "walk"; idleTimer = 0; }
+    requestRender();
   }
   new MutationObserver(syncMain).observe(main, { attributes: true, attributeFilter: ["data-mode", "data-state"] });
   syncMain();
@@ -139,13 +154,40 @@ function start(gl) {
     camera.lookAt(lookTarget);
   }
 
+  /* The downgrade: every WINDOW frames the median frame time decides; over SLOW_MS, one rung down (quality.js). */
+  const frameTimes = [];
+  let frames = 0, frameMs = 0, calls = 0, triangles = 0;
+  function sample(dtMs) {
+    frameTimes.push(dtMs);
+    if (frameTimes.length < WINDOW) return;
+    frameMs = median(frameTimes);
+    frameTimes.length = 0;
+    if (frameMs <= SLOW_MS) return;
+    const next = stepDown(quality);
+    if (!next) return;
+    quality = next;
+    rung += 1;
+    applyQuality();
+  }
+  function applyQuality() {
+    resize();
+    skyMat.uniforms.uOct.value = quality.octaves;
+    bears.forEach((b, k) => { b.g.visible = k < quality.bears; });
+  }
+  /* The stats the CI shoot script logs after every shot. Merged into window.__hill, which the player also writes. */
+  function publishStats() {
+    window.__hill = Object.assign(window.__hill ?? {}, { tier, scale: quality.scale, rung, calls, triangles, frameMs: Math.round(frameMs * 10) / 10, frames });
+  }
+
   let last = performance.now();
   let raf = 0;
   function frame(now) {
-    raf = requestAnimationFrame(frame);
-    const dt = Math.min(0.05, (now - last) / 1000);
+    if (!reduced) raf = requestAnimationFrame(frame);
+    const dtMs = now - last;
+    const dt = Math.min(0.05, dtMs / 1000);
     last = now;
     elapsed += dt;
+    if (!reduced) sample(dtMs);
 
     /* The show. */
     locate(now);
@@ -228,6 +270,7 @@ function start(gl) {
     }
 
     renderer.render(scene, camera);
+    frames += 1; calls = renderer.info.render.calls; triangles = renderer.info.render.triangles;
   }
   function nearestU(x, z) {
     let best = 0, bd = Infinity;
@@ -236,10 +279,14 @@ function start(gl) {
   }
 
   container.dataset.world = "ready";
+  document.dispatchEvent(new CustomEvent("world:ready", { detail: { webgl: true, tier, scale: quality.scale } }));
   locate(performance.now()); placeWalker();
   raf = requestAnimationFrame(frame);
-  /* A hidden tab stops the loop; a visible one restarts it from the present moment. */
+  publishStats();
+  setInterval(publishStats, 1000);
+  /* A hidden tab stops the loop; a visible one restarts it from the present moment (under reduced motion, draws one frame). */
   document.addEventListener("visibilitychange", () => {
+    if (reduced) { if (!document.hidden) requestRender(); return; }
     if (document.hidden) { cancelAnimationFrame(raf); raf = 0; }
     else if (raf === 0) { last = performance.now(); raf = requestAnimationFrame(frame); }
   });

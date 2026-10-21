@@ -187,6 +187,8 @@ try {
         continue;
       }
       const url = new URL(path, site);
+      // The TV device asks for the TV tier: a headless browser cannot be told apart from a desktop.
+      if (device === "tv") url.searchParams.set("tier", "tv");
       const response = await open(page, url);
       // A redirect to another host, such as a login wall, is not the site.
       if (!response?.ok() || new URL(page.url()).host !== url.host) {
@@ -277,6 +279,8 @@ try {
     });
     const page = await context.newPage();
     const url = new URL("/", site);
+    // The TV device asks for the TV tier: a headless browser cannot be told apart from a desktop.
+    if (device === "tv") url.searchParams.set("tier", "tv");
     const file = `${device}-${name}.webm`;
     await open(page, url);
     if (click) {

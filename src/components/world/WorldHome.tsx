@@ -17,7 +17,7 @@ function seedFromDate(date: string): number {
   return (h >>> 0) % 1000;
 }
 
-/* Values read once, not watched: turning a phone does not refold the player. */
+/* A value read once, not watched. */
 function subscribe() { return () => {}; }
 
 /* Appends the world's module script to the body. */
@@ -32,11 +32,6 @@ function appendWorldModule(): HTMLScriptElement {
 
 /** Until the setlist's sets are derived, every show is one list. */
 const NO_SETS: DerivedSets = { set2Start: null, encoreStart: null };
-
-/** A TV: a wide screen without a fine pointer, or a TV browser by name. */
-function isTv(): boolean {
-  return (window.innerWidth >= 1600 && !window.matchMedia("(pointer: fine)").matches) || /TV|SMART-TV|Tizen|Web0S|AFT/.test(navigator.userAgent);
-}
 
 /* The world module writes its state on #world: loading, ready or fallback. */
 function subscribeWorld(onChange: () => void) {
@@ -114,8 +109,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
   const [playerState, setPlayerState] = useState<PlayerState>(tracks.length ? "idle" : "error");
   const [routing, setRouting] = useState<Routing>("plain");
   const [joined, setJoined] = useState(false);
-  const phone = useSyncExternalStore(subscribe, () => window.matchMedia("(max-width: 639px)").matches, () => false);
-  const tv = useSyncExternalStore(subscribe, isTv, () => false);
+  const [tier, setTier] = useState<string | null>(null);
   const worldStatus = useSyncExternalStore(subscribeWorld, worldState, () => "loading");
   /* The single-key setting, mirrored onto <main> for the world module's keys. */
   const singleKey = useSyncExternalStore(subscribeSingleKey, singleKeyOn, () => true);
@@ -145,6 +139,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
     setRouting(e.detail.routing);
   });
   useEventListener("document", "player:start", () => setJoined(true));
+  useEventListener<CustomEvent<{ webgl: boolean; tier: string }>>("document", "world:ready", (e) => setTier(e.detail.tier));
 
   useEffect(() => {
     if (!showStats) return;
@@ -159,7 +154,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
 
   const hinting = !joined && tracks.length > 0;
   const hint = worldStatus === "loading" ? "Loading the island…" : worldStatus === "fallback" ? "Press play to start the show"
-    : phone ? "Touch to start the show" : tv ? "Press a key to start the show" : "Move to start the show";
+    : tier === "phone" ? "Touch to start the show" : tier === "tv" ? "Press a key to start the show" : "Move to start the show";
   const archiveUrl = bestSource ? `https://archive.org/details/${bestSource.upstreamIdentifier}` : "";
   const relisten = `https://relisten.net/grateful-dead/${show.date.replace(/-/g, "/")}`;
 

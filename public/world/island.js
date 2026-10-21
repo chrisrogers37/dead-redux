@@ -1,5 +1,6 @@
 /* eslint-disable */
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path. */
 
@@ -21,8 +22,8 @@ export function height(x, z) {
 }
 
 /* The ground and the sea, then the ring road and the lightning path. */
-export function buildIsland(scene, phone) {
-  const ground = new THREE.PlaneGeometry(260, 260, phone ? 52 : 80, phone ? 52 : 80);
+export function buildIsland(scene, grid) {
+  const ground = new THREE.PlaneGeometry(260, 260, grid, grid);
   ground.rotateX(-Math.PI / 2);
   const pos = ground.attributes.position;
   for (let i = 0; i < pos.count; i++) pos.setY(i, height(pos.getX(i), pos.getZ(i)));
@@ -40,16 +41,20 @@ export function buildIsland(scene, phone) {
   const ring = new THREE.Mesh(ringGeo, bandMat);
   scene.add(ring);
   const BOLT = [G(100, 4), G(118, 92), G(82, 108), G(100, 196)];
+  /* The lightning path's segments merge into one mesh: one draw call instead of seventy-two. */
+  const segments = [];
   for (let s = 0; s < BOLT.length - 1; s++) {
     const [ax, az] = BOLT[s], [bx, bz] = BOLT[s + 1];
     const steps = 24;
     for (let k = 0; k < steps; k++) {
       const u0 = k / steps, u1 = (k + 1) / steps;
       const x0 = ax + (bx - ax) * u0, z0 = az + (bz - az) * u0, x1 = ax + (bx - ax) * u1, z1 = az + (bz - az) * u1;
-      const seg = new THREE.Mesh(new THREE.BoxGeometry(3, 0.3, Math.hypot(x1 - x0, z1 - z0) + 0.4), bandMat);
-      seg.position.set((x0 + x1) / 2, height((x0 + x1) / 2, (z0 + z1) / 2) + 0.3, (z0 + z1) / 2);
-      seg.rotation.y = Math.atan2(x1 - x0, z1 - z0);
-      scene.add(seg);
+      const geo = new THREE.BoxGeometry(3, 0.3, Math.hypot(x1 - x0, z1 - z0) + 0.4);
+      geo.rotateY(Math.atan2(x1 - x0, z1 - z0));
+      geo.translate((x0 + x1) / 2, height((x0 + x1) / 2, (z0 + z1) / 2) + 0.3, (z0 + z1) / 2);
+      segments.push(geo);
     }
   }
+  scene.add(new THREE.Mesh(mergeGeometries(segments), bandMat));
+  for (const geo of segments) geo.dispose();
 }
