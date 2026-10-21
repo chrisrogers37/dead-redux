@@ -65,7 +65,7 @@ function DetailsPanel({ source, show, tracks, tourName, routing, archiveUrl, sin
     ["Tour", tourName],
   ];
   return (
-    <div className="plate absolute right-0 bottom-full mb-2 w-[420px] max-sm:left-0 max-sm:w-auto space-y-3">
+    <div className="plate absolute right-0 bottom-full mb-2 w-[420px] max-sm:left-0 max-sm:w-auto max-h-[45vh] overflow-y-auto space-y-3">
       <p className="t-row text-ink">
         {source.source && <>{source.source} · </>}{source.numReviews} review{source.numReviews === 1 ? "" : "s"}
       </p>
@@ -181,7 +181,8 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
             <h1 className="t-date text-ink mt-2">{formatDate(show.date)}</h1>
             <p className="t-body text-muted mt-1">{show.venue} · {show.location}</p>
           </div>
-          <div className="hud right-6 top-6 max-sm:right-3 max-sm:top-3 flex gap-2 max-sm:flex-col max-sm:items-end">
+          {/* Above the now-plate's stack, so an open Details panel never covers these controls on a short screen. */}
+          <div className="hud right-6 top-6 max-sm:right-3 max-sm:top-3 flex gap-2 max-sm:flex-col max-sm:items-end z-20!">
             {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the world starts once per page load */}
             <a href="/archive" aria-label="Archive" className="plate t-row text-muted hover:text-ink h-11 flex items-center">
               <span className="max-sm:hidden">Archive</span>
