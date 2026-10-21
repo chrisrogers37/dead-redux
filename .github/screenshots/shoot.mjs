@@ -127,6 +127,14 @@ const RECORDINGS = [
     click: "#world[data-world='ready'] ~ div [data-action='follow']",
     waitFor: "[data-action='follow'][aria-pressed='true']",
   },
+  // The same on a straight stretch of the path (Tennessee Jed, 2:42 in), where the five walk in one line.
+  {
+    device: "desktop",
+    name: "follow-straight",
+    path: "/2026-10-20?at=4&t=162",
+    click: "#world[data-world='ready'] ~ div [data-action='follow']",
+    waitFor: "[data-action='follow'][aria-pressed='true']",
+  },
 ];
 
 // How long each recording runs once the page has loaded and any control is pressed.

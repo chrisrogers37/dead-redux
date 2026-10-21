@@ -263,10 +263,11 @@ function start(gl) {
         camera.lookAt(ahead.x, ahead.y + 8, ahead.z);
       }
     } else if (mode === "follow") {
-      /* Six metres behind the last bear at eye height, looking at the lead bear; turning adds an offset to the look. */
+      /* Six metres behind the last bear, the eye 6.5 m up, above their heads so all five read in a line; looking at the lead bear;
+         turning adds an offset to the look. */
       walker.heading += ((keys.left ? 1 : 0) - (keys.right ? 1 : 0)) * 1.6 * dt;
       const p = at(uLead - ((bears.length - 1) * 2.6 + 6) / curveLength), lead = at(uLead);
-      camera.position.set(p.x, p.y + 3.2, p.z);
+      camera.position.set(p.x, p.y + 6.5, p.z);
       const h = Math.atan2(-(lead.x - p.x), -(lead.z - p.z)) + walker.heading - followBase, dist = Math.hypot(lead.x - p.x, lead.z - p.z);
       lookTarget.set(p.x - Math.sin(h) * dist, lead.y + 2, p.z - Math.cos(h) * dist);
       camera.lookAt(lookTarget);
