@@ -3,6 +3,7 @@ import { connection } from "next/server";
 import { getDailyShow, isValidDateStr, getTodayDateStr } from "@/lib/daily-show";
 import { formatDate } from "@/lib/format";
 import { fetchShowDetails, pickBestSource } from "@/lib/relisten";
+import { testHooksEnabled } from "@/lib/test-hooks";
 import { WorldHome } from "@/components/world/WorldHome";
 
 interface PageProps {
@@ -35,6 +36,8 @@ export default async function DailyShowPage({ params }: PageProps) {
       featuredDate={date}
       bestSource={bestSource}
       isToday={date === getTodayDateStr()}
+      tourName={details?.tour?.name ?? null}
+      testHooks={testHooksEnabled()}
     />
   );
 }

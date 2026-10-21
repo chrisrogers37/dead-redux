@@ -1,8 +1,5 @@
-import type { Source } from "./types";
+import type { DerivedSets, Source } from "./types";
 import { notesToLines } from "./format";
-
-/** Where the second set and the encore begin in a show's flattened track list, as track indices; null where the notes do not say. */
-interface DerivedSets { set2Start: number | null; encoreStart: number | null; }
 
 // Where one song ends and the next begins in a list: a comma, "->", ">" or "/".
 const SONG_SPLIT = /,|->|>|\//;
