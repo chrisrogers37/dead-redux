@@ -58,7 +58,8 @@ export function placeLandmarks(scene, { at, tangentAt }, tracks, hasShow, { BUIL
   return landmarks;
 }
 
-/* A lit band on the ground between two landmarks whose first song segues into the next, so the show's structure reads on the island. */
+/* A band of the island's stone, glowing amber, on the ground between two landmarks whose first song segues into the next,
+   so the show's structure reads on the island. */
 export function buildSegues(scene, { at, tangentAt, curveLength }, tracks, landmarkU) {
   const arr = [];
   for (let i = 0; i < tracks.length - 1; i++) {
@@ -78,5 +79,5 @@ export function buildSegues(scene, { at, tangentAt, curveLength }, tracks, landm
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(arr, 3));
   geo.computeVertexNormals();
-  scene.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xe8b04b, emissive: 0xe8b04b, emissiveIntensity: 0.25, side: THREE.DoubleSide })));
+  scene.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x8e8a82, emissive: 0xe8b04b, emissiveIntensity: 0.25, side: THREE.DoubleSide })));
 }
