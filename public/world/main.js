@@ -6,6 +6,7 @@ import { makeBuilders } from "./landmarks.js";
 import { buildBears } from "./bears.js";
 import { buildSky } from "./sky.js";
 import { bindInput } from "./input.js";
+import { ensureContext } from "./audio.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
    The setlist is the path; each song is a landmark; five bears walk it ahead of the listener. */
@@ -19,7 +20,10 @@ const hasShow = data.tracks.length > 0;
 /* Without a recording the clock still sums over one stand-in track; it never shapes the path or places a landmark. */
 const tracks = hasShow ? data.tracks : [{ title: "Set", duration: 600 }];
 const N = tracks.length;
-const total = tracks.reduce((a, t) => a + t.duration, 0);
+/* Where each track starts in the show, in seconds, and the show's length. */
+const starts = [];
+let total = 0;
+for (const t of tracks) { starts.push(total); total += t.duration; }
 
 const canvas = document.createElement("canvas");
 /* If the page gave up waiting for this module, the still stays and nothing starts. */
@@ -67,26 +71,19 @@ function start(gl) {
   const { skyMat, hemi } = buildSky(scene, phone, data.seed);
 
   /* ---------- the show clock ---------- */
-  let playing = false, showPos = 0, index = 0, frac = 0, lastReported = -1;
-  function locate() {
-    let acc = 0;
-    for (let i = 0; i < N; i++) {
-      if (showPos < acc + tracks[i].duration || i === N - 1) { index = i; frac = Math.min(1, (showPos - acc) / tracks[i].duration); return; }
-      acc += tracks[i].duration;
-    }
+  /* The audio element owns the clock: the world keeps the player's last report (sent on each timeupdate, on play and on pause)
+     and runs on from it while the show plays. */
+  let playing = false, showPos = 0, index = 0, frac = 0;
+  let clock = { index: 0, position: 0, duration: tracks[0].duration, at: performance.now() };
+  document.addEventListener("player:now", (e) => { clock = e.detail; });
+  function locate(now) {
+    const i = Math.max(0, Math.min(N - 1, clock.index));
+    const d = clock.duration > 0 ? clock.duration : tracks[i].duration;
+    const pos = Math.min(d, clock.position + (playing ? (now - clock.at) / 1000 : 0));
+    index = i; frac = d > 0 ? pos / d : 0; showPos = starts[i] + pos;
   }
-  function report(force) {
-    const sec = Math.floor(showPos);
-    if (!force && sec === lastReported) return;
-    lastReported = sec;
-    let acc = 0; for (let i = 0; i < index; i++) acc += tracks[i].duration;
-    document.dispatchEvent(new CustomEvent("world:now", { detail: { index, position: showPos - acc } }));
-  }
-  document.addEventListener("world:seek", (e) => {
-    const i = Math.max(0, Math.min(N - 1, e.detail.index));
-    showPos = 0; for (let k = 0; k < i; k++) showPos += tracks[k].duration;
-    locate(); report(true);
-  });
+  /* The first move creates the AudioContext inside its own event. */
+  document.addEventListener("player:start", ensureContext);
   const energyOf = (i) => {
     const t = tracks[i].title.toLowerCase();
     if (t.includes("tuning")) return 0.2; if (t.includes("drums")) return 0.9; if (t.includes("space")) return 0.3;
@@ -121,12 +118,15 @@ function start(gl) {
   }
   const input = bindInput(container, walker, userInput);
   const { keys } = input;
-  new MutationObserver(() => {
+  /* Lean-back and the player's state live on <main>; read them now too, since the show may have started before the world loaded. */
+  function syncMain() {
     const lean = main.dataset.mode === "leanback";
     playing = main.dataset.state === "playing";
     if (lean && mode !== "drift") { mode = "drift"; driftU = (index + frac) / N - TRAIL; }
     if (!lean && mode === "drift") { mode = "walk"; idleTimer = 0; }
-  }).observe(main, { attributes: true, attributeFilter: ["data-mode", "data-state"] });
+  }
+  new MutationObserver(syncMain).observe(main, { attributes: true, attributeFilter: ["data-mode", "data-state"] });
+  syncMain();
 
   const lookTarget = new THREE.Vector3();
   const easeOut = (x) => { const t = Math.max(0, Math.min(1, x)); return 1 - (1 - t) * (1 - t) * (1 - t); };
@@ -148,7 +148,7 @@ function start(gl) {
     elapsed += dt;
 
     /* The show. */
-    if (playing) { showPos = Math.min(total - 0.001, showPos + dt); locate(); report(false); }
+    locate(now);
     const targetEnergy = energyOf(index);
     /* State changes blend over about eight seconds; under reduced motion they land at once. */
     const blend = reduced ? 1 : Math.min(1, dt * 0.12);
@@ -181,13 +181,15 @@ function start(gl) {
     }
 
     /* The camera. */
-    const moving_ = keys.fwd || keys.back || input.dragSpeed !== 0;
+    const moving_ = keys.fwd || keys.back || keys.strafeL || keys.strafeR || input.dragSpeed !== 0;
     if (mode === "walk") {
       const spd = (keys.fwd ? 1 : 0) - (keys.back ? 1 : 0) + input.dragSpeed;
       const turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
+      const side = (keys.strafeR ? 1 : 0) - (keys.strafeL ? 1 : 0);
+      const pace = 12 * (keys.run ? 1.6 : 1) * dt;
       walker.heading += turn * 1.6 * dt;
       const fw = forward();
-      walker.x += fw.x * spd * 12 * dt; walker.z += fw.z * spd * 12 * dt;
+      walker.x += (fw.x * spd - fw.z * side) * pace; walker.z += (fw.z * spd + fw.x * side) * pace;
       const d = Math.hypot(walker.x, walker.z);
       if (d > 108) { walker.x *= 108 / d; walker.z *= 108 / d; }
       placeWalker();
@@ -234,7 +236,7 @@ function start(gl) {
   }
 
   container.dataset.world = "ready";
-  locate(); report(true); placeWalker();
+  locate(performance.now()); placeWalker();
   raf = requestAnimationFrame(frame);
   /* A hidden tab stops the loop; a visible one restarts it from the present moment. */
   document.addEventListener("visibilitychange", () => {
