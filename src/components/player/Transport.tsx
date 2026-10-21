@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { formatDuration } from "@/lib/format";
 
 interface Props {
   /** Lean-back shows the big title, the line and the seek band only. */
@@ -30,10 +31,8 @@ const PLAY = "M8 5v14l11-7z";
 const PAUSE = "M6 5h4v14H6zM14 5h4v14h-4z";
 const NEXT = "M16 5h2v14h-2zM4 5v14l11-7z";
 
-function clock(s: number): string {
-  const n = Math.max(0, Math.floor(s));
-  return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
-}
+/** A time on the now-plate: formatDuration's m:ss, and 0:00 where it gives nothing. */
+const clock = (s: number) => formatDuration(s) || "0:00";
 
 export function Transport({
   leanback,
@@ -102,15 +101,13 @@ export function Transport({
           Could not play this track. <a href={archiveUrl} target="_blank" rel="noopener noreferrer" className="text-muted underline hover:text-ink">Open on archive.org ↗</a>
         </p>
       )}
-      {/* Top-aligned, with the side buttons and the summary offset onto the disc's centre line, so an open Details grows downward
-          without moving the buttons. */}
-      <div className="mt-3 flex items-start gap-3">
+      <div className="mt-3 flex items-center gap-3">
         <button
           type="button"
           data-action="prev"
           aria-label="Previous track"
           onClick={onPrevious}
-          className="w-11 h-11 mt-0.5 text-ink flex items-center justify-center"
+          className="w-11 h-11 text-ink flex items-center justify-center"
         >
           <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
             <path d={PREVIOUS} />
@@ -132,13 +129,13 @@ export function Transport({
           data-action="next"
           aria-label="Next track"
           onClick={onNext}
-          className="w-11 h-11 mt-0.5 text-ink flex items-center justify-center"
+          className="w-11 h-11 text-ink flex items-center justify-center"
         >
           <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
             <path d={NEXT} />
           </svg>
         </button>
-        <details className="ml-2 mt-3.5">
+        <details className="ml-2">
           <summary data-action="details" className="t-row text-muted cursor-pointer">Details</summary>
           {children}
         </details>

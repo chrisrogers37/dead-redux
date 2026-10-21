@@ -11,27 +11,25 @@ const SAVE_EVERY_MS = 5000;
 const MIN_RESUME_S = 15;
 const storageKey = (featuredDate: string) => `dead-redux:position:${featuredDate}`;
 
+/** Whether a place fits a queue of `n` tracks: a whole track index in range, and a finite position that is not negative. */
+export function fits(p: ResumePoint, n: number): boolean {
+  return Number.isInteger(p.index) && p.index >= 0 && p.index < n && Number.isFinite(p.seconds) && p.seconds >= 0;
+}
+
 /** The saved point for a featured date, when it fits a queue of `n` tracks and is past the first track's first 15 s; else null. */
 export function readResume(featuredDate: string, n: number): ResumePoint | null {
-  let raw: string | null;
-  try {
-    raw = localStorage.getItem(storageKey(featuredDate));
-  } catch {
-    return null;
-  }
-  if (!raw) return null;
   let value: unknown;
   try {
-    value = JSON.parse(raw);
+    value = JSON.parse(localStorage.getItem(storageKey(featuredDate)) ?? "null");
   } catch {
     return null;
   }
   if (typeof value !== "object" || value === null) return null;
   const { index, seconds } = value as Record<string, unknown>;
-  if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= n) return null;
-  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) return null;
-  if (index === 0 && seconds <= MIN_RESUME_S) return null;
-  return { index, seconds };
+  if (typeof index !== "number" || typeof seconds !== "number") return null;
+  const point = { index, seconds };
+  if (!fits(point, n) || (index === 0 && seconds <= MIN_RESUME_S)) return null;
+  return point;
 }
 
 /** Forgets the saved point, so the next visit starts the show from the top. */

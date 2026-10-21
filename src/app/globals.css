@@ -52,6 +52,12 @@ body { background-color: var(--page); color: var(--ink); }
 .pad [data-pad="down"] { grid-column: 2; grid-row: 2; }
 .pad [data-pad="right"] { grid-column: 3; grid-row: 2; }
 
+/* The seek slider: a 6-px track filled with the accent up to the playing position (--p), a 16-px accent thumb ringed in the page colour. */
+.seek { appearance: none; height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent) var(--p), var(--line) var(--p)); }
+.seek::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 2px solid var(--page); }
+.seek::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); border: 2px solid var(--page); }
+[data-mode="leanback"] .seek { height: 8px; }
+
 /* The designed still for a browser without WebGL 2: a sky, the hill, its two caves, the ring. */
 .world-fallback { display: none; position: fixed; inset: 0; overflow: hidden; }
 #world[data-world="fallback"] + .world-fallback { display: block; }

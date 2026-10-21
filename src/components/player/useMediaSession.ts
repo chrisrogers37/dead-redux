@@ -10,9 +10,19 @@ export interface MediaSessionControls {
   seekBy: (deltaSeconds: number) => void;
 }
 
-const SKIP_S = 10;
+/** J, L and the lock screen's skip buttons move this far. */
+export const SKIP_S = 10;
 const ACTIONS: MediaSessionAction[] = ["play", "pause", "previoustrack", "nexttrack", "seekto", "seekbackward", "seekforward"];
 const ARTWORK: MediaImage[] = [{ src: "/apple-icon", sizes: "180x180", type: "image/png" }];
+
+/** Sets or clears one action's handler; a browser that lacks the action throws, and the action is skipped. */
+function setHandler(action: MediaSessionAction, handler: MediaSessionActionHandler | null) {
+  try {
+    navigator.mediaSession.setActionHandler(action, handler);
+  } catch {
+    // this browser lacks the action
+  }
+}
 
 /** Lock-screen and media-key controls: the track as metadata, the player's controls as action handlers, and whether it plays. */
 export function useMediaSession(title: string | null, album: string, playing: boolean, controls: MediaSessionControls): void {
@@ -44,21 +54,9 @@ export function useMediaSession(title: string | null, album: string, playing: bo
 
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
-    for (const action of ACTIONS) {
-      try {
-        navigator.mediaSession.setActionHandler(action, (details) => act(action, details));
-      } catch {
-        /* this browser lacks the action */
-      }
-    }
+    for (const action of ACTIONS) setHandler(action, (details) => act(action, details));
     return () => {
-      for (const action of ACTIONS) {
-        try {
-          navigator.mediaSession.setActionHandler(action, null);
-        } catch {
-          /* this browser lacks the action */
-        }
-      }
+      for (const action of ACTIONS) setHandler(action, null);
     };
   }, []);
 

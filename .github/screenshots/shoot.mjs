@@ -2,7 +2,6 @@ import { appendFile, mkdir, mkdtemp, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { chromium, request } from "playwright";
-import { PNG } from "pngjs";
 
 const DEVICES = {
   desktop: { viewport: { width: 1440, height: 900 } },
@@ -23,17 +22,20 @@ const DEVICES = {
   },
 };
 
+// The play step: press play, wait for the player to settle, then shoot; `later` ({ ms, shot }) adds a later shot.
+const playStep = (shot, later) => ({
+  click: "[data-action='play']",
+  waitFor: "[data-state='playing'], [data-state='stalled'], [data-state='error']",
+  shot,
+  later,
+});
+
 // Each step acts on the loaded page, then shoots it. The prefix keeps one page's file names
 // apart from another's, and afterPlaying ({ ms, shot }) adds a later shot of the play step.
 const playerSteps = (prefix, afterPlaying) => [
   { click: "[data-action='details']", shot: `${prefix}details` },
   { focus: "[data-action='play']", shot: `${prefix}focus-play` },
-  {
-    click: "[data-action='play']",
-    waitFor: "[data-state='playing'], [data-state='stalled'], [data-state='error']",
-    shot: `${prefix}playing`,
-    later: afterPlaying,
-  },
+  playStep(`${prefix}playing`, afterPlaying),
   {
     click: "[data-action='lean-back']",
     waitFor: "[data-mode='leanback']",
@@ -53,6 +55,13 @@ const PAGES = [
     path: "/2026-10-20",
     shots: ["fixed-1", "fixed-2"],
     steps: playerSteps("fixed-", { ms: 8000, shot: "fixed-playing-8s" }),
+  },
+  // The fixed day 5 s before its first track ends: playing crosses into track 2, and the later shot logs the gap between them.
+  {
+    path: "/2026-10-20?at=0&t=93",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-gap-start", { ms: 12000, shot: "fixed-gap" })],
   },
   // The end shot shows the last screen, where the archive's count line sits.
   { path: "/archive", shots: ["archive"], end: "archive-end" },
@@ -129,102 +138,6 @@ const logStats = async (page, file) => {
   console.log(`stats ${file} ${stats}`);
 };
 
-// Full-page shots of a page whose archive.org embed is open show a hole: the embed's own box,
-// flipped top to bottom in the viewport, down to where the embed starts. This reads the world
-// canvas's own pixels there twice, a second apart, each right after a render, beside a control
-// strip of the same size; then it compares two viewport shots of each a second apart, which
-// show what the compositor draws. A failure here is logged, never fatal.
-const probeBox = async (page) => {
-  try {
-    const regions = await page.evaluate(() => {
-      const frame = document.querySelector('iframe[src*="archive.org/embed/"]');
-      const canvas = document.querySelector("#world canvas");
-      if (!frame || !canvas) return null;
-      const r = frame.getBoundingClientRect();
-      const top = window.innerHeight - r.bottom;
-      const height = r.top - top;
-      if (height <= 0 || r.right + 40 + r.width > window.innerWidth) return null;
-      return {
-        box: { x: r.left, y: top, width: r.width, height },
-        beside: { x: r.right + 40, y: top, width: r.width, height },
-      };
-    });
-    if (!regions) {
-      console.log("box: no open embed or no world canvas; not probed");
-      return;
-    }
-    const canvas = await page.evaluate(
-      (regions) =>
-        new Promise((resolve) => {
-          // A page that draws no frames resolves empty, so the run never waits on it.
-          setTimeout(() => resolve(null), 5000);
-          const element = document.querySelector("#world canvas");
-          const gl = element.getContext("webgl2");
-          const read = ({ x, y, width, height }) => {
-            const sx = element.width / element.clientWidth;
-            const sy = element.height / element.clientHeight;
-            const w = Math.max(1, Math.round(width * sx));
-            const h = Math.max(1, Math.round(height * sy));
-            const pixels = new Uint8Array(w * h * 4);
-            // WebGL counts rows from the bottom.
-            gl.readPixels(Math.round(x * sx), element.height - Math.round((y + height) * sy), w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-            return pixels;
-          };
-          const changed = (a, b) => {
-            let n = 0;
-            for (let i = 0; i < a.length; i += 4) {
-              if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]) n++;
-            }
-            return n;
-          };
-          // A frame callback queued now runs after the world's own one, so the drawing buffer
-          // still holds that frame's render.
-          requestAnimationFrame(() => {
-            const box = read(regions.box);
-            const beside = read(regions.beside);
-            setTimeout(
-              () =>
-                requestAnimationFrame(() => {
-                  resolve({
-                    box: [changed(box, read(regions.box)), box.length / 4],
-                    beside: [changed(beside, read(regions.beside)), beside.length / 4],
-                  });
-                }),
-              1000
-            );
-          });
-        }),
-      regions
-    );
-    const where = ({ x, y, width, height }) =>
-      `(${Math.round(x)},${Math.round(y)} ${Math.round(width)}x${Math.round(height)})`;
-    console.log(
-      canvas
-        ? `box canvas ${where(regions.box)}: changed ${canvas.box[0]} of ${canvas.box[1]} in a second;` +
-            ` beside ${where(regions.beside)}: changed ${canvas.beside[0]} of ${canvas.beside[1]}`
-        : `box canvas ${where(regions.box)}: no frame drawn within 5 s`
-    );
-    const shoot = async (clip) => PNG.sync.read(await page.screenshot({ clip })).data;
-    const boxA = await shoot(regions.box);
-    const besideA = await shoot(regions.beside);
-    await page.waitForTimeout(1000);
-    const boxB = await shoot(regions.box);
-    const besideB = await shoot(regions.beside);
-    const compare = (a, b) => {
-      let changed = 0;
-      let transparent = 0;
-      for (let i = 0; i < a.length; i += 4) {
-        if (a[i + 3] < 255) transparent++;
-        if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2] || a[i + 3] !== b[i + 3]) changed++;
-      }
-      return `changed ${changed} of ${a.length / 4} in a second, ${transparent} transparent`;
-    };
-    console.log(`box viewport: ${compare(boxA, boxB)}; beside: ${compare(besideA, besideB)}`);
-  } catch (error) {
-    console.log(`box: probe failed: ${error.message}`);
-  }
-};
-
 // Opens a page once its document arrives, then waits for the rest: an embedded player can
 // hold back the load event past a navigation's time limit.
 const open = async (page, url) => {
@@ -262,9 +175,13 @@ try {
       height: options.viewport.height * MAX_SCREENS,
     };
 
-    for (const { path, shots, steps, end } of PAGES) {
+    for (const { path, shots, steps, end, devices } of PAGES) {
       // The TV device is for lean-back, so it shoots only the home page.
       if (device === "tv" && path !== "/") {
+        continue;
+      }
+      // A page may name the devices that shoot it.
+      if (devices && !devices.includes(device)) {
         continue;
       }
       const url = new URL(path, site);
@@ -289,11 +206,6 @@ try {
         await page.screenshot({ path: join(outDir, file), fullPage: true, clip });
         console.log(`${file}  ${url}`);
         await logStats(page, file);
-      }
-
-      // The box probe runs once the shots of the loaded page are done.
-      if (device === "desktop" && path === "/") {
-        await probeBox(page);
       }
 
       for (const step of steps ?? []) {
