@@ -87,6 +87,11 @@ function start(gl) {
   let playing = false, showPos = 0, index = 0, frac = 0;
   let clock = { index: 0, position: 0, duration: tracks[0].duration, at: performance.now() };
   document.addEventListener("player:now", (e) => { clock = e.detail; });
+  /* A track change reaches the world at once, before its audio plays, so the world shows where the show is while it loads. */
+  document.addEventListener("player:track", (e) => {
+    const i = Math.max(0, Math.min(N - 1, e.detail.index));
+    clock = { index: i, position: 0, duration: tracks[i].duration, at: performance.now() };
+  });
   function locate(now) {
     const i = Math.max(0, Math.min(N - 1, clock.index));
     const d = clock.duration > 0 ? clock.duration : tracks[i].duration;
@@ -118,8 +123,8 @@ function start(gl) {
   /* The bears walk the loop at their own lively pace, five in a line 7 m apart, 6.5 m to the left of the path so they pass the
      landmarks rather than walk through them. */
   const BEAR_GAP = 7, BEAR_SPEED = 2.5, BEAR_SIDE = 6.5;
-  /* Where the lead bear is along the loop. The bears set off from where the show is when it first plays, then keep their own pace
-     while it plays; under reduced motion they stand at the landmark of the song that plays. */
+  /* Where the lead bear is along the loop. Until the show first plays the bears stand where it is; then they set off and keep their
+     own pace while it plays. Under reduced motion they stand at the landmark of the song that plays. */
   let bearU = 0, bearsOff = false;
   /* A point on the bears' line: the path at u, BEAR_SIDE metres to its left, on the ground. */
   function walkAt(u) {
@@ -238,9 +243,9 @@ function start(gl) {
 
     /* The bears. */
     if (reduced) bearU = landmarkU[index];
-    else if (playing) {
-      if (!bearsOff) { bearsOff = true; bearU = landmarkU[index] + frac * (landmarkU[index + 1] - landmarkU[index]); }
-      bearU += (BEAR_SPEED * dt) / curveLength;
+    else {
+      if (!bearsOff) { bearU = landmarkU[index] + frac * (landmarkU[index + 1] - landmarkU[index]); bearsOff = playing; }
+      if (playing) bearU += (BEAR_SPEED * dt) / curveLength;
     }
     const uLead = bearU;
     for (let k = 0; k < bears.length; k++) {
