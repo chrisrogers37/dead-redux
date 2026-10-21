@@ -69,6 +69,9 @@ const SHOT_GAP_MS = 5000;
 // Pause after a step's action, before its shot.
 const STEP_SETTLE_MS = 1000;
 
+// How long a page gets to finish loading; a slower page is logged and shot anyway.
+const LOAD_MS = 30_000;
+
 // Full-page shots stop at this many screens; the archive lists every day.
 const MAX_SCREENS = 4;
 
@@ -114,6 +117,16 @@ const logStats = async (page, file) => {
   console.log(`stats ${file} ${stats}`);
 };
 
+// Opens a page once its document arrives, then waits for the rest: an embedded player can
+// hold back the load event past a navigation's time limit.
+const open = async (page, url) => {
+  const response = await page.goto(url.href, { waitUntil: "domcontentloaded" });
+  await page
+    .waitForLoadState("load", { timeout: LOAD_MS })
+    .catch(() => console.log(`${url} never finished loading; going on anyway`));
+  return response;
+};
+
 const site = new URL(process.env.SITE_URL);
 if (site.protocol !== "https:") {
   throw new Error(`SITE_URL must be an https URL, got ${process.env.SITE_URL}`);
@@ -147,7 +160,7 @@ try {
         continue;
       }
       const url = new URL(path, site);
-      const response = await page.goto(url.href);
+      const response = await open(page, url);
       // A redirect to another host, such as a login wall, is not the site.
       if (!response?.ok() || new URL(page.url()).host !== url.host) {
         throw new Error(`${url} answered ${response?.status()} at ${page.url()}`);
@@ -237,7 +250,7 @@ try {
     const page = await context.newPage();
     const url = new URL("/", site);
     const file = `${device}-${name}.webm`;
-    await page.goto(url.href);
+    await open(page, url);
     if (click) {
       // A control missing from the page is logged and skipped, not an error.
       // Scripts may draw the control after load, so it gets time to appear.

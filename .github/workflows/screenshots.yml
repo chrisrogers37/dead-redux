@@ -13,6 +13,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # "true" makes the reduced-motion compare fail the run when its two stills differ.
+  RM_COMPARE_ENFORCE: "false"
+
 jobs:
   shoot:
     # Ready previews only; production is shot on demand.
@@ -52,13 +56,20 @@ jobs:
             ffmpeg -hide_banner -loglevel error -i "$f" \
               -c:v libx264 -pix_fmt yuv420p -crf 20 -movflags +faststart "${f%.webm}.mp4"
           done
+      # Writes its count to the job summary and its diff into the artifact; fails only when enforced.
+      - name: Compare the reduced-motion stills
+        id: compare
+        run: |
+          node compare.mjs \
+            "$OUT_DIR/desktop-reduced-home-1.png" \
+            "$OUT_DIR/desktop-reduced-home-2.png" \
+            "$OUT_DIR/desktop-reduced-home-diff.png"
+        env:
+          OUT_DIR: ${{ runner.temp }}/screenshots
+      # Also runs when an enforced compare fails, so the shots and the diff are kept.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: success() || steps.compare.outcome == 'failure'
         with:
           name: screenshots-${{ steps.shoot.outputs.host }}-${{ github.sha }}
           path: ${{ runner.temp }}/screenshots
           if-no-files-found: error
-      # Runs after the upload so the shots are kept when the compare fails.
-      - name: Compare the reduced-motion stills
-        run: node compare.mjs "$OUT_DIR/desktop-reduced-home-1.png" "$OUT_DIR/desktop-reduced-home-2.png"
-        env:
-          OUT_DIR: ${{ runner.temp }}/screenshots
