@@ -1,10 +1,10 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { height, buildIsland } from "./island.js";
-import { buildPath, placeLandmarks } from "./path.js";
+import { buildPath, layout, placeLandmarks, buildSegues } from "./path.js";
 import { makeBuilders } from "./landmarks.js";
 import { buildBears } from "./bears.js";
-import { buildSky } from "./sky.js";
+import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
@@ -19,6 +19,8 @@ const hasShow = data.tracks.length > 0;
 /* Without a recording the clock still sums over one stand-in track; it never shapes the path or places a landmark. */
 const tracks = hasShow ? data.tracks : [{ title: "Set", duration: 600 }];
 const N = tracks.length;
+/* Where set 2 and the encore begin, from the notes; null where they do not say. */
+const set2Start = hasShow ? data.set2Start ?? null : null, encoreStart = hasShow ? data.encoreStart ?? null : null;
 const total = tracks.reduce((a, t) => a + t.duration, 0);
 
 const canvas = document.createElement("canvas");
@@ -51,14 +53,16 @@ function start(gl) {
   new ResizeObserver(resize).observe(container);
 
   /* ---------- the island ---------- */
-  buildIsland(scene, phone);
+  const { caves } = buildIsland(scene, phone);
 
   /* ---------- the path and the landmarks ---------- */
-  const path = buildPath(N);
-  const { points, curve, curveLength, at, tangentAt } = path;
+  const path = buildPath();
+  const { curveLength, at, tangentAt } = path;
+  const landmarkU = layout(tracks, set2Start, path);
   const builders = makeBuilders(phone);
   const { moving } = builders;
-  placeLandmarks(scene, path, tracks, N, hasShow, builders);
+  placeLandmarks(scene, path, tracks, hasShow, builders, landmarkU);
+  if (hasShow) buildSegues(scene, path, tracks, landmarkU);
 
   /* ---------- the bears ---------- */
   const bears = buildBears(scene, phone);
@@ -89,22 +93,25 @@ function start(gl) {
   });
   const energyOf = (i) => {
     const t = tracks[i].title.toLowerCase();
-    if (t.includes("tuning")) return 0.2; if (t.includes("drums")) return 0.9; if (t.includes("space")) return 0.3;
+    if (t.includes("tuning") || t.includes("crowd")) return 0.2; if (t.includes("drums")) return 0.9; if (t.includes("space")) return 0.3;
+    if (encoreStart !== null && i >= encoreStart) return 0.8;
+    if (set2Start !== null) return i >= set2Start ? 0.7 : 0.5;
+    /* One list: the last song as the encore and the break at about a third. */
     if (i === N - 1) return 0.8; return i < Math.floor(N * 0.37) ? 0.5 : 0.7;
   };
-  const C = (h) => new THREE.Color(h);
-  const STOPS_A = [C(0xe8b04b), C(0xd6508a), C(0x9a80c0)], STOPS_B = [C(0xd6508a), C(0x2ea3a0), C(0xe8b04b)];
-  const stopAt = (stops, f) => f < 0.5 ? stops[0].clone().lerp(stops[1], f / 0.5) : stops[1].clone().lerp(stops[2], (f - 0.5) / 0.5);
   let energy = 0.5;
   let rnd = (() => { let s = data.seed * 9301 + 49297; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; })();
   let nextDrop = 40 + rnd() * 20, dropAt = -99;
 
   /* ---------- the camera: walker, attract, descent, drift ---------- */
-  const walker = { x: points[0].x, z: points[0].z, heading: 0 };
+  const trailhead = at(0);
+  const walker = { x: trailhead.x, z: trailhead.z, heading: 0 };
   const t0 = tangentAt(0); walker.heading = Math.atan2(-t0.x, -t0.z);
   let mode = reduced ? "walk" : "descent";
-  let attractU = 0, driftU = 0, idleTimer = 0, elapsed = 0;
-  /* The attract walk and the drift start this far behind the last bear, so the five walk ahead in view. */
+  let idleTimer = 0, elapsed = 0;
+  /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
+  let followBase = 0;
+  /* The attract walk and the drift keep this far behind the last bear, so the five walk ahead in view. */
   const TRAIL = (4 * 2.6 + 14) / curveLength;
   /* The attract camera: beside the path at a little above head height, looking 30 m up the path. */
   function attractPose(u) {
@@ -115,17 +122,34 @@ function start(gl) {
     return { pos: new THREE.Vector3(x, height(x, z) + 4.5, z), look: new THREE.Vector3(ahead.x, ahead.y + 6, ahead.z) };
   }
   const forward = () => new THREE.Vector3(-Math.sin(walker.heading), 0, -Math.cos(walker.heading));
-  function userInput() {
-    if (mode !== "drift") mode = "walk";
-    idleTimer = 0;
+  /* Changes the camera's mode and tells the page. Leaving follow puts the walker where the camera stands, facing where it looked. */
+  function setMode(m) {
+    if (m === mode) return;
+    if (mode === "follow") {
+      const d = new THREE.Vector3(); camera.getWorldDirection(d);
+      walker.x = camera.position.x; walker.z = camera.position.z; walker.heading = Math.atan2(-d.x, -d.z);
+    }
+    if (m === "follow") followBase = walker.heading;
+    mode = m;
+    document.dispatchEvent(new CustomEvent("world:mode", { detail: { mode } }));
   }
+  /* Any input resets the idle timer. B (or the button) toggles walking with the bears; in follow, turning and dragging only look
+     around, and any step leaves it for a walk. Lean-back ignores the controls. */
+  function userInput(action) {
+    idleTimer = 0;
+    if (mode === "drift") return;
+    if (action === "follow") { setMode(mode === "follow" ? "walk" : "follow"); return; }
+    if (mode === "follow" && (action === "left" || action === "right" || action === "drag")) return;
+    setMode("walk");
+  }
+  document.addEventListener("world:follow", () => userInput("follow"));
   const input = bindInput(container, walker, userInput);
   const { keys } = input;
   new MutationObserver(() => {
     const lean = main.dataset.mode === "leanback";
     playing = main.dataset.state === "playing";
-    if (lean && mode !== "drift") { mode = "drift"; driftU = (index + frac) / N - TRAIL; }
-    if (!lean && mode === "drift") { mode = "walk"; idleTimer = 0; }
+    if (lean && mode !== "drift") setMode("drift");
+    if (!lean && mode === "drift") { setMode("walk"); idleTimer = 0; }
   }).observe(main, { attributes: true, attributeFilter: ["data-mode", "data-state"] });
 
   const lookTarget = new THREE.Vector3();
@@ -154,26 +178,42 @@ function start(gl) {
     const blend = reduced ? 1 : Math.min(1, dt * 0.12);
     energy += (targetEnergy - energy) * blend;
     const f = total > 0 ? showPos / total : 0;
+    const [c0, c1] = skyPair(index, f, set2Start, encoreStart);
     skyMat.uniforms.uEnergy.value = energy;
-    skyMat.uniforms.uC0.value.lerp(stopAt(STOPS_A, f), blend);
-    skyMat.uniforms.uC1.value.lerp(stopAt(STOPS_B, f), blend);
+    skyMat.uniforms.uC0.value.lerp(c0, blend);
+    skyMat.uniforms.uC1.value.lerp(c1, blend);
     skyMat.uniforms.uC2.value.copy(skyMat.uniforms.uC0.value).lerp(skyMat.uniforms.uPage.value, 0.7);
     hemi.color.copy(skyMat.uniforms.uC0.value).lerp(new THREE.Color(0xffffff), 0.3);
     if (!reduced) {
       skyMat.uniforms.uTime.value = elapsed;
       if (elapsed >= nextDrop) { dropAt = elapsed; skyMat.uniforms.uDrop.value.set(0.2 + rnd() * 0.6, 0.3 + rnd() * 0.5, 0); nextDrop = elapsed + 40 + rnd() * 20; }
       skyMat.uniforms.uDrop.value.z = elapsed - dropAt;
-      for (const m of moving) { if (m.kind === "spin") m.obj.rotation.y += dt * 0.3; else m.obj.position.y = 4 + 0.5 * Math.sin(elapsed * 1.5); }
+      for (const m of moving) {
+        if (m.kind === "spin") m.obj.rotation.y += dt * 0.3;
+        else if (m.kind === "pulse") m.obj.material.emissiveIntensity = 0.6 + 0.4 * Math.sin(elapsed * 3);
+        else if (m.kind === "bob") m.obj.position.y = 4 + 0.5 * Math.sin(elapsed * 1.5);
+      }
     } else {
       skyMat.uniforms.uTime.value = data.seed;
     }
 
-    /* The bears walk from this song's landmark to the next at the song's pace, in a line, and stand between songs. */
-    const uLead = (index + frac) / N;
+    /* Drums lights the left cave and Space the right, over eight seconds; under reduced motion at once. */
+    const title = tracks[index].title;
+    for (const [k, c] of caves.entries()) {
+      const target = hasShow && (k === 0 ? /drums/i : /space/i).test(title) ? 1 : 0;
+      c.level = reduced ? target : target > c.level ? Math.min(target, c.level + dt / 8) : Math.max(target, c.level - dt / 8);
+      c.disc.visible = c.level > 0;
+      c.disc.material.opacity = 0.9 * c.level;
+      c.disc.material.color.copy(skyMat.uniforms.uC1.value);
+      if (c.light) { c.light.intensity = 30 * c.level; c.light.color.copy(skyMat.uniforms.uC1.value); }
+    }
+
+    /* The bears walk from this song's landmark to the next so they arrive as it ends; under reduced motion they stand at it. */
+    const uLead = reduced ? landmarkU[index] : landmarkU[index] + frac * (landmarkU[index + 1] - landmarkU[index]);
     for (let k = 0; k < bears.length; k++) {
       const b = bears[k];
-      const u = uLead - k * (2.6 / curveLength);
-      const p = at(u), tg = tangentAt(u);
+      const ub = uLead - k * (2.6 / curveLength);
+      const p = at(ub), tg = tangentAt(ub);
       b.g.position.set(p.x, p.y, p.z);
       b.g.rotation.y = Math.atan2(tg.x, tg.z);
       const swing = (playing && !reduced) ? Math.sin(elapsed * 6 + b.phase) * 0.5 : 0;
@@ -192,45 +232,47 @@ function start(gl) {
       if (d > 108) { walker.x *= 108 / d; walker.z *= 108 / d; }
       placeWalker();
       if (moving_ && !reduced) camera.position.y += 0.12 * Math.sin(elapsed * 9);
-      if (!reduced) { idleTimer += dt; if (idleTimer > 15) { mode = "attract"; attractU = nearestU(walker.x, walker.z); } }
+      if (!reduced) { idleTimer += dt; if (idleTimer > 15) setMode("attract"); }
     } else if (mode === "descent") {
       /* From above the summit, where the island reads as the mark, north up the screen, down to the attract walk's first pose. */
       const k = easeOut(elapsed / 6);
-      const end = attractPose(-TRAIL);
+      const end = attractPose(uLead - TRAIL);
       camera.position.set(end.pos.x * k, 140 + (end.pos.y - 140) * k, end.pos.z * k);
       lookTarget.set(end.look.x * k, end.look.y * k, -3 + (end.look.z + 3) * k);
       camera.lookAt(lookTarget);
-      if (elapsed >= 6) { mode = "attract"; attractU = -TRAIL; }
+      if (elapsed >= 6) setMode("attract");
     } else if (mode === "attract") {
-      attractU += (6 / curveLength) * dt;
-      const pose = attractPose(attractU);
+      const ua = uLead - TRAIL; const pose = attractPose(ua);
       camera.position.copy(pose.pos);
       camera.lookAt(pose.look);
-      walker.x = pose.pos.x; walker.z = pose.pos.z; const tg = tangentAt(attractU); walker.heading = Math.atan2(-tg.x, -tg.z);
+      walker.x = pose.pos.x; walker.z = pose.pos.z; const tg = tangentAt(ua); walker.heading = Math.atan2(-tg.x, -tg.z);
     } else if (mode === "drift") {
       if (reduced) {
         const p0 = at(0);
         camera.position.set(0, height(0, 0) + 8, 0);
         camera.lookAt(p0.x, p0.y, p0.z);
       } else {
-        /* A slow crane along the path, high above the bears, whether or not the show is playing. */
-        driftU += (2.5 / curveLength) * dt;
-        const p = at(driftU), tg = tangentAt(driftU);
+        /* A slow crane high above the bears, trailing the last of them along the path. */
+        const ud = uLead - TRAIL;
+        const p = at(ud), tg = tangentAt(ud);
         const side = new THREE.Vector3().crossVectors(tg, up).normalize();
         const sway = 2 * Math.sin((elapsed * Math.PI * 2) / 30);
         const x = p.x + side.x * sway, z = p.z + side.z * sway;
         camera.position.set(x, height(x, z) + 9, z);
-        const ahead = at(driftU + 28 / curveLength);
+        const ahead = at(ud + 28 / curveLength);
         camera.lookAt(ahead.x, ahead.y + 8, ahead.z);
       }
+    } else if (mode === "follow") {
+      /* Six metres behind the last bear at eye height, looking at the lead bear; turning adds an offset to the look. */
+      walker.heading += ((keys.left ? 1 : 0) - (keys.right ? 1 : 0)) * 1.6 * dt;
+      const p = at(uLead - ((bears.length - 1) * 2.6 + 6) / curveLength), lead = at(uLead);
+      camera.position.set(p.x, p.y + 3.2, p.z);
+      const h = Math.atan2(-(lead.x - p.x), -(lead.z - p.z)) + walker.heading - followBase, dist = Math.hypot(lead.x - p.x, lead.z - p.z);
+      lookTarget.set(p.x - Math.sin(h) * dist, lead.y + 2, p.z - Math.cos(h) * dist);
+      camera.lookAt(lookTarget);
     }
 
     renderer.render(scene, camera);
-  }
-  function nearestU(x, z) {
-    let best = 0, bd = Infinity;
-    for (let i = 0; i < 200; i++) { const p = curve.getPointAt(i / 200); const d = Math.hypot(p.x - x, p.z - z); if (d < bd) { bd = d; best = i / 200; } }
-    return best;
   }
 
   container.dataset.world = "ready";

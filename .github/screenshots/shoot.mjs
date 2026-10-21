@@ -88,6 +88,7 @@ const LOAD_MS = 30_000;
 const MAX_SCREENS = 4;
 
 // Short recordings show the motion that stills cannot. Lean-back records on the TV.
+// An entry records the page at its path, "/" unless it names one.
 const RECORDINGS = [
   { device: "desktop", name: "home" },
   { device: "phone", name: "home" },
@@ -117,6 +118,14 @@ const RECORDINGS = [
       ["[data-pad='up']", 3000],
       ["[data-pad='left']", 1200],
     ],
+  },
+  // Walking with the bears on the fixed day, once the world is ready: the button puts the camera behind the bears.
+  {
+    device: "desktop",
+    name: "follow",
+    path: "/2026-10-20",
+    click: "#world[data-world='ready'] ~ div [data-action='follow']",
+    waitFor: "[data-action='follow'][aria-pressed='true']",
   },
 ];
 
@@ -350,7 +359,7 @@ try {
     await context.close();
   }
 
-  recording: for (const { device, name, click, waitFor, keys, pads } of RECORDINGS) {
+  recording: for (const { device, name, path = "/", click, waitFor, keys, pads } of RECORDINGS) {
     const options = DEVICES[device];
     // Frames arrive at the viewport's CSS size, whatever the device scale factor.
     const context = await browser.newContext({
@@ -361,7 +370,7 @@ try {
       },
     });
     const page = await context.newPage();
-    const url = new URL("/", site);
+    const url = new URL(path, site);
     const file = `${device}-${name}.webm`;
     await open(page, url);
     if (click) {

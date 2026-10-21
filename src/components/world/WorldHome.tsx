@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { ShowSummary, Source, Track } from "@/lib/types";
 import { formatDate } from "@/lib/format";
+import { deriveSets, segueOut } from "@/lib/sets";
 import { ShareButtons } from "@/components/ShareButtons";
 import { ShowPlayer } from "@/components/ShowPlayer";
 
@@ -34,16 +35,20 @@ function appendWorldModule(): HTMLScriptElement {
 /* The page: the world's container, the HUD on plates, the hooks, the show as JSON for the world, and the module loader. */
 export function WorldHome({ show, featuredDate, bestSource, isToday }: Props) {
   const tracks: Track[] = useMemo(() => bestSource?.sets.flatMap((s) => s.tracks) ?? [], [bestSource]);
+  const sets = useMemo(() => (bestSource ? deriveSets(bestSource) : { set2Start: null, encoreStart: null }), [bestSource]);
   const data = useMemo(() => JSON.stringify({
     featuredDate,
     showDate: show.date,
     venue: show.venue,
     location: show.location,
     seed: seedFromDate(featuredDate),
-    tracks: tracks.map((t) => ({ title: t.title, duration: t.duration })),
-  }), [featuredDate, show, tracks]);
+    set2Start: sets.set2Start,
+    encoreStart: sets.encoreStart,
+    tracks: tracks.map((t) => ({ title: t.title, duration: t.duration, segueOut: segueOut(t.title) })),
+  }), [featuredDate, show, tracks, sets]);
 
   const [leanback, setLeanback] = useState(false);
+  const [follow, setFollow] = useState(false);
   const [now, setNow] = useState({ index: 0, position: 0 });
   const phone = useSyncExternalStore(subscribe, () => window.matchMedia("(max-width: 639px)").matches, () => false);
 
@@ -66,6 +71,16 @@ export function WorldHome({ show, featuredDate, bestSource, isToday }: Props) {
     };
     document.addEventListener("world:now", onNow);
     return () => document.removeEventListener("world:now", onNow);
+  }, []);
+
+  /* The world reports its camera mode; the follow button reads pressed while the camera walks with the bears. */
+  useEffect(() => {
+    const onMode = (e: Event) => {
+      const d = (e as CustomEvent<{ mode: string }>).detail;
+      setFollow(d.mode === "follow");
+    };
+    document.addEventListener("world:mode", onMode);
+    return () => document.removeEventListener("world:mode", onMode);
   }, []);
 
   useEffect(() => {
@@ -102,6 +117,13 @@ export function WorldHome({ show, featuredDate, bestSource, isToday }: Props) {
               <span className="max-sm:hidden">Archive</span>
               <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M21 8v13H3V8" /><path d="M1 3h22v5H1z" /><path d="M10 12h4" /></svg>
             </a>
+            {/* Asks the player to start the show (nothing once it has), then puts the camera behind the bears. */}
+            <button type="button" data-action="follow" aria-pressed={follow} aria-label="Walk with the bears"
+              onClick={() => { document.dispatchEvent(new Event("player:join")); document.dispatchEvent(new Event("world:follow")); }}
+              className="plate t-body text-ink h-11 flex items-center aria-pressed:shadow-[inset_0_0_0_2px_var(--accent)]">
+              <span className="max-sm:hidden">Walk with the bears</span>
+              <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="15" r="4" /><circle cx="6" cy="9" r="1.5" /><circle cx="12" cy="6" r="1.5" /><circle cx="18" cy="9" r="1.5" /></svg>
+            </button>
             <button type="button" data-action="lean-back" onClick={() => setLeanback(true)} aria-label="Lean back" className="plate t-body text-ink h-11 flex items-center">
               <span className="max-sm:hidden">Lean back</span>
               <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="1" /><path d="M8 21h8" /></svg>
