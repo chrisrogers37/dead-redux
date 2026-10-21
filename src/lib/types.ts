@@ -72,3 +72,12 @@ export interface Track {
   mp3Url: string;
   flacUrl: string | null;
 }
+
+/**
+ * Where the second set and the encore begin in a show's flattened track list, as track indices;
+ * null where the source's notes do not say. A show with neither is one list.
+ */
+export interface DerivedSets {
+  set2Start: number | null;
+  encoreStart: number | null;
+}
