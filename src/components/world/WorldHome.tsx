@@ -26,7 +26,7 @@ function appendWorldModule(): HTMLScriptElement {
   const s = document.createElement("script");
   s.id = "world-module";
   s.type = "module";
-  s.src = "/world/world.js";
+  s.src = "/world/main.js";
   document.body.appendChild(s);
   return s;
 }
