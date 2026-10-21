@@ -1,4 +1,5 @@
-import { appendFile, mkdir, writeFile } from "fs/promises";
+import { appendFile, mkdir, mkdtemp, writeFile } from "fs/promises";
+import { tmpdir } from "os";
 import { join } from "path";
 import { chromium, request } from "playwright";
 
@@ -14,22 +15,36 @@ const DEVICES = {
   "desktop-reduced": { viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" },
 };
 
+// Each step acts on the loaded page, then shoots it. The prefix keeps one page's file names
+// apart from another's, and afterPlaying ({ ms, shot }) adds a later shot of the play step.
+const playerSteps = (prefix, afterPlaying) => [
+  { click: "[data-action='details']", shot: `${prefix}details` },
+  { focus: "[data-action='play']", shot: `${prefix}focus-play` },
+  {
+    click: "[data-action='play']",
+    waitFor: "[data-state='playing'], [data-state='stalled'], [data-state='error']",
+    shot: `${prefix}playing`,
+    later: afterPlaying,
+  },
+  {
+    click: "[data-action='lean-back']",
+    waitFor: "[data-mode='leanback']",
+    shot: `${prefix}leanback`,
+  },
+];
+
 const PAGES = [
   // Two shots of one load catch the animated display moving.
   {
     path: "/",
     shots: ["home-1", "home-2"],
-    // Each step acts on the loaded page, then shoots it.
-    steps: [
-      { click: "[data-action='details']", shot: "details" },
-      { focus: "[data-action='play']", shot: "focus-play" },
-      {
-        click: "[data-action='play']",
-        waitFor: "[data-state='playing'], [data-state='stalled'], [data-state='error']",
-        shot: "playing",
-      },
-      { click: "[data-action='lean-back']", waitFor: "[data-mode='leanback']", shot: "leanback" },
-    ],
+    steps: playerSteps(""),
+  },
+  // A fixed day whose show never changes, so every run plays the same tracks.
+  {
+    path: "/2026-10-20",
+    shots: ["fixed-1", "fixed-2"],
+    steps: playerSteps("fixed-", { ms: 8000, shot: "fixed-playing-8s" }),
   },
   // The end shot shows the last screen, where the archive's count line sits.
   { path: "/archive", shots: ["archive"], end: "archive-end" },
@@ -57,6 +72,48 @@ const STEP_SETTLE_MS = 1000;
 // Full-page shots stop at this many screens; the archive lists every day.
 const MAX_SCREENS = 4;
 
+// Short recordings show the motion that stills cannot. Lean-back records on the TV.
+const RECORDINGS = [
+  { device: "desktop", name: "home" },
+  { device: "phone", name: "home" },
+  {
+    device: "tv",
+    name: "leanback",
+    click: "[data-action='lean-back']",
+    waitFor: "[data-mode='leanback']",
+  },
+  // Roaming: focus the scene, then hold each key for its milliseconds, in order.
+  {
+    device: "desktop",
+    name: "roam",
+    click: "canvas",
+    keys: [
+      ["ArrowUp", 3000],
+      ["ArrowLeft", 1200],
+      ["ArrowUp", 3000],
+      ["ArrowRight", 800],
+    ],
+  },
+  // The phone roams with its on-screen pads, each held for its milliseconds, in order.
+  {
+    device: "phone",
+    name: "roam",
+    pads: [
+      ["[data-pad='up']", 3000],
+      ["[data-pad='left']", 1200],
+    ],
+  },
+];
+
+// How long each recording runs once the page has loaded and any control is pressed.
+const RECORD_MS = 10_000;
+
+// Logs the page's render stats (window.__hill) for a shot; null on a page without them.
+const logStats = async (page, file) => {
+  const stats = await page.evaluate(() => JSON.stringify(window.__hill ?? null));
+  console.log(`stats ${file} ${stats}`);
+};
+
 const site = new URL(process.env.SITE_URL);
 if (site.protocol !== "https:") {
   throw new Error(`SITE_URL must be an https URL, got ${process.env.SITE_URL}`);
@@ -70,7 +127,8 @@ if (process.env.GITHUB_OUTPUT) {
 const outDir = process.env.OUT_DIR;
 await mkdir(outDir, { recursive: true });
 
-const browser = await chromium.launch();
+// The runner has no GPU, so WebGL runs in software.
+const browser = await chromium.launch({ args: ["--enable-unsafe-swiftshader"] });
 try {
   for (const [device, options] of Object.entries(DEVICES)) {
     const context = await browser.newContext(options);
@@ -97,6 +155,10 @@ try {
       await page
         .waitForLoadState("networkidle", { timeout: 10_000 })
         .catch(() => console.log(`${url} never went network-idle; shooting anyway`));
+      // A running clock is not motion, so the reduced-motion shots hide it to stay comparable.
+      if (options.reducedMotion) {
+        await page.addStyleTag({ content: '[data-mask="time"]{visibility:hidden}' });
+      }
 
       for (const [i, shot] of shots.entries()) {
         if (i > 0) {
@@ -105,6 +167,7 @@ try {
         const file = `${device}-${shot}.png`;
         await page.screenshot({ path: join(outDir, file), fullPage: true, clip });
         console.log(`${file}  ${url}`);
+        await logStats(page, file);
       }
 
       for (const step of steps ?? []) {
@@ -128,6 +191,22 @@ try {
         const file = `${device}-${step.shot}.png`;
         await page.screenshot({ path: join(outDir, file), fullPage: true, clip });
         console.log(`${file}  ${url}  ${selector}`);
+        await logStats(page, file);
+        // The follow-up shot shows the page after it has been playing for a while.
+        if (step.later) {
+          await page.waitForTimeout(step.later.ms);
+          const laterFile = `${device}-${step.later.shot}.png`;
+          await page.screenshot({ path: join(outDir, laterFile), fullPage: true, clip });
+          console.log(`${laterFile}  ${url}  ${selector}`);
+          await logStats(page, laterFile);
+          // Serialised in the page, so each reading prints as one line of JSON.
+          const [analysis, lastGapMs] = await page.evaluate(() => [
+            JSON.stringify(window.__hill?.analysis ?? null),
+            JSON.stringify(window.__hill?.lastGapMs ?? null),
+          ]);
+          console.log(`analysis ${laterFile} ${analysis}`);
+          console.log(`lastGapMs ${laterFile} ${lastGapMs}`);
+        }
       }
 
       if (end) {
@@ -138,10 +217,78 @@ try {
         const file = `${device}-${end}.png`;
         await page.screenshot({ path: join(outDir, file) });
         console.log(`${file}  ${url}`);
+        await logStats(page, file);
       }
     }
 
     await context.close();
+  }
+
+  recording: for (const { device, name, click, waitFor, keys, pads } of RECORDINGS) {
+    const options = DEVICES[device];
+    // Frames arrive at the viewport's CSS size, whatever the device scale factor.
+    const context = await browser.newContext({
+      ...options,
+      recordVideo: {
+        dir: await mkdtemp(join(tmpdir(), "recording-")),
+        size: options.viewport,
+      },
+    });
+    const page = await context.newPage();
+    const url = new URL("/", site);
+    const file = `${device}-${name}.webm`;
+    await page.goto(url.href);
+    if (click) {
+      // A control missing from the page is logged and skipped, not an error.
+      // Scripts may draw the control after load, so it gets time to appear.
+      const found = await page.waitForSelector(click, { timeout: 15_000 }).then(
+        () => true,
+        () => false
+      );
+      if (!found) {
+        console.log(`${file}: ${click} absent`);
+        await context.close();
+        continue;
+      }
+      await page.click(click);
+      if (waitFor) {
+        await page
+          .waitForSelector(waitFor, { timeout: 15_000 })
+          .catch(() => console.log(`${file}: waitFor timed out; recording anyway`));
+      }
+    }
+    let held = 0;
+    for (const [key, ms] of keys ?? []) {
+      await page.keyboard.down(key);
+      await page.waitForTimeout(ms);
+      await page.keyboard.up(key);
+      held += ms;
+    }
+    // A pad is held with a mouse press, not a touch; the log says so.
+    for (const [pad, ms] of pads ?? []) {
+      // Scripts may draw the pad after load, so it gets time to appear.
+      const box = await page
+        .waitForSelector(pad, { timeout: 15_000 })
+        .then((element) => element.boundingBox())
+        .catch(() => null);
+      if (!box) {
+        console.log(`${file}: ${pad} absent`);
+        await context.close();
+        continue recording;
+      }
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.waitForTimeout(ms);
+      await page.mouse.up();
+      held += ms;
+      console.log(`${file}: ${pad} held ${ms} ms with the mouse, not a touch`);
+    }
+    await page.waitForTimeout(Math.max(RECORD_MS - held, 0));
+    const video = page.video();
+    // The video is complete only once its context closes.
+    await context.close();
+    await video.saveAs(join(outDir, file));
+    console.log(`${file}  ${url}`);
   }
 
   const api = await request.newContext();
