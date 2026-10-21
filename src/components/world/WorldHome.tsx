@@ -52,7 +52,8 @@ interface DetailsProps { source: Source; show: ShowSummary; tracks: Track[]; tou
 
 /**
  * What Details holds: the source, the recording's facts, how the sound plays, the single-key switch and the archive links. It opens
- * as a panel above the now-plate, so the plate keeps its size and the bears stay in view while it is shut.
+ * as a panel above the now-plate's stack (it is positioned against the fixed wrapper), so the plate keeps its size and the bears stay
+ * in view while it is shut.
  */
 function DetailsPanel({ source, show, tracks, tourName, routing, archiveUrl, singleKey }: DetailsProps) {
   const facts: [label: string, value: string | null | undefined][] = [
@@ -211,7 +212,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
             {stats && <p className="text-[13px] leading-4 font-mono normal-case tracking-normal mt-1 max-w-[360px] wrap-anywhere">{stats}</p>}
           </div>
         )}
-        <div className={leanback ? "plate relative" : "plate relative w-[360px] max-sm:w-auto"}>
+        <div className={leanback ? "plate" : "plate w-[360px] max-sm:w-auto"}>
           {bestSource && tracks.length > 0 ? (
             <Player tracks={tracks} sets={NO_SETS} featuredDate={featuredDate} showDate={show.date} venue={show.venue} archiveUrl={archiveUrl} leanback={leanback} startAt={startAt}>
               <DetailsPanel source={bestSource} show={show} tracks={tracks} tourName={tourName} routing={routing} archiveUrl={archiveUrl} singleKey={singleKey} />
