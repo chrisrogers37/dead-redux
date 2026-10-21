@@ -38,7 +38,7 @@ export function Timeline({ picks }: TimelineProps) {
               {pick.show.venue}
             </p>
             <p className="t-row text-muted">
-              {pick.show.location} &middot; {formatDate(pick.show.date)}
+              {pick.show.location}&nbsp;&middot; {formatDate(pick.show.date)}
             </p>
           </div>
 

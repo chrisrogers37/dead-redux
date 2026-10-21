@@ -2,13 +2,12 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { ShowSummary, Source, Track } from "@/lib/types";
+import { formatDate } from "@/lib/format";
 import { ShareButtons } from "@/components/ShareButtons";
 import { ShowPlayer } from "@/components/ShowPlayer";
 
 interface Props { show: ShowSummary; featuredDate: string; bestSource: Source | null; isToday: boolean; }
 
-const LONG = { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" } as const;
-const longDate = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", LONG);
 function clock(s: number): string {
   const n = Math.max(0, Math.floor(s)); const m = Math.floor(n / 60), sec = n % 60;
   return `${m}:${String(sec).padStart(2, "0")}`;
@@ -85,20 +84,24 @@ export function WorldHome({ show, featuredDate, bestSource, isToday }: Props) {
         aria-label="The island. Click to take the controls, then use the arrow keys or W A S D to walk and turn." />
       <div className="world-fallback" aria-hidden="true">
         <div className="sky" /><div className="ring" /><div className="hill" /><div className="cave l" /><div className="cave r" /><div className="water" />
-        <p className="hud plate t-body text-ink" style={{ left: 24, bottom: 24 }}>This world needs WebGL 2 · {longDate(show.date)} · {show.venue}</p>
+        <p className="hud plate t-body text-ink" style={{ left: 24, bottom: 24 }}>This world needs WebGL 2 · {formatDate(show.date)} · {show.venue}</p>
       </div>
 
       {!leanback && (
         <>
-          <div className="hud plate left-6 top-6 max-sm:left-3 max-sm:top-3">
+          {/* On a phone the plate ends 8 px before the icon column (which starts 64 px from the right edge), so its lines wrap before the column. */}
+          <div className="hud plate left-6 top-6 max-sm:left-3 max-sm:top-3 max-sm:right-[72px]">
             <p className="t-tag text-muted">Dead Redux</p>
-            <p className="t-label text-accent mt-1">{isToday ? <>Today&rsquo;s show · {longDate(featuredDate)}</> : <>Featured {longDate(featuredDate)}</>}</p>
-            <h1 className="t-date text-ink mt-2">{longDate(show.date)}</h1>
+            <p className="t-label text-accent mt-1">{isToday ? <>Today&rsquo;s show · {formatDate(featuredDate)}</> : <>Featured {formatDate(featuredDate)}</>}</p>
+            <h1 className="t-date text-ink mt-2">{formatDate(show.date)}</h1>
             <p className="t-body text-muted mt-1">{show.venue} · {show.location}</p>
           </div>
           <div className="hud right-6 top-6 max-sm:right-3 max-sm:top-3 flex gap-2 max-sm:flex-col max-sm:items-end">
             {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the world starts once per page load */}
-            <a href="/archive" className="plate t-row text-muted hover:text-ink h-11 flex items-center max-sm:hidden">Archive</a>
+            <a href="/archive" aria-label="Archive" className="plate t-row text-muted hover:text-ink h-11 flex items-center">
+              <span className="max-sm:hidden">Archive</span>
+              <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M21 8v13H3V8" /><path d="M1 3h22v5H1z" /><path d="M10 12h4" /></svg>
+            </a>
             <button type="button" data-action="lean-back" onClick={() => setLeanback(true)} aria-label="Lean back" className="plate t-body text-ink h-11 flex items-center">
               <span className="max-sm:hidden">Lean back</span>
               <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="1" /><path d="M8 21h8" /></svg>
@@ -155,7 +158,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday }: Props) {
           <div className="hud plate left-16 bottom-12">
             <p className="text-[40px] leading-[48px] font-medium text-ink">{current?.title ?? show.venue}</p>
             <p className="text-[24px] leading-8 font-mono text-muted mt-1">
-              {current ? <>{now.index + 1} of {tracks.length} · {clock(now.position)} / {clock(current.duration)}</> : longDate(show.date)}
+              {current ? <>{now.index + 1} of {tracks.length} · {clock(now.position)} / {clock(current.duration)}</> : formatDate(show.date)}
             </p>
           </div>
           <button type="button" onClick={() => setLeanback(false)} className="hud plate right-16 top-12 text-[24px] leading-8 text-ink">Leave · Esc</button>
