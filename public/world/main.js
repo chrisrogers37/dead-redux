@@ -74,6 +74,13 @@ function start(gl) {
   /* ---------- the sky ---------- */
   const { skyMat, hemi } = buildSky(scene, phone, data.seed);
 
+  /* ---------- the beam ---------- */
+  /* The song that plays stands in a soft column of light, so the show's progress reads from anywhere on the island. */
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 36, 16, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xe8b04b, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+  beam.visible = hasShow;
+  scene.add(beam);
+
   /* ---------- the show clock ---------- */
   /* The audio element owns the clock: the world keeps the player's last report (sent on each timeupdate, on play and on pause)
      and runs on from it while the show plays. */
@@ -102,14 +109,26 @@ function start(gl) {
 
   /* ---------- the camera: walker, attract, descent, drift ---------- */
   const trailhead = at(0);
-  const walker = { x: trailhead.x, z: trailhead.z, heading: 0 };
+  const walker = { x: trailhead.x, z: trailhead.z, heading: 0, pitch: 0 };
   const t0 = tangentAt(0); walker.heading = Math.atan2(-t0.x, -t0.z);
   let mode = reduced ? "walk" : "descent";
   let idleTimer = 0, elapsed = 0;
   /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
   let followBase = 0;
+  /* The bears walk the loop at their own lively pace, five in a line 7 m apart, 6.5 m to the left of the path so they pass the
+     landmarks rather than walk through them. */
+  const BEAR_GAP = 7, BEAR_SPEED = 2.5, BEAR_SIDE = 6.5;
+  /* Where the lead bear is along the loop. The bears set off from where the show is when it first plays, then keep their own pace
+     while it plays; under reduced motion they stand at the landmark of the song that plays. */
+  let bearU = 0, bearsOff = false;
+  /* A point on the bears' line: the path at u, BEAR_SIDE metres to its left, on the ground. */
+  function walkAt(u) {
+    const p = at(u), t = tangentAt(u), l = Math.hypot(t.x, t.z);
+    const x = p.x + (t.z / l) * BEAR_SIDE, z = p.z - (t.x / l) * BEAR_SIDE;
+    return new THREE.Vector3(x, height(x, z), z);
+  }
   /* The attract walk and the drift keep this far behind the last bear, so the five walk ahead in view. */
-  const TRAIL = (4 * 2.6 + 14) / curveLength;
+  const TRAIL = (4 * BEAR_GAP + 14) / curveLength;
   /* The attract camera: beside the path at a little above head height, looking 30 m up the path. */
   function attractPose(u) {
     const p = at(u), tg = tangentAt(u);
@@ -119,24 +138,28 @@ function start(gl) {
     return { pos: new THREE.Vector3(x, height(x, z) + 4.5, z), look: new THREE.Vector3(ahead.x, ahead.y + 6, ahead.z) };
   }
   const forward = () => new THREE.Vector3(-Math.sin(walker.heading), 0, -Math.cos(walker.heading));
-  /* Changes the camera's mode and tells the page. Leaving follow puts the walker where the camera stands, facing where it looked. */
+  /* Changes the camera's mode and tells the page. Leaving follow puts the walker where the camera stands, facing where it looked;
+     entering it frames the bears again, level. */
   function setMode(m) {
     if (m === mode) return;
     if (mode === "follow") {
       const d = new THREE.Vector3(); camera.getWorldDirection(d);
       walker.x = camera.position.x; walker.z = camera.position.z; walker.heading = Math.atan2(-d.x, -d.z);
+      walker.pitch = Math.max(-0.8, Math.min(0.8, Math.asin(d.y)));
     }
-    if (m === "follow") followBase = walker.heading;
+    if (m === "follow") { followBase = walker.heading; walker.pitch = 0; }
     mode = m;
     document.dispatchEvent(new CustomEvent("world:mode", { detail: { mode } }));
   }
-  /* Any input resets the idle timer. B (or the button) toggles walking with the bears; in follow, turning and dragging only look
-     around, and any step leaves it for a walk. Lean-back ignores the controls. */
+  /* The controls that only look around, so they keep walking with the bears. */
+  const LOOKS = new Set(["left", "right", "lookUp", "lookDown", "drag"]);
+  /* Any input resets the idle timer. B (or the button) toggles walking with the bears; in follow, turning, looking up or down and
+     dragging only look around, and any step leaves it for a walk. Lean-back ignores the controls. */
   function userInput(action) {
     idleTimer = 0;
     if (mode === "drift") return;
     if (action === "follow") { setMode(mode === "follow" ? "walk" : "follow"); return; }
-    if (mode === "follow" && (action === "left" || action === "right" || action === "drag")) return;
+    if (mode === "follow" && LOOKS.has(action)) return;
     setMode("walk");
   }
   document.addEventListener("world:follow", () => userInput("follow"));
@@ -159,7 +182,8 @@ function start(gl) {
   function placeWalker() {
     const y = height(walker.x, walker.z) + 3.2;
     camera.position.set(walker.x, y, walker.z);
-    lookTarget.copy(camera.position).add(forward());
+    const fw = forward(), c = Math.cos(walker.pitch);
+    lookTarget.set(walker.x + fw.x * c, y + Math.sin(walker.pitch), walker.z + fw.z * c);
     camera.lookAt(lookTarget);
   }
 
@@ -204,26 +228,37 @@ function start(gl) {
       c.level = reduced ? target : target > c.level ? Math.min(target, c.level + dt / 8) : Math.max(target, c.level - dt / 8);
       c.disc.visible = c.level > 0;
       c.disc.material.opacity = 0.9 * c.level;
-      c.disc.material.color.copy(skyMat.uniforms.uC1.value);
-      if (c.light) { c.light.intensity = 30 * c.level; c.light.color.copy(skyMat.uniforms.uC1.value); }
+      c.disc.material.color.copy(c1);
+      if (c.light) { c.light.intensity = 30 * c.level; c.light.color.copy(c1); }
     }
 
-    /* The bears walk from this song's landmark to the next so they arrive as it ends; under reduced motion they stand at it. */
-    const uLead = reduced ? landmarkU[index] : landmarkU[index] + frac * (landmarkU[index + 1] - landmarkU[index]);
+    /* The beam stands on the landmark of the song that plays. */
+    const lp = at(landmarkU[index]);
+    beam.position.set(lp.x, lp.y + 18, lp.z);
+
+    /* The bears. */
+    if (reduced) bearU = landmarkU[index];
+    else if (playing) {
+      if (!bearsOff) { bearsOff = true; bearU = landmarkU[index] + frac * (landmarkU[index + 1] - landmarkU[index]); }
+      bearU += (BEAR_SPEED * dt) / curveLength;
+    }
+    const uLead = bearU;
     for (let k = 0; k < bears.length; k++) {
       const b = bears[k];
-      const ub = uLead - k * (2.6 / curveLength);
-      const p = at(ub), tg = tangentAt(ub);
-      b.g.position.set(p.x, p.y, p.z);
+      const ub = uLead - k * (BEAR_GAP / curveLength);
+      const p = walkAt(ub), tg = tangentAt(ub);
+      b.g.position.copy(p);
       b.g.rotation.y = Math.atan2(tg.x, tg.z);
       const swing = (playing && !reduced) ? Math.sin(elapsed * 6 + b.phase) * 0.5 : 0;
       b.legs[0].rotation.x = swing; b.legs[3].rotation.x = swing; b.legs[1].rotation.x = -swing; b.legs[2].rotation.x = -swing;
     }
 
-    /* The camera. */
-    const moving_ = keys.fwd || keys.back || keys.strafeL || keys.strafeR || input.dragSpeed !== 0;
+    /* The camera. T and G (or a vertical drag) look up and down, up to 0.8 rad either way, while walking or with the bears. */
+    const tilt = (keys.lookUp ? 1 : 0) - (keys.lookDown ? 1 : 0);
+    if (tilt && (mode === "walk" || mode === "follow")) walker.pitch = Math.max(-0.8, Math.min(0.8, walker.pitch + tilt * 1.2 * dt));
+    const moving_ = keys.fwd || keys.back || keys.strafeL || keys.strafeR;
     if (mode === "walk") {
-      const spd = (keys.fwd ? 1 : 0) - (keys.back ? 1 : 0) + input.dragSpeed;
+      const spd = (keys.fwd ? 1 : 0) - (keys.back ? 1 : 0);
       const turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
       const side = (keys.strafeR ? 1 : 0) - (keys.strafeL ? 1 : 0);
       const pace = 12 * (keys.run ? 1.6 : 1) * dt;
@@ -268,10 +303,11 @@ function start(gl) {
       /* Six metres behind the last bear, the eye 6.5 m up, above their heads so all five read in a line; looking at the lead bear;
          turning adds an offset to the look. */
       walker.heading += ((keys.left ? 1 : 0) - (keys.right ? 1 : 0)) * 1.6 * dt;
-      const p = at(uLead - ((bears.length - 1) * 2.6 + 6) / curveLength), lead = at(uLead);
+      const p = walkAt(uLead - ((bears.length - 1) * BEAR_GAP + 6) / curveLength), lead = walkAt(uLead);
       camera.position.set(p.x, p.y + 6.5, p.z);
       const h = Math.atan2(-(lead.x - p.x), -(lead.z - p.z)) + walker.heading - followBase, dist = Math.hypot(lead.x - p.x, lead.z - p.z);
-      lookTarget.set(p.x - Math.sin(h) * dist, lead.y + 2, p.z - Math.cos(h) * dist);
+      const e = Math.max(-1.3, Math.min(1.3, Math.atan2(lead.y + 2 - camera.position.y, dist) + walker.pitch));
+      lookTarget.set(p.x - Math.sin(h) * dist, camera.position.y + Math.tan(e) * dist, p.z - Math.cos(h) * dist);
       camera.lookAt(lookTarget);
     }
 

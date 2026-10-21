@@ -132,6 +132,9 @@ const RECORDINGS = [
       ["ArrowLeft", 1200],
       ["ArrowUp", 3000],
       ["ArrowRight", 800],
+      // Then look up at the sky and down past the horizon.
+      ["KeyT", 700],
+      ["KeyG", 1400],
     ],
   },
   // The phone roams with its on-screen pads, each held for its milliseconds, in order.
@@ -151,11 +154,11 @@ const RECORDINGS = [
     click: "#world[data-world='ready'] ~ div [data-action='follow']",
     waitFor: "[data-action='follow'][aria-pressed='true']",
   },
-  // The same on a straight stretch of the path (Tennessee Jed, 2:42 in), where the five walk in one line.
+  // The same from C C Rider 0:42 in, where the bears set off along a straight stretch in one line, clear of the landmarks.
   {
     device: "desktop",
     name: "follow-straight",
-    path: "/2026-10-20?at=4&t=162",
+    path: "/2026-10-20?at=3&t=42",
     click: "#world[data-world='ready'] ~ div [data-action='follow']",
     waitFor: "[data-action='follow'][aria-pressed='true']",
   },
