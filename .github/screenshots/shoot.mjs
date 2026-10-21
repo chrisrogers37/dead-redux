@@ -65,6 +65,13 @@ const PAGES = [
     shots: [],
     steps: [playStep("fixed-gap-start", { ms: 12000, shot: "fixed-gap" })],
   },
+  // The fixed day from Cold Rain And Snow, on the summit: the bears set off along the lit band that joins it to Fire On The Mountain.
+  {
+    path: "/2026-10-20?at=7",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-segue-start", { ms: 12000, shot: "fixed-segue" })],
+  },
   // The fixed day at Drums, then at Space: the left cave lights, then the right, over 8 s, while the now-plate names set 2.
   {
     path: "/2026-10-20?at=13",
