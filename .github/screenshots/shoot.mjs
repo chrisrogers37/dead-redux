@@ -22,10 +22,16 @@ const DEVICES = {
   },
 };
 
-// The play step: press play, wait for the player to settle, then shoot; `later` ({ ms, shot }) adds a later shot.
+// archive.org can take tens of seconds to start a stream from CI, so a play step waits this long for the player to settle.
+const PLAY_WAIT_MS = 45_000;
+
+// The play step: press play, wait for the player to settle, then shoot; `later` ({ ms, shot }) adds a later shot. The log names the
+// state the player reached and the sentence on its now-plate, so a slow upstream shows there instead of failing the step.
 const playStep = (shot, later) => ({
   click: "[data-action='play']",
   waitFor: "[data-state='playing'], [data-state='stalled'], [data-state='error']",
+  waitMs: PLAY_WAIT_MS,
+  player: true,
   shot,
   later,
 });
@@ -265,8 +271,16 @@ try {
         }
         if (step.waitFor) {
           await page
-            .waitForSelector(step.waitFor, { timeout: 15_000 })
+            .waitForSelector(step.waitFor, { timeout: step.waitMs ?? 15_000 })
             .catch(() => console.log(`${step.shot}: waitFor timed out; shooting anyway`));
+        }
+        if (step.player) {
+          // The player's state and the now-plate's sentence: "Starting…", "Reconnecting…", an error, or the position.
+          const [state, line] = await page.evaluate(() => [
+            document.querySelector("main")?.dataset.state ?? null,
+            document.querySelector("[data-action='play']")?.closest(".plate")?.querySelector(".t-tag")?.textContent ?? null,
+          ]);
+          console.log(`state ${device}-${step.shot}.png ${state} · ${line}`);
         }
         await page.waitForTimeout(STEP_SETTLE_MS);
         const file = `${device}-${step.shot}.png`;
