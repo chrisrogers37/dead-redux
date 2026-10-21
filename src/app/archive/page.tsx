@@ -2,11 +2,6 @@ import type { Metadata } from "next";
 import { connection } from "next/server";
 import { getArchivePicks } from "@/lib/archive";
 import { Timeline } from "@/components/Timeline";
-import { NavBar } from "@/components/NavBar";
-import { StealYourFace } from "@/components/StealYourFace";
-import { DancingBears } from "@/components/DancingBears";
-import { WhimsicalForest } from "@/components/WhimsicalForest";
-import { PastelRainbow } from "@/components/PastelRainbow";
 
 export const metadata: Metadata = {
   title: "Archive | Dead Redux",
@@ -19,50 +14,57 @@ export default async function ArchivePage() {
   const picks = getArchivePicks();
 
   return (
-    <main className="relative min-h-screen flex flex-col items-center p-4 overflow-hidden">
-      {/* Soft pastel background orbs */}
-      <div className="psychedelic-orb w-80 h-80 -top-40 -right-40 bg-dead-peach/20" />
-      <div className="psychedelic-orb w-72 h-72 top-1/3 -left-36 bg-dead-lavender/20" style={{ animationDelay: "3s" }} />
-      <div className="psychedelic-orb w-64 h-64 bottom-1/4 right-1/4 bg-dead-sky/15" style={{ animationDelay: "5s" }} />
+    <main className="mx-auto w-full max-w-2xl px-4 py-8">
+      <nav className="flex items-baseline justify-between">
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the world starts once per page load */}
+        <a href="/" className="t-tag text-muted hover:text-ink">Dead Redux</a>
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the world starts once per page load */}
+        <a href="/" className="t-row text-muted hover:text-ink">Today&rsquo;s show</a>
+      </nav>
 
-      {/* Background SYF watermark */}
-      <StealYourFace className="absolute inset-0 flex items-center justify-center" />
+      <h1 className="t-date text-ink mt-10">Archive</h1>
 
-      {/* Content */}
-      <div className="relative z-10 w-full max-w-2xl mx-auto">
-        {/* Nav */}
-        <NavBar />
-
-        {/* Header */}
-        <div className="text-center space-y-2 py-8">
-          <h1 className="font-display text-3xl rainbow-text">Archive</h1>
-          <p className="text-xs text-dead-bone/40">
-            Every show we&apos;ve featured, newest first
-          </p>
-          <div className="bolt-divider mt-3 mx-auto max-w-xs" />
-        </div>
-
-        {/* Small rainbow accent */}
-        <div className="flex justify-center pb-4">
-          <PastelRainbow size="small" />
-        </div>
-
-        {/* Timeline */}
+      <div className="mt-6">
         <Timeline picks={picks} />
-
-        {/* Forest divider */}
-        <WhimsicalForest className="mt-8" />
-
-        {/* Footer */}
-        <div className="text-center text-xs text-dead-bone/40 py-8">
-          <p>
-            {picks.length} show{picks.length !== 1 ? "s" : ""} featured so far
-          </p>
-        </div>
       </div>
 
-      {/* Dancing bears */}
-      <DancingBears />
+      <footer className="mt-10 space-y-2 t-row text-muted">
+        <p>
+          Powered by{" "}
+          <a
+            href="https://relisten.net/grateful-dead"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-ink"
+          >
+            Relisten
+          </a>
+          {" "}&amp;{" "}
+          <a
+            href="https://archive.org/details/GratefulDead"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-ink"
+          >
+            Archive.org
+          </a>
+          {" "}&middot; {picks.length} show{picks.length !== 1 ? "s" : ""} featured
+        </p>
+        <p>
+          <a
+            href="https://archive.org/details/GratefulDead"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-ink"
+          >
+            Recordings stream from the Live Music Archive under the band&rsquo;s non-commercial trading policy
+          </a>
+        </p>
+        <details>
+          <summary className="cursor-pointer">The band&rsquo;s statement</summary>
+          <p className="mt-2">&ldquo;No commercial gain may be sought by websites offering digital files of our music, whether through advertising, exploiting databases compiled from their traffic, or any other means. All participants in such digital exchange acknowledge and respect the copyrights of the performers, writers and publishers of the music. This notice should be clearly posted on all sites engaged in this activity. We reserve the ability to withdraw our sanction of non-commercial digital music should circumstances arise that compromise our ability to protect and steward the integrity of our work.&rdquo;</p>
+        </details>
+      </footer>
     </main>
   );
 }

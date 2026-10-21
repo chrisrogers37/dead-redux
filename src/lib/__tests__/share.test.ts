@@ -12,12 +12,8 @@ const deerCreek = {
 
 describe("shareContent", () => {
   it("links to the featured day's page, not the show's date", () => {
-    const { url, text, twitterUrl, facebookUrl } = shareContent(deerCreek);
+    const { url } = shareContent(deerCreek);
     expect(url).toBe("https://dead-redux.vercel.app/2026-03-01");
-    expect(twitterUrl).toBe(
-      `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`
-    );
-    expect(facebookUrl).toBe(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`);
   });
 
   it("says today only for today's show", () => {

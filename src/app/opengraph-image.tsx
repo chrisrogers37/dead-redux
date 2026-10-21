@@ -10,15 +10,16 @@ export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
 export default async function OGImage() {
-  const show = getDailyShow(getTodayDateStr());
+  const today = getTodayDateStr();
+  const show = getDailyShow(today);
 
   return new ImageResponse(
     (
       <ShareCard
-        eyebrow="Dead Redux"
-        headline={show.venue}
-        line={`${show.location} · ${formatDate(show.date)}`}
-        footer="A new Grateful Dead show every day"
+        eyebrow={`Today’s show · ${formatDate(today)}`}
+        headline={formatDate(show.date)}
+        line={`${show.venue} · ${show.location}`}
+        footer="Dead Redux · A new Grateful Dead show every day"
       />
     ),
     { ...size }

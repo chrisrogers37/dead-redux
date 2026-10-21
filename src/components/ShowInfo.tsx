@@ -44,9 +44,9 @@ export function ShowInfo({
     <details className="group w-full">
       <summary
         data-action="details"
-        className="mx-auto flex w-fit items-center justify-center gap-2 py-2 px-5 rounded-full text-sm
-                   text-dead-bone/90 hover:text-dead-bone border border-dead-lavender/30 hover:border-dead-pink/40
-                   hover:bg-dead-pink/5 transition-colors cursor-pointer [&::-webkit-details-marker]:hidden"
+        className="mx-auto flex w-fit items-center justify-center gap-2 py-2 px-5 rounded-full t-row
+                   text-ink border border-line hover:border-accent
+                   transition-colors cursor-pointer [&::-webkit-details-marker]:hidden"
       >
         <span>Details</span>
         <svg
@@ -63,14 +63,14 @@ export function ShowInfo({
         </svg>
       </summary>
 
-      <div className="mt-2 watercolor-card p-5 space-y-5">
+      <div className="mt-2 plate space-y-5">
         {/* Facts */}
         {rows.length > 0 && (
-          <dl className="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-2 text-sm">
+          <dl className="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-2 t-row">
             {rows.map(([label, value]) => (
               <Fragment key={label}>
-                <dt className="text-dead-bone/90">{label}</dt>
-                <dd className="text-dead-bone wrap-anywhere">{value}</dd>
+                <dt className="text-muted">{label}</dt>
+                <dd className="text-ink wrap-anywhere">{value}</dd>
               </Fragment>
             ))}
           </dl>
@@ -83,7 +83,7 @@ export function ShowInfo({
               <div key={setIndex}>
                 {/* Set header */}
                 {set.name && (
-                  <h4 className="text-sm font-medium uppercase tracking-widest text-dead-bone/90 mb-2">
+                  <h4 className="t-label text-muted mb-2">
                     {set.name}
                   </h4>
                 )}
@@ -93,11 +93,11 @@ export function ShowInfo({
                   {set.tracks.map((track, trackIndex) => (
                     <li
                       key={trackIndex}
-                      className="flex items-baseline justify-between text-sm"
+                      className="flex items-baseline justify-between t-row"
                     >
-                      <span className="text-dead-bone/90">{track.title}</span>
+                      <span className="text-ink">{track.title}</span>
                       {track.duration > 0 && (
-                        <span className="text-dead-bone/90 text-sm ml-3 tabular-nums shrink-0">
+                        <span className="text-muted t-row ml-3 tabular-nums shrink-0">
                           {formatDuration(track.duration)}
                         </span>
                       )}
@@ -113,7 +113,7 @@ export function ShowInfo({
         {notes.length > 0 && (
           <div className="space-y-1">
             {notes.map((line, lineIndex) => (
-              <p key={lineIndex} className="text-sm text-dead-bone/90">
+              <p key={lineIndex} className="t-row text-muted">
                 {line}
               </p>
             ))}
@@ -126,7 +126,7 @@ export function ShowInfo({
             href={relistenUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm text-dead-bone/90 underline hover:text-dead-bone transition-colors"
+            className="inline-flex items-center gap-1.5 t-row text-ink underline"
           >
             View on Relisten
             <svg

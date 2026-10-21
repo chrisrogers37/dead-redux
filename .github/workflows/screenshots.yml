@@ -15,7 +15,7 @@ permissions:
 
 env:
   # "true" makes the reduced-motion compare fail the run when its two stills differ.
-  RM_COMPARE_ENFORCE: "false"
+  RM_COMPARE_ENFORCE: "true"
 
 jobs:
   shoot:

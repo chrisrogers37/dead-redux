@@ -26,10 +26,10 @@ export default async function OGImage({
             justifyContent: "center",
             width: "100%",
             height: "100%",
-            backgroundColor: "#0D0D0F",
-            color: "#F5E6C8",
+            backgroundColor: "#0B0B0D",
+            color: "#ECEAE4",
             fontSize: 48,
-            fontFamily: "serif",
+            fontFamily: "sans-serif",
           }}
         >
           Dead Redux
@@ -44,10 +44,10 @@ export default async function OGImage({
   return new ImageResponse(
     (
       <ShareCard
-        eyebrow="Dead Redux"
-        headline={show.venue}
-        line={`${show.location} · ${formatDate(date)}`}
-        footer="A new Grateful Dead show every day"
+        eyebrow={`Featured ${formatDate(date)}`}
+        headline={formatDate(show.date)}
+        line={`${show.venue} · ${show.location}`}
+        footer="Dead Redux · A new Grateful Dead show every day"
       />
     ),
     { ...size }
