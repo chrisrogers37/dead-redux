@@ -34,7 +34,9 @@ const playStep = (shot, later) => ({
 // apart from another's, and afterPlaying ({ ms, shot }) adds a later shot of the play step.
 const playerSteps = (prefix, afterPlaying) => [
   { click: "[data-action='details']", shot: `${prefix}details` },
-  { focus: "[data-action='play']", shot: `${prefix}focus-play` },
+  // Keyboard focus, which is what draws the ring: Chromium shows :focus-visible after a Tab, not after a script focus that follows
+  // a mouse click. Tab from the previous button lands on the play disc and starts nothing.
+  { focus: "[data-action='prev']", press: "Tab", shot: `${prefix}focus-play` },
   playStep(`${prefix}playing`, afterPlaying),
   {
     click: "[data-action='lean-back']",
@@ -217,6 +219,7 @@ try {
         }
         if (step.focus) {
           await page.focus(selector);
+          if (step.press) await page.keyboard.press(step.press);
         } else {
           await page.click(selector);
         }

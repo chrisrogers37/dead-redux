@@ -3,6 +3,7 @@
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import type { DerivedSets, Track } from "@/lib/types";
 import { formatDate } from "@/lib/format";
+import { corsAfterError } from "@/lib/fallback";
 import { nextIndex, prevIndex, setName } from "@/lib/queue";
 import { Transport } from "./Transport";
 import { keyBelongsToControl, lettersActive } from "./keys";
@@ -60,8 +61,12 @@ interface Engine {
   wantPlay: boolean;
   /** The last track ended. */
   over: boolean;
-  /** Where the active element starts after a re-mount. */
+  /** Where the active element starts after it re-mounts. */
   restartAt: number;
+  /** The element each slot was set up with, so a re-mount of one leaves the other alone. */
+  els: [HTMLAudioElement | null, HTMLAudioElement | null];
+  /** Removes each element's listeners. */
+  off: [(() => void) | null, (() => void) | null];
   retries: number;
   stallTimer: number;
   retryTimer: number;
@@ -100,6 +105,8 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
     wantPlay: false,
     over: false,
     restartAt: 0,
+    els: [null, null],
+    off: [null, null],
     retries: 0,
     stallTimer: 0,
     retryTimer: 0,
@@ -111,8 +118,9 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
   const [joined, setJoined] = useState(false);
   const [over, setOver] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  /** Turns false once, when a CORS failure re-mounts both elements without crossOrigin. */
-  const [cors, setCors] = useState(true);
+  /** Whether each element still loads with crossOrigin; one turns false when its load fails the CORS check, and only that element re-mounts. */
+  const [cors, setCors] = useState<[boolean, boolean]>([true, true]);
+  const [corsA, corsB] = cors;
 
   function slotEl(slot: Slot) {
     return slot === 0 ? aRef.current : bRef.current;
@@ -385,15 +393,18 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
 
   /**
    * With crossOrigin set, a hop that fails the CORS check fails the load outright, before metadata. An element routed into a Web Audio
-   * graph sounds only through it, so the fallback never retries those elements: it re-mounts both without crossOrigin and carries on
-   * from the same place.
+   * graph sounds only through it, so the fallback never retries that element: it re-mounts it alone without crossOrigin. A failed
+   * preload leaves the playing element untouched; a failed playing element picks up on the new one from where it was.
    */
-  function fallBack() {
+  function fallBack(slot: Slot) {
     const g = eng.current;
-    g.restartAt = activeEl()?.currentTime ?? 0;
-    clearStall();
-    clearRetry();
-    setCors(false);
+    if (slot === g.active) {
+      g.restartAt = activeEl()?.currentTime ?? 0;
+      clearStall();
+      clearRetry();
+    }
+    // A functional update, so two failures before the next render both land.
+    setCors((c) => corsAfterError(c, slot, false) ?? c);
   }
 
   const onMedia = useEffectEvent((slot: Slot, ev: Event) => {
@@ -443,8 +454,8 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
         if (isActive) advance();
         break;
       case "error":
-        if (cors && !g.metadata[slot]) {
-          fallBack();
+        if (corsAfterError(cors, slot, g.metadata[slot])) {
+          fallBack(slot);
           return;
         }
         if (!isActive) {
@@ -456,37 +467,33 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
     }
   });
 
-  /** Sets the elements up after each mount: the world hears about each element, and the active one is cued where the queue is. */
-  const begin = useEffectEvent(() => {
-    const a = aRef.current;
-    const b = bRef.current;
-    if (!a || !b) return;
+  /** Sets up an element after it mounts: the world hears about it, and the active one is cued where the queue is. */
+  const mount = useEffectEvent((slot: Slot, el: HTMLAudioElement) => {
     const g = eng.current;
-    for (const el of [a, b]) document.dispatchEvent(new CustomEvent("player:element", { detail: { el, cors } }));
-    cue(g.active, g.index, g.restartAt);
+    g.held[slot] = -1;
+    g.metadata[slot] = false;
+    document.dispatchEvent(new CustomEvent("player:element", { detail: { el, cors: cors[slot] } }));
+    if (slot !== g.active) return;
+    cue(slot, g.index, g.restartAt);
     if (g.wantPlay) play();
   });
 
+  /* Each element gets its listeners when it mounts; a re-mount of one leaves the other, and whatever it is playing, alone. */
   useEffect(() => {
-    const a = aRef.current;
-    const b = bRef.current;
-    if (!a || !b) return;
     const g = eng.current;
-    g.active = 0;
-    g.held = [-1, -1];
-    g.metadata = [false, false];
-    const off: (() => void)[] = [];
-    ([a, b] as const).forEach((el, i) => {
-      const slot = i as Slot;
-      for (const type of MEDIA_EVENTS) {
-        const listener = (ev: Event) => onMedia(slot, ev);
-        el.addEventListener(type, listener);
-        off.push(() => el.removeEventListener(type, listener));
-      }
+    ([0, 1] as const).forEach((slot) => {
+      const el = slotEl(slot);
+      if (!el || el === g.els[slot]) return;
+      g.off[slot]?.();
+      const listener = (ev: Event) => onMedia(slot, ev);
+      for (const type of MEDIA_EVENTS) el.addEventListener(type, listener);
+      g.off[slot] = () => {
+        for (const type of MEDIA_EVENTS) el.removeEventListener(type, listener);
+      };
+      g.els[slot] = el;
+      mount(slot, el);
     });
-    begin();
-    return () => off.forEach((f) => f());
-  }, [cors]);
+  }, [corsA, corsB]);
 
   /**
    * Keys on window while nothing text-like has focus: Space or K play and pause (the first press starts the show), J and L seek
@@ -533,6 +540,9 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
   useEffect(() => {
     const g = eng.current;
     return () => {
+      g.off.forEach((f) => f?.());
+      g.off = [null, null];
+      g.els = [null, null];
       window.clearTimeout(g.stallTimer);
       window.clearTimeout(g.retryTimer);
       window.clearTimeout(g.noteTimer);
@@ -561,8 +571,8 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
   const status = note ?? (state === "loading" ? "Starting…" : state === "stalled" ? "Reconnecting…" : over ? `Show over · ${formatDate(showDate)}` : null);
   return (
     <>
-      <audio id="show-audio-a" key={cors ? "a-cors" : "a"} ref={aRef} preload="metadata" playsInline crossOrigin={cors ? "anonymous" : undefined} />
-      <audio id="show-audio-b" key={cors ? "b-cors" : "b"} ref={bRef} preload="metadata" playsInline crossOrigin={cors ? "anonymous" : undefined} />
+      <audio id="show-audio-a" key={corsA ? "a-cors" : "a"} ref={aRef} preload="metadata" playsInline crossOrigin={corsA ? "anonymous" : undefined} />
+      <audio id="show-audio-b" key={corsB ? "b-cors" : "b"} ref={bRef} preload="metadata" playsInline crossOrigin={corsB ? "anonymous" : undefined} />
       <Transport
         leanback={leanback}
         title={tracks[view.index].title}

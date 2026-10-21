@@ -167,7 +167,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
     <main data-mode={leanback ? "leanback" : undefined} data-state={playerState} data-routing={routing} data-joined={joined ? "true" : undefined} data-single-key={singleKey ? "on" : "off"} data-test-hooks={testHooks ? "1" : undefined} className="world-page relative h-screen">
       <script type="application/json" id="world-data" dangerouslySetInnerHTML={{ __html: data.replace(/</g, "\\u003c") }} />
       <div id="world" data-world="loading" tabIndex={0} role="application"
-        aria-label="The island. Click to take the controls, then use the arrow keys or W A S D to walk and turn." />
+        aria-label="The island. Walk and turn with the arrow keys or W A S D; the first move starts the show." />
       <div className="world-fallback" aria-hidden="true">
         <div className="sky" /><div className="ring" /><div className="hill" /><div className="cave l" /><div className="cave r" /><div className="water" />
         <p className="hud plate t-body text-ink" style={{ left: 24, bottom: 24 }}>This world needs WebGL 2 · {formatDate(show.date)} · {show.venue}</p>
