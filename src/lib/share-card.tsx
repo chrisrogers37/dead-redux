@@ -1,13 +1,13 @@
 interface ShareCardProps {
   eyebrow: string;
   headline: string;
-  line: string;
+  line?: string;
   footer: string;
 }
 
 /**
- * The site's 1200×630 link-preview card: an eyebrow and a divider over a serif
- * headline, one line of detail under it, and a footer, on the dark ground.
+ * The site's 1200×630 link-preview card, on the page colour: an amber eyebrow over a
+ * large sans-serif headline, a line of detail under it when there is one, and a footer.
  */
 export function ShareCard({ eyebrow, headline, line, footer }: ShareCardProps) {
   return (
@@ -19,33 +19,19 @@ export function ShareCard({ eyebrow, headline, line, footer }: ShareCardProps) {
         justifyContent: "center",
         width: "100%",
         height: "100%",
-        backgroundColor: "#0D0D0F",
-        color: "#F5E6C8",
+        backgroundColor: "#0B0B0D",
+        color: "#ECEAE4",
         padding: "60px",
         position: "relative",
       }}
     >
-      {/* Subtle background gradient */}
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background:
-            "radial-gradient(ellipse at 20% 50%, rgba(26,58,107,0.15) 0%, transparent 50%), radial-gradient(ellipse at 80% 50%, rgba(212,42,42,0.12) 0%, transparent 50%)",
-          display: "flex",
-        }}
-      />
-
       {/* Top: eyebrow */}
       <div
         style={{
-          fontSize: 24,
-          letterSpacing: "0.15em",
+          fontSize: 28,
+          letterSpacing: "0.12em",
           textTransform: "uppercase",
-          color: "#D4A843",
+          color: "#E8B04B",
           marginBottom: 20,
           display: "flex",
         }}
@@ -53,23 +39,11 @@ export function ShareCard({ eyebrow, headline, line, footer }: ShareCardProps) {
         {eyebrow}
       </div>
 
-      {/* Lightning bolt divider */}
-      <div
-        style={{
-          width: 200,
-          height: 2,
-          background:
-            "linear-gradient(90deg, transparent, #D42A2A, #F5E6C8, #1A3A6B, transparent)",
-          marginBottom: 40,
-          display: "flex",
-        }}
-      />
-
       {/* Headline */}
       <div
         style={{
-          fontSize: 52,
-          fontFamily: "serif",
+          fontSize: 88,
+          fontFamily: "sans-serif",
           textAlign: "center",
           lineHeight: 1.2,
           maxWidth: 900,
@@ -80,26 +54,26 @@ export function ShareCard({ eyebrow, headline, line, footer }: ShareCardProps) {
       </div>
 
       {/* Detail line */}
-      <div
-        style={{
-          fontSize: 28,
-          color: "#E8DCC8",
-          opacity: 0.7,
-          marginTop: 20,
-          display: "flex",
-        }}
-      >
-        {line}
-      </div>
+      {line && (
+        <div
+          style={{
+            fontSize: 36,
+            color: "#A09C94",
+            marginTop: 20,
+            display: "flex",
+          }}
+        >
+          {line}
+        </div>
+      )}
 
       {/* Bottom: footer */}
       <div
         style={{
           position: "absolute",
           bottom: 40,
-          fontSize: 18,
-          color: "#E8DCC8",
-          opacity: 0.4,
+          fontSize: 24,
+          color: "#A09C94",
           display: "flex",
         }}
       >

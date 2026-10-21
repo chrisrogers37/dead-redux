@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { getDailyShow, isValidDateStr, getTodayDateStr } from "@/lib/daily-show";
 import { formatDate } from "@/lib/format";
 import { fetchShowDetails, pickBestSource } from "@/lib/relisten";
-import { ShowPageContent } from "@/components/ShowPageContent";
+import { WorldHome } from "@/components/world/WorldHome";
 
 interface PageProps {
   params: Promise<{ date: string }>;
@@ -28,15 +28,13 @@ export default async function DailyShowPage({ params }: PageProps) {
   const show = getDailyShow(date);
   const details = await fetchShowDetails(show.date);
   const bestSource = details ? pickBestSource(details.sources) : null;
-  const isToday = date === getTodayDateStr();
 
   return (
-    <ShowPageContent
+    <WorldHome
       show={show}
       featuredDate={date}
       bestSource={bestSource}
-      tourName={details?.tour?.name ?? null}
-      isToday={isToday}
+      isToday={date === getTodayDateStr()}
     />
   );
 }
