@@ -163,9 +163,10 @@ function start(gl) {
   /* The walk keeps within this distance of the island's centre: past the bears' line, which reaches 112.4 m out, by more than a reach,
      so stepping back from a bear never carries a walker past it. */
   const BOUND = 117;
-  /* How far the lead bear is along its line. Until the show first plays the bears stand where it is; then they set off and keep
-     their own pace while it plays. Under reduced motion they stand at the landmark of the song that plays. */
-  let bearD = 0, bearsOff = false;
+  /* How far the lead bear is along its line. Until the show first plays the bears stand where it is, from the world's first frame
+     even if it is already playing; then they set off and keep their own pace while it plays. Under reduced motion they stand at the
+     landmark of the song that plays. */
+  let bearD = 0, bearsOff = false, bearsPlaced = false;
   /* The visitor's place in the line: a sixth bear, one gap behind the last bear shown, facing along the line. */
   const slotD = () => bearD - bears.length * BEAR_GAP;
   function slot() {
@@ -354,11 +355,13 @@ function start(gl) {
     const lp = at(landmarkU[index]);
     beam.position.set(lp.x, lp.y + 18, lp.z);
 
-    /* The bears. Before the show first plays they stand where it is; in the frame it starts they walk on from there, so nothing steps. */
+    /* The bears. Before the show first plays they stand where it is, and a world that opens while it plays places them there in its
+       first frame; in the frame it starts they walk on from where they stand, so nothing steps. */
     if (reduced) bearD = line.dOf(landmarkU[index]);
     else {
-      if (!bearsOff && !playing) bearD = line.dOf(landmarkU[index] + frac * (landmarkU[index + 1] - landmarkU[index]));
+      if (!bearsOff && (!playing || !bearsPlaced)) bearD = line.dOf(landmarkU[index] + frac * (landmarkU[index + 1] - landmarkU[index]));
       if (playing) { bearsOff = true; bearD += BEAR_SPEED * dt; }
+      bearsPlaced = true;
     }
     for (let k = 0; k < bears.length; k++) {
       const b = bears[k];
