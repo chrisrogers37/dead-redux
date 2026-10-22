@@ -25,7 +25,8 @@ jobs:
       (github.event.deployment_status.state == 'success' &&
       github.event.deployment.environment == 'Preview')
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # Room for every shot and recording, the play steps' waits for archive.org's stream, and the MP4 conversion.
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: .github/screenshots
