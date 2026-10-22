@@ -160,7 +160,7 @@ jobs:
           name: maps-${{ github.run_id }}
           path: ${{ runner.temp }}/incoming
       - name: Check the maps and add them
-        run: node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/scripts/check-maps.mjs "$RUNNER_TEMP/incoming" site/public/maps
+        run: node tools/scripts/check-maps.mjs "$RUNNER_TEMP/incoming" site/public/maps
       - name: Commit and push
         working-directory: site
         env:
