@@ -6,6 +6,7 @@ import { makeBuilders } from "./landmarks.js";
 import { buildBears } from "./bears.js";
 import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
+import { keepOut } from "./collide.js";
 import { ensureContext } from "./audio.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
@@ -123,6 +124,9 @@ function start(gl) {
   /* The bears walk their own line at a lively pace, five 7 m apart by distance along it. The line keeps 7 m to the left of the path
      so they pass the landmarks rather than walk through them (path.js). */
   const BEAR_GAP = 7, BEAR_SPEED = 2.5;
+  /* How near a walk comes to a bear's centre: a bear's snout tip ends 2.4 m ahead of it, and the camera draws nothing nearer than
+     0.5 m. Neighbours stay at least 5.9 m apart on the line's tightest bend, so their reaches never overlap. */
+  const BEAR_REACH = 2.9, bearSpots = bears.map((b) => b.g.position);
   const line = buildWalkLine(path, 7);
   /* How far the lead bear is along its line. Until the show first plays the bears stand where it is; then they set off and keep
      their own pace while it plays. Under reduced motion they stand at the landmark of the song that plays. */
@@ -269,6 +273,7 @@ function start(gl) {
       walker.x += (fw.x * spd - fw.z * side) * pace; walker.z += (fw.z * spd + fw.x * side) * pace;
       const d = Math.hypot(walker.x, walker.z);
       if (d > 108) { walker.x *= 108 / d; walker.z *= 108 / d; }
+      keepOut(walker, bearSpots, BEAR_REACH);
       placeWalker();
       if (moving_ && !reduced) camera.position.y += 0.12 * Math.sin(elapsed * 9);
       if (!reduced) { idleTimer += dt; if (idleTimer > 15) setMode("attract"); }
