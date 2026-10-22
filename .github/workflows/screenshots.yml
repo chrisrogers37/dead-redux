@@ -69,12 +69,14 @@ jobs:
       # The integrity values a modulepreload link can pin for the world's two CDN files.
       - name: Print the CDN files' sha384
         continue-on-error: true
+        # A stalled CDN fails this step quickly, and the upload below still runs.
+        timeout-minutes: 1
         run: |
           set -o pipefail
           for u in \
             https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.min.js \
             https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/utils/BufferGeometryUtils.js; do
-            h=$(curl -fsS "$u" | openssl dgst -sha384 -binary | openssl base64 -A)
+            h=$(curl -fsS --max-time 20 "$u" | openssl dgst -sha384 -binary | openssl base64 -A)
             echo "sha384-$h  $u" | tee -a "$GITHUB_STEP_SUMMARY"
           done
       # Also runs when an enforced compare fails, so the shots and the diff are kept.

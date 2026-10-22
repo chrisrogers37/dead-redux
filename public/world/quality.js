@@ -5,9 +5,9 @@
 
 /* Rung 0 of each tier. */
 const BUDGETS = {
-  desktop: { scale: 1.0, grid: 80, octaves: 4, bears: 5, fov: 60, flameLight: true },
-  phone: { scale: 0.85, grid: 52, octaves: 3, bears: 3, fov: 75, flameLight: false },
-  tv: { scale: 0.8, grid: 64, octaves: 3, bears: 5, fov: 60, flameLight: true },
+  desktop: { scale: 1.0, grid: 80, octaves: 4, bears: 5, fov: 60 },
+  phone: { scale: 0.85, grid: 52, octaves: 3, bears: 3, fov: 75 },
+  tv: { scale: 0.8, grid: 64, octaves: 3, bears: 5, fov: 60 },
 };
 /* A median frame time over this many milliseconds steps the world down a rung: slower than 30 frames a second, with a margin, so a
    display capped at 30 Hz (33.3 ms a frame) is not taken for a slow device. */

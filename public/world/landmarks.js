@@ -7,29 +7,25 @@ export const mesh = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat);
 /* One flat-shaded material whose colour comes from the vertices, shared by every merged mesh. */
 const vertexColoured = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
 
-/* Merges a group's still, unlit meshes into one vertex-coloured mesh, so together they cost one draw call. Meshes that glow (an
-   emissive colour) or are listed in `keep`, and lights, stay as they are. */
+/* Merges a group's still Lambert meshes into one vertex-coloured mesh, so together they cost one draw call. Meshes listed in `keep`,
+   meshes that glow (an emissive colour) or wear another material (unlit or shiny), and lights stay as they are. */
 export function mergeStill(group, keep = []) {
-  const still = group.children.filter((c) => c.isMesh && !keep.includes(c) && !(c.material.emissive && c.material.emissive.getHex() !== 0));
+  const still = group.children.filter((c) => c.isMesh && !keep.includes(c) && c.material.isMeshLambertMaterial && c.material.emissive.getHex() === 0);
   if (still.length < 2) return;
   const parts = still.map((m) => {
     m.updateMatrix();
     const geo = (m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone()).applyMatrix4(m.matrix);
-    const { r, g, b } = m.material.color;
-    const n = geo.attributes.position.count;
-    const colors = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) { colors[i * 3] = r; colors[i * 3 + 1] = g; colors[i * 3 + 2] = b; }
+    const colors = new Float32Array(geo.attributes.position.count * 3);
+    for (let i = 0; i < colors.length; i += 3) m.material.color.toArray(colors, i);
     geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     return geo;
   });
   group.remove(...still);
-  for (const m of still) m.geometry.dispose();
   group.add(new THREE.Mesh(mergeGeometries(parts), vertexColoured));
-  for (const geo of parts) geo.dispose();
 }
 
 /* The builders table: a title rule and the landmark it builds; a song no rule matches gets a standing stone. */
-export function makeBuilders(phone, flameLight) {
+export function makeBuilders(phone) {
   const stone = new THREE.MeshLambertMaterial({ color: 0x8e8a82, flatShading: true });
   const wood = new THREE.MeshLambertMaterial({ color: 0x6b4e2e, flatShading: true });
   const amber = new THREE.MeshLambertMaterial({ color: 0xe8b04b, emissive: 0xe8b04b, emissiveIntensity: 0.6 });
@@ -56,7 +52,7 @@ export function makeBuilders(phone, flameLight) {
     [/esau/i, (g) => { g.add(mesh(new THREE.BoxGeometry(1.6, 5, 1.2), stone, -1.2, 2.5, 0), mesh(new THREE.BoxGeometry(1.6, 4.2, 1.2), stone, 1.2, 2.1, 0)); }],
     [/grey|gray/i, (g) => { g.add(mesh(new THREE.DodecahedronGeometry(3), new THREE.MeshLambertMaterial({ color: 0x7d7a74, flatShading: true }), 0, 2.4, 0)); }],
     [/snow/i, (g) => { g.add(mesh(new THREE.ConeGeometry(3, 7, 7), stone, 0, 3.5, 0), mesh(new THREE.ConeGeometry(1.4, 2.6, 7), new THREE.MeshLambertMaterial({ color: 0xeceae4, flatShading: true }), 0, 5.7, 0)); }],
-    [/fire/i, (g) => { g.add(mesh(new THREE.ConeGeometry(2.2, 5, 7), new THREE.MeshLambertMaterial({ color: 0x4a3a30, flatShading: true }), 0, 2.5, 0), mesh(new THREE.ConeGeometry(1, 2.4, 6), new THREE.MeshLambertMaterial({ color: 0xff7a2a, emissive: 0xff7a2a, emissiveIntensity: 0.8 }), 0, 6.2, 0)); if (flameLight) { const l = new THREE.PointLight(0xff8a3a, 40, 30); l.position.set(0, 6.5, 0); g.add(l); } }],
+    [/fire/i, (g) => { g.add(mesh(new THREE.ConeGeometry(2.2, 5, 7), new THREE.MeshLambertMaterial({ color: 0x4a3a30, flatShading: true }), 0, 2.5, 0), mesh(new THREE.ConeGeometry(1, 2.4, 6), new THREE.MeshLambertMaterial({ color: 0xff7a2a, emissive: 0xff7a2a, emissiveIntensity: 0.8 }), 0, 6.2, 0)); if (!phone) { const l = new THREE.PointLight(0xff8a3a, 40, 30); l.position.set(0, 6.5, 0); g.add(l); } }],
     [/samson/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(0.6, 0.6, 6, 8), stone, -1.5, 3, 0)); const p = mesh(new THREE.CylinderGeometry(0.6, 0.6, 6, 8), stone, 1.5, 2.8, 0); p.rotation.z = -0.25; g.add(p, mesh(new THREE.BoxGeometry(4.4, 0.6, 1), stone, 0, 6.3, 0)); }],
     [/wheel/i, (g) => { const w = mesh(new THREE.TorusGeometry(3.2, 0.4, 6, 16), wood, 0, 3.6, 0); g.add(w); moving.push({ obj: w, kind: "spin" }); }],
     [/miracle/i, (g) => { const s = mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.9 }), 0, 4, 0); g.add(s); moving.push({ obj: s, kind: "bob" }); }],

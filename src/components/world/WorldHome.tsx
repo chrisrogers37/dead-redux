@@ -34,7 +34,7 @@ function appendWorldModule(): HTMLScriptElement {
 /** A show without a recording is one list. */
 const NO_SETS: DerivedSets = { set2Start: null, encoreStart: null };
 
-/* The world module writes its state on #world: loading, ready or fallback. */
+/* The world module writes its state on #world (loading, ready or fallback) and, by the time it is ready, its quality tier. */
 function subscribeWorld(onChange: () => void) {
   const el = document.getElementById("world");
   if (!el) return () => {};
@@ -43,6 +43,7 @@ function subscribeWorld(onChange: () => void) {
   return () => observer.disconnect();
 }
 const worldState = () => document.getElementById("world")?.dataset.world ?? "loading";
+const worldTier = () => document.getElementById("world")?.dataset.tier ?? null;
 
 interface DetailsProps { source: Source; show: ShowSummary; tracks: Track[]; tourName: string | null; routing: Routing; archiveUrl: string; singleKey: boolean; }
 
@@ -133,7 +134,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
   const [playerState, setPlayerState] = useState<PlayerState>(tracks.length ? "idle" : "error");
   const [routing, setRouting] = useState<Routing>("plain");
   const [joined, setJoined] = useState(false);
-  const [tier, setTier] = useState<string | null>(null);
+  const tier = useSyncExternalStore(subscribeWorld, worldTier, () => null);
   const worldStatus = useSyncExternalStore(subscribeWorld, worldState, () => "loading");
   /* The single-key setting, mirrored onto <main> for the world module's keys. */
   const singleKey = useSyncExternalStore(subscribeSingleKey, singleKeyOn, () => true);
@@ -163,7 +164,6 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
     setRouting(e.detail.routing);
   });
   useEventListener("document", "player:start", () => setJoined(true));
-  useEventListener<CustomEvent<{ webgl: boolean; tier: string }>>("document", "world:ready", (e) => setTier(e.detail.tier));
 
   /* The world reports its camera mode; the follow button reads pressed while the camera walks with the bears. */
   useEventListener<CustomEvent<{ mode: string }>>("document", "world:mode", (e) => setFollow(e.detail.mode === "follow"));

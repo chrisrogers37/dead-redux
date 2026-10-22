@@ -57,7 +57,6 @@ export function buildIsland(scene, grid, phone) {
     }
   }
   scene.add(new THREE.Mesh(mergeGeometries(segments), bandMat));
-  for (const geo of segments) geo.dispose();
 
   /* The caves light for Drums (left) and Space (right): a pool on each floor and, but on a phone, a light inside. */
   const caves = CAVES.map(([cx, cz]) => {
