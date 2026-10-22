@@ -201,6 +201,13 @@ if (site.protocol !== "https:") {
   throw new Error(`SITE_URL must be an https URL, got ${process.env.SITE_URL}`);
 }
 
+// A path's URL for a device. The TV device asks for the TV tier: a headless browser cannot be told apart from a desktop.
+const pageUrl = (path, device) => {
+  const url = new URL(path, site);
+  if (device === "tv") url.searchParams.set("tier", "tv");
+  return url;
+};
+
 // The workflow names the artifact after this host, so each artifact says which site it shows.
 if (process.env.GITHUB_OUTPUT) {
   await appendFile(process.env.GITHUB_OUTPUT, `host=${site.hostname}\n`);
@@ -232,7 +239,7 @@ try {
       if (devices && !devices.includes(device)) {
         continue;
       }
-      const url = new URL(path, site);
+      const url = pageUrl(path, device);
       const response = await open(page, url);
       // A redirect to another host, such as a login wall, is not the site.
       if (!response?.ok() || new URL(page.url()).host !== url.host) {
@@ -330,7 +337,7 @@ try {
       },
     });
     const page = await context.newPage();
-    const url = new URL(path, site);
+    const url = pageUrl(path, device);
     const file = `${device}-${name}.webm`;
     await open(page, url);
     if (click) {
