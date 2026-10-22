@@ -33,7 +33,8 @@ export function bindInput(container, walker, userInput) {
   window.addEventListener("keyup", (e) => { const k = KEYMAP[e.code]; if (k) keys[k] = false; });
   /* A key released while the window is in the background never sends keyup. */
   window.addEventListener("blur", () => { for (const k in keys) keys[k] = false; });
-  container.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY, h: walker.heading, p: walker.pitch }; userInput("drag"); });
+  /* In lean-back the world takes no controls, so a drag there starts nothing and leaving it keeps the view it had. */
+  container.addEventListener("pointerdown", (e) => { if (main?.dataset.mode === "leanback") return; drag = { x: e.clientX, y: e.clientY, h: walker.heading, p: walker.pitch }; userInput("drag"); });
   window.addEventListener("pointermove", (e) => { if (!drag) return; walker.heading = drag.h - (e.clientX - drag.x) * 0.005; walker.pitch = Math.max(-0.8, Math.min(0.8, drag.p - (e.clientY - drag.y) * 0.005)); userInput("drag"); });
   window.addEventListener("pointerup", () => { drag = null; });
   window.addEventListener("pointercancel", () => { drag = null; });

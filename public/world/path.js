@@ -40,6 +40,51 @@ export function layout(tracks, set2Start, { pointU }) {
   return landmarkU;
 }
 
+/* The bears' line: `side` metres to the left of the path. On the inside of a left bend it is drawn in so it never turns tighter than
+   `rMin` metres, eased in and out over `ease` metres either side, then rounded by `passes` of neighbour averaging, which keeps its
+   tightest turn wider than a bear. On a right bend it stays out: the outside of a bend, even where the loop doubles back at its
+   closing, is rounder than the path. It keeps its own arc-length table, so bears spaced along it by distance keep their gaps and an
+   even pace. `dOf` converts the path's u to distance on the line. */
+export function buildWalkLine({ curve, curveLength }, side, rMin = 4.5, passes = 200, ease = 8) {
+  const M = 1600, ds = curveLength / M;
+  const P = [], T = [], N = [];
+  for (let i = 0; i < M; i++) {
+    const p = curve.getPointAt(i / M), t = curve.getTangentAt(i / M), l = Math.hypot(t.x, t.z);
+    P.push([p.x, p.z]); T.push([t.x / l, t.z / l]); N.push([t.z / l, -t.x / l]);
+  }
+  const wrap = (i) => (i + M) % M;
+  const room = P.map((_, i) => {
+    const a = T[wrap(i - 1)], b = T[wrap(i + 1)], n = N[i];
+    const k = ((b[0] - a[0]) * n[0] + (b[1] - a[1]) * n[1]) / (2 * ds); // above 0 where the path bends toward the line
+    return k > 0 ? Math.max(0, Math.min(side, 1 / k - rMin)) : side;
+  });
+  const W = Math.round(ease / ds);
+  const near = room.map((_, i) => { let m = Infinity; for (let j = -W; j <= W; j++) m = Math.min(m, room[wrap(i + j)]); return m; });
+  const offset = near.map((_, i) => { let s = 0; for (let j = -W; j <= W; j++) s += near[wrap(i + j)]; return s / (2 * W + 1); });
+  let Q = P.map(([x, z], i) => [x + N[i][0] * offset[i], z + N[i][1] * offset[i]]);
+  for (let pass = 0; pass < passes; pass++) {
+    Q = Q.map((q, i) => { const a = Q[wrap(i - 1)], b = Q[wrap(i + 1)]; return [(a[0] + 2 * q[0] + b[0]) / 4, (a[1] + 2 * q[1] + b[1]) / 4]; });
+  }
+  const D = [0];
+  for (let i = 1; i <= M; i++) { const a = Q[i - 1], b = Q[i % M]; D.push(D[i - 1] + Math.hypot(b[0] - a[0], b[1] - a[1])); }
+  const length = D[M];
+  /* The fractional sample at a distance along the line, which wraps round the loop. */
+  const sampleAt = (d) => {
+    const x = ((d % length) + length) % length;
+    let lo = 0, hi = M;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (D[mid] <= x) lo = mid; else hi = mid; }
+    return lo + (x - D[lo]) / (D[lo + 1] - D[lo] || 1);
+  };
+  const at = (d) => {
+    const f = sampleAt(d), i = Math.floor(f), w = f - i, a = Q[i % M], b = Q[(i + 1) % M];
+    const x = a[0] + (b[0] - a[0]) * w, z = a[1] + (b[1] - a[1]) * w;
+    return new THREE.Vector3(x, height(x, z), z);
+  };
+  const tangentAt = (d) => { const a = at(d - 1), b = at(d + 1); return new THREE.Vector3(b.x - a.x, 0, b.z - a.z).normalize(); };
+  const dOf = (u) => { const f = (((u % 1) + 1) % 1) * M, i = Math.floor(f); return D[i] + (D[i + 1] - D[i]) * (f - i); };
+  return { length, at, tangentAt, dOf };
+}
+
 /* Each song's landmark stands at its point on the path, facing along it. */
 export function placeLandmarks(scene, { at, tangentAt }, tracks, hasShow, { BUILDERS, standingStone }, landmarkU) {
   const landmarks = [];

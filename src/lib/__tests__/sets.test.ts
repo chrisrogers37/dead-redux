@@ -114,6 +114,15 @@ describe("deriveSets", () => {
     expect(deriveSets(source("Encore: U.S. Blues", TITLES, "Set 2: Shakedown Street")).set2Start).toBeNull();
   });
 
+  it("finds no set 2 when the notes end on the set 2 line", () => {
+    expect(deriveSets(source("Set 1\nJack Straw, Deal\nSet 2", TITLES)).set2Start).toBeNull();
+  });
+
+  it("reads the taper notes after the description", () => {
+    expect(deriveSets(source("Jack Straw, Deal", TITLES, "Set 2: Shakedown Street")).set2Start).toBe(4);
+    expect(deriveSets(source("Jack Straw, Deal", TITLES, "Encore: U.S. Blues")).encoreStart).toBe(9);
+  });
+
   it("finds an encore line's song after its colon or on the next line", () => {
     expect(deriveSets(source("Encore: U.S. Blues", TITLES)).encoreStart).toBe(9);
     expect(deriveSets(source("Encore:\nU.S. Blues", TITLES)).encoreStart).toBe(9);
@@ -149,5 +158,7 @@ describe("segueOut", () => {
     expect(segueOut("Samson And Delilah")).toBe(false);
     expect(segueOut("U.S. Blues")).toBe(false);
     expect(segueOut("Drums")).toBe(false);
+    // A mark inside a title holding two songs is not a segue out of it.
+    expect(segueOut("Drums > Space")).toBe(false);
   });
 });

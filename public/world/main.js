@@ -1,7 +1,7 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { height, buildIsland } from "./island.js";
-import { buildPath, layout, placeLandmarks, buildSegues } from "./path.js";
+import { buildPath, layout, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
 import { makeBuilders } from "./landmarks.js";
 import { buildBears } from "./bears.js";
 import { buildSky, skyPair } from "./sky.js";
@@ -61,7 +61,7 @@ function start(gl) {
 
   /* ---------- the path and the landmarks ---------- */
   const path = buildPath();
-  const { curveLength, at, tangentAt } = path;
+  const { at, tangentAt } = path;
   const landmarkU = layout(tracks, set2Start, path);
   const builders = makeBuilders(phone);
   const { moving } = builders;
@@ -120,27 +120,19 @@ function start(gl) {
   let idleTimer = 0, elapsed = 0;
   /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
   let followBase = 0;
-  /* The bears walk the loop at their own lively pace, five in a line 7 m apart, 6.5 m to the left of the path so they pass the
-     landmarks rather than walk through them. */
-  const BEAR_GAP = 7, BEAR_SPEED = 2.5, BEAR_SIDE = 6.5;
-  /* Where the lead bear is along the loop. Until the show first plays the bears stand where it is; then they set off and keep their
-     own pace while it plays. Under reduced motion they stand at the landmark of the song that plays. */
-  let bearU = 0, bearsOff = false;
-  /* A point on the bears' line: the path at u, BEAR_SIDE metres to its left, on the ground. */
-  function walkAt(u) {
-    const p = at(u), t = tangentAt(u), l = Math.hypot(t.x, t.z);
-    const x = p.x + (t.z / l) * BEAR_SIDE, z = p.z - (t.x / l) * BEAR_SIDE;
-    return new THREE.Vector3(x, height(x, z), z);
-  }
-  /* The attract walk and the drift keep this far behind the last bear, so the five walk ahead in view. */
-  const TRAIL = (4 * BEAR_GAP + 14) / curveLength;
-  /* The attract camera: beside the path at a little above head height, looking 30 m up the path. */
-  function attractPose(u) {
-    const p = at(u), tg = tangentAt(u);
-    const side = new THREE.Vector3().crossVectors(tg, new THREE.Vector3(0, 1, 0)).normalize();
-    const x = p.x + side.x * 2.5, z = p.z + side.z * 2.5;
-    const ahead = at(u + 30 / curveLength);
-    return { pos: new THREE.Vector3(x, height(x, z) + 4.5, z), look: new THREE.Vector3(ahead.x, ahead.y + 6, ahead.z) };
+  /* The bears walk their own line at a lively pace, five 7 m apart by distance along it. The line keeps 7 m to the left of the path
+     so they pass the landmarks rather than walk through them (path.js). */
+  const BEAR_GAP = 7, BEAR_SPEED = 2.5;
+  const line = buildWalkLine(path, 7);
+  /* How far the lead bear is along its line. Until the show first plays the bears stand where it is; then they set off and keep
+     their own pace while it plays. Under reduced motion they stand at the landmark of the song that plays. */
+  let bearD = 0, bearsOff = false;
+  /* The attract walk and the drift keep this far behind the lead bear on its line, so the five walk ahead in view. */
+  const TRAIL = 4 * BEAR_GAP + 14;
+  /* The attract camera: on the bears' line at a little above head height, looking 30 m along it. */
+  function attractPose(d) {
+    const p = line.at(d), ahead = line.at(d + 30);
+    return { pos: new THREE.Vector3(p.x, p.y + 4.5, p.z), look: new THREE.Vector3(ahead.x, ahead.y + 6, ahead.z) };
   }
   const forward = () => new THREE.Vector3(-Math.sin(walker.heading), 0, -Math.cos(walker.heading));
   /* Changes the camera's mode and tells the page. Leaving follow puts the walker where the camera stands, facing where it looked;
@@ -242,16 +234,15 @@ function start(gl) {
     beam.position.set(lp.x, lp.y + 18, lp.z);
 
     /* The bears. */
-    if (reduced) bearU = landmarkU[index];
+    if (reduced) bearD = line.dOf(landmarkU[index]);
     else {
-      if (!bearsOff) { bearU = landmarkU[index] + frac * (landmarkU[index + 1] - landmarkU[index]); bearsOff = playing; }
-      if (playing) bearU += (BEAR_SPEED * dt) / curveLength;
+      if (!bearsOff) { bearD = line.dOf(landmarkU[index] + frac * (landmarkU[index + 1] - landmarkU[index])); bearsOff = playing; }
+      if (playing) bearD += BEAR_SPEED * dt;
     }
-    const uLead = bearU;
     for (let k = 0; k < bears.length; k++) {
       const b = bears[k];
-      const ub = uLead - k * (BEAR_GAP / curveLength);
-      const p = walkAt(ub), tg = tangentAt(ub);
+      const db = bearD - k * BEAR_GAP;
+      const p = line.at(db), tg = line.tangentAt(db);
       b.g.position.copy(p);
       b.g.rotation.y = Math.atan2(tg.x, tg.z);
       const swing = (playing && !reduced) ? Math.sin(elapsed * 6 + b.phase) * 0.5 : 0;
@@ -278,37 +269,37 @@ function start(gl) {
     } else if (mode === "descent") {
       /* From above the summit, where the island reads as the mark, north up the screen, down to the attract walk's first pose. */
       const k = easeOut(elapsed / 6);
-      const end = attractPose(uLead - TRAIL);
+      const end = attractPose(bearD - TRAIL);
       camera.position.set(end.pos.x * k, 140 + (end.pos.y - 140) * k, end.pos.z * k);
       lookTarget.set(end.look.x * k, end.look.y * k, -3 + (end.look.z + 3) * k);
       camera.lookAt(lookTarget);
       if (elapsed >= 6) setMode("attract");
     } else if (mode === "attract") {
-      const ua = uLead - TRAIL; const pose = attractPose(ua);
+      const da = bearD - TRAIL; const pose = attractPose(da);
       camera.position.copy(pose.pos);
       camera.lookAt(pose.look);
-      walker.x = pose.pos.x; walker.z = pose.pos.z; const tg = tangentAt(ua); walker.heading = Math.atan2(-tg.x, -tg.z);
+      walker.x = pose.pos.x; walker.z = pose.pos.z; const tg = line.tangentAt(da); walker.heading = Math.atan2(-tg.x, -tg.z);
     } else if (mode === "drift") {
       if (reduced) {
         const p0 = at(0);
         camera.position.set(0, height(0, 0) + 8, 0);
         camera.lookAt(p0.x, p0.y, p0.z);
       } else {
-        /* A slow crane high above the bears, trailing the last of them along the path. */
-        const ud = uLead - TRAIL;
-        const p = at(ud), tg = tangentAt(ud);
+        /* A slow crane high above the bears, trailing the last of them along their line. */
+        const dd = bearD - TRAIL;
+        const p = line.at(dd), tg = line.tangentAt(dd);
         const side = new THREE.Vector3().crossVectors(tg, up).normalize();
         const sway = 2 * Math.sin((elapsed * Math.PI * 2) / 30);
         const x = p.x + side.x * sway, z = p.z + side.z * sway;
         camera.position.set(x, height(x, z) + 9, z);
-        const ahead = at(ud + 28 / curveLength);
+        const ahead = line.at(dd + 28);
         camera.lookAt(ahead.x, ahead.y + 8, ahead.z);
       }
     } else if (mode === "follow") {
       /* Six metres behind the last bear, the eye 6.5 m up, above their heads so all five read in a line; looking at the lead bear;
          turning adds an offset to the look. */
       walker.heading += ((keys.left ? 1 : 0) - (keys.right ? 1 : 0)) * 1.6 * dt;
-      const p = walkAt(uLead - ((bears.length - 1) * BEAR_GAP + 6) / curveLength), lead = walkAt(uLead);
+      const p = line.at(bearD - ((bears.length - 1) * BEAR_GAP + 6)), lead = line.at(bearD);
       camera.position.set(p.x, p.y + 6.5, p.z);
       const h = Math.atan2(-(lead.x - p.x), -(lead.z - p.z)) + walker.heading - followBase, dist = Math.hypot(lead.x - p.x, lead.z - p.z);
       const e = Math.max(-1.3, Math.min(1.3, Math.atan2(lead.y + 2 - camera.position.y, dist) + walker.pitch));
