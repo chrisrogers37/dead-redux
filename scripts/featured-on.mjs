@@ -1,6 +1,6 @@
 // The shows the site features over the coming days, so the maps workflow knows which shows need a map next.
 //
-// Usage: npx tsx scripts/featured-on.mjs [--from YYYY-MM-DD] [--days N] [--limit N] [--have FILE]
+// Usage: node --import ./scripts/resolve-ts.mjs scripts/featured-on.mjs [--from YYYY-MM-DD] [--days N] [--limit N] [--have FILE]
 //
 // Prints show dates one a line, in the order they are featured, once each, leaving out those listed in FILE (one show date a
 // line: the maps that exist), at most LIMIT. What it reports about each day goes to stderr.
@@ -8,7 +8,7 @@ import { readFileSync } from "fs";
 import { pathToFileURL } from "url";
 import { getDailyShow, getTodayDateStr, isValidDateStr } from "../src/lib/daily-show";
 
-const USAGE = "Usage: npx tsx scripts/featured-on.mjs [--from YYYY-MM-DD] [--days N] [--limit N] [--have FILE]";
+const USAGE = "Usage: node --import ./scripts/resolve-ts.mjs scripts/featured-on.mjs [--from YYYY-MM-DD] [--days N] [--limit N] [--have FILE]";
 
 /**
  * The date `days` after an ISO date (before it when negative), by calendar days.

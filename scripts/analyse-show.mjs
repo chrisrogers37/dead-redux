@@ -2,7 +2,7 @@
 // choice), fetched track by track from archive.org, decoded by ffmpeg in memory and reduced to loudness, low end, brightness,
 // tempo and peaks. Only the map is written; no audio is kept.
 //
-// Usage: npx tsx scripts/analyse-show.mjs --out DIR SHOW_DATE [SHOW_DATE]
+// Usage: node --import ./scripts/resolve-ts.mjs scripts/analyse-show.mjs --out DIR SHOW_DATE [SHOW_DATE]
 import { spawn } from "child_process";
 import * as fs from "fs/promises";
 import { join } from "path";
@@ -547,7 +547,7 @@ export async function analyseShow(date, request, io) {
   return buildMap(date, playing.upstreamIdentifier, analysed);
 }
 
-const USAGE = "Usage: npx tsx scripts/analyse-show.mjs --out DIR SHOW_DATE [SHOW_DATE]";
+const USAGE = "Usage: node --import ./scripts/resolve-ts.mjs scripts/analyse-show.mjs --out DIR SHOW_DATE [SHOW_DATE]";
 
 const nodeIO = {
   fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
