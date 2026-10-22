@@ -135,6 +135,11 @@ function start(gl) {
     const p = line.at(d), lead = line.at(d + TRAIL);
     return { pos: new THREE.Vector3(p.x, p.y + 15, p.z), look: new THREE.Vector3(lead.x, lead.y + 2, lead.z) };
   }
+  /* Puts the walker where a camera pose stands, facing where it looks. Every walk starts at the attract pose: one begun in attract,
+     one begun in the descent (which ends there), and the walk reduced motion opens on. */
+  function putWalker(pose) {
+    walker.x = pose.pos.x; walker.z = pose.pos.z; walker.heading = Math.atan2(-(pose.look.x - pose.pos.x), -(pose.look.z - pose.pos.z));
+  }
   const forward = () => new THREE.Vector3(-Math.sin(walker.heading), 0, -Math.cos(walker.heading));
   /* Changes the camera's mode and tells the page. Leaving follow puts the walker where the camera stands, facing where it looked;
      entering it frames the bears again, level. */
@@ -271,6 +276,7 @@ function start(gl) {
       /* From above the summit, where the island reads as the mark, north up the screen, down to the attract walk's first pose. */
       const k = easeOut(elapsed / 6);
       const end = attractPose(bearD - TRAIL);
+      putWalker(end);
       camera.position.set(end.pos.x * k, 140 + (end.pos.y - 140) * k, end.pos.z * k);
       lookTarget.set(end.look.x * k, end.look.y * k, -3 + (end.look.z + 3) * k);
       camera.lookAt(lookTarget);
@@ -279,7 +285,7 @@ function start(gl) {
       const da = bearD - TRAIL; const pose = attractPose(da);
       camera.position.copy(pose.pos);
       camera.lookAt(pose.look);
-      walker.x = pose.pos.x; walker.z = pose.pos.z; walker.heading = Math.atan2(-(pose.look.x - pose.pos.x), -(pose.look.z - pose.pos.z));
+      putWalker(pose);
     } else if (mode === "drift") {
       if (reduced) {
         const p0 = at(0);
@@ -312,7 +318,9 @@ function start(gl) {
   }
 
   container.dataset.world = "ready";
-  locate(performance.now()); placeWalker();
+  locate(performance.now());
+  if (reduced) putWalker(attractPose(line.dOf(landmarkU[index]) - TRAIL));
+  placeWalker();
   raf = requestAnimationFrame(frame);
   /* A hidden tab stops the loop; a visible one restarts it from the present moment. */
   document.addEventListener("visibilitychange", () => {
