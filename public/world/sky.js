@@ -1,7 +1,8 @@
 /* eslint-disable */
 import * as THREE from "three";
 
-/* The sky of liquid light, with its octave count as a uniform the downgrade can lower, and the two lights that take their colour from it. */
+/* The sky of liquid light, with its octave count as a uniform the downgrade can lower, and its two lights: the hemisphere light, which
+   takes its colour from the sky, and the sun, whose shadow the stage aims. */
 export function buildSky(scene, octaves, seed) {
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
@@ -44,7 +45,7 @@ export function buildSky(scene, octaves, seed) {
   const sun = new THREE.DirectionalLight(0xfff2dc, 0.5 * Math.PI);
   sun.position.set(60, 100, 40);
   scene.add(sun);
-  return { skyMat, hemi };
+  return { skyMat, hemi, sun };
 }
 
 /* The sky's colour stops: one per set where set 2 is known, else the start, middle and end of the show. */
