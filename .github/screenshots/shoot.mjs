@@ -64,6 +64,19 @@ const PAGES = [
     shots: ["fixed-1", "fixed-2"],
     steps: playerSteps("fixed-", { ms: 8000, shot: "fixed-playing-8s" }),
   },
+  // The fixed day's walk: G (a look down, which starts nothing) leaves the opening for a walk behind the visitor's bear; then the
+  // Details switch turns to first person, the walker's eye with no bear, and back, which leaves the view setting as it was.
+  {
+    path: "/2026-10-20",
+    devices: ["desktop"],
+    shots: [],
+    steps: [
+      { focus: "#world", press: "KeyG", shot: "fixed-walk" },
+      { click: "[data-action='details']", shot: "fixed-view-details" },
+      { click: "[data-action='view']", shot: "fixed-first-person" },
+      { click: "[data-action='view']", shot: "fixed-third-person" },
+    ],
+  },
   // The fixed day 5 s before its first track ends: playing crosses into track 2, and the later shot logs the gap between them.
   {
     path: "/2026-10-20?at=0&t=93",
@@ -91,8 +104,9 @@ const PAGES = [
     shots: [],
     steps: [playStep("fixed-space-start", { ms: 12000, shot: "fixed-space" })],
   },
-  // The fixed day from ?pose=stage, on the lawn in front of the stage: the six players against the panel, the open front toward the camera.
-  // Then the show plays, shot again 8 s later from the same still camera, where the panel and the light follow the music.
+  // The fixed day from ?pose=stage: the visitor's bear on the lawn in front of the stage, and over its head the six players against the
+  // panel, the open front toward the camera. Then the show plays, shot again 8 s later from the same still camera, where the panel and the
+  // light follow the music.
   {
     path: "/2026-10-20?pose=stage",
     devices: ["desktop"],
@@ -183,8 +197,17 @@ const RECORDINGS = [
     click: "#world[data-world='ready'] ~ div [data-action='follow']",
     waitFor: "[data-action='follow'][aria-pressed='true']",
   },
-  // From ?pose=stage the click starts the show, then the walk goes down the lawn to the platform and stops at its edge. CI's software
-  // renderer draws a few frames a second, each moving the world at most 50 ms, so the walk is held for 15 s and the recording runs 16.
+  // Walking with the bears on a phone: its three bears ahead and the visitor's bear above the now-plate.
+  {
+    device: "phone",
+    name: "follow",
+    path: "/2026-10-20",
+    click: "#world[data-world='ready'] ~ div [data-action='follow']",
+    waitFor: "[data-action='follow'][aria-pressed='true']",
+  },
+  // From ?pose=stage the click starts the show, then the visitor's bear walks down the lawn to the platform and stops at its edge. CI's
+  // software renderer draws a few frames a second, each moving the world at most 50 ms, so the walk is held for 15 s and the recording
+  // runs 16.
   {
     device: "desktop",
     name: "stage",

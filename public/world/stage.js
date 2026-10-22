@@ -13,8 +13,12 @@ const FACING = Math.atan2(-STAGE[0], -STAGE[1]);
 /* How near a walk comes to the stage's centre: the platform's edge stands 9.5 m out, and a bear's belly reaches 1.3 m ahead of its centre
    below the platform's top. */
 export const STAGE_REACH = 11;
+/* The column the third-person camera keeps out of (avatar.js): every solid of the stage stands inside it, the PA stacks' outer corners
+   10.9 m from the centre and the roof's top 8.45 m above the floor, and no walk does. */
+export const STAGE_COLUMN = { x: STAGE[0], z: STAGE[1], r: 10.95, top: SHELF_Y + 8.45 };
 /* The test hook ?pose=stage: on the lawn in front of the stage, 36.7 m from its centre and 40 degrees off its front, facing it and
-   looking down, since the lawn stands about 10 m above the stage. */
+   looking down, since the lawn stands about 10 m above the stage. In third person the look down raises the boom, so the stage stands
+   over the bear's head. */
 export const STAGE_POSE = { x: 39.2, z: 24.2, heading: 2.922, pitch: -0.3 };
 /* Where the show sounds from, 2 m above the platform's centre, and the way its sound faces: the stage's own. */
 export const STAGE_SOUND = { x: STAGE[0], y: SHELF_Y + 2, z: STAGE[1], facing: [Math.sin(FACING), 0, Math.cos(FACING)] };
