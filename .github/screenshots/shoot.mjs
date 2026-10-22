@@ -104,6 +104,9 @@ const PAGES = [
     shots: [],
     steps: [playStep("fixed-space-start", { ms: 12000, shot: "fixed-space" })],
   },
+  // The fixed day from ?pose=stage: the visitor's bear on the lawn in front of the stage, and over its head the six players against the
+  // panel, the open front toward the camera.
+  { path: "/2026-10-20?pose=stage", devices: ["desktop"], shots: ["fixed-stage"] },
   // The end shot shows the last screen, where the archive's count line sits.
   { path: "/archive", shots: ["archive"], end: "archive-end" },
   // A fixed past day, so its shots compare across runs.
@@ -196,9 +199,20 @@ const RECORDINGS = [
     click: "#world[data-world='ready'] ~ div [data-action='follow']",
     waitFor: "[data-action='follow'][aria-pressed='true']",
   },
+  // From ?pose=stage the click starts the show, then the visitor's bear walks down the lawn to the platform and stops at its edge. CI's
+  // software renderer draws a few frames a second, each moving the world at most 50 ms, so the walk is held for 15 s and the recording
+  // runs 16.
+  {
+    device: "desktop",
+    name: "stage",
+    path: "/2026-10-20?pose=stage",
+    click: "canvas",
+    keys: [["ArrowUp", 15_000]],
+    recordMs: 16_000,
+  },
 ];
 
-// How long each recording runs once the page has loaded and any control is pressed.
+// How long each recording runs once the page has loaded and any control is pressed, unless it names its own `recordMs`.
 const RECORD_MS = 10_000;
 
 // Logs the page's render stats (window.__hill) for a shot; null on a page without them.
@@ -303,12 +317,15 @@ try {
             .catch(() => console.log(`${step.shot}: waitFor timed out; shooting anyway`));
         }
         if (step.player) {
-          // The player's state and the now-plate's sentence: "Starting…", "Reconnecting…", an error, or the position.
-          const [state, line] = await page.evaluate(() => [
+          // The player's state and the now-plate's sentence ("Starting…", "Reconnecting…", an error, or the position), and how the
+          // sound plays.
+          const [state, line, routing] = await page.evaluate(() => [
             document.querySelector("main")?.dataset.state ?? null,
             document.querySelector("[data-action='play']")?.closest(".plate")?.querySelector(".t-tag")?.textContent ?? null,
+            document.querySelector("main")?.dataset.routing ?? null,
           ]);
           console.log(`state ${device}-${step.shot}.png ${state} · ${line}`);
+          console.log(`routing ${device}-${step.shot}.png ${routing}`);
         }
         await page.waitForTimeout(STEP_SETTLE_MS);
         const file = `${device}-${step.shot}.png`;
@@ -323,12 +340,14 @@ try {
           console.log(`${laterFile}  ${url}  ${selector}`);
           await logStats(page, laterFile);
           // Serialised in the page, so each reading prints as one line of JSON.
-          const [analysis, lastGapMs] = await page.evaluate(() => [
+          const [analysis, lastGapMs, routing] = await page.evaluate(() => [
             JSON.stringify(window.__hill?.analysis ?? null),
             JSON.stringify(window.__hill?.lastGapMs ?? null),
+            document.querySelector("main")?.dataset.routing ?? null,
           ]);
           console.log(`analysis ${laterFile} ${analysis}`);
           console.log(`lastGapMs ${laterFile} ${lastGapMs}`);
+          console.log(`routing ${laterFile} ${routing}`);
         }
       }
 
@@ -347,7 +366,7 @@ try {
     await context.close();
   }
 
-  recording: for (const { device, name, path = "/", click, waitFor, keys, pads } of RECORDINGS) {
+  recording: for (const { device, name, path = "/", click, waitFor, keys, pads, recordMs = RECORD_MS } of RECORDINGS) {
     const options = DEVICES[device];
     // Frames arrive at the viewport's CSS size, whatever the device scale factor.
     const context = await browser.newContext({
@@ -406,7 +425,7 @@ try {
       held += ms;
       console.log(`${file}: ${pad} held ${ms} ms with the mouse, not a touch`);
     }
-    await page.waitForTimeout(Math.max(RECORD_MS - held, 0));
+    await page.waitForTimeout(Math.max(recordMs - held, 0));
     const video = page.video();
     // The video is complete only once its context closes.
     await context.close();

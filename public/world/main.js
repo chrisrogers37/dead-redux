@@ -8,7 +8,8 @@ import { buildAvatar } from "./avatar.js";
 import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
 import { keepOut } from "./collide.js";
-import { ensureContext } from "./audio.js";
+import { listen, soundStats, startSound } from "./audio.js";
+import { buildStage, STAGE_COLUMN, STAGE_POSE, STAGE_REACH, STAGE_SOUND } from "./stage.js";
 import { budgetFor, median, pickTier, SLOW_MS, stepDown, WINDOW } from "./quality.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
@@ -48,7 +49,7 @@ function start(gl) {
   const renderer = new THREE.WebGLRenderer({ canvas, context: gl, antialias: false, powerPreference: "low-power" });
   renderer.setPixelRatio(budget.pixelRatio);
   /* What the world renders at now: the tier's rung 0, until a slow device steps it down. */
-  let quality = { scale: budget.scale, shadows: false, octaves: budget.octaves, bears: budget.bears, stageLight: false };
+  let quality = { scale: budget.scale, shadows: budget.shadows, octaves: budget.octaves, bears: budget.bears, stageLight: true };
   let rung = 0;
   /* The loop: each frame queues the next. Under reduced motion it runs on only while a control that acts over time is held, and
      each input or state change wakes it for a frame, always at rung 0. A hidden tab's loop sleeps until the tab shows again. */
@@ -97,10 +98,17 @@ function start(gl) {
   const bears = buildBears(scene, budget.bears);
 
   /* ---------- the visitor's bear ---------- */
-  const avatar = buildAvatar(scene, landmarks, { phone, reduced });
+  const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN] });
 
   /* ---------- the sky ---------- */
-  const { skyMat, hemi } = buildSky(scene, budget.octaves, data.seed);
+  const { skyMat, hemi, sun } = buildSky(scene, budget.octaves, data.seed);
+
+  /* ---------- the stage ---------- */
+  const stage = buildStage(scene, sun, quality.shadows);
+  /* The desktop's one shadow map, the stage's, is drawn once: nothing that casts a shadow moves. */
+  renderer.shadowMap.enabled = quality.shadows;
+  renderer.shadowMap.autoUpdate = false;
+  renderer.shadowMap.needsUpdate = true;
 
   /* ---------- the beam ---------- */
   /* The song that plays stands in a soft column of light, so the show's progress reads from anywhere on the island. */
@@ -127,8 +135,8 @@ function start(gl) {
     const pos = Math.min(d, clock.position + (playing ? (now - clock.at) / 1000 : 0));
     index = i; frac = d > 0 ? pos / d : 0; showPos = starts[i] + pos;
   }
-  /* The first move creates the AudioContext inside its own event. */
-  document.addEventListener("player:start", ensureContext);
+  /* The show sounds from the stage, through the graph the first move makes (audio.js). */
+  startSound(STAGE_SOUND, phone);
   const energyOf = (i) => {
     const t = tracks[i].title.toLowerCase();
     if (t.includes("tuning") || t.includes("crowd")) return 0.2; if (t.includes("drums")) return 0.9; if (t.includes("space")) return 0.3;
@@ -148,7 +156,10 @@ function start(gl) {
   const walker = { x: trailhead.x, z: trailhead.z, heading: 0, pitch: 0 };
   const t0 = tangentAt(0); walker.heading = Math.atan2(-t0.x, -t0.z);
   let third = true, cut = false;
-  let mode = reduced ? "walk" : "descent";
+  /* The test hook ?pose=stage, on preview deployments only (the server marks <main data-test-hooks="1">): the walk starts with the
+     visitor on the lawn in front of the stage, with no descent, and no idle time hands the view to attract. */
+  const posed = main.dataset.testHooks === "1" && new URLSearchParams(location.search).get("pose") === "stage";
+  let mode = reduced || posed ? "walk" : "descent";
   let idleTimer = 0, elapsed = 0;
   /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
   let followBase = 0;
@@ -159,6 +170,8 @@ function start(gl) {
      nearer than 0.5 m. In third person the walker is a bear too, and one bear's snout tip meets another's flank 1.5 m from its centre.
      Neighbours stay at least 5.9 m apart on the line's tightest bend, so the wider reaches overlap there (collide.js). */
   const BEAR_REACH = 2.9, BODY_REACH = 3.9, bearSpots = bears.map((b) => b.g.position);
+  /* The stage's platform is solid too: a walk stops at its edge, STAGE_REACH from the centre of its column (stage.js). */
+  const stageSpot = [STAGE_COLUMN];
   const line = buildWalkLine(path, 7);
   /* The walk keeps within this distance of the island's centre: past the bears' line, which reaches 112.4 m out, by more than a reach,
      so stepping back from a bear never carries a walker past it. */
@@ -292,6 +305,8 @@ function start(gl) {
     /* The downgrade never steps back up, so the bears it drops leave the scene, and all that reads `bears` sees only the rest. */
     for (const b of bears.splice(quality.bears)) scene.remove(b.g);
     bearSpots.length = bears.length;
+    sun.castShadow = quality.shadows;
+    stage.light.visible = quality.stageLight;
   }
   /* The stats the CI shoot script logs after every shot and ?stats=1 shows, read live. They are defined on window.__hill, which the
      player also writes, so its fields stay. */
@@ -299,7 +314,7 @@ function start(gl) {
   Object.defineProperties((window.__hill ??= {}), {
     tier: stat(() => tier), scale: stat(() => quality.scale), rung: stat(() => rung),
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
-    frameMs: stat(() => Math.round(frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame),
+    frameMs: stat(() => Math.round(frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
     /* The view, whether the visitor's bear is drawn, whether its feet land in the frame (and above the now-plate on a phone), and where
        its head lands, as fractions from the top-left. */
     avatar: stat(() => ({ view: third ? "third" : "first", shown: avatar.g.visible,
@@ -327,6 +342,7 @@ function start(gl) {
     skyMat.uniforms.uC1.value.lerp(c1, blend);
     skyMat.uniforms.uC2.value.copy(skyMat.uniforms.uC0.value).lerp(skyMat.uniforms.uPage.value, 0.7);
     hemi.color.copy(skyMat.uniforms.uC0.value).lerp(new THREE.Color(0xffffff), 0.3);
+    stage.panel.material.color.copy(skyMat.uniforms.uC0.value);
     if (!reduced) {
       skyMat.uniforms.uTime.value = elapsed;
       if (elapsed >= nextDrop) { dropAt = elapsed; skyMat.uniforms.uDrop.value.set(0.2 + rnd() * 0.6, 0.3 + rnd() * 0.5, 0); nextDrop = elapsed + 40 + rnd() * 20; }
@@ -336,6 +352,7 @@ function start(gl) {
         else if (m.kind === "pulse") m.obj.material.emissiveIntensity = 0.6 + 0.4 * Math.sin(elapsed * 3);
         else if (m.kind === "bob") m.obj.position.y = 4 + 0.5 * Math.sin(elapsed * 1.5);
       }
+      stage.move(dt, elapsed, playing);
     } else {
       skyMat.uniforms.uTime.value = data.seed;
     }
@@ -387,6 +404,7 @@ function start(gl) {
       walker.x += (fw.x * spd - fw.z * side) * pace; walker.z += (fw.z * spd + fw.x * side) * pace;
       const d = Math.hypot(walker.x, walker.z);
       if (d > BOUND) { walker.x *= BOUND / d; walker.z *= BOUND / d; }
+      keepOut(walker, stageSpot, STAGE_REACH);
       keepOut(walker, bearSpots, third ? BODY_REACH : BEAR_REACH);
       avatar.step(walker.x, walker.z, walker.heading, dt);
       if (third) aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));
@@ -394,7 +412,7 @@ function start(gl) {
         placeWalker();
         if (moving_ && !reduced) camera.position.y += 0.12 * Math.sin(elapsed * 9);
       }
-      if (!reduced) { idleTimer += dt; if (idleTimer > 15) setMode("attract"); }
+      if (!reduced && !posed) { idleTimer += dt; if (idleTimer > 15) setMode("attract"); }
     } else {
       /* Every other camera keeps the visitor's bear in its place in the line, walking with the five, and the walker with it; but
          follow's turns keep their own heading. */
@@ -436,6 +454,8 @@ function start(gl) {
     cut = false;
 
     renderer.render(scene, camera);
+    /* The sound's listener is the visitor: their bear's head in third person, the camera in first; it faces where the camera looks. */
+    listen(third ? avatar.head : camera.position, camera);
   }
 
   /* The page reads the tier beside the world's state. */
@@ -443,6 +463,7 @@ function start(gl) {
   container.dataset.world = "ready";
   locate(performance.now());
   if (reduced) { bearD = line.dOf(landmarkU[index]); toSlot(); }
+  if (posed) { Object.assign(walker, STAGE_POSE); cut = true; }
   placeWalker();
   wake();
   document.addEventListener("visibilitychange", () => {

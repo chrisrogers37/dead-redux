@@ -25,3 +25,17 @@ export function keepOut(walker, spots, reach) {
     }
   }
 }
+
+/* The stage is solid to the third-person camera as well: it stands for a column, a vertical cylinder `r` round (x, z) from the ground
+   up to `top`. How far the line from `o` along the unit direction `d` goes before it enters one, through its side or, falling from
+   above, through its top; Infinity if it never does, or if the column stands around `o`. From outside, the side's two crossings lie
+   both ahead or both behind, and straight up meets neither. */
+export function enterColumn(o, d, { x, z, r, top }) {
+  const ox = o.x - x, oz = o.z - z, c = ox * ox + oz * oz - r * r;
+  const a = d.x * d.x + d.z * d.z, b = ox * d.x + oz * d.z, q = b * b - a * c;
+  if (a < 1e-9 || c < 0 || q < 0) return Infinity;
+  const w = Math.sqrt(q), t0 = (-b - w) / a, t1 = (-b + w) / a;
+  if (t0 < 0) return Infinity;
+  if (o.y + d.y * t0 <= top) return t0;
+  return o.y + d.y * t1 <= top ? (top - o.y) / d.y : Infinity;
+}

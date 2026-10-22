@@ -3,11 +3,11 @@
 /* Quality tiers and the frame-time downgrade. The tier is picked once at boot, from the screen and the browser or from ?tier=. Its
    budget is rung 0, and a device that renders slowly steps down one rung at a time and never back up. */
 
-/* Rung 0 of each tier. */
+/* Rung 0 of each tier. Only the desktop draws a shadow map, the stage's. */
 const BUDGETS = {
-  desktop: { scale: 1.0, grid: 80, octaves: 4, bears: 5, fov: 60 },
-  phone: { scale: 0.85, grid: 52, octaves: 3, bears: 3, fov: 75 },
-  tv: { scale: 0.8, grid: 64, octaves: 3, bears: 5, fov: 60 },
+  desktop: { scale: 1.0, grid: 80, octaves: 4, bears: 5, fov: 60, shadows: true },
+  phone: { scale: 0.85, grid: 52, octaves: 3, bears: 3, fov: 75, shadows: false },
+  tv: { scale: 0.8, grid: 64, octaves: 3, bears: 5, fov: 60, shadows: false },
 };
 /* A median frame time over this many milliseconds steps the world down a rung: slower than 30 frames a second, with a margin, so a
    display capped at 30 Hz (33.3 ms a frame) is not taken for a slow device. */
