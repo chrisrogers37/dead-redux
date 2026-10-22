@@ -4,6 +4,7 @@ import { height, buildIsland } from "./island.js";
 import { buildPath, layout, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
 import { makeBuilders } from "./landmarks.js";
 import { buildBears } from "./bears.js";
+import { buildAvatar } from "./avatar.js";
 import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
 import { keepOut } from "./collide.js";
@@ -60,9 +61,18 @@ function start(gl) {
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x141418, 80, 320);
   const camera = new THREE.PerspectiveCamera(budget.fov, 1, 0.5, 900);
+  /* The frame's height, and the now-plate's top edge in it (px from the top; 0.62 of the height without a player): on a phone the
+     camera keeps the visitor's bear above the plate. Measured on a resize and when the plate moves (the join, lean-back). */
+  let frameH = 1, plateTop = 0;
+  function measurePlate() {
+    const plate = document.querySelector("[data-action='play']")?.closest(".plate");
+    plateTop = plate ? plate.getBoundingClientRect().top - container.getBoundingClientRect().top : 0.62 * frameH;
+  }
 
   function resize() {
     const w = Math.max(1, container.clientWidth), h = Math.max(1, container.clientHeight);
+    frameH = h;
+    measurePlate();
     renderer.setSize(Math.round(w * quality.scale), Math.round(h * quality.scale), false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -80,11 +90,14 @@ function start(gl) {
   const landmarkU = layout(tracks, set2Start, path);
   const builders = makeBuilders(phone);
   const { moving } = builders;
-  placeLandmarks(scene, path, tracks, hasShow, builders, landmarkU);
+  const landmarks = placeLandmarks(scene, path, tracks, hasShow, builders, landmarkU);
   if (hasShow) buildSegues(scene, path, tracks, landmarkU);
 
   /* ---------- the bears ---------- */
   const bears = buildBears(scene, budget.bears);
+
+  /* ---------- the visitor's bear ---------- */
+  const avatar = buildAvatar(scene, landmarks, { phone, reduced });
 
   /* ---------- the sky ---------- */
   const { skyMat, hemi } = buildSky(scene, budget.octaves, data.seed);
@@ -129,9 +142,12 @@ function start(gl) {
   let nextDrop = 40 + rnd() * 20, dropAt = -99;
 
   /* ---------- the camera: walker, attract, descent, drift ---------- */
+  /* The walker is the visitor, seen from behind as their own bear (third person, the default) or through its eyes (first person). The
+     page mirrors the setting on <main>; changing it cuts the camera. */
   const trailhead = at(0);
   const walker = { x: trailhead.x, z: trailhead.z, heading: 0, pitch: 0 };
   const t0 = tangentAt(0); walker.heading = Math.atan2(-t0.x, -t0.z);
+  let third = true, cut = false;
   let mode = reduced ? "walk" : "descent";
   let idleTimer = 0, elapsed = 0;
   /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
@@ -139,36 +155,67 @@ function start(gl) {
   /* The bears walk their own line at a lively pace, five 7 m apart by distance along it. The line keeps 7 m to the left of the path
      so they pass the landmarks rather than walk through them (path.js). */
   const BEAR_GAP = 7, BEAR_SPEED = 2.5;
-  /* How near a walk comes to a bear's centre: a bear's snout tip ends 2.4 m ahead of it, and the camera draws nothing nearer than
-     0.5 m. Neighbours stay at least 5.9 m apart on the line's tightest bend, so their reaches never overlap. */
-  const BEAR_REACH = 2.9, bearSpots = bears.map((b) => b.g.position);
+  /* How near a walk comes to a bear's centre. In first person a bear's snout tip ends 2.4 m ahead of it, and the camera draws nothing
+     nearer than 0.5 m. In third person the walker is a bear too, and one bear's snout tip meets another's flank 1.5 m from its centre.
+     Neighbours stay at least 5.9 m apart on the line's tightest bend, so the wider reaches overlap there (collide.js). */
+  const BEAR_REACH = 2.9, BODY_REACH = 3.9, bearSpots = bears.map((b) => b.g.position);
   const line = buildWalkLine(path, 7);
-  /* How far the lead bear is along its line. Until the show first plays the bears stand where it is; then they set off and keep
-     their own pace while it plays. Under reduced motion they stand at the landmark of the song that plays. */
-  let bearD = 0, bearsOff = false;
-  /* The attract walk and the drift keep this far behind the lead bear on its line, so the five walk ahead in view. */
-  const TRAIL = 4 * BEAR_GAP + 14;
-  /* The attract camera: on the bears' line with the eye 15 m up, high enough that from this far back the five read one behind
-     another, and the ground they walk toward shows; looking at the lead bear, as follow does. */
-  function attractPose(d) {
-    const p = line.at(d), lead = line.at(d + TRAIL);
-    return { pos: new THREE.Vector3(p.x, p.y + 15, p.z), look: new THREE.Vector3(lead.x, lead.y + 2, lead.z) };
+  /* The walk keeps within this distance of the island's centre: past the bears' line, which reaches 112.4 m out, by more than a reach,
+     so stepping back from a bear never carries a walker past it. */
+  const BOUND = 117;
+  /* How far the lead bear is along its line. Until the show first plays the bears stand where it is, from the world's first frame
+     even if it is already playing; then they set off and keep their own pace while it plays. Under reduced motion they stand at the
+     landmark of the song that plays. */
+  let bearD = 0, bearsOff = false, bearsPlaced = false;
+  /* The visitor's place in the line: a sixth bear, one gap behind the last bear shown, facing along the line. */
+  const slotD = () => bearD - bears.length * BEAR_GAP;
+  function slot() {
+    const d = slotD(), p = line.at(d), t = line.tangentAt(d);
+    return { x: p.x, z: p.z, heading: Math.atan2(-t.x, -t.z) };
   }
-  /* Puts the walker where a camera pose stands, facing where it looks. Every walk starts at the attract pose: one begun in attract,
-     one begun in the descent (which ends there), and the walk reduced motion opens on. */
-  function putWalker(pose) {
-    walker.x = pose.pos.x; walker.z = pose.pos.z; walker.heading = Math.atan2(-(pose.look.x - pose.pos.x), -(pose.look.z - pose.pos.z));
+  /* Puts the walker in its place in the line. Every walk starts there: one begun in attract, the descent or lean-back, one that leaves
+     follow, and the walk reduced motion opens on. */
+  function toSlot() {
+    const s = slot();
+    walker.x = s.x; walker.z = s.z; walker.heading = s.heading;
   }
+  /* The camera that walks with the bears, in follow and attract, its eye above their heads; it looks at the lead bear, turned by `yaw`
+     and tilted by `pitch`. In third person it stands behind the visitor's bear and to its left, away from the path, along the chord from
+     that bear to the lead one, and looks 2 m over the lead bear's head, so all six read: 16 m behind and 6 m to the left with the eye
+     10 m up on a desktop or a TV, which keeps the visitor's bear left of the plates at the lower right; 12 m and 3 m with the eye 6.5 m
+     up on a phone. Where a climb toward the lead bear would sink the visitor's bear, the view turns down first (keepInView). In first
+     person it stands on the line, 6 m behind the last bear, the eye 6.5 m up, and looks 2 m over the lead bear's feet. */
+  function postPose(yaw, pitch) {
+    const lead = line.at(bearD);
+    let x, z, eye = 6.5;
+    if (third) {
+      const s = line.at(slotD()), cl = Math.hypot(lead.x - s.x, lead.z - s.z) || 1, cx = (lead.x - s.x) / cl, cz = (lead.z - s.z) / cl;
+      const back = phone ? 12 : 16, side = phone ? 3 : 6;
+      x = s.x - cx * back + cz * side; z = s.z - cz * back - cx * side;
+      if (!phone) eye = 10;
+    } else {
+      const p = line.at(bearD - ((bears.length - 1) * BEAR_GAP + 6));
+      x = p.x; z = p.z;
+    }
+    const pos = new THREE.Vector3(x, height(x, z) + eye, z);
+    const h0 = Math.atan2(-(lead.x - x), -(lead.z - z)), dist = Math.hypot(lead.x - x, lead.z - z);
+    let e0 = Math.atan2(lead.y + (third ? 5.6 : 2) - pos.y, dist);
+    if (third) e0 -= keepInView(pos, new THREE.Vector3(x - Math.sin(h0) * dist, pos.y + Math.tan(e0) * dist, z - Math.cos(h0) * dist));
+    const h = h0 + yaw, e = Math.max(-1.3, Math.min(1.3, e0 + pitch));
+    return { pos, look: new THREE.Vector3(x - Math.sin(h) * dist, pos.y + Math.tan(e) * dist, z - Math.cos(h) * dist) };
+  }
+  /* Where the visitor's feet stand on a phone: 24 px above the now-plate, as a share of the frame's height from -1 to 1. */
+  const plateY = () => 1 - (2 * (plateTop - 24)) / frameH;
+  /* How far a third-person view from `from` toward `look` turns down to keep the visitor's bear in the frame: on a phone until its feet
+     stand above the now-plate, at most 0.45 rad, which still keeps the lead bear below the top plates; elsewhere until the top of its
+     head stands 36 % up the frame, at most 0.3 rad. */
+  const keepInView = (from, look) => phone ? avatar.turnDown(camera, from, look, avatar.feet, plateY(), 0.45) : avatar.turnDown(camera, from, look, avatar.top, -0.28);
   const forward = () => new THREE.Vector3(-Math.sin(walker.heading), 0, -Math.cos(walker.heading));
-  /* Changes the camera's mode and tells the page. Leaving follow puts the walker where the camera stands, facing where it looked;
-     entering it frames the bears again, level. */
+  /* Changes the camera's mode and tells the page. A walk starts in the visitor's place in the line; entering follow frames the bears
+     again, level. */
   function setMode(m) {
     if (m === mode) return;
-    if (mode === "follow") {
-      const d = new THREE.Vector3(); camera.getWorldDirection(d);
-      walker.x = camera.position.x; walker.z = camera.position.z; walker.heading = Math.atan2(-d.x, -d.z);
-      walker.pitch = Math.max(-0.8, Math.min(0.8, Math.asin(d.y)));
-    }
+    if (m === "walk") toSlot();
     if (m === "follow") { followBase = walker.heading; walker.pitch = 0; }
     mode = m;
     document.dispatchEvent(new CustomEvent("world:mode", { detail: { mode } }));
@@ -190,15 +237,20 @@ function start(gl) {
   const { keys } = input;
   /* Whether a control that acts over time is held: a key or the pad that walks, turns or looks. */
   const held = () => keys.fwd || keys.back || keys.left || keys.right || keys.strafeL || keys.strafeR || keys.lookUp || keys.lookDown;
-  /* Lean-back and the player's state live on <main>; read them now too, since the show may have started before the world loaded. */
+  /* Lean-back, the player's state and the view live on <main>; read them now too, since the show may have started before the world
+     loaded. The join and lean-back move the now-plate. */
   function syncMain() {
     const lean = main.dataset.mode === "leanback";
     playing = main.dataset.state === "playing";
+    const t = main.dataset.view !== "first";
+    if (t !== third) { third = t; cut = true; }
+    avatar.g.visible = third;
+    measurePlate();
     if (lean && mode !== "drift") setMode("drift");
     if (!lean && mode === "drift") { setMode("walk"); idleTimer = 0; }
     wake();
   }
-  new MutationObserver(syncMain).observe(main, { attributes: true, attributeFilter: ["data-mode", "data-state"] });
+  new MutationObserver(syncMain).observe(main, { attributes: true, attributeFilter: ["data-mode", "data-state", "data-view", "data-joined"] });
   syncMain();
 
   const lookTarget = new THREE.Vector3();
@@ -211,6 +263,12 @@ function start(gl) {
     const fw = forward(), c = Math.cos(walker.pitch);
     lookTarget.set(walker.x + fw.x * c, y + Math.sin(walker.pitch), walker.z + fw.z * c);
     camera.lookAt(lookTarget);
+  }
+  /* Points the camera at `look`. On a phone in third person the view first turns down until the visitor's bear stands above the
+     now-plate, in every mode; the camera that walks with the bears (`post`) has done so in postPose, before the visitor's own turns. */
+  function aim(look, post = false) {
+    if (phone && third && !post) avatar.tilt(camera, look, avatar.feet, plateY());
+    camera.lookAt(look);
   }
 
   /* The downgrade: every WINDOW frames the median frame time decides; over SLOW_MS, one rung down (quality.js). */
@@ -242,6 +300,10 @@ function start(gl) {
     tier: stat(() => tier), scale: stat(() => quality.scale), rung: stat(() => rung),
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
     frameMs: stat(() => Math.round(frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame),
+    /* The view, whether the visitor's bear is drawn, whether its feet land in the frame (and above the now-plate on a phone), and where
+       its head lands, as fractions from the top-left. */
+    avatar: stat(() => ({ view: third ? "third" : "first", shown: avatar.g.visible,
+      ...(third ? avatar.report(camera, phone ? plateTop / frameH : null) : { clear: false, screen: null }) })),
   });
 
   function frame(now) {
@@ -293,11 +355,13 @@ function start(gl) {
     const lp = at(landmarkU[index]);
     beam.position.set(lp.x, lp.y + 18, lp.z);
 
-    /* The bears. */
+    /* The bears. Before the show first plays they stand where it is, and a world that opens while it plays places them there in its
+       first frame; in the frame it starts they walk on from where they stand, so nothing steps. */
     if (reduced) bearD = line.dOf(landmarkU[index]);
     else {
-      if (!bearsOff) { bearD = line.dOf(landmarkU[index] + frac * (landmarkU[index + 1] - landmarkU[index])); bearsOff = playing; }
-      if (playing) bearD += BEAR_SPEED * dt;
+      if (!bearsOff && (!playing || !bearsPlaced)) bearD = line.dOf(landmarkU[index] + frac * (landmarkU[index + 1] - landmarkU[index]));
+      if (playing) { bearsOff = true; bearD += BEAR_SPEED * dt; }
+      bearsPlaced = true;
     }
     for (let k = 0; k < bears.length; k++) {
       const b = bears[k];
@@ -322,52 +386,54 @@ function start(gl) {
       const fw = forward();
       walker.x += (fw.x * spd - fw.z * side) * pace; walker.z += (fw.z * spd + fw.x * side) * pace;
       const d = Math.hypot(walker.x, walker.z);
-      if (d > 108) { walker.x *= 108 / d; walker.z *= 108 / d; }
-      keepOut(walker, bearSpots, BEAR_REACH);
-      placeWalker();
-      if (moving_ && !reduced) camera.position.y += 0.12 * Math.sin(elapsed * 9);
-      if (!reduced) { idleTimer += dt; if (idleTimer > 15) setMode("attract"); }
-    } else if (mode === "descent") {
-      /* From above the summit, where the island reads as the mark, north up the screen, down to the attract walk's first pose. */
-      const k = easeOut(elapsed / 6);
-      const end = attractPose(bearD - TRAIL);
-      putWalker(end);
-      camera.position.set(end.pos.x * k, 140 + (end.pos.y - 140) * k, end.pos.z * k);
-      lookTarget.set(end.look.x * k, end.look.y * k, -3 + (end.look.z + 3) * k);
-      camera.lookAt(lookTarget);
-      if (elapsed >= 6) setMode("attract");
-    } else if (mode === "attract") {
-      const da = bearD - TRAIL; const pose = attractPose(da);
-      camera.position.copy(pose.pos);
-      camera.lookAt(pose.look);
-      putWalker(pose);
-    } else if (mode === "drift") {
-      if (reduced) {
-        const p0 = at(0);
-        camera.position.set(0, height(0, 0) + 8, 0);
-        camera.lookAt(p0.x, p0.y, p0.z);
-      } else {
-        /* A slow crane high above the bears, trailing the last of them along their line. */
-        const dd = bearD - TRAIL;
-        const p = line.at(dd), tg = line.tangentAt(dd);
-        const side = new THREE.Vector3().crossVectors(tg, up).normalize();
-        const sway = 2 * Math.sin((elapsed * Math.PI * 2) / 30);
-        const x = p.x + side.x * sway, z = p.z + side.z * sway;
-        camera.position.set(x, height(x, z) + 9, z);
-        const ahead = line.at(dd + 28);
-        camera.lookAt(ahead.x, ahead.y + 8, ahead.z);
+      if (d > BOUND) { walker.x *= BOUND / d; walker.z *= BOUND / d; }
+      keepOut(walker, bearSpots, third ? BODY_REACH : BEAR_REACH);
+      avatar.step(walker.x, walker.z, walker.heading, dt);
+      if (third) aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));
+      else {
+        placeWalker();
+        if (moving_ && !reduced) camera.position.y += 0.12 * Math.sin(elapsed * 9);
       }
-    } else if (mode === "follow") {
-      /* Six metres behind the last bear, the eye 6.5 m up, above their heads so all five read in a line; looking at the lead bear;
-         turning adds an offset to the look. */
-      walker.heading += ((keys.left ? 1 : 0) - (keys.right ? 1 : 0)) * 1.6 * dt;
-      const p = line.at(bearD - ((bears.length - 1) * BEAR_GAP + 6)), lead = line.at(bearD);
-      camera.position.set(p.x, p.y + 6.5, p.z);
-      const h = Math.atan2(-(lead.x - p.x), -(lead.z - p.z)) + walker.heading - followBase, dist = Math.hypot(lead.x - p.x, lead.z - p.z);
-      const e = Math.max(-1.3, Math.min(1.3, Math.atan2(lead.y + 2 - camera.position.y, dist) + walker.pitch));
-      lookTarget.set(p.x - Math.sin(h) * dist, camera.position.y + Math.tan(e) * dist, p.z - Math.cos(h) * dist);
-      camera.lookAt(lookTarget);
+      if (!reduced) { idleTimer += dt; if (idleTimer > 15) setMode("attract"); }
+    } else {
+      /* Every other camera keeps the visitor's bear in its place in the line, walking with the five, and the walker with it; but
+         follow's turns keep their own heading. */
+      const s = slot();
+      if (mode !== "follow") toSlot();
+      avatar.step(s.x, s.z, s.heading, dt);
+      if (mode === "descent") {
+        /* From above the summit, where the island reads as the mark, north up the screen, down to the camera that walks with the bears. */
+        const k = easeOut(elapsed / 6);
+        const end = postPose(0, 0);
+        camera.position.set(end.pos.x * k, 140 + (end.pos.y - 140) * k, end.pos.z * k);
+        aim(lookTarget.set(end.look.x * k, end.look.y * k, -3 + (end.look.z + 3) * k), true);
+        if (elapsed >= 6) setMode("attract");
+      } else if (mode === "attract" || mode === "follow") {
+        /* In follow, turning adds an offset to the look. */
+        if (mode === "follow") walker.heading += ((keys.left ? 1 : 0) - (keys.right ? 1 : 0)) * 1.6 * dt;
+        const pose = mode === "follow" ? postPose(walker.heading - followBase, walker.pitch) : postPose(0, 0);
+        camera.position.copy(pose.pos);
+        aim(lookTarget.copy(pose.look), true);
+      } else if (mode === "drift") {
+        if (reduced) {
+          const p0 = at(0);
+          camera.position.set(0, height(0, 0) + 8, 0);
+          camera.lookAt(lookTarget.set(p0.x, p0.y, p0.z));
+        } else {
+          /* A slow crane high above the bears, 14 m behind the visitor's bear along their line. */
+          const dd = slotD() - 14;
+          const p = line.at(dd), tg = line.tangentAt(dd);
+          const side = new THREE.Vector3().crossVectors(tg, up).normalize();
+          const sway = 2 * Math.sin((elapsed * Math.PI * 2) / 30);
+          const x = p.x + side.x * sway, z = p.z + side.z * sway;
+          camera.position.set(x, height(x, z) + 9, z);
+          const ahead = line.at(dd + 28);
+          aim(lookTarget.set(ahead.x, ahead.y + 8, ahead.z));
+        }
+      }
+      avatar.settle(camera.position, lookTarget);
     }
+    cut = false;
 
     renderer.render(scene, camera);
   }
@@ -376,7 +442,7 @@ function start(gl) {
   container.dataset.tier = tier;
   container.dataset.world = "ready";
   locate(performance.now());
-  if (reduced) putWalker(attractPose(line.dOf(landmarkU[index]) - TRAIL));
+  if (reduced) { bearD = line.dOf(landmarkU[index]); toSlot(); }
   placeWalker();
   wake();
   document.addEventListener("visibilitychange", () => {
