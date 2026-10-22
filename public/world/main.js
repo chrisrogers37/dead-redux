@@ -129,10 +129,11 @@ function start(gl) {
   let bearD = 0, bearsOff = false;
   /* The attract walk and the drift keep this far behind the lead bear on its line, so the five walk ahead in view. */
   const TRAIL = 4 * BEAR_GAP + 14;
-  /* The attract camera: on the bears' line at a little above head height, looking 30 m along it. */
+  /* The attract camera: on the bears' line with the eye 15 m up, high enough that from this far back the five read one behind
+     another, and the ground they walk toward shows; looking at the lead bear, as follow does. */
   function attractPose(d) {
-    const p = line.at(d), ahead = line.at(d + 30);
-    return { pos: new THREE.Vector3(p.x, p.y + 4.5, p.z), look: new THREE.Vector3(ahead.x, ahead.y + 6, ahead.z) };
+    const p = line.at(d), lead = line.at(d + TRAIL);
+    return { pos: new THREE.Vector3(p.x, p.y + 15, p.z), look: new THREE.Vector3(lead.x, lead.y + 2, lead.z) };
   }
   const forward = () => new THREE.Vector3(-Math.sin(walker.heading), 0, -Math.cos(walker.heading));
   /* Changes the camera's mode and tells the page. Leaving follow puts the walker where the camera stands, facing where it looked;
@@ -278,7 +279,7 @@ function start(gl) {
       const da = bearD - TRAIL; const pose = attractPose(da);
       camera.position.copy(pose.pos);
       camera.lookAt(pose.look);
-      walker.x = pose.pos.x; walker.z = pose.pos.z; const tg = line.tangentAt(da); walker.heading = Math.atan2(-tg.x, -tg.z);
+      walker.x = pose.pos.x; walker.z = pose.pos.z; walker.heading = Math.atan2(-(pose.look.x - pose.pos.x), -(pose.look.z - pose.pos.z));
     } else if (mode === "drift") {
       if (reduced) {
         const p0 = at(0);
