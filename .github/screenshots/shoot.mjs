@@ -92,7 +92,13 @@ const PAGES = [
     steps: [playStep("fixed-space-start", { ms: 12000, shot: "fixed-space" })],
   },
   // The fixed day from ?pose=stage, on the lawn in front of the stage: the six players against the panel, the open front toward the camera.
-  { path: "/2026-10-20?pose=stage", devices: ["desktop"], shots: ["fixed-stage"] },
+  // Then the show plays, shot again 8 s later from the same still camera, where the panel and the light follow the music.
+  {
+    path: "/2026-10-20?pose=stage",
+    devices: ["desktop"],
+    shots: ["fixed-stage"],
+    steps: [playStep("fixed-stage-playing", { ms: 8000, shot: "fixed-stage-playing-8s" })],
+  },
   // The end shot shows the last screen, where the archive's count line sits.
   { path: "/archive", shots: ["archive"], end: "archive-end" },
   // A fixed past day, so its shots compare across runs.
