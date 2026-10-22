@@ -104,7 +104,8 @@ const PAGES = [
     shots: [],
     steps: [playStep("fixed-space-start", { ms: 12000, shot: "fixed-space" })],
   },
-  // The fixed day from ?pose=stage, on the lawn in front of the stage: the six players against the panel, the open front toward the camera.
+  // The fixed day from ?pose=stage: the visitor's bear on the lawn in front of the stage, and over its head the six players against the
+  // panel, the open front toward the camera.
   { path: "/2026-10-20?pose=stage", devices: ["desktop"], shots: ["fixed-stage"] },
   // The end shot shows the last screen, where the archive's count line sits.
   { path: "/archive", shots: ["archive"], end: "archive-end" },
@@ -198,8 +199,9 @@ const RECORDINGS = [
     click: "#world[data-world='ready'] ~ div [data-action='follow']",
     waitFor: "[data-action='follow'][aria-pressed='true']",
   },
-  // From ?pose=stage the click starts the show, then the walk goes down the lawn to the platform and stops at its edge. CI's software
-  // renderer draws a few frames a second, each moving the world at most 50 ms, so the walk is held for 15 s and the recording runs 16.
+  // From ?pose=stage the click starts the show, then the visitor's bear walks down the lawn to the platform and stops at its edge. CI's
+  // software renderer draws a few frames a second, each moving the world at most 50 ms, so the walk is held for 15 s and the recording
+  // runs 16.
   {
     device: "desktop",
     name: "stage",

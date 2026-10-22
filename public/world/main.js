@@ -1,6 +1,6 @@
 /* eslint-disable */
 import * as THREE from "three";
-import { height, buildIsland, STAGE } from "./island.js";
+import { height, buildIsland } from "./island.js";
 import { buildPath, layout, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
 import { makeBuilders } from "./landmarks.js";
 import { buildBears } from "./bears.js";
@@ -9,7 +9,7 @@ import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
 import { keepOut } from "./collide.js";
 import { listen, soundStats, startSound } from "./audio.js";
-import { buildStage, STAGE_POSE, STAGE_REACH, STAGE_SOUND } from "./stage.js";
+import { buildStage, STAGE_COLUMN, STAGE_POSE, STAGE_REACH, STAGE_SOUND } from "./stage.js";
 import { budgetFor, median, pickTier, SLOW_MS, stepDown, WINDOW } from "./quality.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
@@ -98,7 +98,7 @@ function start(gl) {
   const bears = buildBears(scene, budget.bears);
 
   /* ---------- the visitor's bear ---------- */
-  const avatar = buildAvatar(scene, landmarks, { phone, reduced });
+  const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN] });
 
   /* ---------- the sky ---------- */
   const { skyMat, hemi, sun } = buildSky(scene, budget.octaves, data.seed);
@@ -170,8 +170,8 @@ function start(gl) {
      nearer than 0.5 m. In third person the walker is a bear too, and one bear's snout tip meets another's flank 1.5 m from its centre.
      Neighbours stay at least 5.9 m apart on the line's tightest bend, so the wider reaches overlap there (collide.js). */
   const BEAR_REACH = 2.9, BODY_REACH = 3.9, bearSpots = bears.map((b) => b.g.position);
-  /* The stage's platform is solid too: a walk stops at its edge (stage.js). */
-  const stageSpot = [{ x: STAGE[0], z: STAGE[1] }];
+  /* The stage's platform is solid too: a walk stops at its edge, STAGE_REACH from the centre of its column (stage.js). */
+  const stageSpot = [STAGE_COLUMN];
   const line = buildWalkLine(path, 7);
   /* The walk keeps within this distance of the island's centre: past the bears' line, which reaches 112.4 m out, by more than a reach,
      so stepping back from a bear never carries a walker past it. */
@@ -454,8 +454,8 @@ function start(gl) {
     cut = false;
 
     renderer.render(scene, camera);
-    /* The sound's listener is the camera: it stands where the camera stands and faces where it looks. */
-    listen(camera.position, camera);
+    /* The sound's listener is the visitor: their bear's head in third person, the camera in first; it faces where the camera looks. */
+    listen(third ? avatar.head : camera.position, camera);
   }
 
   /* The page reads the tier beside the world's state. */
@@ -463,7 +463,7 @@ function start(gl) {
   container.dataset.world = "ready";
   locate(performance.now());
   if (reduced) { bearD = line.dOf(landmarkU[index]); toSlot(); }
-  if (posed) Object.assign(walker, STAGE_POSE);
+  if (posed) { Object.assign(walker, STAGE_POSE); cut = true; }
   placeWalker();
   wake();
   document.addEventListener("visibilitychange", () => {
