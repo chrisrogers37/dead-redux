@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { height } from "./island.js";
 import { buildBear } from "./bears.js";
+import { rise } from "./boom.js";
 
 /* The visitor's bear: a sixth bear in the site's ink, seen from behind and above. Its legs, bob and lean follow its speed, so it
    lopes while the five walk. The walk's camera hangs on a boom behind its head and eases after it; a landmark between them draws the
@@ -44,24 +45,14 @@ export function buildAvatar(scene, landmarks, { phone, reduced }) {
   const R = phone ? 20 : 11;
   const boxes = landmarks.map((l) => new THREE.Box3().setFromObject(l));
   const pivot = new THREE.Vector3(), cam = new THREE.Vector3(), look = new THREE.Vector3(), want = new THREE.Vector3();
-  const dir = new THREE.Vector3(), hit = new THREE.Vector3(), ray = new THREE.Ray();
+  const dir = new THREE.Vector3();
   /* How much of the boom a landmark leaves the camera: drawn in at once, let out at the ease. How far a landmark too near the head to
      come in front of raises the boom, in rad: raised at once, let down at the ease. */
   let reach = 1, lift = 0;
 
-  /* How far from the head along `dir` the line enters the nearest landmark's box (any box around the head aside), or Infinity. */
-  function nearest() {
-    ray.set(pivot, dir);
-    let s = Infinity;
-    for (const b of boxes) if (!b.containsPoint(pivot) && ray.intersectBox(b, hit)) s = Math.min(s, hit.distanceTo(pivot));
-    return s;
-  }
-
   /* The walk's camera. Its place and its aim ease after the bear (at once under reduced motion or on a cut), keep 1.2 m above the
-     ground at the camera and halfway along the boom, and come 0.5 m in front of a landmark between the camera and the head, but
-     never nearer the head than 2.5 m. A landmark that starts within 3 m of the head leaves no room for that, so the boom rises
-     instead, 0.05 rad at a time, until the line from the head passes over it. Straight up always does: every landmark stands on the
-     ground, so none reaches over a head outside it. Returns the aim. */
+     ground at the camera and halfway along the boom, and keep clear of the landmarks: 0.5 m in front of one between the camera and
+     the head, never nearer the head than 2.5 m, the boom rising for one that starts within 3 m of the head (boom.js). Returns the aim. */
   function boom(camera, walker, dt, cut) {
     const k = reduced || cut ? 1 : 1 - Math.exp(-dt / 0.2);
     const fx = -Math.sin(walker.heading), fz = -Math.cos(walker.heading), e = 0.35 - walker.pitch;
@@ -73,15 +64,9 @@ export function buildAvatar(scene, landmarks, { phone, reduced }) {
     dir.subVectors(cam, pivot);
     const len = dir.length();
     dir.divideScalar(len || 1);
-    const h = Math.hypot(dir.x, dir.z), el = Math.atan2(dir.y, h), hx = dir.x / (h || 1), hz = dir.z / (h || 1);
-    const raise = (a) => dir.set(hx * Math.cos(a), Math.sin(a), hz * Math.cos(a));
-    let need = 0;
-    while (el + need < Math.PI / 2 && nearest() < Math.min(3, len)) raise(el + (need += 0.05));
-    lift = need > lift ? need : lift + (need - lift) * k;
-    raise(Math.max(el, Math.min(Math.PI / 2, el + lift)));
-    const s = nearest();
-    const room = s < len ? Math.min(1, Math.max(2.5, s - 0.5) / (len || 1)) : 1;
-    reach = room < reach ? room : reach + (room - reach) * k;
+    const r = rise(pivot, dir, len, boxes, lift, k);
+    lift = r.lift;
+    reach = r.room < reach ? r.room : reach + (r.room - reach) * k;
     camera.position.copy(pivot).addScaledVector(dir, len * reach);
     return look;
   }
