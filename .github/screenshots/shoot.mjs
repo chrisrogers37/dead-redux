@@ -64,6 +64,19 @@ const PAGES = [
     shots: ["fixed-1", "fixed-2"],
     steps: playerSteps("fixed-", { ms: 8000, shot: "fixed-playing-8s" }),
   },
+  // The fixed day's walk: G (a look down, which starts nothing) leaves the opening for a walk behind the visitor's bear; then the
+  // Details switch turns to first person, the walker's eye with no bear, and back, which leaves the view setting as it was.
+  {
+    path: "/2026-10-20",
+    devices: ["desktop"],
+    shots: [],
+    steps: [
+      { focus: "#world", press: "KeyG", shot: "fixed-walk" },
+      { click: "[data-action='details']", shot: "fixed-view-details" },
+      { click: "[data-action='view']", shot: "fixed-first-person" },
+      { click: "[data-action='view']", shot: "fixed-third-person" },
+    ],
+  },
   // The fixed day 5 s before its first track ends: playing crosses into track 2, and the later shot logs the gap between them.
   {
     path: "/2026-10-20?at=0&t=93",
@@ -172,6 +185,14 @@ const RECORDINGS = [
     device: "desktop",
     name: "follow-straight",
     path: "/2026-10-20?at=3&t=42",
+    click: "#world[data-world='ready'] ~ div [data-action='follow']",
+    waitFor: "[data-action='follow'][aria-pressed='true']",
+  },
+  // Walking with the bears on a phone: its three bears ahead and the visitor's bear above the now-plate.
+  {
+    device: "phone",
+    name: "follow",
+    path: "/2026-10-20",
     click: "#world[data-world='ready'] ~ div [data-action='follow']",
     waitFor: "[data-action='follow'][aria-pressed='true']",
   },

@@ -9,6 +9,7 @@ import { ShareButtons } from "@/components/ShareButtons";
 import { Player, type PlayerState, type Routing } from "@/components/player/Player";
 import { keyBelongsToControl, lettersActive, setSingleKey, singleKeyOn, subscribeSingleKey } from "@/components/player/keys";
 import { useEventListener } from "@/components/player/useEventListener";
+import { firstPersonOn, setFirstPerson, subscribeView } from "./view";
 
 interface Props { show: ShowSummary; featuredDate: string; bestSource: Source | null; isToday: boolean; tourName: string | null; testHooks: boolean; }
 
@@ -45,14 +46,14 @@ function subscribeWorld(onChange: () => void) {
 const worldState = () => document.getElementById("world")?.dataset.world ?? "loading";
 const worldTier = () => document.getElementById("world")?.dataset.tier ?? null;
 
-interface DetailsProps { source: Source; show: ShowSummary; tracks: Track[]; tourName: string | null; routing: Routing; archiveUrl: string; singleKey: boolean; }
+interface DetailsProps { source: Source; show: ShowSummary; tracks: Track[]; tourName: string | null; routing: Routing; archiveUrl: string; singleKey: boolean; first: boolean; }
 
 /**
- * What Details holds: the source, the recording's facts, how the sound plays, the single-key switch and the archive links. It opens
- * as a panel above the now-plate's stack (it is positioned against the fixed wrapper), so the plate keeps its size and the bears stay
- * in view while it is shut.
+ * What Details holds: the source, the recording's facts, how the sound plays, the single-key and view switches and the archive links.
+ * It opens as a panel above the now-plate's stack (it is positioned against the fixed wrapper), so the plate keeps its size and the
+ * bears stay in view while it is shut.
  */
-function DetailsPanel({ source, show, tracks, tourName, routing, archiveUrl, singleKey }: DetailsProps) {
+function DetailsPanel({ source, show, tracks, tourName, routing, archiveUrl, singleKey, first }: DetailsProps) {
   /* On a phone the panel fits between the top HUD and the now-plate, so it never slides under the icon column. */
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -100,6 +101,10 @@ function DetailsPanel({ source, show, tracks, tourName, routing, archiveUrl, sin
       <button type="button" role="switch" aria-checked={singleKey} onClick={() => setSingleKey(!singleKey)} className="t-row text-ink underline hover:text-accent inline-flex items-center min-h-11">
         Single-key shortcuts: {singleKey ? "on" : "off"}
       </button>
+      {/* The view: the visitor's bear seen from behind (off), or the walk through its eyes (on); V toggles it too. */}
+      <button type="button" role="switch" aria-checked={first} data-action="view" onClick={() => setFirstPerson(!first)} className="t-row text-ink underline hover:text-accent inline-flex items-center min-h-11">
+        First-person view: {first ? "on" : "off"}
+      </button>
       <p className="t-row">
         <a href="https://archive.org/details/GratefulDead" target="_blank" rel="noopener noreferrer" className="text-muted underline hover:text-ink">
           Recordings stream from the Live Music Archive under the band&rsquo;s non-commercial trading policy
@@ -138,6 +143,8 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
   const worldStatus = useSyncExternalStore(subscribeWorld, worldState, () => "loading");
   /* The single-key setting, mirrored onto <main> for the world module's keys. */
   const singleKey = useSyncExternalStore(subscribeSingleKey, singleKeyOn, () => true);
+  /* The view setting, mirrored onto <main> for the world module. */
+  const first = useSyncExternalStore(subscribeView, firstPersonOn, () => false);
   /* Test hooks, on preview deployments only, where the server marks <main data-test-hooks="1">: ?at=<track>&t=<seconds> is where the
      first move starts, ?stats=1 shows window.__hill in the legend plate. */
   const search = useSyncExternalStore(subscribe, () => window.location.search, () => "");
@@ -177,6 +184,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
   useEventListener<KeyboardEvent>("window", "keydown", (e) => {
     if (e.key === "Escape") setLeanback(false);
     else if (e.code === "KeyF" && !e.repeat && !keyBelongsToControl(e) && lettersActive(e)) setLeanback((v) => !v);
+    else if (e.code === "KeyV" && !e.repeat && !keyBelongsToControl(e) && lettersActive(e)) setFirstPerson(!first);
   });
 
   const hinting = !joined && tracks.length > 0;
@@ -186,7 +194,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
   const relisten = `https://relisten.net/grateful-dead/${show.date.replace(/-/g, "/")}`;
 
   return (
-    <main data-mode={leanback ? "leanback" : undefined} data-state={playerState} data-routing={routing} data-joined={joined ? "true" : undefined} data-single-key={singleKey ? "on" : "off"} data-test-hooks={testHooks ? "1" : undefined} className="world-page relative h-screen">
+    <main data-mode={leanback ? "leanback" : undefined} data-state={playerState} data-routing={routing} data-joined={joined ? "true" : undefined} data-single-key={singleKey ? "on" : "off"} data-view={first ? "first" : "third"} data-test-hooks={testHooks ? "1" : undefined} className="world-page relative h-screen">
       <script type="application/json" id="world-data" dangerouslySetInnerHTML={{ __html: data.replace(/</g, "\\u003c") }} />
       <div id="world" data-world="loading" tabIndex={0} role="application"
         aria-label="The island. Walk and turn with the arrow keys or W A S D, and look up and down with T and G; the first move starts the show." />
@@ -244,7 +252,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
         <div className={leanback ? "plate" : "plate w-[360px] max-sm:w-auto"}>
           {bestSource && tracks.length > 0 ? (
             <Player tracks={tracks} sets={sets} featuredDate={featuredDate} showDate={show.date} venue={show.venue} archiveUrl={archiveUrl} leanback={leanback} startAt={startAt}>
-              <DetailsPanel source={bestSource} show={show} tracks={tracks} tourName={tourName} routing={routing} archiveUrl={archiveUrl} singleKey={singleKey} />
+              <DetailsPanel source={bestSource} show={show} tracks={tracks} tourName={tourName} routing={routing} archiveUrl={archiveUrl} singleKey={singleKey} first={first} />
             </Player>
           ) : (
             <>
