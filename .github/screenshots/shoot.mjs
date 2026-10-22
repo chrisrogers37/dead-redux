@@ -22,10 +22,16 @@ const DEVICES = {
   },
 };
 
-// The play step: press play, wait for the player to settle, then shoot; `later` ({ ms, shot }) adds a later shot.
+// archive.org can take tens of seconds to start a stream from CI, so a play step waits this long for the player to settle.
+const PLAY_WAIT_MS = 45_000;
+
+// The play step: press play, wait for the player to settle, then shoot; `later` ({ ms, shot }) adds a later shot. The log names the
+// state the player reached and the sentence on its now-plate, so a slow upstream shows there instead of failing the step.
 const playStep = (shot, later) => ({
   click: "[data-action='play']",
   waitFor: "[data-state='playing'], [data-state='stalled'], [data-state='error']",
+  waitMs: PLAY_WAIT_MS,
+  player: true,
   shot,
   later,
 });
@@ -65,6 +71,26 @@ const PAGES = [
     shots: [],
     steps: [playStep("fixed-gap-start", { ms: 12000, shot: "fixed-gap" })],
   },
+  // The fixed day from Cold Rain And Snow, on the summit: the bears set off along the lit band that joins it to Fire On The Mountain.
+  {
+    path: "/2026-10-20?at=7",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-segue-start", { ms: 12000, shot: "fixed-segue" })],
+  },
+  // The fixed day at Drums, then at Space: the left cave lights, then the right, over 8 s, while the now-plate names set 2.
+  {
+    path: "/2026-10-20?at=13",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-drums-start", { ms: 12000, shot: "fixed-drums" })],
+  },
+  {
+    path: "/2026-10-20?at=14",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-space-start", { ms: 12000, shot: "fixed-space" })],
+  },
   // The end shot shows the last screen, where the archive's count line sits.
   { path: "/archive", shots: ["archive"], end: "archive-end" },
   // A fixed past day, so its shots compare across runs.
@@ -99,6 +125,7 @@ const LOAD_MS = 30_000;
 const MAX_SCREENS = 4;
 
 // Short recordings show the motion that stills cannot. Lean-back records on the TV.
+// An entry records the page at its path, "/" unless it names one.
 const RECORDINGS = [
   { device: "desktop", name: "home" },
   { device: "phone", name: "home" },
@@ -118,6 +145,9 @@ const RECORDINGS = [
       ["ArrowLeft", 1200],
       ["ArrowUp", 3000],
       ["ArrowRight", 800],
+      // Then look up at the sky and down past the horizon.
+      ["KeyT", 700],
+      ["KeyG", 1400],
     ],
   },
   // The phone roams with its on-screen pads, each held for its milliseconds, in order.
@@ -128,6 +158,22 @@ const RECORDINGS = [
       ["[data-pad='up']", 3000],
       ["[data-pad='left']", 1200],
     ],
+  },
+  // Walking with the bears on the fixed day, once the world is ready: the button puts the camera behind the bears.
+  {
+    device: "desktop",
+    name: "follow",
+    path: "/2026-10-20",
+    click: "#world[data-world='ready'] ~ div [data-action='follow']",
+    waitFor: "[data-action='follow'][aria-pressed='true']",
+  },
+  // The same from C C Rider 0:42 in, where the bears set off along a straight stretch in one line, clear of the landmarks.
+  {
+    device: "desktop",
+    name: "follow-straight",
+    path: "/2026-10-20?at=3&t=42",
+    click: "#world[data-world='ready'] ~ div [data-action='follow']",
+    waitFor: "[data-action='follow'][aria-pressed='true']",
   },
 ];
 
@@ -227,8 +273,16 @@ try {
         }
         if (step.waitFor) {
           await page
-            .waitForSelector(step.waitFor, { timeout: 15_000 })
+            .waitForSelector(step.waitFor, { timeout: step.waitMs ?? 15_000 })
             .catch(() => console.log(`${step.shot}: waitFor timed out; shooting anyway`));
+        }
+        if (step.player) {
+          // The player's state and the now-plate's sentence: "Starting…", "Reconnecting…", an error, or the position.
+          const [state, line] = await page.evaluate(() => [
+            document.querySelector("main")?.dataset.state ?? null,
+            document.querySelector("[data-action='play']")?.closest(".plate")?.querySelector(".t-tag")?.textContent ?? null,
+          ]);
+          console.log(`state ${device}-${step.shot}.png ${state} · ${line}`);
         }
         await page.waitForTimeout(STEP_SETTLE_MS);
         const file = `${device}-${step.shot}.png`;
@@ -267,7 +321,7 @@ try {
     await context.close();
   }
 
-  recording: for (const { device, name, click, waitFor, keys, pads } of RECORDINGS) {
+  recording: for (const { device, name, path = "/", click, waitFor, keys, pads } of RECORDINGS) {
     const options = DEVICES[device];
     // Frames arrive at the viewport's CSS size, whatever the device scale factor.
     const context = await browser.newContext({
@@ -278,7 +332,7 @@ try {
       },
     });
     const page = await context.newPage();
-    const url = new URL("/", site);
+    const url = new URL(path, site);
     // The TV device asks for the TV tier: a headless browser cannot be told apart from a desktop.
     if (device === "tv") url.searchParams.set("tier", "tv");
     const file = `${device}-${name}.webm`;

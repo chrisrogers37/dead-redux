@@ -1,9 +1,10 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { DerivedSets, ShowSummary, Source, Track } from "@/lib/types";
 import { formatDate, formatDuration, formatRating } from "@/lib/format";
 import { flatten } from "@/lib/queue";
+import { deriveSets, segueOut } from "@/lib/sets";
 import { ShareButtons } from "@/components/ShareButtons";
 import { Player, type PlayerState, type Routing } from "@/components/player/Player";
 import { keyBelongsToControl, lettersActive, setSingleKey, singleKeyOn, subscribeSingleKey } from "@/components/player/keys";
@@ -30,7 +31,7 @@ function appendWorldModule(): HTMLScriptElement {
   return s;
 }
 
-/** Until the setlist's sets are derived, every show is one list. */
+/** A show without a recording is one list. */
 const NO_SETS: DerivedSets = { set2Start: null, encoreStart: null };
 
 /* The world module writes its state on #world: loading, ready or fallback. */
@@ -51,6 +52,25 @@ interface DetailsProps { source: Source; show: ShowSummary; tracks: Track[]; tou
  * in view while it is shut.
  */
 function DetailsPanel({ source, show, tracks, tourName, routing, archiveUrl, singleKey }: DetailsProps) {
+  /* On a phone the panel fits between the top HUD and the now-plate, so it never slides under the icon column. */
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    const wrapper = el?.closest(".hud");
+    if (!el || !wrapper) return;
+    const fit = () => {
+      if (!window.matchMedia("(max-width: 639px)").matches) { el.style.maxHeight = ""; return; }
+      const hud = Math.max(0, ...Array.from(document.querySelectorAll("[data-hud='top']"), (n) => n.getBoundingClientRect().bottom));
+      el.style.maxHeight = `${Math.max(0, Math.floor(wrapper.getBoundingClientRect().top - 8 - (hud + 8)))}px`;
+    };
+    fit();
+    const details = el.closest("details");
+    details?.addEventListener("toggle", fit);
+    window.addEventListener("resize", fit);
+    const observer = new ResizeObserver(fit);
+    observer.observe(wrapper);
+    return () => { details?.removeEventListener("toggle", fit); window.removeEventListener("resize", fit); observer.disconnect(); };
+  }, []);
   const facts: [label: string, value: string | null | undefined][] = [
     ["Taper", source.taper],
     ["Lineage", source.lineage],
@@ -61,7 +81,7 @@ function DetailsPanel({ source, show, tracks, tourName, routing, archiveUrl, sin
     ["Tour", tourName],
   ];
   return (
-    <div className="plate absolute right-0 bottom-full mb-2 w-[420px] max-sm:left-0 max-sm:w-auto max-h-[45vh] overflow-y-auto space-y-3">
+    <div ref={ref} className="plate absolute right-0 bottom-full mb-2 w-[420px] max-sm:left-0 max-sm:w-auto max-h-[45vh] overflow-y-auto space-y-3">
       <p className="t-row text-ink">
         {source.source && <>{source.source} · </>}{source.numReviews} review{source.numReviews === 1 ? "" : "s"}
       </p>
@@ -94,16 +114,20 @@ function DetailsPanel({ source, show, tracks, tourName, routing, archiveUrl, sin
 /* The page: the world's container, the HUD on plates, the hooks, the show as JSON for the world, and the module loader. */
 export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, testHooks }: Props) {
   const tracks = useMemo(() => flatten(bestSource), [bestSource]);
+  const sets = useMemo(() => (bestSource ? deriveSets(bestSource) : NO_SETS), [bestSource]);
   const data = useMemo(() => JSON.stringify({
     featuredDate,
     showDate: show.date,
     venue: show.venue,
     location: show.location,
     seed: seedFromDate(featuredDate),
-    tracks: tracks.map((t) => ({ title: t.title, duration: t.duration })),
-  }), [featuredDate, show, tracks]);
+    set2Start: sets.set2Start,
+    encoreStart: sets.encoreStart,
+    tracks: tracks.map((t) => ({ title: t.title, duration: t.duration, segueOut: segueOut(t.title) })),
+  }), [featuredDate, show, tracks, sets]);
 
   const [leanback, setLeanback] = useState(false);
+  const [follow, setFollow] = useState(false);
   /* The player's state, mirrored onto <main>. A show without a recording has no player and stays "error"; the player starts "idle"
      and announces its first state before this component's listener exists. */
   const [playerState, setPlayerState] = useState<PlayerState>(tracks.length ? "idle" : "error");
@@ -141,6 +165,9 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
   useEventListener("document", "player:start", () => setJoined(true));
   useEventListener<CustomEvent<{ webgl: boolean; tier: string }>>("document", "world:ready", (e) => setTier(e.detail.tier));
 
+  /* The world reports its camera mode; the follow button reads pressed while the camera walks with the bears. */
+  useEventListener<CustomEvent<{ mode: string }>>("document", "world:mode", (e) => setFollow(e.detail.mode === "follow"));
+
   useEffect(() => {
     if (!showStats) return;
     const timer = window.setInterval(() => setStats(JSON.stringify(window.__hill ?? null)), 1000);
@@ -162,7 +189,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
     <main data-mode={leanback ? "leanback" : undefined} data-state={playerState} data-routing={routing} data-joined={joined ? "true" : undefined} data-single-key={singleKey ? "on" : "off"} data-test-hooks={testHooks ? "1" : undefined} className="world-page relative h-screen">
       <script type="application/json" id="world-data" dangerouslySetInnerHTML={{ __html: data.replace(/</g, "\\u003c") }} />
       <div id="world" data-world="loading" tabIndex={0} role="application"
-        aria-label="The island. Walk and turn with the arrow keys or W A S D; the first move starts the show." />
+        aria-label="The island. Walk and turn with the arrow keys or W A S D, and look up and down with T and G; the first move starts the show." />
       <div className="world-fallback" aria-hidden="true">
         <div className="sky" /><div className="ring" /><div className="hill" /><div className="cave l" /><div className="cave r" /><div className="water" />
         <p className="hud plate t-body text-ink" style={{ left: 24, bottom: 24 }}>This world needs WebGL 2 · {formatDate(show.date)} · {show.venue}</p>
@@ -171,19 +198,26 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
       {!leanback && (
         <>
           {/* On a phone the plate ends 8 px before the icon column (which starts 64 px from the right edge), so its lines wrap before the column. */}
-          <div className="hud plate left-6 top-6 max-sm:left-3 max-sm:top-3 max-sm:right-[72px]">
+          <div data-hud="top" className="hud plate left-6 top-6 max-sm:left-3 max-sm:top-3 max-sm:right-[72px]">
             <p className="t-tag text-muted">Dead Redux</p>
             <p className="t-label text-accent mt-1">{isToday ? <>Today&rsquo;s show · {formatDate(featuredDate)}</> : <>Featured {formatDate(featuredDate)}</>}</p>
             <h1 className="t-date text-ink mt-2">{formatDate(show.date)}</h1>
             <p className="t-body text-muted mt-1">{show.venue} · {show.location}</p>
           </div>
           {/* Above the now-plate's stack, so an open Details panel never covers these controls on a short screen. */}
-          <div className="hud right-6 top-6 max-sm:right-3 max-sm:top-3 flex gap-2 max-sm:flex-col max-sm:items-end z-20!">
+          <div data-hud="top" className="hud right-6 top-6 max-sm:right-3 max-sm:top-3 flex gap-2 max-sm:flex-col max-sm:items-end z-20!">
             {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the world starts once per page load */}
             <a href="/archive" aria-label="Archive" className="plate t-row text-muted hover:text-ink h-11 flex items-center">
               <span className="max-sm:hidden">Archive</span>
               <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M21 8v13H3V8" /><path d="M1 3h22v5H1z" /><path d="M10 12h4" /></svg>
             </a>
+            {/* Asks the player to start the show (nothing once it has), then puts the camera behind the bears. */}
+            <button type="button" data-action="follow" aria-pressed={follow} aria-label="Walk with the bears"
+              onClick={() => { document.dispatchEvent(new Event("player:join")); document.dispatchEvent(new Event("world:follow")); }}
+              className="plate t-body text-ink h-11 flex items-center aria-pressed:shadow-[inset_0_0_0_2px_var(--accent)]">
+              <span className="max-sm:hidden">Walk with the bears</span>
+              <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="15" r="4" /><circle cx="6" cy="9" r="1.5" /><circle cx="12" cy="6" r="1.5" /><circle cx="18" cy="9" r="1.5" /></svg>
+            </button>
             <button type="button" data-action="lean-back" onClick={() => setLeanback(true)} aria-label="Lean back" className="plate t-body text-ink h-11 flex items-center">
               <span className="max-sm:hidden">Lean back</span>
               <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="1" /><path d="M8 21h8" /></svg>
@@ -203,13 +237,13 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
       <div className={leanback ? "hud left-16 bottom-12" : `hud right-6 bottom-6 flex flex-col items-end gap-2 max-sm:left-3 max-sm:right-3 max-sm:items-stretch ${hinting ? "max-sm:bottom-[212px]" : "max-sm:bottom-[160px]"}`}>
         {!leanback && (
           <div className={`plate t-tag text-muted ${stats ? "" : "max-sm:hidden"}`}>
-            <p className="max-sm:hidden">Arrows or WASD to roam</p>
+            <p className="max-sm:hidden">Arrows or WASD to roam, drag to look</p>
             {stats && <p className="text-[13px] leading-4 font-mono normal-case tracking-normal mt-1 max-w-[360px] wrap-anywhere">{stats}</p>}
           </div>
         )}
         <div className={leanback ? "plate" : "plate w-[360px] max-sm:w-auto"}>
           {bestSource && tracks.length > 0 ? (
-            <Player tracks={tracks} sets={NO_SETS} featuredDate={featuredDate} showDate={show.date} venue={show.venue} archiveUrl={archiveUrl} leanback={leanback} startAt={startAt}>
+            <Player tracks={tracks} sets={sets} featuredDate={featuredDate} showDate={show.date} venue={show.venue} archiveUrl={archiveUrl} leanback={leanback} startAt={startAt}>
               <DetailsPanel source={bestSource} show={show} tracks={tracks} tourName={tourName} routing={routing} archiveUrl={archiveUrl} singleKey={singleKey} />
             </Player>
           ) : (

@@ -38,7 +38,7 @@ body { background-color: var(--page); color: var(--ink); }
 }
 
 /* The world's canvas fills the viewport; the HUD floats on plates. */
-#world { position: fixed; inset: 0; outline: none; }
+#world { position: fixed; inset: 0; outline: none; touch-action: none; }
 #world canvas { display: block; width: 100%; height: 100%; }
 #world:focus-visible { box-shadow: inset 0 0 0 3px var(--accent); }
 .plate { background: rgba(11, 11, 13, 0.9); border-radius: 4px; padding: 16px; }

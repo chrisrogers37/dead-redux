@@ -46,3 +46,16 @@ export function buildSky(scene, octaves, seed) {
   scene.add(sun);
   return { skyMat, hemi };
 }
+
+/* The sky's colour stops: one per set where set 2 is known, else the start, middle and end of the show. */
+const C = (h) => new THREE.Color(h);
+const STOPS_A = [C(0xe8b04b), C(0xd6508a), C(0x9a80c0)], STOPS_B = [C(0xd6508a), C(0x2ea3a0), C(0xe8b04b)];
+const stopAt = (stops, f) => f < 0.5 ? stops[0].clone().lerp(stops[1], f / 0.5) : stops[1].clone().lerp(stops[2], (f - 0.5) / 0.5);
+
+/* The sky's two colours: by set where set 2 is known (set 1 amber and magenta, set 2 magenta and teal, the encore lavender and amber);
+   otherwise one pair for the whole show, blended by the elapsed fraction f. */
+export function skyPair(index, f, set2Start, encoreStart) {
+  if (set2Start === null) return [stopAt(STOPS_A, f), stopAt(STOPS_B, f)];
+  const k = encoreStart !== null && index >= encoreStart ? 2 : index >= set2Start ? 1 : 0;
+  return [STOPS_A[k], STOPS_B[k]];
+}
