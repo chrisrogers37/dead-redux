@@ -102,7 +102,7 @@ function DetailsPanel({ source, show, tracks, tourName, routing, archiveUrl, sin
         Single-key shortcuts: {singleKey ? "on" : "off"}
       </button>
       {/* The view: the visitor's bear seen from behind (off), or the walk through its eyes (on); V toggles it too. */}
-      <button type="button" role="switch" aria-checked={first} data-action="view" onClick={() => setFirstPerson(!first)} className="t-row text-ink underline hover:text-accent inline-flex items-center min-h-11">
+      <button type="button" role="switch" aria-checked={first} data-action="view" onClick={() => setFirstPerson(!first)} className="t-row text-ink underline hover:text-accent flex w-fit items-center min-h-11">
         First-person view: {first ? "on" : "off"}
       </button>
       <p className="t-row">
