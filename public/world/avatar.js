@@ -14,8 +14,9 @@ const UP = new THREE.Vector3(0, 1, 0);
 export function buildAvatar(scene, landmarks, { phone, reduced }) {
   const { g, legs } = buildBear(scene, 0xeceae4);
   g.rotation.order = "YXZ";
-  /* The head, for the stats and the sound's listener, and the ground point under the bear. */
-  const head = new THREE.Vector3(), feet = new THREE.Vector3();
+  /* The head, for the stats and the sound's listener; the top of the head and the ground point under the bear, which the cameras
+     keep in the frame. */
+  const head = new THREE.Vector3(), top = new THREE.Vector3(), feet = new THREE.Vector3();
   let gait = 0, speed = 0, placed = false;
 
   /* Stands the bear at a ground point facing `heading` (the walker's: 0 faces -z). Its speed is how far it moved this frame, eased;
@@ -34,6 +35,7 @@ export function buildAvatar(scene, landmarks, { phone, reduced }) {
     g.rotation.set(0.12 * stance * Math.min(1, speed / STRIDE), heading + Math.PI, 0);
     feet.set(x, y, z);
     head.set(x - Math.sin(heading) * 0.8, g.position.y + 3.6, z - Math.cos(heading) * 0.8);
+    top.set(head.x, g.position.y + 4.85, head.z);
   }
 
   /* The boom: R behind the head and 0.35 rad above it, the walker's pitch lowering or raising it, looking 6 m past the head. Desktop and
@@ -78,16 +80,20 @@ export function buildAvatar(scene, landmarks, { phone, reduced }) {
   }
 
   const d = new THREE.Vector3(), r = new THREE.Vector3(), u = new THREE.Vector3(), f = new THREE.Vector3();
-  /* Turns `aim` down about the camera, by at most 0.3 rad, until the bear's feet stand at `ndcY` (the frame's height from -1 at the
-     bottom to 1 at the top); `share` scales the turn. Never turns up. */
-  function tilt(camera, aim, ndcY, share) {
-    const dist = d.subVectors(aim, camera.position).length();
+  /* How far a view from `from` toward `aim` must turn down, at most `cap`, for `point` to stand at `ndcY` of the frame's height (-1 at
+     the bottom, 1 at the top) or above it. Never up. */
+  function turnDown(camera, from, aim, point, ndcY, cap = 0.3) {
+    const dist = d.subVectors(aim, from).length();
     d.divideScalar(dist || 1);
     r.crossVectors(d, UP).normalize();
     u.crossVectors(r, d);
-    f.subVectors(feet, camera.position);
+    f.subVectors(point, from);
     const T = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
-    const turn = share * Math.max(0, Math.min(0.3, Math.atan(ndcY * T) - Math.atan2(f.dot(u), f.dot(d))));
+    return Math.max(0, Math.min(cap, Math.atan(ndcY * T) - Math.atan2(f.dot(u), f.dot(d))));
+  }
+  /* Turns `aim` down about the camera that far. */
+  function tilt(camera, aim, point, ndcY) {
+    const turn = turnDown(camera, camera.position, aim, point, ndcY), dist = aim.distanceTo(camera.position);
     if (turn > 0) aim.copy(camera.position).addScaledVector(d.multiplyScalar(Math.cos(turn)).addScaledVector(u, -Math.sin(turn)), dist);
   }
 
@@ -102,5 +108,5 @@ export function buildAvatar(scene, landmarks, { phone, reduced }) {
     return { clear, screen: [round((p.x + 1) / 2), round((1 - p.y) / 2)] };
   }
 
-  return { g, head, step, boom, settle, tilt, report };
+  return { g, head, top, feet, step, boom, settle, turnDown, tilt, report };
 }

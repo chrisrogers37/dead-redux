@@ -180,7 +180,9 @@ function start(gl) {
   }
   /* The camera that walks with the bears, in follow and attract, its eye 6.5 m up, above their heads; it looks at the lead bear, turned
      by `yaw` and tilted by `pitch`. In third person it stands behind the visitor's bear and to its left, away from the path, along the
-     chord from that bear to the lead one, so all six read; in first person on the line, 6 m behind the last bear. */
+     chord from that bear to the lead one, and looks 2 m over the lead bear's head, so all six read; where a climb toward the lead bear
+     would sink the visitor's bear, the view turns down first (keepInView). In first person it stands on the line, 6 m behind the last
+     bear, and looks 2 m over the lead bear's feet. */
   function postPose(yaw, pitch) {
     const lead = line.at(bearD);
     let x, z;
@@ -193,10 +195,18 @@ function start(gl) {
       x = p.x; z = p.z;
     }
     const pos = new THREE.Vector3(x, height(x, z) + 6.5, z);
-    const h = Math.atan2(-(lead.x - x), -(lead.z - z)) + yaw, dist = Math.hypot(lead.x - x, lead.z - z);
-    const e = Math.max(-1.3, Math.min(1.3, Math.atan2(lead.y + 2 - pos.y, dist) + pitch));
+    const h0 = Math.atan2(-(lead.x - x), -(lead.z - z)), dist = Math.hypot(lead.x - x, lead.z - z);
+    let e0 = Math.atan2(lead.y + (third ? 5.6 : 2) - pos.y, dist);
+    if (third) e0 -= keepInView(pos, new THREE.Vector3(x - Math.sin(h0) * dist, pos.y + Math.tan(e0) * dist, z - Math.cos(h0) * dist));
+    const h = h0 + yaw, e = Math.max(-1.3, Math.min(1.3, e0 + pitch));
     return { pos, look: new THREE.Vector3(x - Math.sin(h) * dist, pos.y + Math.tan(e) * dist, z - Math.cos(h) * dist) };
   }
+  /* Where the visitor's feet stand on a phone: 24 px above the now-plate, as a share of the frame's height from -1 to 1. */
+  const plateY = () => 1 - (2 * (plateTop - 24)) / frameH;
+  /* How far a third-person view from `from` toward `look` turns down to keep the visitor's bear in the frame: on a phone until its feet
+     stand above the now-plate, at most 0.45 rad, which still keeps the lead bear below the top plates; elsewhere until the top of its
+     head stands 36 % up the frame, at most 0.3 rad. */
+  const keepInView = (from, look) => phone ? avatar.turnDown(camera, from, look, avatar.feet, plateY(), 0.45) : avatar.turnDown(camera, from, look, avatar.top, -0.28);
   const forward = () => new THREE.Vector3(-Math.sin(walker.heading), 0, -Math.cos(walker.heading));
   /* Changes the camera's mode and tells the page. A walk starts in the visitor's place in the line; entering follow frames the bears
      again, level. */
@@ -251,10 +261,10 @@ function start(gl) {
     lookTarget.set(walker.x + fw.x * c, y + Math.sin(walker.pitch), walker.z + fw.z * c);
     camera.lookAt(lookTarget);
   }
-  /* Points the camera at `look`. On a phone in third person the view first tilts down until the visitor's bear stands 24 px above the
-     now-plate; `share` scales that, so the descent brings it in. */
-  function aim(look, share = 1) {
-    if (phone && third) avatar.tilt(camera, look, 1 - (2 * (plateTop - 24)) / frameH, share);
+  /* Points the camera at `look`. On a phone in third person the view first turns down until the visitor's bear stands above the
+     now-plate, in every mode; the camera that walks with the bears (`post`) has done so in postPose, before the visitor's own turns. */
+  function aim(look, post = false) {
+    if (phone && third && !post) avatar.tilt(camera, look, avatar.feet, plateY());
     camera.lookAt(look);
   }
 
@@ -391,14 +401,14 @@ function start(gl) {
         const k = easeOut(elapsed / 6);
         const end = postPose(0, 0);
         camera.position.set(end.pos.x * k, 140 + (end.pos.y - 140) * k, end.pos.z * k);
-        aim(lookTarget.set(end.look.x * k, end.look.y * k, -3 + (end.look.z + 3) * k), k);
+        aim(lookTarget.set(end.look.x * k, end.look.y * k, -3 + (end.look.z + 3) * k), true);
         if (elapsed >= 6) setMode("attract");
       } else if (mode === "attract" || mode === "follow") {
         /* In follow, turning adds an offset to the look. */
         if (mode === "follow") walker.heading += ((keys.left ? 1 : 0) - (keys.right ? 1 : 0)) * 1.6 * dt;
         const pose = mode === "follow" ? postPose(walker.heading - followBase, walker.pitch) : postPose(0, 0);
         camera.position.copy(pose.pos);
-        aim(lookTarget.copy(pose.look));
+        aim(lookTarget.copy(pose.look), true);
       } else if (mode === "drift") {
         if (reduced) {
           const p0 = at(0);
