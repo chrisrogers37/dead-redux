@@ -20,7 +20,7 @@ export function height(x, z) {
   return h;
 }
 
-/* The ground and the sea, then the ring road and the lightning path. */
+/* The ground and the sea, then the ring road and the lightning path, then the caves' pools and lights, which it returns. */
 export function buildIsland(scene, phone) {
   const ground = new THREE.PlaneGeometry(260, 260, phone ? 52 : 80, phone ? 52 : 80);
   ground.rotateX(-Math.PI / 2);
@@ -52,4 +52,22 @@ export function buildIsland(scene, phone) {
       scene.add(seg);
     }
   }
+
+  /* The caves light for Drums (left) and Space (right): a pool on each floor and, but on a phone, a light inside. */
+  const caves = CAVES.map(([cx, cz]) => {
+    const poolGeo = new THREE.RingGeometry(0, 8, 32, 8).rotateX(-Math.PI / 2).translate(cx, 0, cz);
+    const poolPos = poolGeo.attributes.position;
+    for (let i = 0; i < poolPos.count; i++) poolPos.setY(i, height(poolPos.getX(i), poolPos.getZ(i)) + 0.15);
+    const disc = new THREE.Mesh(poolGeo, new THREE.MeshBasicMaterial({ color: 0xd6508a, transparent: true, opacity: 0, depthWrite: false }));
+    disc.visible = false;
+    scene.add(disc);
+    let light = null;
+    if (!phone) {
+      light = new THREE.PointLight(0xd6508a, 0, 30);
+      light.position.set(cx, height(cx, cz) + 4, cz);
+      scene.add(light);
+    }
+    return { disc, light, level: 0 };
+  });
+  return { caves };
 }
