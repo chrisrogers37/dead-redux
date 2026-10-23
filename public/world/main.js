@@ -331,7 +331,9 @@ function start(gl) {
 
   function frame(now) {
     raf = !reduced || held() ? requestAnimationFrame(frame) : 0;
-    const dtMs = now - last;
+    /* A frame's timestamp marks the frame's start, which can come before the clock reading of the wake that asked for it, so time never
+       runs back: under reduced motion every frame follows a wake. */
+    const dtMs = Math.max(0, now - last);
     const dt = Math.min(0.05, dtMs / 1000);
     last = now;
     elapsed += dt;
