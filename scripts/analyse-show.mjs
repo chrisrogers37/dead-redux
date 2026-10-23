@@ -41,6 +41,13 @@ const PROMINENCE = 0.2;
 
 /** A response that was not ok; `status` is its HTTP status. The message names the server that answered and any refusal it marked. */
 export class HttpError extends Error {
+  /**
+   * @param {string} url - The request's URL.
+   * @param {number} status - The answer's HTTP status.
+   * @param {string | null} [server] - The answer's server header.
+   * @param {string | null} [mitigated] - Its cf-mitigated header.
+   * @param {string | null} [said] - What a JSON error answer said failed behind it.
+   */
   constructor(url, status, server = null, mitigated = null, said = null) {
     const by = [server && `server ${server}`, mitigated && `cf-mitigated ${mitigated}`].filter(Boolean).join(", ");
     super(`${url} answered ${status}${by ? ` (${by})` : ""}${said ? `: ${said}` : ""}`);
