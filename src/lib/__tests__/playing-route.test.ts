@@ -58,13 +58,24 @@ describe("GET /api/playing/<show date>", () => {
     expect(requested).toEqual([]);
   });
 
-  it("answers 404 for a day Relisten has no show for", async () => {
+  it("answers 404 to a date that is not a show in the catalog, without asking Relisten", async () => {
+    relisten(() => new Response(sampleText, { status: 200 }));
+    // 1986-02-30 passes isValidDateStr (Date.parse rolls it to March 2), so only the catalog refuses it.
+    for (const date of ["1986-07-05", "2001-01-01", "1986-02-30"]) {
+      const res = await call(date);
+      expect(res.status, date).toBe(404);
+      expect(await res.json(), date).toEqual({ error: "No show on this date" });
+    }
+    expect(requested).toEqual([]);
+  });
+
+  it("answers 404 for a catalog show Relisten has no record of", async () => {
     relisten(() => new Response("Not found", { status: 404 }));
-    const res = await call("1986-07-05");
+    const res = await call("1986-07-04");
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "No recording of this show" });
     // As the page does: the year's path first, then the show's own.
-    expect(requested).toEqual([`${API}/years/1986/1986-07-05`, `${API}/shows/1986-07-05`]);
+    expect(requested).toEqual([`${API}/years/1986/1986-07-04`, `${API}/shows/1986-07-04`]);
   });
 
   it("answers 404 for a show with no recording", async () => {
