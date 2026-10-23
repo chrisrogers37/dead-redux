@@ -1,19 +1,17 @@
 import { readFileSync } from "fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  analysedTime,
   buildUp,
   checkMap,
   envAt,
   loadMap,
   MAX_PEAKS,
-  playingTime,
   readMap,
   tempoAt,
 } from "../../../public/world/maps.js";
 
-// A show of two tracks at one second a step: "Touch Of Grey" lasts 5 s in both recordings, and "Fire On The Mountain" 24 s
-// analysed and 30 s playing, so the map stretches it by 30/24.
+// A show of two tracks at one second a step: "Touch Of Grey" lasts 5 s analysed and listed, and "Fire On The Mountain" is 24 s
+// analysed and listed at 30 s, a length a reading is never stretched by.
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/map-tiny.json", import.meta.url), "utf8"));
 
 // A loose, mutable copy of the fixture (or of another map).
@@ -61,6 +59,13 @@ const INVALID: { name: string; change: (map: Loose) => void; problem: RegExp }[]
       m.show = "1986-7-4";
     },
     problem: /^show is "1986-7-4", not a YYYY-MM-DD date$/,
+  },
+  {
+    name: "a show date its month does not have",
+    change: (m) => {
+      m.show = "1986-02-30";
+    },
+    problem: /^show is "1986-02-30", not a YYYY-MM-DD date$/,
   },
   {
     name: "a show date that is not on the calendar",
@@ -318,7 +323,8 @@ describe("readMap", () => {
     expect(Array.from(b.bright)).toEqual(Array.from({ length: 24 }, () => 100));
     expect(Array.from(b.tempo)).toEqual([96, 128, 0, 0, 100, 255]);
     expect([a.step, b.step]).toEqual([1, 1]);
-    expect([b.analysedDuration, b.playingDuration]).toEqual([24, 30]);
+    // A read track carries no lengths: it is read on its own clock.
+    expect(Object.keys(b).sort()).toEqual(["bass", "bright", "peaks", "rms", "step", "tempo", "title"]);
   });
 
   it("copies the map's step, whatever it is", () => {
@@ -326,25 +332,24 @@ describe("readMap", () => {
   });
 });
 
-describe("the time mapping", () => {
-  it("stretches the analysed track linearly over the playing one", () => {
-    const [a, b] = readMap(fixture).tracks;
-    expect(analysedTime(b, 25)).toBe(20);
-    expect(playingTime(b, 20)).toBe(25);
-    expect(analysedTime(a, 3)).toBe(3);
-    expect(playingTime(a, 3)).toBe(3);
+describe("reading a track", () => {
+  it("reads a track on its own clock, not stretched by its listed length", () => {
+    const b = readMap(fixture).tracks[1];
+    // Track 2 is 24 s analysed and listed at 30 s. 23.5 s is its last byte; stretched by 24/30 it would be 18.8 s, byte 18.
+    expect(envAt(b, 23.5).rms).toBe(230 / 255);
+    // 11 s is the second tempo window, which is unknown; stretched it would be 8.8 s, in the first.
+    expect(tempoAt(b, 11)).toBeNull();
   });
 
   it.each([
-    { step: 1, at25: 200, last: 230 },
-    { step: 2, at25: 100, last: 110 },
-    { step: 4, at25: 50, last: 50 },
-  ])("reads the envelope at $step s a step", ({ step, at25, last }) => {
+    { step: 1, at20: 200, last: 230 },
+    { step: 2, at20: 100, last: 110 },
+    { step: 4, at20: 50, last: 50 },
+  ])("reads the envelope at $step s a step", ({ step, at20, last }) => {
     const b = readMap(atStep(step)).tracks[1];
-    // 25 s of playing is 20 s analysed.
-    expect(envAt(b, 25)).toEqual({ rms: at25 / 255, bass: at25 / 255, bright: at25 / 255 });
-    // 29.9 s of playing is 23.92 s analysed, in the last byte.
-    expect(envAt(b, 29.9).rms).toBe(last / 255);
+    expect(envAt(b, 20)).toEqual({ rms: at20 / 255, bass: at20 / 255, bright: at20 / 255 });
+    // 23.9 s is in the last byte.
+    expect(envAt(b, 23.9).rms).toBe(last / 255);
     // Before the track is the first byte and after it the last.
     expect(envAt(b, -3).rms).toBe(0);
     expect(envAt(b, 40).rms).toBe(last / 255);
@@ -352,24 +357,22 @@ describe("the time mapping", () => {
 
   it("reads each of the three series", () => {
     const b = readMap(fixture).tracks[1];
-    expect(envAt(b, 25)).toEqual({ rms: 200 / 255, bass: 30 / 255, bright: 100 / 255 });
+    expect(envAt(b, 20)).toEqual({ rms: 200 / 255, bass: 30 / 255, bright: 100 / 255 });
   });
 
-  it("reads the envelope byte the analysed time falls in, not the nearest", () => {
+  it("reads the envelope byte a time falls in, not the nearest", () => {
     const b = readMap(atStep(1)).tracks[1];
-    // 26 s of playing is 20.8 s analysed: byte 20 at one second a step, where the nearest would be byte 21.
-    expect(envAt(b, 26).rms).toBe(200 / 255);
+    // 20.8 s is in byte 20; the nearest would be byte 21.
+    expect(envAt(b, 20.8).rms).toBe(200 / 255);
   });
 
-  it("reads the tempo of the analysed window", () => {
+  it("reads the tempo of the window a time falls in", () => {
     const b = readMap(fixture).tracks[1];
     expect(tempoAt(b, 5)).toEqual({ bpm: 96, confidence: 128 / 255 });
-    // 11 s of playing is 8.8 s analysed, the first window; as playing time it would be the second, which is unknown.
-    expect(tempoAt(b, 11)).toEqual({ bpm: 96, confidence: 128 / 255 });
-    // 7 s of playing is 5.6 s analysed, the first window; rounded to the nearest window it would be the second.
+    // 7 s is in the first window; rounded to the nearest window it would be the second.
     expect(tempoAt(b, 7)).toEqual({ bpm: 96, confidence: 128 / 255 });
     expect(tempoAt(b, 15)).toBeNull();
-    expect(tempoAt(b, 29)).toEqual({ bpm: 100, confidence: 1 });
+    expect(tempoAt(b, 23)).toEqual({ bpm: 100, confidence: 1 });
     // Before the track is the first window and after it the last.
     expect(tempoAt(b, -5)).toEqual({ bpm: 96, confidence: 128 / 255 });
     expect(tempoAt(b, 99)).toEqual({ bpm: 100, confidence: 1 });
@@ -377,28 +380,27 @@ describe("the time mapping", () => {
 
   it("rises over 20 s to a peak and is 0 once it has passed", () => {
     const b = readMap(fixture).tracks[1];
-    // The peak at analysed 20 s plays at 25 s.
-    expect(buildUp(b, 25)).toBe(1);
-    expect(buildUp(b, 15)).toBe(0.5);
-    expect(buildUp(b, 5)).toBe(0);
-    expect(buildUp(b, 4)).toBe(0);
-    expect(buildUp(b, 25.5)).toBe(0);
+    // The peak is at 20 s.
+    expect(buildUp(b, 20)).toBe(1);
+    expect(buildUp(b, 10)).toBe(0.5);
+    expect(buildUp(b, 0)).toBe(0);
+    expect(buildUp(b, -1)).toBe(0);
+    expect(buildUp(b, 20.5)).toBe(0);
     expect(buildUp(readMap(fixture).tracks[0], 0)).toBeCloseTo(0.85, 10);
   });
 
   it("builds up to the next peak, and to the one after once the first has passed", () => {
     const map = atStep(1);
-    // Analysed 4 s and 20 s play at 5 s and 25 s.
     map.tracks[1].peaks = [
       [4, 0.5],
       [20, 1],
     ];
     const b = readMap(map).tracks[1];
-    expect(buildUp(b, 0)).toBe(0.75);
-    expect(buildUp(b, 5)).toBe(1);
-    expect(buildUp(b, 6)).toBeCloseTo(0.05, 10);
-    expect(buildUp(b, 25)).toBe(1);
-    expect(buildUp(b, 26)).toBe(0);
+    expect(buildUp(b, 0)).toBeCloseTo(0.8, 10);
+    expect(buildUp(b, 4)).toBe(1);
+    expect(buildUp(b, 5)).toBeCloseTo(0.25, 10);
+    expect(buildUp(b, 20)).toBe(1);
+    expect(buildUp(b, 21)).toBe(0);
   });
 
   it("builds up to nothing in a track without peaks", () => {
@@ -411,6 +413,7 @@ describe("the time mapping", () => {
 describe("loadMap", () => {
   const DATA = {
     showDate: "1986-07-04",
+    identifier: "gd1986-07-04.sbd.miller.118659.flac16",
     tracks: [
       { title: "Touch Of Grey", duration: 5 },
       { title: "Fire On The Mountain", duration: 30 },
@@ -450,6 +453,17 @@ describe("loadMap", () => {
     expect(warnings).toEqual([]);
   });
 
+  it("asks for no map when the page plays no recording", async () => {
+    const asked: string[] = [];
+    const fetchMap = async (url: string) => {
+      asked.push(url);
+      return new Response(JSON.stringify(fixture), { status: 200 });
+    };
+    expect(await loadMap({ ...DATA, identifier: null }, fetchMap)).toBeNull();
+    expect(asked).toEqual([]);
+    expect(warnings).toEqual([]);
+  });
+
   it("takes a duration under half a second off", async () => {
     const map = await loadMap(withTrack(1, { duration: 30.4 }), answer(JSON.stringify(fixture)));
     expect(map).not.toBeNull();
@@ -481,6 +495,12 @@ describe("loadMap", () => {
       data: { ...DATA, tracks: DATA.tracks.slice(0, 1) },
       fetchMap: answer(JSON.stringify(fixture)),
       warning: /^map \/maps\/1986-07-04\.json: it has 2 tracks, the page 1$/,
+    },
+    {
+      name: "a map made from another recording than the page plays",
+      data: { ...DATA, identifier: "gd1986-07-04.aud.other" },
+      fetchMap: answer(JSON.stringify(fixture)),
+      warning: /^map \/maps\/1986-07-04\.json: it was made from gd1986-07-04\.sbd\.miller\.118659\.flac16, the page plays gd1986-07-04\.aud\.other$/,
     },
     {
       name: "an invalid map",

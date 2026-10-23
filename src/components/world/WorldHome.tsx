@@ -124,13 +124,14 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
   const data = useMemo(() => JSON.stringify({
     featuredDate,
     showDate: show.date,
+    identifier: bestSource?.upstreamIdentifier ?? null,
     venue: show.venue,
     location: show.location,
     seed: seedFromDate(featuredDate),
     set2Start: sets.set2Start,
     encoreStart: sets.encoreStart,
     tracks: tracks.map((t) => ({ title: t.title, duration: t.duration, segueOut: segueOut(t.title) })),
-  }), [featuredDate, show, tracks, sets]);
+  }), [featuredDate, show, bestSource, tracks, sets]);
 
   const [leanback, setLeanback] = useState(false);
   const [follow, setFollow] = useState(false);

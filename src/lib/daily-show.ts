@@ -46,10 +46,14 @@ export function getTodayDateStr(now: Date = new Date()): string {
 }
 
 /**
- * Check if a date string is valid and corresponds to a real date.
+ * Check if a date string is a real calendar date, written YYYY-MM-DD. Date.parse alone rolls a day the month does not have into the
+ * next month (1986-02-30 becomes March 2), so the date it parses must also read back as the same string. The map schema's isShowDate
+ * (public/world/maps.js) holds the same rule for the world's side.
  */
 export function isValidDateStr(dateStr: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) && !isNaN(Date.parse(dateStr));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
+  const time = Date.parse(dateStr);
+  return !isNaN(time) && new Date(time).toISOString().slice(0, 10) === dateStr;
 }
 
 /**

@@ -50,7 +50,8 @@ describe("GET /api/playing/<show date>", () => {
 
   it("answers 400 to a path that is not a date, without asking Relisten", async () => {
     relisten(() => new Response(sampleText, { status: 200 }));
-    for (const date of ["1986-7-4", "tomorrow", "1986-13-45"]) {
+    // 1986-02-30 is a day February does not have.
+    for (const date of ["1986-7-4", "tomorrow", "1986-13-45", "1986-02-30"]) {
       const res = await call(date);
       expect(res.status, date).toBe(400);
       expect(await res.json(), date).toEqual({ error: "Not a show date" });
@@ -60,8 +61,7 @@ describe("GET /api/playing/<show date>", () => {
 
   it("answers 404 to a date that is not a show in the catalog, without asking Relisten", async () => {
     relisten(() => new Response(sampleText, { status: 200 }));
-    // 1986-02-30 passes isValidDateStr (Date.parse rolls it to March 2), so only the catalog refuses it.
-    for (const date of ["1986-07-05", "2001-01-01", "1986-02-30"]) {
+    for (const date of ["1986-07-05", "2001-01-01"]) {
       const res = await call(date);
       expect(res.status, date).toBe(404);
       expect(await res.json(), date).toEqual({ error: "No show on this date" });
@@ -76,6 +76,26 @@ describe("GET /api/playing/<show date>", () => {
     expect(await res.json()).toEqual({ error: "No recording of this show" });
     // As the page does: the year's path first, then the show's own.
     expect(requested).toEqual([`${API}/years/1986/1986-07-04`, `${API}/shows/1986-07-04`]);
+  });
+
+  it("answers 502 when Relisten refuses, naming the refusal", async () => {
+    relisten(() => new Response("Forbidden", { status: 403, headers: { server: "cloudflare", "cf-mitigated": "challenge" } }));
+    const res = await call("1986-07-04");
+    expect(res.status).toBe(502);
+    const refused = (url: string) => `${url} answered 403 (server cloudflare, cf-mitigated challenge)`;
+    expect(await res.json()).toEqual({ error: `${refused(`${API}/years/1986/1986-07-04`)}; ${refused(`${API}/shows/1986-07-04`)}` });
+    expect(requested).toEqual([`${API}/years/1986/1986-07-04`, `${API}/shows/1986-07-04`]);
+  });
+
+  it("answers 502 when Relisten cannot be reached", async () => {
+    relisten(() => {
+      throw new TypeError("fetch failed");
+    });
+    const res = await call("1986-07-04");
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({
+      error: `${API}/years/1986/1986-07-04 could not be reached: fetch failed; ${API}/shows/1986-07-04 could not be reached: fetch failed`,
+    });
   });
 
   it("answers 404 for a show with no recording", async () => {

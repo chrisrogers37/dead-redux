@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { parseSource, pickBestSource, type RelistenSource } from "../relisten";
+import { afterEach, describe, expect, it } from "vitest";
+import { HttpError } from "../../../scripts/analyse-show.mjs";
+import { lookUpShow, parseSource, pickBestSource, type RelistenSource } from "../relisten";
 import type { Source } from "../types";
 
 // Shaped like a source in Relisten's answer for /years/<year>/<date>. The real sources keep
@@ -186,5 +187,43 @@ describe("pickBestSource", () => {
       source("aud-titled", false, 7, 2, ["Bertha", "Deal"])
     );
     expect(best?.upstreamIdentifier).toBe("aud-titled");
+  });
+});
+
+describe("lookUpShow", () => {
+  const API = "https://api.relisten.net/api/v2/artists/grateful-dead";
+  const YEAR = `${API}/years/1986/1986-07-04`;
+  const SHOW = `${API}/shows/1986-07-04`;
+  const realFetch = globalThis.fetch;
+  // Relisten, played by a stand-in for fetch that answers each path with `answer`.
+  const relisten = (answer: (url: string) => Response) => {
+    globalThis.fetch = (async (input: RequestInfo | URL) => answer(String(input))) as typeof fetch;
+  };
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it("is missing only when both paths answer 404", async () => {
+    relisten(() => new Response(null, { status: 404 }));
+    expect(await lookUpShow("1986-07-04")).toEqual({ kind: "missing" });
+  });
+
+  it("fails when either path answers anything else, naming each path that failed", async () => {
+    relisten((url) => new Response(null, { status: url === YEAR ? 503 : 404 }));
+    expect(await lookUpShow("1986-07-04")).toEqual({ kind: "failed", reason: `${YEAR} answered 503` });
+    relisten(() => {
+      throw new TypeError("fetch failed");
+    });
+    expect(await lookUpShow("1986-07-04")).toEqual({
+      kind: "failed",
+      reason: `${YEAR} could not be reached: fetch failed; ${SHOW} could not be reached: fetch failed`,
+    });
+  });
+
+  it("names a refusal as the maps job names one", async () => {
+    relisten(() => new Response(null, { status: 403, headers: { server: "cloudflare", "cf-mitigated": "challenge" } }));
+    const job = (url: string) => new HttpError(url, 403, "cloudflare", "challenge").message;
+    expect(await lookUpShow("1986-07-04")).toEqual({ kind: "failed", reason: `${job(YEAR)}; ${job(SHOW)}` });
   });
 });

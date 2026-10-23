@@ -486,6 +486,18 @@ describe("politeClient", () => {
     expect(f.urls).toHaveLength(3);
   });
 
+  it("says what a JSON error answer says failed behind it, as the site's route does for Relisten", async () => {
+    const said = () =>
+      new Response(JSON.stringify({ error: "upstream answered 403" }), {
+        status: 502,
+        headers: { "content-type": "application/json", server: "Vercel" },
+      });
+    const f = fakeClientIO([said(), said(), said()]);
+    await expect(politeClient(f.io).request("https://example.test/1", (res: Response) => res.json())).rejects.toThrow(
+      "https://example.test/1 answered 502 (server Vercel): upstream answered 403"
+    );
+  });
+
   it("does not retry a refusal, and pauses before the next request all the same", async () => {
     const f = fakeClientIO([httpStatus(404), ok()]);
     const client = politeClient(f.io);
@@ -785,6 +797,7 @@ describe("main", () => {
 
   it.each([
     { name: "a date that is not YYYY-MM-DD", args: ["--out", NEVER_MADE, "1986-7-4"] },
+    { name: "a date its month does not have", args: ["--out", NEVER_MADE, "1986-02-30"] },
     { name: "no dates", args: ["--out", NEVER_MADE] },
     { name: "no --out", args: ["1986-07-04"] },
     { name: "an --out without a directory", args: ["1986-07-04", "--out"] },
