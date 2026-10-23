@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { height } from "./island.js";
 import { buildBear } from "./bears.js";
+import { enterColumn } from "./collide.js";
 
 /* The visitor's bear: a sixth bear in the site's ink, seen from behind and above. Its legs, bob and lean follow its speed, so it
    lopes while the five walk. The walk's camera hangs on a boom behind its head and eases after it; a landmark between them draws the
@@ -12,7 +13,7 @@ import { buildBear } from "./bears.js";
 const WALK = 2.5, STRIDE = 12, RUN = 19.2;
 const UP = new THREE.Vector3(0, 1, 0);
 
-export function buildAvatar(scene, landmarks, { phone, reduced }) {
+export function buildAvatar(scene, landmarks, { phone, reduced, columns = [] }) {
   const { g, legs } = buildBear(scene, 0xeceae4);
   g.rotation.order = "YXZ";
   /* The head, for the stats and the sound's listener; the top of the head and the ground point under the bear, which the cameras
@@ -42,6 +43,8 @@ export function buildAvatar(scene, landmarks, { phone, reduced }) {
   /* The boom: R behind the head and 0.35 rad above it, the walker's pitch lowering or raising it, looking 6 m past the head. Desktop and
      TV hang it at 11 m, a phone at 20. */
   const R = phone ? 20 : 11;
+  /* Each landmark stands for its box; a column (collide.js) for a solid that a walk keeps out of but whose box would reach past it, as
+     the stage's does, turned on its shelf. */
   const boxes = landmarks.map((l) => new THREE.Box3().setFromObject(l));
   const pivot = new THREE.Vector3(), cam = new THREE.Vector3(), look = new THREE.Vector3(), want = new THREE.Vector3();
   const dir = new THREE.Vector3(), hit = new THREE.Vector3(), ray = new THREE.Ray();
@@ -49,11 +52,13 @@ export function buildAvatar(scene, landmarks, { phone, reduced }) {
      come in front of raises the boom, in rad: raised at once, let down at the ease. */
   let reach = 1, lift = 0;
 
-  /* How far from the head along `dir` the line enters the nearest landmark's box (any box around the head aside), or Infinity. */
+  /* How far from the head along `dir` the line enters the nearest landmark's box (any box around the head aside) or column, or
+     Infinity. */
   function nearest() {
     ray.set(pivot, dir);
     let s = Infinity;
     for (const b of boxes) if (!b.containsPoint(pivot) && ray.intersectBox(b, hit)) s = Math.min(s, hit.distanceTo(pivot));
+    for (const c of columns) s = Math.min(s, enterColumn(pivot, dir, c));
     return s;
   }
 

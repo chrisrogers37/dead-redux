@@ -134,10 +134,10 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
 
   const [leanback, setLeanback] = useState(false);
   const [follow, setFollow] = useState(false);
-  /* The player's state, mirrored onto <main>. A show without a recording has no player and stays "error"; the player starts "idle"
-     and announces its first state before this component's listener exists. */
+  /* The player's state, mirrored onto <main>. A show without a recording has no player and stays "error", its sound plain; the player
+     starts "idle", its sound pending, and announces its first state before this component's listener exists. */
   const [playerState, setPlayerState] = useState<PlayerState>(tracks.length ? "idle" : "error");
-  const [routing, setRouting] = useState<Routing>("plain");
+  const [routing, setRouting] = useState<Routing>(tracks.length ? "pending" : "plain");
   const [joined, setJoined] = useState(false);
   const tier = useSyncExternalStore(subscribeWorld, worldTier, () => null);
   const worldStatus = useSyncExternalStore(subscribeWorld, worldState, () => "loading");

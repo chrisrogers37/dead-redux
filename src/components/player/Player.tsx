@@ -27,8 +27,6 @@ const RETRY_MS = 2000;
 const RETRIES = 3;
 /** How long "Resumed at …" shows. */
 const NOTE_MS = 4000;
-/** No Web Audio graph routes the elements: every element plays plain stereo. */
-const ROUTING: Routing = "plain";
 const MEDIA_EVENTS = ["loadedmetadata", "durationchange", "playing", "pause", "waiting", "stalled", "timeupdate", "seeked", "ended", "error"] as const;
 /** The letter keys the player answers to: K plays and pauses, J and L seek, N and P change track. */
 const PLAYER_LETTERS = new Set(["KeyK", "KeyJ", "KeyL", "KeyN", "KeyP"]);
@@ -121,6 +119,8 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
   /** Whether each element still loads with crossOrigin; one turns false when its load fails the CORS check, and only that element re-mounts. */
   const [cors, setCors] = useState<[boolean, boolean]>([true, true]);
   const [corsA, corsB] = cors;
+  /** How each element sounds, as the world reports it (world:routing): through its graph, or plain stereo. One it has not reported is pending. */
+  const [routes, setRoutes] = useState<ReadonlyMap<HTMLAudioElement, Routing>>(() => new Map());
 
   function slotEl(slot: Slot) {
     return slot === 0 ? aRef.current : bRef.current;
@@ -398,6 +398,9 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
    */
   function fallBack(slot: Slot) {
     const g = eng.current;
+    const el = slotEl(slot);
+    /* The stats name the error that sent the element to plain stereo. */
+    (window.__hill ??= {}).corsFallback = { element: el?.id ?? null, code: el?.error?.code ?? null, message: el?.error?.message ?? "" };
     if (slot === g.active) {
       g.restartAt = activeEl()?.currentTime ?? 0;
       clearStall();
@@ -533,9 +536,22 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
   /* Another control can start the show: a player:join dispatched synchronously inside its own activating handler joins, as the first move does. */
   useEventListener("document", "player:join", () => join());
 
+  /* The world says how each element sounds. */
+  useEventListener<CustomEvent<{ el: HTMLAudioElement; routing: Routing }>>("document", "world:routing", (e) => {
+    const { el, routing } = e.detail;
+    setRoutes((m) => (m.get(el) === routing ? m : new Map(m).set(el, routing)));
+  });
+
+  /* Tells the world and the HUD the state, and how the active element sounds: pending until the world reports it. A track change can make
+     the other element the active one. */
+  const publishState = useEffectEvent(() => {
+    const el = activeEl();
+    const routing = (el ? routes.get(el) : undefined) ?? "pending";
+    document.dispatchEvent(new CustomEvent("player:state", { detail: { state, routing } }));
+  });
   useEffect(() => {
-    document.dispatchEvent(new CustomEvent("player:state", { detail: { state, routing: ROUTING } }));
-  }, [state]);
+    publishState();
+  }, [state, routes, view.index]);
 
   useEffect(() => {
     const g = eng.current;
