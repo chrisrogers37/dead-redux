@@ -1,15 +1,16 @@
 import { spawnSync } from "child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { fileURLToPath } from "url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checkMap, MAX_MAP_BYTES } from "../../public/world/maps.js";
+import { checkMap, MAX_MAP_BYTES, MAX_TRACKS } from "../../public/world/maps.js";
 import {
   analyseShow,
   blockMeans,
   buildMap,
   createAnalyser,
+  ffmpegDecode,
   fft,
   FRAME,
   main,
@@ -349,6 +350,70 @@ describe("buildMap", () => {
   });
 });
 
+// ffmpegDecode runs the ffmpeg that PATH finds, so these tests put a stand-in first on it.
+describe("ffmpegDecode", () => {
+  const STUB = `#!/bin/sh
+# Stands in for ffmpeg: takes all of its input, writes two samples of PCM and exits with STUB_FFMPEG_EXIT, 0 by default.
+cat > /dev/null
+printf '\\001\\000\\002\\000'
+exit "\${STUB_FFMPEG_EXIT:-0}"
+`;
+  let bin: string;
+  let savedPath: string;
+  const body = (bytes: number) => new Response(new Uint8Array(bytes)).body!;
+  const ignore = () => {};
+
+  beforeEach(() => {
+    bin = mkdtempSync(join(tmpdir(), "ffmpeg-stub-"));
+    writeFileSync(join(bin, "ffmpeg"), STUB, { mode: 0o755 });
+    savedPath = process.env.PATH ?? "";
+    process.env.PATH = `${bin}:${savedPath}`;
+  });
+
+  afterEach(() => {
+    process.env.PATH = savedPath;
+    delete process.env.STUB_FFMPEG_EXIT;
+    rmSync(bin, { recursive: true, force: true });
+  });
+
+  it("feeds ffmpeg the whole body and hands on what it writes", async () => {
+    let fed = 0;
+    const pcm: Buffer[] = [];
+    await ffmpegDecode(
+      body(3000),
+      (k: number) => {
+        fed += k;
+      },
+      (chunk: Buffer) => {
+        pcm.push(chunk);
+      }
+    );
+    expect(fed).toBe(3000);
+    expect(Buffer.concat(pcm)).toEqual(Buffer.from([1, 0, 2, 0]));
+  });
+
+  it("fails with ffmpeg's exit code", async () => {
+    process.env.STUB_FFMPEG_EXIT = "3";
+    await expect(ffmpegDecode(body(10), ignore, ignore)).rejects.toThrow("ffmpeg exited with 3");
+  });
+
+  it("fails with the download's own error when the body is cut", async () => {
+    const cut = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(10));
+        controller.error(new Error("connection reset"));
+      },
+    });
+    await expect(ffmpegDecode(cut, ignore, ignore)).rejects.toThrow("connection reset");
+  });
+
+  it("fails with the process's own error when there is no ffmpeg to run, not the feed's", async () => {
+    rmSync(join(bin, "ffmpeg"));
+    process.env.PATH = bin;
+    await expect(ffmpegDecode(body(10), ignore, ignore)).rejects.toThrow("spawn ffmpeg ENOENT");
+  });
+});
+
 // The answers for the fakes below.
 type Answer = Response | Error;
 const ok = () => new Response("{}", { status: 200 });
@@ -390,6 +455,11 @@ describe("politeClient", () => {
     expect(f.agents).toEqual([USER_AGENT, USER_AGENT]);
     expect(f.urls).toEqual(["https://example.test/1", "https://example.test/2"]);
     expect(f.logs).toEqual(["  pause 1 s"]);
+  });
+
+  it("names the project and its site in the User-Agent", () => {
+    // The other tests compare the header with the constant; this pins the text a server reads.
+    expect(USER_AGENT).toBe("dead-redux-maps (+https://dead-redux.vercel.app)");
   });
 
   it("returns what its read makes of the response", async () => {
@@ -590,11 +660,68 @@ describe("analyseShow", () => {
     expect(missing.urls).toEqual([PLAYING_URL]);
   });
 
-  it("fetches MP3s from archive.org only", async () => {
-    const elsewhere = { ...playing("1986-07-04"), tracks: [{ title: "Touch Of Grey", duration: 4, mp3Url: "https://example.test/t01.mp3" }] };
-    const f = fakeRun({ answers: { [PLAYING_URL]: [json(elsewhere)] } });
-    await expect(analyseShow("1986-07-04", politeClient(f.io).request, f.io)).rejects.toThrow("archive.org MP3");
+  // The route's answer with its first track changed, and one with n one-second tracks named by `title`.
+  const withFirstTrack = (change: Record<string, unknown>) => {
+    const listing = playing("1986-07-04");
+    return { ...listing, tracks: [{ ...listing.tracks[0], ...change }, ...listing.tracks.slice(1)] };
+  };
+  const listingOf = (n: number, title = (i: number) => `Track ${i + 1}`) => ({
+    ...playing("1986-07-04"),
+    tracks: Array.from({ length: n }, (_, i) => ({ title: title(i), duration: 1, mp3Url: `https://archive.org/download/sbd-id/t${i + 1}.mp3` })),
+  });
+  const invalid = (problem: string) => `1986-07-04: the listing would make an invalid map: ${problem}`;
+
+  // A listing is refused as it is read, before any audio is fetched: a track that is not a length and an archive.org MP3, and a
+  // listing whose map, built from silence, would fail checkMap or fit no step.
+  it.each([
+    { name: "an MP3 on another host", listing: withFirstTrack({ mp3Url: "https://example.test/t01.mp3" }), problem: "archive.org MP3" },
+    {
+      name: "an MP3 on archive.org outside /download/",
+      listing: withFirstTrack({ mp3Url: "https://archive.org/services/x.mp3" }),
+      problem: "archive.org MP3",
+    },
+    { name: "a length that is not a number", listing: withFirstTrack({ duration: "4" }), problem: "archive.org MP3" },
+    { name: "a length over a day", listing: withFirstTrack({ duration: 86401 }), problem: "archive.org MP3" },
+    {
+      name: "an identifier that is not an archive.org identifier",
+      listing: { ...playing("1986-07-04"), identifier: "sbd id" },
+      problem: invalid('analysed is "sbd id", not an archive.org identifier'),
+    },
+    {
+      name: "more tracks than a map holds",
+      listing: listingOf(MAX_TRACKS + 1),
+      problem: invalid(`tracks has ${MAX_TRACKS + 1} entries, not 1 to ${MAX_TRACKS}`),
+    },
+    {
+      name: "an empty title",
+      listing: withFirstTrack({ title: "" }),
+      problem: invalid("tracks[0].title is not a string of 1 to 300 characters"),
+    },
+    {
+      name: "a title of 301 characters",
+      listing: withFirstTrack({ title: "x".repeat(301) }),
+      problem: invalid("tracks[0].title is not a string of 1 to 300 characters"),
+    },
+    {
+      // Its titles alone are 60,000 bytes.
+      name: "a listing whose map would fit no step",
+      listing: listingOf(MAX_TRACKS, () => "x".repeat(300)),
+      problem: "1986-07-04: the map is over 40960 bytes even at 8 s a step",
+    },
+  ])("refuses $name before fetching any audio", async ({ listing, problem }) => {
+    const f = fakeRun({ answers: { [PLAYING_URL]: [json(listing)] } });
+    await expect(analyseShow("1986-07-04", politeClient(f.io).request, f.io)).rejects.toThrow(problem);
     expect(f.urls).toEqual([PLAYING_URL]);
+  });
+
+  it("takes a listing at a map's limits: the most tracks, and a title of 300 characters", async () => {
+    const listing = listingOf(MAX_TRACKS, (i) => (i === 0 ? "x".repeat(300) : `Track ${i + 1}`));
+    // Each track decodes to a tenth of a second, which its listed second allows, so the analysis stays short.
+    const f = fakeRun({ lengths: Array.from({ length: MAX_TRACKS }, () => 0.1), answers: { [PLAYING_URL]: [json(listing)] } });
+    const { map } = await analyseShow("1986-07-04", politeClient(f.io).request, f.io);
+    expect(map.tracks).toHaveLength(MAX_TRACKS);
+    expect(map.tracks[0].title).toHaveLength(300);
+    expect(checkMap(map)).toEqual([]);
   });
 
   it("refuses a track whose decoded length is not its listed one", async () => {

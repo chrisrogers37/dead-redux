@@ -22,10 +22,11 @@ export const STEPS = [1, 2, 4, 8];
 export const TEMPO_WINDOW = 10;
 /* The most peaks a track keeps. */
 export const MAX_PEAKS = 40;
+/* The most tracks a map holds. */
+export const MAX_TRACKS = 200;
 /* The seconds before a peak over which buildUp rises from 0 to 1. */
 export const BUILD_UP = 20;
 
-const MAX_TRACKS = 200;
 const MAX_TITLE = 300;
 const MAX_SECONDS = 86400;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -58,7 +59,9 @@ function checkKeys(object, keys, path, add) {
   for (const key of Object.keys(object)) if (!keys.includes(key)) add(`${at(key)} is unexpected`);
 }
 
-const isDuration = (value) => typeof value === "number" && Number.isFinite(value) && value > 0 && value <= MAX_SECONDS;
+/* A length as a map holds it: above 0 seconds and up to a day. The analysis checks each listed length with it before it builds
+   anything from the listing. */
+export const isDuration = (value) => typeof value === "number" && Number.isFinite(value) && value > 0 && value <= MAX_SECONDS;
 
 /* The bytes of a base64 string, or null (reported) when it is not base64. `length` is the byte count it must have, or null to skip that. */
 function checkBytes(value, path, length, add) {

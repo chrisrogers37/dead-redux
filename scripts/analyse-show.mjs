@@ -10,7 +10,7 @@ import { Readable } from "stream";
 import { pipeline } from "stream/promises";
 import { setTimeout as sleep } from "timers/promises";
 import { pathToFileURL } from "url";
-import { checkMap, MAP_VERSION, MAX_MAP_BYTES, MAX_PEAKS, STEPS, TEMPO_WINDOW } from "../public/world/maps.js";
+import { checkMap, isDuration, MAP_VERSION, MAX_MAP_BYTES, MAX_PEAKS, STEPS, TEMPO_WINDOW } from "../public/world/maps.js";
 
 // The site whose /api/playing route says what the page plays; a branch's preview can stand in for it.
 export const SITE = "https://dead-redux.vercel.app";
@@ -449,12 +449,16 @@ const FFMPEG_ARGS = [
  * @param body - The response body, a web ReadableStream.
  * @param onBytes - Called with the length of each chunk of the body.
  * @param onPcm - Called with each Buffer of PCM.
- * @throws With the first failure of the feed, the read or ffmpeg itself.
+ * @throws With ffmpeg's own error when its process fails, as an ffmpeg that cannot start does, or else the first failure of the feed,
+ *   the read or ffmpeg's exit.
  */
 export async function ffmpegDecode(body, onBytes, onPcm) {
   // A body that cannot be read throws here, before ffmpeg is running to be left waiting for it.
   const source = Readable.fromWeb(body);
   const ffmpeg = spawn("ffmpeg", FFMPEG_ARGS, { stdio: ["pipe", "pipe", "inherit"] });
+  // The feed and the read are joined to ffmpeg at once, in this tick, so that every failure of the body has a listener. When ffmpeg's
+  // process fails ("spawn ffmpeg ENOENT" for a missing ffmpeg), the feed and the read fail after it, and its own error is the one reported.
+  let processError = null;
   // A failure of any part stops ffmpeg, so the other parts end too.
   const stopOnFailure = (promise) =>
     promise.catch((err) => {
@@ -480,28 +484,44 @@ export async function ffmpegDecode(body, onBytes, onPcm) {
   );
   const exited = stopOnFailure(
     new Promise((resolve, reject) => {
-      ffmpeg.once("error", reject);
+      ffmpeg.once("error", (err) => {
+        processError = err;
+        reject(err);
+      });
       ffmpeg.once("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited with ${code}`))));
     })
   );
   const settled = await Promise.allSettled([fed, read, exited]);
   const failed = settled.find((result) => result.status === "rejected");
-  if (failed) throw failed.reason;
+  if (failed) throw processError ?? failed.reason;
 }
 
+// A track's analysis had its audio been silent: what the listing's map is built from before any audio is fetched.
+const silence = (duration) => ({ duration, seconds: { rms: [], bass: [], bright: [] }, flux: [] });
+
 /**
- * The recording the page plays for a show, as the site's /api/playing route answers: the page's own choice and its tracks.
+ * The recording the page plays for a show, as the site's /api/playing route answers: the page's own choice and its tracks. Before any
+ * audio is fetched, the listing's map is built from silence and checked. That map has every part of the real one that the listing
+ * decides, so a listing whose map would fail checkMap, or fit no step, fails here rather than after the download.
  *
- * @throws When the answer names no recording with tracks, or a track is not a title, a length and an archive.org MP3.
+ * @throws When the answer names no recording with tracks, a track is not a length and an archive.org MP3, or the listing's map would
+ *   fail checkMap or fit no step.
  */
 async function fetchPlaying(site, date, request) {
   const { identifier, tracks } = (await request(`${site}/api/playing/${date}`, (res) => res.json())) ?? {};
   if (typeof identifier !== "string" || !Array.isArray(tracks) || tracks.length === 0) {
     throw new Error(`${date}: ${site} names no recording with tracks`);
   }
+  // The silent map is as long as each listed length, so the lengths are checked before it is built.
   for (const track of tracks) {
-    const valid = typeof track?.title === "string" && track.duration > 0 && String(track.mp3Url).startsWith(MP3_PREFIX);
-    if (!valid) throw new Error(`${date}: a track of ${identifier} is not a title, a length and an archive.org MP3: ${JSON.stringify(track)}`);
+    const valid = isDuration(track?.duration) && String(track.mp3Url).startsWith(MP3_PREFIX);
+    if (!valid) throw new Error(`${date}: a track of ${identifier} is not a length and an archive.org MP3: ${JSON.stringify(track)}`);
+  }
+  const listed = tracks.map((track) => ({ title: track.title, playingDuration: track.duration, analysis: silence(track.duration) }));
+  const problems = checkMap(buildMap(date, identifier, listed).map);
+  if (problems.length > 0) {
+    const more = problems.length > 1 ? `, and ${problems.length - 1} more` : "";
+    throw new Error(`${date}: the listing would make an invalid map: ${problems[0]}${more}`);
   }
   return { identifier, tracks };
 }
