@@ -6,7 +6,9 @@
 
    { v: 1, show, analysed, playing, step, tracks: [{ title, analysedDuration, playingDuration, env: { rms, bass, bright }, tempo, peaks }] }
 
-   analysed and playing are the same archive.org identifier: each map comes from the files the page plays. step is the seconds each
+   analysed and playing are the same archive.org identifier: each map comes from the files the page plays, and is read on their clock.
+   t is seconds into a track as the audio element plays it, which is the decoded time the analysis read, and loadMap uses no map made
+   from another recording; playingDuration, Relisten's listed whole-second length, only matches a map to the page's tracks. step is the seconds each
    envelope byte covers, the smallest of STEPS that keeps the file within MAX_MAP_BYTES. env is base64 bytes, one per `step` seconds of
    the analysed track: loudness (rms), low end (bass) and spectral centroid (bright), each scaled so the track's 99th percentile is 255.
    tempo is base64 bytes, two per TEMPO_WINDOW seconds: beats per minute (60-200; 0 where unknown) and a confidence (0-255). peaks are
@@ -62,6 +64,15 @@ function checkKeys(object, keys, path, add) {
 /* A length as a map holds it: above 0 seconds and up to a day. The analysis checks each listed length with it before it builds
    anything from the listing. */
 export const isDuration = (value) => typeof value === "number" && Number.isFinite(value) && value > 0 && value <= MAX_SECONDS;
+
+/* A real calendar date, written YYYY-MM-DD. Date.parse rolls a day the month does not have into the next month (1986-02-30 is March 2),
+   so the date it parses must read back the same. The site's isValidDateStr holds the same rule, since it does not import the world's
+   modules. */
+export function isShowDate(value) {
+  if (typeof value !== "string" || !DATE.test(value)) return false;
+  const time = Date.parse(value);
+  return !isNaN(time) && new Date(time).toISOString().slice(0, 10) === value;
+}
 
 /* The bytes of a base64 string, or null (reported) when it is not base64. `length` is the byte count it must have, or null to skip that. */
 function checkBytes(value, path, length, add) {
@@ -135,7 +146,7 @@ export function checkMap(map) {
   checkKeys(map, MAP_KEYS, "", add);
   const has = (key) => Object.hasOwn(map, key);
   if (has("v") && map.v !== MAP_VERSION) add(`v is ${shown(map.v)}, not ${MAP_VERSION}`);
-  if (has("show") && !(typeof map.show === "string" && DATE.test(map.show) && !isNaN(Date.parse(map.show)))) {
+  if (has("show") && !isShowDate(map.show)) {
     add(`show is ${shown(map.show)}, not a YYYY-MM-DD date`);
   }
   if (has("analysed") && !(typeof map.analysed === "string" && IDENTIFIER.test(map.analysed))) {
@@ -161,8 +172,6 @@ export function readMap(map) {
     step: map.step,
     tracks: map.tracks.map((track) => ({
       title: track.title,
-      analysedDuration: track.analysedDuration,
-      playingDuration: track.playingDuration,
       step: map.step,
       rms: decode(track.env.rms),
       bass: decode(track.env.bass),
@@ -173,27 +182,23 @@ export function readMap(map) {
   };
 }
 
-/* The analysed and playing files can differ in length; the map stretches linearly between them. */
-export const analysedTime = (track, t) => (t * track.analysedDuration) / track.playingDuration;
-export const playingTime = (track, t) => (t * track.playingDuration) / track.analysedDuration;
-
-/* Loudness, low end and brightness (0-1) at playing time t; before the track the first sample, after it the last. */
+/* Loudness, low end and brightness (0-1) t seconds into the track; before the track the first sample, after it the last. */
 export function envAt(track, t) {
-  const i = clamp(Math.floor(analysedTime(track, t) / track.step), 0, track.rms.length - 1);
+  const i = clamp(Math.floor(t / track.step), 0, track.rms.length - 1);
   return { rms: track.rms[i] / 255, bass: track.bass[i] / 255, bright: track.bright[i] / 255 };
 }
 
-/* The beat at playing time t as { bpm, confidence (0-1) }, or null where the window's tempo is unknown. */
+/* The beat t seconds into the track as { bpm, confidence (0-1) }, or null where the window's tempo is unknown. */
 export function tempoAt(track, t) {
-  const w = clamp(Math.floor(analysedTime(track, t) / TEMPO_WINDOW), 0, (track.tempo.length >> 1) - 1);
+  const w = clamp(Math.floor(t / TEMPO_WINDOW), 0, (track.tempo.length >> 1) - 1);
   return track.tempo[2 * w] === 0 ? null : { bpm: track.tempo[2 * w], confidence: track.tempo[2 * w + 1] / 255 };
 }
 
-/* 0-1: the next peak at or after playing time t, over the BUILD_UP seconds before it. It rises linearly to 1 at the peak and is 0 once the
+/* 0-1: the next peak at or after t seconds into the track, over the BUILD_UP seconds before it. It rises linearly to 1 at the peak and is 0 once the
    peak has passed. */
 export function buildUp(track, t) {
   for (const [second] of track.peaks) {
-    const ahead = playingTime(track, second) - t;
+    const ahead = second - t;
     if (ahead >= 0) return ahead > BUILD_UP ? 0 : 1 - ahead / BUILD_UP;
   }
   return 0;
@@ -213,10 +218,12 @@ function otherTracks(mapTracks, pageTracks) {
   return null;
 }
 
-/* The map of the show the world plays (data is { showDate, tracks: [{ title, duration }] }), read for use; null when there is none to use.
-   A day without a map is normal, so that is silent; a failed fetch, unparseable JSON, a map that fails checkMap and a map of other tracks
-   than the page's each warn. */
+/* The map of the show the world plays (data is { showDate, identifier, tracks: [{ title, duration }] }, identifier being the archive.org
+   recording the page plays, or null when it plays none), read for use; null when there is none to use. A day without a map, and a page
+   with no recording, are normal, so they are silent; a failed fetch, unparseable JSON, a map that fails checkMap, a map made from
+   another recording and a map of other tracks than the page's each warn. */
 export async function loadMap(data, fetchMap = (url) => fetch(url)) {
+  if (!data.identifier) return null;
   const url = `/maps/${data.showDate}.json`;
   const skip = (reason) => {
     console.warn(`map ${url}: ${reason}`);
@@ -232,6 +239,7 @@ export async function loadMap(data, fetchMap = (url) => fetch(url)) {
   }
   const problems = checkMap(map);
   if (problems.length > 0) return skip(problems[0]);
+  if (map.playing !== data.identifier) return skip(`it was made from ${map.playing}, the page plays ${data.identifier}`);
   const other = otherTracks(map.tracks, data.tracks);
   return other ? skip(other) : readMap(map);
 }

@@ -10,7 +10,7 @@ import { Readable } from "stream";
 import { pipeline } from "stream/promises";
 import { setTimeout as sleep } from "timers/promises";
 import { pathToFileURL } from "url";
-import { checkMap, isDuration, MAP_VERSION, MAX_MAP_BYTES, MAX_PEAKS, STEPS, TEMPO_WINDOW } from "../public/world/maps.js";
+import { checkMap, isDuration, isShowDate, MAP_VERSION, MAX_MAP_BYTES, MAX_PEAKS, STEPS, TEMPO_WINDOW } from "../public/world/maps.js";
 
 // The site whose /api/playing route says what the page plays; a branch's preview can stand in for it.
 export const SITE = "https://dead-redux.vercel.app";
@@ -41,12 +41,24 @@ const PROMINENCE = 0.2;
 
 /** A response that was not ok; `status` is its HTTP status. The message names the server that answered and any refusal it marked. */
 export class HttpError extends Error {
-  constructor(url, status, server = null, mitigated = null) {
+  constructor(url, status, server = null, mitigated = null, said = null) {
     const by = [server && `server ${server}`, mitigated && `cf-mitigated ${mitigated}`].filter(Boolean).join(", ");
-    super(`${url} answered ${status}${by ? ` (${by})` : ""}`);
+    super(`${url} answered ${status}${by ? ` (${by})` : ""}${said ? `: ${said}` : ""}`);
     this.name = "HttpError";
     this.status = status;
   }
+}
+
+/* What a failed answer says failed behind it: the `error` of a JSON answer, as the site's /api/playing gives when Relisten fails to
+   answer it, cut to a line; null for any other answer, whose body is let go unread. A JSON body that does not parse only loses the
+   detail, since the answer has failed anyway. */
+async function errorOf(res) {
+  if (!res.headers.get("content-type")?.includes("application/json")) {
+    await res.body?.cancel();
+    return null;
+  }
+  const body = await res.json().catch(() => null);
+  return typeof body?.error === "string" ? body.error.slice(0, 300) : null;
 }
 
 /**
@@ -64,8 +76,7 @@ export function politeClient(io) {
   async function attempt(url, read) {
     const res = await io.fetch(url, { headers: { "User-Agent": USER_AGENT } });
     if (!res.ok) {
-      await res.body?.cancel();
-      throw new HttpError(url, res.status, res.headers.get("server"), res.headers.get("cf-mitigated"));
+      throw new HttpError(url, res.status, res.headers.get("server"), res.headers.get("cf-mitigated"), await errorOf(res));
     }
     return await read(res);
   }
@@ -601,7 +612,7 @@ export async function main(args, io = nodeIO) {
     else if (args[i] === "--site") site = (args[++i] ?? "").replace(/\/+$/, "");
     else dates.push(args[i]);
   }
-  const notDate = dates.find((date) => !/^\d{4}-\d{2}-\d{2}$/.test(date));
+  const notDate = dates.find((date) => !isShowDate(date));
   if (!out || dates.length === 0 || notDate !== undefined) {
     io.error(notDate !== undefined ? `Not a show date: ${notDate}` : USAGE);
     return 2;
