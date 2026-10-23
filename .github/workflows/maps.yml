@@ -22,10 +22,6 @@ on:
         description: The site whose /api/playing route names the recording each page plays, such as a branch's preview. Empty means production.
         required: false
         default: ""
-  # Runs no job. A pull request that edits this file registers the workflow, so it can be run by hand from that branch.
-  pull_request:
-    paths:
-      - .github/workflows/maps.yml
 
 permissions: {}
 
@@ -40,7 +36,6 @@ defaults:
 
 jobs:
   analyse:
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     # Two shows of about 180 MB each, fetched one request at a time and decoded as they arrive.
     timeout-minutes: 45
