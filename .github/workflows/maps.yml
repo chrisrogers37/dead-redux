@@ -74,7 +74,18 @@ jobs:
           fi
           # A show has a map when public/maps/<show date>.json is on main or on the maps branch.
           git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
-          git fetch --no-tags --depth=1 origin +refs/heads/maps:refs/remotes/origin/maps || echo "No maps branch yet."
+          # ls-remote exits 2 for a missing branch, which is normal before the first run; any other failure stops the step, so a
+          # failed read never passes for "no maps yet". The full ref name, because a bare "maps" also matches a branch like feat/maps.
+          ls_status=0
+          git ls-remote --exit-code origin refs/heads/maps >/dev/null || ls_status=$?
+          case "$ls_status" in
+            0) git fetch --no-tags --depth=1 origin +refs/heads/maps:refs/remotes/origin/maps ;;
+            2) echo "No maps branch yet." ;;
+            *)
+              echo "::error::Could not read the maps branch: git ls-remote exited $ls_status"
+              exit "$ls_status"
+              ;;
+          esac
           for ref in origin/main origin/maps; do
             if git rev-parse --verify -q "$ref" >/dev/null; then
               git ls-tree --name-only "$ref" public/maps/
@@ -110,6 +121,8 @@ jobs:
           path: ${{ runner.temp }}/maps/*.json
           if-no-files-found: error
           retention-days: 7
+          # A re-run of this job replaces the earlier attempt's artifact, and a re-run of publish alone still finds it by this name.
+          overwrite: true
 
   publish:
     needs: analyse
@@ -128,6 +141,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: site
+          # Every branch, so the target branch's tip is there to add the maps to.
           fetch-depth: 0
       - name: Switch to the branch
         id: branch
@@ -149,10 +163,11 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The job only adds commits of maps on top of the branch; it never merges or rebases. A push by the job's token may not
+          # change a workflow file, and a merge of main would carry main's workflow changes into the push. The maps branch starts
+          # from main when it is missing, so once its pull request merges, deleting the branch lets the next run start it again.
           if git rev-parse --verify -q "refs/remotes/origin/$branch" >/dev/null; then
             git checkout -q -B "$branch" "origin/$branch"
-            # The maps branch follows main, so its pull request shows only the maps.
-            if [ "$branch" = maps ]; then git merge -q --no-edit origin/main; fi
           elif [ "$branch" = maps ]; then
             git checkout -q -b maps origin/main
           else
