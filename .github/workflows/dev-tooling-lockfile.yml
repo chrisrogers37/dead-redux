@@ -17,7 +17,7 @@ jobs:
       contents: write
     env:
       # Every npm call below takes only versions published before this date.
-      BEFORE: "2026-10-09"
+      BEFORE: "2026-10-16"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -31,10 +31,10 @@ jobs:
       - name: Audit the current lockfile
         run: npm audit --package-lock-only --json > "$RUNNER_TEMP/audit/before.json" || true
       # Lockfile only: no node_modules, and no package's install scripts run.
-      - name: Bump vitest and vite
-        run: npm install vitest@4.1.11 vite@7.3.7 --save-dev --package-lock-only --ignore-scripts --no-audit --no-fund --before="$BEFORE"
+      - name: Bump vitest
+        run: npm install vitest@4.1.12 --save-dev --package-lock-only --ignore-scripts --no-audit --no-fund --before="$BEFORE"
       - name: Update the patched tooling within its ranges
-        run: npm update rollup minimatch brace-expansion flatted js-yaml --package-lock-only --ignore-scripts --no-audit --no-fund --before="$BEFORE"
+        run: npm update picomatch ajv @humanfs/node --package-lock-only --ignore-scripts --no-audit --no-fund --before="$BEFORE"
       - name: Audit the new lockfile
         run: |
           npm audit --package-lock-only --json > "$RUNNER_TEMP/audit/after.json" || true
@@ -51,7 +51,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json
-          git commit -m "deps: resolve the lockfile for vitest 4.1.11 and vite 7.3.7" \
-            -m "In-range updates for rollup, minimatch, brace-expansion, flatted and js-yaml."
+          git commit -m "deps: resolve the lockfile for vitest 4.1.12" \
+            -m "In-range updates for picomatch, ajv and @humanfs/node."
           git push origin HEAD:refs/heads/deps/vitest-vite-dev-tooling
           echo "Pushed $(git rev-parse HEAD)."
