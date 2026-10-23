@@ -1,8 +1,8 @@
-// Makes a show's map for the world's third layer (public/world/maps.js) from the recording the page plays (pickBestSource's
-// choice), fetched track by track from archive.org, decoded by ffmpeg in memory and reduced to loudness, low end, brightness,
-// tempo and peaks. Only the map is written; no audio is kept.
+// Makes a show's map for the world's third layer (public/world/maps.js) from the recording the page plays, as the site's
+// /api/playing route names it, fetched track by track from archive.org, decoded by ffmpeg in memory and reduced to loudness, low end,
+// brightness, tempo and peaks. Only the map is written; no audio is kept.
 //
-// Usage: node --import ./scripts/resolve-ts.mjs scripts/analyse-show.mjs --out DIR SHOW_DATE [SHOW_DATE]
+// Usage: node scripts/analyse-show.mjs --out DIR [--site URL] SHOW_DATE [SHOW_DATE]
 import { spawn } from "child_process";
 import * as fs from "fs/promises";
 import { join } from "path";
@@ -11,10 +11,11 @@ import { pipeline } from "stream/promises";
 import { setTimeout as sleep } from "timers/promises";
 import { pathToFileURL } from "url";
 import { checkMap, MAP_VERSION, MAX_MAP_BYTES, MAX_PEAKS, STEPS, TEMPO_WINDOW } from "../public/world/maps.js";
-import { flatten } from "../src/lib/queue";
-import { parseSource, pickBestSource } from "../src/lib/relisten";
 
-const API_BASE = "https://api.relisten.net/api/v2/artists/grateful-dead";
+// The site whose /api/playing route says what the page plays; a branch's preview can stand in for it.
+export const SITE = "https://dead-redux.vercel.app";
+// Every track the page plays streams from here, and the analysis fetches from nowhere else.
+const MP3_PREFIX = "https://archive.org/download/";
 export const USER_AGENT = "dead-redux-maps (+https://dead-redux.vercel.app)";
 // archive.org gets one request at a time with a pause before each, and a failed one is retried after a longer pause.
 export const PAUSE_MS = 1000;
@@ -38,10 +39,11 @@ const TOP_BIN = Math.floor(8000 / BIN_HZ);
 const SMOOTH_S = 15;
 const PROMINENCE = 0.2;
 
-/** A response that was not ok; `status` is its HTTP status. */
+/** A response that was not ok; `status` is its HTTP status. The message names the server that answered and any refusal it marked. */
 export class HttpError extends Error {
-  constructor(url, status) {
-    super(`${url} answered ${status}`);
+  constructor(url, status, server = null, mitigated = null) {
+    const by = [server && `server ${server}`, mitigated && `cf-mitigated ${mitigated}`].filter(Boolean).join(", ");
+    super(`${url} answered ${status}${by ? ` (${by})` : ""}`);
     this.name = "HttpError";
     this.status = status;
   }
@@ -63,7 +65,7 @@ export function politeClient(io) {
     const res = await io.fetch(url, { headers: { "User-Agent": USER_AGENT } });
     if (!res.ok) {
       await res.body?.cancel();
-      throw new HttpError(url, res.status);
+      throw new HttpError(url, res.status, res.headers.get("server"), res.headers.get("cf-mitigated"));
     }
     return await read(res);
   }
@@ -488,29 +490,35 @@ export async function ffmpegDecode(body, onBytes, onPcm) {
 }
 
 /**
+ * The recording the page plays for a show, as the site's /api/playing route answers: the page's own choice and its tracks.
+ *
+ * @throws When the answer names no recording with tracks, or a track is not a title, a length and an archive.org MP3.
+ */
+async function fetchPlaying(site, date, request) {
+  const { identifier, tracks } = (await request(`${site}/api/playing/${date}`, (res) => res.json())) ?? {};
+  if (typeof identifier !== "string" || !Array.isArray(tracks) || tracks.length === 0) {
+    throw new Error(`${date}: ${site} names no recording with tracks`);
+  }
+  for (const track of tracks) {
+    const valid = typeof track?.title === "string" && track.duration > 0 && String(track.mp3Url).startsWith(MP3_PREFIX);
+    if (!valid) throw new Error(`${date}: a track of ${identifier} is not a title, a length and an archive.org MP3: ${JSON.stringify(track)}`);
+  }
+  return { identifier, tracks };
+}
+
+/**
  * The map of one show, from the recording the page plays.
  *
  * @param date - The show date.
  * @param request - `politeClient(io).request`.
  * @param io - { decode, log }.
- * @throws When Relisten lists no source, a track fails to download or decode, or its decoded length is not its listed length.
+ * @param site - The site whose /api/playing route names the recording.
+ * @throws When the site names no recording, a track fails to download or decode, or its decoded length is not its listed length.
  */
-export async function analyseShow(date, request, io) {
-  const year = date.slice(0, 4);
-  let show;
-  try {
-    show = await request(`${API_BASE}/years/${year}/${date}`, (res) => res.json());
-  } catch (err) {
-    // As the page does, a 404 from the year's path is tried again at the show's.
-    if (!(err instanceof HttpError && err.status === 404)) throw err;
-    show = await request(`${API_BASE}/shows/${date}`, (res) => res.json());
-  }
-  const playing = pickBestSource((show?.sources ?? []).map(parseSource));
-  if (!playing) throw new Error(`${date}: Relisten lists no source`);
-  const tracks = flatten(playing);
-  if (tracks.length === 0) throw new Error(`${date}: ${playing.upstreamIdentifier} lists no track`);
+export async function analyseShow(date, request, io, site = SITE) {
+  const { identifier, tracks } = await fetchPlaying(site, date, request);
   const listedTotal = tracks.reduce((sum, track) => sum + track.duration, 0);
-  io.log(`${date}: the page plays ${playing.upstreamIdentifier}, ${tracks.length} tracks, ${listedTotal} s listed`);
+  io.log(`${date}: the page plays ${identifier}, ${tracks.length} tracks, ${listedTotal} s listed`);
 
   let total = 0;
   const analysed = [];
@@ -544,10 +552,10 @@ export async function analyseShow(date, request, io) {
     analysed.push({ title: track.title, playingDuration: track.duration, analysis });
   }
   io.log(`${date}: ${total} bytes fetched`);
-  return buildMap(date, playing.upstreamIdentifier, analysed);
+  return buildMap(date, identifier, analysed);
 }
 
-const USAGE = "Usage: node --import ./scripts/resolve-ts.mjs scripts/analyse-show.mjs --out DIR SHOW_DATE [SHOW_DATE]";
+const USAGE = "Usage: node scripts/analyse-show.mjs --out DIR [--site URL] SHOW_DATE [SHOW_DATE]";
 
 const nodeIO = {
   fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
@@ -560,20 +568,27 @@ const nodeIO = {
 /**
  * Makes the map of each show date and writes it to DIR/<date>.json. A show that fails is reported and the others still run.
  *
- * @param args - ["--out", DIR, date, ...], at most MAX_SHOWS dates.
+ * @param args - ["--out", DIR, "--site", URL, date, ...], at most MAX_SHOWS dates; the site defaults to SITE.
  * @param io - { fetch, sleep, log, error, decode }.
  * @returns The exit code: 2 for a usage problem, 1 when a show failed, otherwise 0.
  */
 export async function main(args, io = nodeIO) {
   const dates = [];
   let out;
+  let site = SITE;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--out") out = args[++i];
+    else if (args[i] === "--site") site = (args[++i] ?? "").replace(/\/+$/, "");
     else dates.push(args[i]);
   }
   const notDate = dates.find((date) => !/^\d{4}-\d{2}-\d{2}$/.test(date));
   if (!out || dates.length === 0 || notDate !== undefined) {
     io.error(notDate !== undefined ? `Not a show date: ${notDate}` : USAGE);
+    return 2;
+  }
+  // A site is an origin: a scheme and a host, nothing after.
+  if (!/^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?$/.test(site)) {
+    io.error(`Not a site: ${site}`);
     return 2;
   }
   if (dates.length > MAX_SHOWS) {
@@ -585,7 +600,7 @@ export async function main(args, io = nodeIO) {
   let failed = false;
   for (const date of dates) {
     try {
-      const { map, text } = await analyseShow(date, client.request, io);
+      const { map, text } = await analyseShow(date, client.request, io, site);
       const problems = checkMap(map);
       if (problems.length > 0) throw new Error(`the map fails its schema: ${problems.join("; ")}`);
       await fs.writeFile(join(out, `${date}.json`), text);

@@ -5,7 +5,6 @@ import { join } from "path";
 import { fileURLToPath } from "url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkMap, MAX_MAP_BYTES } from "../../public/world/maps.js";
-import type { RelistenSource } from "../../src/lib/relisten";
 import {
   analyseShow,
   blockMeans,
@@ -17,6 +16,7 @@ import {
   peaks,
   politeClient,
   SAMPLE_RATE,
+  SITE,
   tempo,
   toBytes,
   USER_AGENT,
@@ -476,44 +476,19 @@ describe("politeClient", () => {
   });
 });
 
-const API = "https://api.relisten.net/api/v2/artists/grateful-dead";
-const YEARS_URL = `${API}/years/1986/1986-07-04`;
-const SHOWS_URL = `${API}/shows/1986-07-04`;
+const PLAYING_URL = `${SITE}/api/playing/1986-07-04`;
 const T01 = "https://archive.org/download/sbd-id/t01.mp3";
 const T02 = "https://archive.org/download/sbd-id/t02.mp3";
 
-// A source of two tracks, "01 Touch Of Grey" (4 s) and "02 Hell In A Bucket" (3 s), with mp3 urls under its identifier.
-function relistenSource(id: string, isSoundboard: boolean, rating: number, reviews: number): RelistenSource {
-  const track = (position: number, title: string, duration: number) => ({
-    title,
-    duration,
-    track_position: position,
-    mp3_url: `https://archive.org/download/${id}/t0${position}.mp3`,
-    flac_url: null,
-  });
-  return {
-    id: 1,
-    uuid: `uuid-${id}`,
-    upstream_identifier: id,
-    is_soundboard: isSoundboard,
-    is_remaster: false,
-    avg_rating: rating,
-    avg_rating_weighted: rating,
-    duration: 7,
-    num_reviews: reviews,
-    flac_type: "Flac16Bit",
-    description: null,
-    taper_notes: null,
-    source: null,
-    taper: null,
-    lineage: null,
-    transferrer: null,
-    sets: [{ name: "Set", tracks: [track(1, "01 Touch Of Grey", 4), track(2, "02 Hell In A Bucket", 3)] }],
-  };
-}
-
-// An audience source that rates higher and a soundboard source the page prefers.
-const RELISTEN = { sources: [relistenSource("aud-id", false, 9, 50), relistenSource("sbd-id", true, 4, 1)] };
+// What the site's /api/playing route answers for a show: the recording the page plays, two tracks of 4 s and 3 s.
+const playing = (show: string) => ({
+  show,
+  identifier: "sbd-id",
+  tracks: [
+    { title: "Touch Of Grey", duration: 4, mp3Url: T01 },
+    { title: "Hell In A Bucket", duration: 3, mp3Url: T02 },
+  ],
+});
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
 // An mp3 answer of 1000 bytes, whose length the response says.
@@ -536,7 +511,8 @@ function fakeRun(options: { lengths?: number[]; answers?: Record<string, Respons
       agents.push(new Headers(init?.headers).get("User-Agent"));
       const first = answers.get(url)?.shift();
       if (first) return first;
-      if (url.includes("/years/")) return json(RELISTEN);
+      const show = /\/api\/playing\/(\d{4}-\d{2}-\d{2})$/.exec(url);
+      if (show) return json(playing(show[1]));
       if (url.endsWith(".mp3")) return mp3();
       return httpStatus(404);
     },
@@ -576,7 +552,7 @@ describe("analyseShow", () => {
     expect(map.tracks.map((t: { analysedDuration: number }) => t.analysedDuration)).toEqual([4, 3]);
     expect(checkMap(map)).toEqual([]);
     expect(text).toBe(JSON.stringify(map) + "\n");
-    expect(f.urls).toEqual([YEARS_URL, T01, T02]);
+    expect(f.urls).toEqual([PLAYING_URL, T01, T02]);
     expect(f.sleeps).toEqual([1000, 1000]);
     expect(f.agents).toEqual([USER_AGENT, USER_AGENT, USER_AGENT]);
   });
@@ -596,23 +572,29 @@ describe("analyseShow", () => {
     ]);
   });
 
-  it("asks for the show's own path when the year's gives a 404", async () => {
-    const f = fakeRun({ answers: { [YEARS_URL]: [httpStatus(404)], [SHOWS_URL]: [json(RELISTEN)] } });
-    const { map } = await analyseShow("1986-07-04", politeClient(f.io).request, f.io);
-    expect(map.analysed).toBe("sbd-id");
-    expect(f.urls).toEqual([YEARS_URL, SHOWS_URL, T01, T02]);
-  });
-
-  it("does not try the show's path after any other refusal", async () => {
-    const f = fakeRun({ answers: { [YEARS_URL]: [httpStatus(403)] } });
-    await expect(analyseShow("1986-07-04", politeClient(f.io).request, f.io)).rejects.toThrow("403");
-    expect(f.urls).toEqual([YEARS_URL]);
-  });
-
-  it("refuses a show Relisten lists no source for", async () => {
-    const f = fakeRun({ answers: { [YEARS_URL]: [json({ sources: [] })] } });
+  it("names the server that refused a request, and the refusal it marked", async () => {
+    const refusal = new Response(null, { status: 403, headers: { server: "cloudflare", "cf-mitigated": "challenge" } });
+    const f = fakeRun({ answers: { [PLAYING_URL]: [refusal] } });
     const run = analyseShow("1986-07-04", politeClient(f.io).request, f.io);
-    await expect(run).rejects.toThrow("1986-07-04: Relisten lists no source");
+    await expect(run).rejects.toThrow(`${PLAYING_URL} answered 403 (server cloudflare, cf-mitigated challenge)`);
+    expect(f.urls).toEqual([PLAYING_URL]);
+  });
+
+  it("refuses a show the site names no recording for", async () => {
+    const empty = fakeRun({ answers: { [PLAYING_URL]: [json({ ...playing("1986-07-04"), tracks: [] })] } });
+    await expect(analyseShow("1986-07-04", politeClient(empty.io).request, empty.io)).rejects.toThrow(
+      `1986-07-04: ${SITE} names no recording with tracks`
+    );
+    const missing = fakeRun({ answers: { [PLAYING_URL]: [httpStatus(404)] } });
+    await expect(analyseShow("1986-07-04", politeClient(missing.io).request, missing.io)).rejects.toThrow("404");
+    expect(missing.urls).toEqual([PLAYING_URL]);
+  });
+
+  it("fetches MP3s from archive.org only", async () => {
+    const elsewhere = { ...playing("1986-07-04"), tracks: [{ title: "Touch Of Grey", duration: 4, mp3Url: "https://example.test/t01.mp3" }] };
+    const f = fakeRun({ answers: { [PLAYING_URL]: [json(elsewhere)] } });
+    await expect(analyseShow("1986-07-04", politeClient(f.io).request, f.io)).rejects.toThrow("archive.org MP3");
+    expect(f.urls).toEqual([PLAYING_URL]);
   });
 
   it("refuses a track whose decoded length is not its listed one", async () => {
@@ -636,7 +618,7 @@ describe("analyseShow", () => {
     const f = fakeRun({ lengths: [4, 4, 3], answers: { [T01]: [mp3("2000")] } });
     const { map } = await analyseShow("1986-07-04", politeClient(f.io).request, f.io);
     expect(checkMap(map)).toEqual([]);
-    expect(f.urls).toEqual([YEARS_URL, T01, T01, T02]);
+    expect(f.urls).toEqual([PLAYING_URL, T01, T01, T02]);
     expect(f.sleeps).toEqual([1000, 5000, 1000]);
     expect(f.logs).toContain("  retry 1 of 2 in 5 s: fetched 1000 of 2000 bytes");
     expect(f.logs).toContain("1986-07-04: 2000 bytes fetched");
@@ -648,7 +630,7 @@ describe("analyseShow", () => {
     const f = fakeRun({ answers: { [T01]: [compressed()], [T02]: [compressed()] } });
     const { map } = await analyseShow("1986-07-04", politeClient(f.io).request, f.io);
     expect(checkMap(map)).toEqual([]);
-    expect(f.urls).toEqual([YEARS_URL, T01, T02]);
+    expect(f.urls).toEqual([PLAYING_URL, T01, T02]);
   });
 });
 
@@ -679,6 +661,8 @@ describe("main", () => {
     { name: "no dates", args: ["--out", NEVER_MADE] },
     { name: "no --out", args: ["1986-07-04"] },
     { name: "an --out without a directory", args: ["1986-07-04", "--out"] },
+    { name: "a site with a path", args: ["--out", NEVER_MADE, "--site", "https://preview.test/api", "1986-07-04"] },
+    { name: "a site that is not a web address", args: ["--out", NEVER_MADE, "--site", "preview.test", "1986-07-04"] },
   ])("refuses $name", async ({ args }) => {
     const f = fakeRun();
     expect(await main(args, f.io)).toBe(2);
@@ -695,14 +679,21 @@ describe("main", () => {
     expect(JSON.parse(written).show).toBe("1986-07-04");
     expect(f.logs).toContain(`1986-07-04: map written, ${Buffer.byteLength(written)} bytes at 1 s a step`);
     expect(f.errors).toEqual([]);
+    expect(f.urls[0]).toBe(PLAYING_URL);
+  });
+
+  it("reads the playing route of the site it is given, such as a branch's preview", async () => {
+    const f = fakeRun();
+    expect(await main(["--out", dir, "--site", "https://preview.test/", "1986-07-04"], f.io)).toBe(0);
+    expect(f.urls).toEqual(["https://preview.test/api/playing/1986-07-04", T01, T02]);
   });
 
   it("goes on to the next show when one fails, and exits 1", async () => {
-    const f = fakeRun({ answers: { [YEARS_URL]: [httpStatus(404)] } });
+    const f = fakeRun({ answers: { [PLAYING_URL]: [httpStatus(404)] } });
     const code = await main(["--out", dir, "1986-07-04", "1987-03-27"], f.io);
     expect(code).toBe(1);
     expect(readdirSync(dir)).toEqual(["1987-03-27.json"]);
-    expect(f.errors).toEqual([`1986-07-04: ${SHOWS_URL} answered 404`]);
+    expect(f.errors).toEqual([`1986-07-04: ${PLAYING_URL} answered 404`]);
   });
 
   it("pauses between the two shows as between any two requests", async () => {
@@ -712,15 +703,12 @@ describe("main", () => {
     expect(f.sleeps).toEqual([1000, 1000, 1000, 1000, 1000]);
   });
 
-  // Loading every module it imports, the site's among them, before it reads its arguments.
-  it("starts as the maps workflow runs it: plain Node with scripts/resolve-ts.mjs", () => {
+  // Loading every module it imports before it reads its arguments.
+  it("starts as the maps workflow runs it: plain Node, no hook", () => {
     const root = fileURLToPath(new URL("../..", import.meta.url));
-    const run = spawnSync(process.execPath, ["--import", "./scripts/resolve-ts.mjs", "scripts/analyse-show.mjs"], {
-      cwd: root,
-      encoding: "utf8",
-    });
+    const run = spawnSync(process.execPath, ["scripts/analyse-show.mjs"], { cwd: root, encoding: "utf8" });
     // Node may add its own warnings to stderr; the usage line shows every import loaded.
-    expect(run.stderr).toContain("Usage: node --import ./scripts/resolve-ts.mjs scripts/analyse-show.mjs --out DIR SHOW_DATE [SHOW_DATE]\n");
+    expect(run.stderr).toContain("Usage: node scripts/analyse-show.mjs --out DIR [--site URL] SHOW_DATE [SHOW_DATE]\n");
     expect(run.status).toBe(2);
   });
 });

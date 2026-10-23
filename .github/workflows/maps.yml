@@ -18,6 +18,10 @@ on:
         description: The branch the maps are committed to. Empty means maps.
         required: false
         default: ""
+      site:
+        description: The site whose /api/playing route names the recording each page plays, such as a branch's preview. Empty means production.
+        required: false
+        default: ""
   # Runs no job. A pull request that edits this file registers the workflow, so it can be run by hand from that branch.
   pull_request:
     paths:
@@ -81,7 +85,7 @@ jobs:
               git ls-tree --name-only "$ref" public/maps/
             fi
           done | sed -n 's|^public/maps/\([0-9-]*\)\.json$|\1|p' | sort -u > "$RUNNER_TEMP/have.txt"
-          # The scripts import the site's own schedule and source choice. Node strips the types; the hook resolves the imports.
+          # featured-on.mjs imports the site's own schedule. Node strips the types; the hook resolves the imports.
           node --import ./scripts/resolve-ts.mjs scripts/featured-on.mjs --days 14 --limit 2 --have "$RUNNER_TEMP/have.txt" \
             > "$RUNNER_TEMP/shows.txt"
           echo "shows=$(tr '\n' ' ' < "$RUNNER_TEMP/shows.txt")" >> "$GITHUB_OUTPUT"
@@ -91,12 +95,16 @@ jobs:
         env:
           SHOWS: ${{ steps.pick.outputs.shows }}
           OUT_DIR: ${{ runner.temp }}/maps
+          SITE: ${{ inputs.site }}
         run: |
           mkdir -p "$OUT_DIR"
           status=0
+          # The site's /api/playing route names what each page plays; without a site input the script reads production.
+          site=()
+          if [ -n "$SITE" ]; then site=(--site "$SITE"); fi
           # One word per show date. A show that fails is logged and the others still run; the job fails after the upload.
           # shellcheck disable=SC2086
-          node --import ./scripts/resolve-ts.mjs scripts/analyse-show.mjs --out "$OUT_DIR" $SHOWS || status=$?
+          node scripts/analyse-show.mjs --out "$OUT_DIR" "${site[@]}" $SHOWS || status=$?
           made=$(find "$OUT_DIR" -maxdepth 1 -name '*.json' -printf '%f\n' | sed 's/\.json$//' | sort | tr '\n' ' ')
           echo "made=$made" >> "$GITHUB_OUTPUT"
           exit "$status"
