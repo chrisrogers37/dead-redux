@@ -118,8 +118,9 @@ const SMOOTH = { loud: 0.25, bass: 0.25, bright: 0.1 };
 /* Under its floor a value reads as a fraction of the floor: loudness's RMS of 0.01 is -40 dBFS, and the low end's floor is -70 dB. */
 const FLOORS = { loud: 0.01, bass: 10 ** (-70 / 20), bright: 0.05 };
 
-/* The FFT bin nearest a frequency. */
-export const binOf = (hz, sampleRate, fftSize) => Math.round(hz / (sampleRate / fftSize));
+/* The FFT bin nearest a frequency, within the spectrum: a frequency past its last bin, as 8 kHz is at a sample rate of 16 kHz or less,
+   gives the last bin. */
+export const binOf = (hz, sampleRate, fftSize) => Math.min(fftSize / 2 - 1, Math.round(hz / (sampleRate / fftSize)));
 
 /* The root mean square of a block of samples. */
 export function rmsOf(samples) {
@@ -181,7 +182,7 @@ export function analyse(now) {
     if (!samples) {
       samples = new Float32Array(analyser.fftSize);
       spectrum = new Float32Array(analyser.frequencyBinCount);
-      /* The low end's bins, 43 to 344 Hz, and brightness's top bin, 8 kHz. */
+      /* The low end's bins, 43 to 344 Hz, and brightness's top bin, 8 kHz or the spectrum's last. */
       bins = [43, 344, 8000].map((hz) => binOf(hz, ctx.sampleRate, analyser.fftSize));
     }
     analyser.getFloatTimeDomainData(samples);

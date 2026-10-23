@@ -12,6 +12,10 @@ describe("binOf", () => {
   it("finds them at 48 kHz, where each bin is wider", () => {
     expect([43, 344, 8000].map((hz) => binOf(hz, 48000, 1024))).toEqual([1, 7, 171]);
   });
+
+  it("gives the spectrum's last bin for 8 kHz at 16 kHz and under, where 8 kHz lies past it", () => {
+    expect([8000, 11025, 16000].map((rate) => binOf(8000, rate, 1024))).toEqual([511, 511, 511]);
+  });
 });
 
 describe("rmsOf", () => {
@@ -51,6 +55,12 @@ describe("brightOf", () => {
 
   it("is the middle of bins 1 to hi, as a fraction of hi, for a flat spectrum", () => {
     expect(brightOf(spectrum(() => -30), 186)).toBeCloseTo((186 + 1) / 2 / 186, 9);
+  });
+
+  it("reads a flat spectrum's middle at 16 kHz and under, up to the spectrum's last bin", () => {
+    for (const rate of [8000, 11025, 16000]) {
+      expect(brightOf(spectrum(() => -30), binOf(8000, rate, 1024)), `${rate} Hz`).toBeCloseTo((511 + 1) / 2 / 511, 9);
+    }
   });
 
   it("reads a spectrum that rises with frequency higher than one that falls", () => {
@@ -123,6 +133,11 @@ describe("mappings", () => {
 
   it("reaches the bottom of each range at weight 1 with a silent drive", () => {
     expectClose(mappings(SILENT, 1), { energy: 0.6, hemi: 0.9, stage: 0.4, panel: 0.6, flame: 0.5, amber: 0, rate: 6, amp: 0.35 });
+  });
+
+  it("reads each line from its own value, with a drive whose three values differ", () => {
+    const drive = { source: "analyser", loud: 0.2, bass: 0.5, bright: 0.8 };
+    expectClose(mappings(drive, 1), { energy: 0.76, hemi: 0.94, stage: 1.2, panel: 0.72, flame: 1.25, amber: 0.24, rate: 7.2, amp: 0.5 });
   });
 
   it("is halfway at weight 0.5", () => {
