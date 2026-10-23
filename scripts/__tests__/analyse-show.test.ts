@@ -1,6 +1,8 @@
+import { spawnSync } from "child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { fileURLToPath } from "url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkMap, MAX_MAP_BYTES } from "../../public/world/maps.js";
 import type { RelistenSource } from "../../src/lib/relisten";
@@ -708,5 +710,17 @@ describe("main", () => {
     expect(await main(["--out", dir, "1986-07-04", "1987-03-27"], f.io)).toBe(0);
     expect(readdirSync(dir)).toEqual(["1986-07-04.json", "1987-03-27.json"]);
     expect(f.sleeps).toEqual([1000, 1000, 1000, 1000, 1000]);
+  });
+
+  // Loading every module it imports, the site's among them, before it reads its arguments.
+  it("starts as the maps workflow runs it: plain Node with scripts/resolve-ts.mjs", () => {
+    const root = fileURLToPath(new URL("../..", import.meta.url));
+    const run = spawnSync(process.execPath, ["--import", "./scripts/resolve-ts.mjs", "scripts/analyse-show.mjs"], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    // Node may add its own warnings to stderr; the usage line shows every import loaded.
+    expect(run.stderr).toContain("Usage: node --import ./scripts/resolve-ts.mjs scripts/analyse-show.mjs --out DIR SHOW_DATE [SHOW_DATE]\n");
+    expect(run.status).toBe(2);
   });
 });

@@ -1,6 +1,8 @@
+import { spawnSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { fileURLToPath } from "url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MAX_MAP_BYTES } from "../../public/world/maps.js";
 import { checkMaps, main } from "../check-maps.mjs";
@@ -171,5 +173,13 @@ describe("main", () => {
     expect(await main([join(root, "incoming"), join(root, "public", "maps")])).toBe(0);
     expect(readFileSync(join(root, "public", "maps", "1986-07-04.json"), "utf8")).toBe(fixtureText);
     expect(lines).toHaveLength(1);
+  });
+
+  it("starts on plain Node with no hook, as the publish job runs it", () => {
+    const cwd = fileURLToPath(new URL("../..", import.meta.url));
+    const run = spawnSync(process.execPath, ["scripts/check-maps.mjs"], { cwd, encoding: "utf8" });
+    // Node may add its own warnings to stderr; the usage line shows the schema loaded.
+    expect(run.stderr).toContain("Usage: node scripts/check-maps.mjs SRC DEST\n");
+    expect(run.status).toBe(2);
   });
 });

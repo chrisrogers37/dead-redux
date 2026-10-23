@@ -2,7 +2,8 @@ name: Maps
 
 # A map of each featured show for the world's third layer (public/world/maps.js), made ahead of its day from the recording the
 # page plays. Untrusted media goes through ffmpeg, so the work is split: analyse can only read the repo, and publish, the one job
-# that can push, installs nothing and only checks the maps before it commits them.
+# that can push, only checks the maps before it commits them. Neither installs a package: the scripts run on Node alone, and
+# analyse takes ffmpeg from the runner.
 on:
   schedule:
     # Daily: the earliest missing maps among the next 14 featured days, at most 2 a run.
@@ -50,13 +51,15 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: npm
-      # The scripts import the site's own schedule and source choice, through tsx.
-      - run: npm ci
+      # The runner's image may have ffmpeg already. A stalled package mirror fails this step, not the whole job's time.
       - name: Install ffmpeg
+        timeout-minutes: 10
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q ffmpeg
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update -q
+            sudo apt-get install -y -q ffmpeg
+          fi
+          echo "ffmpeg: $(command -v ffmpeg)"
       - name: Pick the shows
         id: pick
         env:
@@ -78,7 +81,9 @@ jobs:
               git ls-tree --name-only "$ref" public/maps/
             fi
           done | sed -n 's|^public/maps/\([0-9-]*\)\.json$|\1|p' | sort -u > "$RUNNER_TEMP/have.txt"
-          npx tsx scripts/featured-on.mjs --days 14 --limit 2 --have "$RUNNER_TEMP/have.txt" > "$RUNNER_TEMP/shows.txt"
+          # The scripts import the site's own schedule and source choice. Node strips the types; the hook resolves the imports.
+          node --import ./scripts/resolve-ts.mjs scripts/featured-on.mjs --days 14 --limit 2 --have "$RUNNER_TEMP/have.txt" \
+            > "$RUNNER_TEMP/shows.txt"
           echo "shows=$(tr '\n' ' ' < "$RUNNER_TEMP/shows.txt")" >> "$GITHUB_OUTPUT"
       - name: Analyse
         id: analyse
@@ -91,7 +96,7 @@ jobs:
           status=0
           # One word per show date. A show that fails is logged and the others still run; the job fails after the upload.
           # shellcheck disable=SC2086
-          npx tsx scripts/analyse-show.mjs --out "$OUT_DIR" $SHOWS || status=$?
+          node --import ./scripts/resolve-ts.mjs scripts/analyse-show.mjs --out "$OUT_DIR" $SHOWS || status=$?
           made=$(find "$OUT_DIR" -maxdepth 1 -name '*.json' -printf '%f\n' | sed 's/\.json$//' | sort | tr '\n' ' ')
           echo "made=$made" >> "$GITHUB_OUTPUT"
           exit "$status"

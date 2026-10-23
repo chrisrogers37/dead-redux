@@ -1,5 +1,9 @@
+import { spawnSync } from "child_process";
+import { fileURLToPath } from "url";
 import { describe, expect, it } from "vitest";
 import { addDays, featuredWindow, main, showsToMap } from "../featured-on.mjs";
+
+const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 describe("addDays", () => {
   it("adds calendar days across a year end", () => {
@@ -144,5 +148,14 @@ describe("main", () => {
     expect(main(args, f.io)).toBe(2);
     expect(f.out).toEqual([]);
     expect(f.log).toHaveLength(1);
+  });
+
+  it("runs as the maps workflow runs it: plain Node with scripts/resolve-ts.mjs", () => {
+    const args = ["--import", "./scripts/resolve-ts.mjs", "scripts/featured-on.mjs", "--from", "2026-10-20", "--days", "1"];
+    const run = spawnSync(process.execPath, args, { cwd: ROOT, encoding: "utf8" });
+    // Node may add its own warnings to stderr; the script's line is the one that matters.
+    expect(run.stderr).toContain("2026-10-20 features 1986-07-04\n");
+    expect(run.stdout).toBe("1986-07-04\n");
+    expect(run.status).toBe(0);
   });
 });
