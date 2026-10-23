@@ -148,11 +148,13 @@ export function brightOf(db, hi) {
 
 /* One read: each raw value (loudness's is the RMS) smooths into its level, each reference follows its level, and the drive is each level
    against its reference, at most 1 since a reference never falls below its level. `dt` is the seconds since the previous read (Infinity
-   for the first, so the references start at the levels). */
+   for the first, so the references start at the levels). Near-silence still has a spectrum with a centroid, so under loudness's floor the
+   raw brightness fades with the RMS: silence reads no brightness, and its centroid never reaches brightness's reference. */
 export function readStep({ level, ref }, raw, dt) {
+  const heard = { ...raw, bright: raw.bright * Math.min(1, raw.loud / FLOORS.loud) };
   const next = {}, held = {}, drive = { source: "analyser" };
   for (const k of ["loud", "bass", "bright"]) {
-    next[k] = level[k] + (raw[k] - level[k]) * SMOOTH[k];
+    next[k] = level[k] + (heard[k] - level[k]) * SMOOTH[k];
     held[k] = Math.max(next[k], ref[k] * 0.5 ** (dt / HALF_LIFE));
     drive[k] = next[k] / Math.max(held[k], FLOORS[k]);
   }
@@ -163,16 +165,16 @@ export function readStep({ level, ref }, raw, dt) {
    read, once the context's sample rate is known. */
 let state = { level: { loud: 0, bass: 0, bright: 0 }, ref: { loud: 0, bass: 0, bright: 0 }, drive: null };
 let reads = 0, lastRead = -Infinity, samples = null, spectrum = null, bins = null;
-/* Whether a routed element is playing. */
+/* Whether a routed element is playing with data to play: one that waits for data (a stalled stream) is neither paused nor sounding. */
 const sounding = () => {
-  for (const s of slots.values()) if (s.source && !s.el.paused && !s.el.ended) return true;
+  for (const s of slots.values()) if (s.source && !s.el.paused && !s.el.ended && s.el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return true;
   return false;
 };
 
 /* Layer 2's drive for this frame, { loud, bass, bright, source }, or null while nothing plays through the graph: before the first move,
-   while the show is paused, while the system holds the context suspended, and on a device or an element that plays plain. It reads the
-   analyser at most every READ_MS and gives the last reading in between. The frame loop calls it, so it never reads in a hidden tab, and
-   never under reduced motion, where nothing calls it. */
+   while the show is paused or its stream waits for data, while the system holds the context suspended, and on a device or an element
+   that plays plain. It reads the analyser at most every READ_MS and gives the last reading in between. The frame loop calls it, so it
+   never reads in a hidden tab, and never under reduced motion, where nothing calls it. */
 export function analyse(now) {
   if (ctx?.state !== "running" || !sounding()) return null;
   if (now - lastRead >= READ_MS) {

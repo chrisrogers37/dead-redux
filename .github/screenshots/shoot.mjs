@@ -346,14 +346,18 @@ try {
           console.log(`${laterFile}  ${url}  ${selector}`);
           await logStats(page, laterFile);
           // Serialised in the page, so each reading prints as one line of JSON.
-          const [analysis, lastGapMs, routing] = await page.evaluate(() => [
+          const [analysis, lastGapMs, routing, state, line] = await page.evaluate(() => [
             JSON.stringify(window.__hill?.analysis ?? null),
             JSON.stringify(window.__hill?.lastGapMs ?? null),
             document.querySelector("main")?.dataset.routing ?? null,
+            document.querySelector("main")?.dataset.state ?? null,
+            document.querySelector("[data-action='play']")?.closest(".plate")?.querySelector(".t-tag")?.textContent ?? null,
           ]);
           console.log(`analysis ${laterFile} ${analysis}`);
           console.log(`lastGapMs ${laterFile} ${lastGapMs}`);
           console.log(`routing ${laterFile} ${routing}`);
+          // The player's state and the now-plate's sentence at the later shot, so a stream that stalled shows here.
+          console.log(`state ${laterFile} ${state} · ${line}`);
         }
       }
 

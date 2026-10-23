@@ -90,6 +90,12 @@ describe("readStep", () => {
     expect(ref.bright).toBeCloseTo(0.25, 9);
   });
 
+  it("reads no brightness in silence, whatever the spectrum's shape, and fades it under loudness's floor", () => {
+    expect(read(zero, zero, { loud: 0, bass: 0, bright: 0.5 }, Infinity).level.bright).toBe(0);
+    /* An RMS of 0.005 is half loudness's floor, so a raw brightness of 0.5 counts as 0.25, and a first read smooths it by 0.1. */
+    expect(read(zero, zero, { loud: 0.005, bass: 0, bright: 0.5 }, Infinity).level.bright).toBeCloseTo(0.025, 9);
+  });
+
   it("reads a value under its floor as a fraction of the floor", () => {
     /* Loudness's floor is an RMS of 0.01, so 0.005 is half of it. */
     const under = { loud: 0.005, bass: 0, bright: 0 };
