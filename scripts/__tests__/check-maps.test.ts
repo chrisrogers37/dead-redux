@@ -11,6 +11,9 @@ import { checkMaps, main } from "../check-maps.mjs";
 const fixtureText = readFileSync(new URL("../../src/lib/__tests__/fixtures/map-tiny.json", import.meta.url), "utf8");
 const fixture = JSON.parse(fixtureText);
 
+// The fixture with trailing spaces, which JSON allows, up to `size` bytes in all.
+const paddedTo = (size: number) => fixtureText + " ".repeat(size - Buffer.byteLength(fixtureText));
+
 describe("checkMaps", () => {
   let root: string;
   let src: string;
@@ -63,10 +66,11 @@ describe("checkMaps", () => {
     expect(logged).toHaveLength(2);
   });
 
-  it("refuses a file not named for a show date", async () => {
-    put("x.json", fixtureText);
+  // A name with no show date in it, and one with more after the .json.
+  it.each([{ name: "x.json" }, { name: "1986-07-04.json.bak" }])("refuses a file not named <show date>.json: $name", async ({ name }) => {
+    put(name, fixtureText);
     expect(await check()).toBe(1);
-    expect(errors).toEqual(["x.json: not named <show date>.json"]);
+    expect(errors).toEqual([`${name}: not named <show date>.json`]);
     expect(existsSync(dest)).toBe(false);
   });
 
@@ -77,11 +81,17 @@ describe("checkMaps", () => {
     expect(existsSync(dest)).toBe(false);
   });
 
-  it("refuses a file over the size limit, however valid its map", async () => {
-    put("1986-07-04.json", fixtureText + " ".repeat(MAX_MAP_BYTES));
+  it("takes a file of exactly the size limit", async () => {
+    put("1986-07-04.json", paddedTo(MAX_MAP_BYTES));
+    expect(await check()).toBe(0);
+    expect(logged).toEqual(["1986-07-04.json: schema valid, 40960 bytes (limit 40960)"]);
+    expect(errors).toEqual([]);
+  });
+
+  it("refuses a file one byte over the size limit, however valid its map", async () => {
+    put("1986-07-04.json", paddedTo(MAX_MAP_BYTES + 1));
     expect(await check()).toBe(1);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toMatch(/^1986-07-04\.json: \d+ bytes, over the limit of 40960$/);
+    expect(errors).toEqual(["1986-07-04.json: 40961 bytes, over the limit of 40960"]);
     expect(existsSync(dest)).toBe(false);
   });
 

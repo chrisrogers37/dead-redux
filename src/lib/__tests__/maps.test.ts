@@ -355,9 +355,19 @@ describe("the time mapping", () => {
     expect(envAt(b, 25)).toEqual({ rms: 200 / 255, bass: 30 / 255, bright: 100 / 255 });
   });
 
+  it("reads the envelope byte the analysed time falls in, not the nearest", () => {
+    const b = readMap(atStep(1)).tracks[1];
+    // 26 s of playing is 20.8 s analysed: byte 20 at one second a step, where the nearest would be byte 21.
+    expect(envAt(b, 26).rms).toBe(200 / 255);
+  });
+
   it("reads the tempo of the analysed window", () => {
     const b = readMap(fixture).tracks[1];
     expect(tempoAt(b, 5)).toEqual({ bpm: 96, confidence: 128 / 255 });
+    // 11 s of playing is 8.8 s analysed, the first window; as playing time it would be the second, which is unknown.
+    expect(tempoAt(b, 11)).toEqual({ bpm: 96, confidence: 128 / 255 });
+    // 7 s of playing is 5.6 s analysed, the first window; rounded to the nearest window it would be the second.
+    expect(tempoAt(b, 7)).toEqual({ bpm: 96, confidence: 128 / 255 });
     expect(tempoAt(b, 15)).toBeNull();
     expect(tempoAt(b, 29)).toEqual({ bpm: 100, confidence: 1 });
     // Before the track is the first window and after it the last.
