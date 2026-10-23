@@ -1,0 +1,57 @@
+name: Dev tooling lockfile
+
+# Resolves the lockfile for the vitest and vite bumps and commits it to this branch. It runs once, on the push that adds it;
+# a push made with GITHUB_TOKEN starts no run, so its own commit does not start it again.
+on:
+  push:
+    branches: [deps/vitest-vite-dev-tooling]
+    paths: [.github/workflows/dev-tooling-lockfile.yml]
+
+permissions: {}
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      # Every npm call below takes only versions published before this date.
+      BEFORE: "2026-10-09"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: |
+          node --version
+          npm --version
+          mkdir -p "$RUNNER_TEMP/audit"
+      # npm audit exits 1 when it finds an advisory; the JSON is the record.
+      - name: Audit the current lockfile
+        run: npm audit --package-lock-only --json > "$RUNNER_TEMP/audit/before.json" || true
+      # Lockfile only: no node_modules, and no package's install scripts run.
+      - name: Bump vitest and vite
+        run: npm install vitest@4.1.11 vite@7.3.7 --save-dev --package-lock-only --ignore-scripts --no-audit --no-fund --before="$BEFORE"
+      - name: Update the patched tooling within its ranges
+        run: npm update rollup minimatch brace-expansion flatted js-yaml --package-lock-only --ignore-scripts --no-audit --no-fund --before="$BEFORE"
+      - name: Audit the new lockfile
+        run: |
+          npm audit --package-lock-only --json > "$RUNNER_TEMP/audit/after.json" || true
+          for f in before after; do
+            echo "$f: $(jq -c '.metadata.vulnerabilities' "$RUNNER_TEMP/audit/$f.json")" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: audit-${{ github.sha }}
+          path: ${{ runner.temp }}/audit
+          if-no-files-found: error
+      - name: Commit the lockfile
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "deps: resolve the lockfile for vitest 4.1.11 and vite 7.3.7" \
+            -m "In-range updates for rollup, minimatch, brace-expansion, flatted and js-yaml."
+          git push origin HEAD:refs/heads/deps/vitest-vite-dev-tooling
+          echo "Pushed $(git rev-parse HEAD)."
