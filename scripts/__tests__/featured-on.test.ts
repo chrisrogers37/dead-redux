@@ -140,6 +140,7 @@ describe("main", () => {
     { name: "a negative limit", args: ["--limit", "-1"] },
     { name: "a start that is not a date", args: ["--from", "tomorrow"] },
     { name: "a start that is not on the calendar", args: ["--from", "2026-13-45"] },
+    { name: "a start its month does not have", args: ["--from", "1986-02-30"] },
     { name: "an option it does not know", args: ["--max", "3"] },
     { name: "an option without a value", args: ["--days"] },
     { name: "a have file it cannot read", args: ["--have", "missing.txt"] },

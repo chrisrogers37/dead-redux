@@ -41,6 +41,16 @@ describe("isValidDateStr", () => {
     expect(isValidDateStr("2026/02/16")).toBe(false);
     expect(isValidDateStr("")).toBe(false);
   });
+
+  it("rejects a day its month does not have, which Date.parse would roll into the next month", () => {
+    expect(isValidDateStr("1986-02-30")).toBe(false);
+    expect(isValidDateStr("1986-02-29")).toBe(false);
+    expect(isValidDateStr("1986-04-31")).toBe(false);
+  });
+
+  it("accepts the 29th of February in a leap year", () => {
+    expect(isValidDateStr("1988-02-29")).toBe(true);
+  });
 });
 
 describe("isCatalogShow", () => {
