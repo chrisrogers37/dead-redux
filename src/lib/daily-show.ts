@@ -53,6 +53,13 @@ export function isValidDateStr(dateStr: string): boolean {
 }
 
 /**
+ * Check if a date string is the date of a show in the catalog.
+ */
+export function isCatalogShow(dateStr: string): boolean {
+  return showsByDate.has(dateStr);
+}
+
+/**
  * Get the total number of shows in the catalog.
  */
 export function getShowCount(): number {
