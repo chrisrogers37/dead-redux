@@ -3,8 +3,8 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { CAVES, G, height } from "./ground.js";
 
-/* The island is the mark: a hill with two caves, a ring road and a lightning path, and at the hill's south-west foot a shelf for the
-   stage. The ground's height is in ground.js. */
+/* The island is the mark: a hill with two caves, a ring road and a lightning path, and at its north-east edge a shelf for the stage.
+   The ground's height is in ground.js. */
 
 /* A ground vertex whose normal leans more than 35 degrees from straight up stands on a steep slope. */
 const STEEP = Math.cos((35 * Math.PI) / 180);

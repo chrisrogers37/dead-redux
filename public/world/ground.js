@@ -7,19 +7,21 @@ export const G = (gx, gy) => [(gx - 100) * 1.2, (gy - 100) * 1.2]; // the mark's
 export const CAVES = [G(66, 108), G(134, 108)];
 /* Where the loop starts and ends, at the hill's south foot (path.js). */
 export const TRAILHEAD = G(100, 186);
-/* The stage's place, on the flat ground at the hill's south-west foot, and the height of its shelf: the ground's own height there, which
-   the shelf holds flat within 8 m of the stage, blending back into it by 14 m. */
-export const STAGE = G(74, 173), SHELF_Y = 2.5;
-/* The stage faces the trailhead, so a visitor arriving there sees its front, and its back looks out over ground no walk crosses. A
-   group's local +z points along its facing, the repo's convention (the bears face along their line so). */
-export const FACING = Math.atan2(TRAILHEAD[0] - STAGE[0], TRAILHEAD[1] - STAGE[1]);
-/* The test hook ?pose=stage: on the open ground in front of the stage, 35.5 m from its centre and 14 degrees off its front, facing it
-   and looking a little down. In third person the look down raises the boom, so the stage stands over the bear's head. */
-export const STAGE_POSE = { x: -4.2, z: 110.7, heading: 0.863, pitch: -0.2 };
-/* The test hook ?pose=path: on the loop's last stretch, heading along it toward the trailhead, a few metres past where the stage first
-   shows whole and clear of the fog, and past the landmark there, so the boom stands its full length behind the bear: the stage's front,
-   about 72 m off, at the right of the frame. */
-export const PATH_POSE = { x: 30.2, z: 99.4, heading: 1.928, pitch: 0 };
+/* The stage's place, on the flat ground at the island's north-east edge, its platform 5.5 m inside the ring road, and the height of its
+   shelf: the ground's own height there, which the shelf holds flat within 8 m of the stage, blending back into it by 14 m. */
+export const STAGE = G(161, 47), SHELF_Y = 2.5;
+/* The stage faces the island's middle, so the hill rises before it as an amphitheatre's seating does, and its back looks out over the
+   shore. A group's local +z points along its facing, the repo's convention (the bears face along their line so). */
+export const FACING = Math.atan2(-STAGE[0], -STAGE[1]);
+/* The test hook ?pose=stage: on the slope in front of the stage, on its axis 34 m from its centre and 8 m above its floor, facing it and
+   looking a little down. In third person the look down raises the boom, so the stage stands over the bear's head. */
+export const STAGE_POSE = { x: 47.5, z: -41.3, heading: -0.855, pitch: -0.2 };
+/* The test hook ?pose=slope: higher up the slope on the stage's axis, 55 m from its centre and 18 m above its floor, facing it and
+   looking down over the slope between, as its seating sees it. */
+export const SLOPE_POSE = { x: 31.7, z: -27.5, heading: -0.855, pitch: -0.3 };
+/* The test hook ?pose=path: on the loop at the summit's north-east shoulder, heading along it, with the stage's front in the frame below,
+   about 80 m off down the slope, and the boom its full length behind the bear. */
+export const PATH_POSE = { x: 18.6, z: -6.4, heading: -1.053, pitch: 0 };
 
 /* The island's own height, before the stage's shelf. */
 export function slope(x, z) {

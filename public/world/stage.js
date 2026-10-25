@@ -4,8 +4,8 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { FACING, height, STAGE, SHELF_Y } from "./ground.js";
 import { mesh, mergeStill } from "./landmarks.js";
 
-/* The stage, on its shelf at the hill's south-west foot: a platform whose open front faces the trailhead (ground.js); a roof on two
-   posts over a back wall with a light panel in the sky's first colour; two PA stacks; a light; and six players as flat black
+/* The stage, on its shelf at the island's north-east edge: a platform whose open front faces the island's middle (ground.js); a roof on
+   two posts over a back wall with a light panel in the sky's first colour; two PA stacks; a light; and six players as flat black
    silhouettes, never likenesses: two guitars, a bass, keys and two drummers. */
 
 /* How near a walk comes to the stage's centre: the platform's edge stands 9.5 m out, and a bear's belly reaches 1.3 m ahead of its centre

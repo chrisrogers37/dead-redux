@@ -1,13 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { FACING, height, PATH_POSE, SHELF_Y, slope, STAGE, STAGE_POSE, TRAILHEAD } from "../../../public/world/ground.js";
+import { FACING, height, PATH_POSE, SHELF_Y, slope, SLOPE_POSE, STAGE, STAGE_POSE } from "../../../public/world/ground.js";
 
 // How near a walk comes to the stage's centre (STAGE_REACH, public/world/stage.js).
 const REACH = 11;
+// How far the stage's solids stand from its centre: its column's radius (STAGE_COLUMN, public/world/stage.js).
+const COLUMN = 10.95;
 // How far a walk keeps from the island's centre (BOUND, public/world/main.js).
 const BOUND = 117;
+// Where the ring road starts, and where the shore beyond it starts to fall (public/world/island.js, slope()).
+const RING = 112, SHORE = 118;
 // The longest walk to the platform's edge that the desktop-stage recording's 25-s hold covers with seconds to spare
-// (.github/screenshots/shoot.mjs): at most 0.6 m a frame, and CI draws a frame about every 0.44 s.
-const WALK = 26;
+// (.github/screenshots/shoot.mjs): at most 0.6 m a frame, and CI draws this view about once every 0.5 s.
+const WALK = 24.5;
+// How high a bear's head stands over the ground it walks on (public/world/avatar.js).
+const HEAD = 3.6;
+// The middle of the stage's light panel, in the stage's own frame: centred, 3.7 m above the floor, on the back wall (public/world/stage.js).
+const PANEL = { y: 3.7, z: -4.08 };
 // Half the desktop frame's width, in degrees: a 60-degree field (public/world/quality.js) at the shots' 1440 x 900.
 const HALF_WIDTH = (Math.atan(1.6 * Math.tan(Math.PI / 6)) * 180) / Math.PI;
 
@@ -23,6 +31,17 @@ const offHeading = ({ x, z, heading }: Pose) => between(-Math.sin(heading), -Mat
 const fromStage = ({ x, z }: Pose) => Math.hypot(x - STAGE[0], z - STAGE[1]);
 // A point `r` metres from the stage's centre along `a` (rad).
 const around = (r: number, a: number): [number, number] => [STAGE[0] + r * Math.cos(a), STAGE[1] + r * Math.sin(a)];
+// A point `r` metres out from the stage's centre along its front.
+const ahead = (r: number): [number, number] => [STAGE[0] + r * Math.sin(FACING), STAGE[1] + r * Math.cos(FACING)];
+
+describe("the stage's place", () => {
+  it("stands at the island's edge, past the hill's foot, its solids inside the ring road and its shelf inside the shore", () => {
+    const d = Math.hypot(STAGE[0], STAGE[1]);
+    expect(d).toBeGreaterThan(90);
+    expect(d + COLUMN).toBeLessThan(RING);
+    expect(d + 14).toBeLessThan(SHORE);
+  });
+});
 
 describe("the stage's shelf", () => {
   it("stands at the ground's own height, so the stage neither sinks into the ground nor stands on a mound", () => {
@@ -52,8 +71,24 @@ describe("the stage's shelf", () => {
 });
 
 describe("the stage's facing", () => {
-  it("turns the stage's front to the trailhead, where the loop starts and ends", () => {
-    expect(offFront(TRAILHEAD[0], TRAILHEAD[1])).toBeCloseTo(0, 9);
+  it("turns the stage's front to the island's middle", () => {
+    expect(offFront(0, 0)).toBeCloseTo(0, 9);
+  });
+
+  it("has the hill rise before it as seating: the ground climbs more than 3 m in each 10 m from 20 to 60 m out", () => {
+    for (let r = 20; r < 60; r += 10) expect(slope(...ahead(r + 10)) - slope(...ahead(r))).toBeGreaterThan(3);
+  });
+
+  it("lets a bear's head 30, 45 or 60 m up the slope see the panel over the ground between", () => {
+    const px = STAGE[0] + PANEL.z * Math.sin(FACING), py = SHELF_Y + PANEL.y, pz = STAGE[1] + PANEL.z * Math.cos(FACING);
+    for (const r of [30, 45, 60]) {
+      const [sx, sz] = ahead(r), sy = slope(sx, sz) + HEAD;
+      const n = Math.ceil(Math.hypot(px - sx, pz - sz));
+      for (let k = 1; k < n; k++) {
+        const u = k / n;
+        expect(height(sx + (px - sx) * u, sz + (pz - sz) * u)).toBeLessThan(sy + (py - sy) * u);
+      }
+    }
   });
 });
 
@@ -65,12 +100,28 @@ describe("?pose=stage", () => {
     expect(offHeading(STAGE_POSE)).toBeLessThan(0.1);
   });
 
-  it("looks down, so in third person the boom rises and the stage stands over the bear's head", () => {
+  it("stands up the slope from the stage and looks down, so in third person the boom rises and the stage stands over the bear's head", () => {
+    expect(slope(STAGE_POSE.x, STAGE_POSE.z)).toBeGreaterThan(SHELF_Y + 5);
     expect(STAGE_POSE.pitch).toBeLessThan(0);
   });
 
   it("is a walk to the platform's edge that the desktop-stage recording's hold covers", () => {
     expect(fromStage(STAGE_POSE) - REACH).toBeLessThan(WALK);
+  });
+});
+
+describe("?pose=slope", () => {
+  it("stands in front of the stage, further up the slope than ?pose=stage and within the walk's bound, facing its centre", () => {
+    expect(fromStage(SLOPE_POSE)).toBeGreaterThan(fromStage(STAGE_POSE));
+    expect(Math.hypot(SLOPE_POSE.x, SLOPE_POSE.z)).toBeLessThan(BOUND);
+    expect(offFront(SLOPE_POSE.x, SLOPE_POSE.z)).toBeLessThan(20);
+    expect(offHeading(SLOPE_POSE)).toBeLessThan(0.1);
+  });
+
+  it("looks down at the stage from high over it: its floor lies more than 15 degrees below a bear's head there", () => {
+    const below = slope(SLOPE_POSE.x, SLOPE_POSE.z) + HEAD - SHELF_Y;
+    expect((Math.atan2(below, fromStage(SLOPE_POSE)) * 180) / Math.PI).toBeGreaterThan(15);
+    expect(SLOPE_POSE.pitch).toBeLessThan(0);
   });
 });
 
