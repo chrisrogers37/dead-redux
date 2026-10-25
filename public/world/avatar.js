@@ -13,7 +13,7 @@ import { rise } from "./boom.js";
 const WALK = 2.5, STRIDE = 12, RUN = 19.2;
 const UP = new THREE.Vector3(0, 1, 0);
 
-export function buildAvatar(scene, landmarks, { phone, reduced }) {
+export function buildAvatar(scene, landmarks, { phone, reduced, columns = [] }) {
   const { g, legs } = buildBear(scene, 0xeceae4);
   g.rotation.order = "YXZ";
   /* The head, for the stats and the sound's listener; the top of the head and the ground point under the bear, which the cameras
@@ -43,6 +43,8 @@ export function buildAvatar(scene, landmarks, { phone, reduced }) {
   /* The boom: R behind the head and 0.35 rad above it, the walker's pitch lowering or raising it, looking 6 m past the head. Desktop and
      TV hang it at 11 m, a phone at 20. */
   const R = phone ? 20 : 11;
+  /* Each landmark stands for its box; a column (collide.js) for a solid that a walk keeps out of but whose box would reach past it, as
+     the stage's does, turned on its shelf. */
   const boxes = landmarks.map((l) => new THREE.Box3().setFromObject(l));
   const pivot = new THREE.Vector3(), cam = new THREE.Vector3(), look = new THREE.Vector3(), want = new THREE.Vector3();
   const dir = new THREE.Vector3();
@@ -64,7 +66,7 @@ export function buildAvatar(scene, landmarks, { phone, reduced }) {
     dir.subVectors(cam, pivot);
     const len = dir.length();
     dir.divideScalar(len || 1);
-    const r = rise(pivot, dir, len, boxes, lift, k);
+    const r = rise(pivot, dir, len, boxes, columns, lift, k);
     lift = r.lift;
     reach = r.room < reach ? r.room : reach + (r.room - reach) * k;
     camera.position.copy(pivot).addScaledVector(dir, len * reach);

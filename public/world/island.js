@@ -2,10 +2,15 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
-/* The island is the mark: a hill with two caves, a ring road and a lightning path. */
+/* The island is the mark: a hill with two caves, a ring road and a lightning path, and on its south-east slope a shelf for the stage. */
 
 export const G = (gx, gy) => [(gx - 100) * 1.2, (gy - 100) * 1.2]; // the mark's 200 grid to metres
 const CAVES = [G(66, 108), G(134, 108)];
+/* The stage's place, and the height of its shelf: the slope's own height there, which the shelf holds flat within 8 m of the stage,
+   blending back into the slope by 14 m. */
+export const STAGE = G(126, 150), SHELF_Y = 8.3;
+/* A ground vertex whose normal leans more than 35 degrees from straight up stands on a steep slope. */
+const STEEP = Math.cos((35 * Math.PI) / 180);
 export function height(x, z) {
   const d = Math.hypot(x, z);
   let h = 2.5 + 0.6 * Math.sin(x * 0.3) * Math.cos(z * 0.27);
@@ -18,18 +23,32 @@ export function height(x, z) {
   const nose = Math.hypot(x, z - 26);
   if (nose < 9) h -= 2.5 * (1 - nose / 9);
   if (d > 118) h -= ((d - 118) / 10) * 5.5;
+  const ds = Math.hypot(x - STAGE[0], z - STAGE[1]);
+  if (ds < 14) {
+    const s = Math.min(1, (14 - ds) / 6);
+    h += (SHELF_Y - h) * s * s * (3 - 2 * s);
+  }
   return h;
 }
 
-/* The ground (a grid of the tier's size) and the sea, then the ring road and the lightning path, then the caves' pools and lights,
-   which it returns. */
+/* The ground (a grid of the tier's size, coloured by vertex) and the sea, then the ring road and the lightning path, then the caves'
+   pools and lights, which it returns. */
 export function buildIsland(scene, grid, phone) {
   const ground = new THREE.PlaneGeometry(260, 260, grid, grid);
   ground.rotateX(-Math.PI / 2);
   const pos = ground.attributes.position;
   for (let i = 0; i < pos.count; i++) pos.setY(i, height(pos.getX(i), pos.getZ(i)));
   ground.computeVertexNormals();
-  scene.add(new THREE.Mesh(ground, new THREE.MeshLambertMaterial({ color: 0x5f6b4e, flatShading: true })));
+  /* The caves' bowls are dark, slopes steeper than 35 degrees are stone, the shore past the ring road is sand, and the rest is grass. */
+  const normal = ground.attributes.normal, colors = new Float32Array(pos.count * 3), color = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i);
+    const hex = CAVES.some(([cx, cz]) => Math.hypot(x - cx, z - cz) < 13) ? 0x2a2622
+      : normal.getY(i) < STEEP ? 0x8e8a82 : Math.hypot(x, z) > 118 ? 0x8a8370 : 0x5f6b4e;
+    color.setHex(hex).toArray(colors, i * 3);
+  }
+  ground.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  scene.add(new THREE.Mesh(ground, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true })));
   scene.add(new THREE.Mesh(new THREE.PlaneGeometry(700, 700).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x0e1014 })));
 
   /* The ring road and the lightning path, as flat bands just above the ground. */

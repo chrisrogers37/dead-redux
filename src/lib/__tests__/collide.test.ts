@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keepOut } from "../../../public/world/collide.js";
+import { enterColumn, keepOut } from "../../../public/world/collide.js";
 
 // The reaches the world keeps a walk from each bear's centre (public/world/main.js): BEAR_REACH in first person, BODY_REACH when the
 // walker is the visitor's bear.
@@ -197,5 +197,40 @@ describe("keepOut", () => {
       keepOut(walker, bears, BODY_REACH);
       for (const bear of bears) expect(distance(walker, bear)).toBeGreaterThanOrEqual(BODY_REACH - 1e-9);
     }
+  });
+});
+
+describe("enterColumn", () => {
+  const column = { x: 0, z: 0, r: 10, top: 8 };
+  const start = { x: 15, y: 2, z: 0 };
+
+  it("meets the side of a column ahead, below its top", () => {
+    expect(enterColumn(start, { x: -1, y: 0, z: 0 }, column)).toBeCloseTo(5, 9);
+    // At a slant: 15 m out, 30 degrees off the line to the centre.
+    const d = { x: -Math.cos(Math.PI / 6), y: 0, z: Math.sin(Math.PI / 6) };
+    const t = enterColumn(start, d, column);
+    expect(Math.hypot(start.x + d.x * t, start.z + d.z * t)).toBeCloseTo(10, 9);
+  });
+
+  it("passes over a column whose top it clears", () => {
+    expect(enterColumn({ x: 15, y: 9, z: 0 }, { x: -1, y: 0, z: 0 }, column)).toBe(Infinity);
+    // Rising from below the top: by the side, 5 m on, it stands at 9 m, over the top.
+    expect(enterColumn({ x: 15, y: 4, z: 0 }, { x: -Math.SQRT1_2, y: Math.SQRT1_2, z: 0 }, column)).toBe(Infinity);
+  });
+
+  it("comes down through the top of a column it falls on", () => {
+    // Over the side, 10 m out, the line stands at 10 m, above the top; it reaches the top 8 m out.
+    expect(enterColumn({ x: 12, y: 12, z: 0 }, { x: -Math.SQRT1_2, y: -Math.SQRT1_2, z: 0 }, column)).toBeCloseTo(4 * Math.SQRT2, 9);
+  });
+
+  it("never enters a column behind it, to its side, or straight up", () => {
+    expect(enterColumn(start, { x: 1, y: 0, z: 0 }, column)).toBe(Infinity);
+    expect(enterColumn(start, { x: 0, y: 0, z: 1 }, column)).toBe(Infinity);
+    expect(enterColumn(start, { x: 0, y: 1, z: 0 }, column)).toBe(Infinity);
+    expect(enterColumn({ x: 10.01, y: 2, z: 0 }, { x: 0, y: 1, z: 0 }, column)).toBe(Infinity);
+  });
+
+  it("leaves out a column that stands around the start", () => {
+    expect(enterColumn({ x: 1, y: 2, z: 0 }, { x: -1, y: 0, z: 0 }, column)).toBe(Infinity);
   });
 });
