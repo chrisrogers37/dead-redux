@@ -1,35 +1,13 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { CAVES, G, height } from "./ground.js";
 
-/* The island is the mark: a hill with two caves, a ring road and a lightning path, and on its south-east slope a shelf for the stage. */
+/* The island is the mark: a hill with two caves, a ring road and a lightning path, and at the hill's south-west foot a shelf for the
+   stage. The ground's height is in ground.js. */
 
-export const G = (gx, gy) => [(gx - 100) * 1.2, (gy - 100) * 1.2]; // the mark's 200 grid to metres
-const CAVES = [G(66, 108), G(134, 108)];
-/* The stage's place, and the height of its shelf: the slope's own height there, which the shelf holds flat within 8 m of the stage,
-   blending back into the slope by 14 m. */
-export const STAGE = G(126, 150), SHELF_Y = 8.3;
 /* A ground vertex whose normal leans more than 35 degrees from straight up stands on a steep slope. */
 const STEEP = Math.cos((35 * Math.PI) / 180);
-export function height(x, z) {
-  const d = Math.hypot(x, z);
-  let h = 2.5 + 0.6 * Math.sin(x * 0.3) * Math.cos(z * 0.27);
-  const t = Math.max(0, 1 - (d / 84) * (d / 84));
-  h += 28 * t * Math.sqrt(t);
-  for (const [cx, cz] of CAVES) {
-    const dc = Math.hypot(x - cx, z - cz);
-    if (dc < 13) h -= 6 * (1 - (dc / 13) * (dc / 13));
-  }
-  const nose = Math.hypot(x, z - 26);
-  if (nose < 9) h -= 2.5 * (1 - nose / 9);
-  if (d > 118) h -= ((d - 118) / 10) * 5.5;
-  const ds = Math.hypot(x - STAGE[0], z - STAGE[1]);
-  if (ds < 14) {
-    const s = Math.min(1, (14 - ds) / 6);
-    h += (SHELF_Y - h) * s * s * (3 - 2 * s);
-  }
-  return h;
-}
 
 /* The ground (a grid of the tier's size, coloured by vertex) and the sea, then the ring road and the lightning path, then the caves'
    pools and lights, which it returns. */

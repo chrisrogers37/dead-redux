@@ -1,6 +1,7 @@
 /* eslint-disable */
 import * as THREE from "three";
-import { height, buildIsland } from "./island.js";
+import { buildIsland } from "./island.js";
+import { height, PATH_POSE, STAGE_POSE } from "./ground.js";
 import { buildPath, layout, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
 import { makeBuilders } from "./landmarks.js";
 import { buildBears } from "./bears.js";
@@ -9,7 +10,7 @@ import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
 import { keepOut } from "./collide.js";
 import { listen, soundStats, startSound } from "./audio.js";
-import { buildStage, STAGE_COLUMN, STAGE_POSE, STAGE_REACH, STAGE_SOUND } from "./stage.js";
+import { buildStage, STAGE_COLUMN, STAGE_REACH, STAGE_SOUND } from "./stage.js";
 import { budgetFor, median, pickTier, SLOW_MS, stepDown, WINDOW } from "./quality.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
@@ -156,9 +157,12 @@ function start(gl) {
   const walker = { x: trailhead.x, z: trailhead.z, heading: 0, pitch: 0 };
   const t0 = tangentAt(0); walker.heading = Math.atan2(-t0.x, -t0.z);
   let third = true, cut = false;
-  /* The test hook ?pose=stage, on preview deployments only (the server marks <main data-test-hooks="1">): the walk starts with the
-     visitor on the lawn in front of the stage, with no descent, and no idle time hands the view to attract. */
-  const posed = main.dataset.testHooks === "1" && new URLSearchParams(location.search).get("pose") === "stage";
+  /* The test hooks ?pose=stage and ?pose=path, on preview deployments only (the server marks <main data-test-hooks="1">): the walk
+     starts with the visitor on the open ground in front of the stage, or on the path where it shows the stage (ground.js), with no
+     descent, and no idle time hands the view to attract. */
+  const hook = main.dataset.testHooks === "1" ? new URLSearchParams(location.search).get("pose") : null;
+  const testPose = hook === "stage" ? STAGE_POSE : hook === "path" ? PATH_POSE : null;
+  const posed = testPose !== null;
   let mode = reduced || posed ? "walk" : "descent";
   let idleTimer = 0, elapsed = 0;
   /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
@@ -466,7 +470,7 @@ function start(gl) {
   container.dataset.world = "ready";
   locate(performance.now());
   if (reduced) { bearD = line.dOf(landmarkU[index]); toSlot(); }
-  if (posed) { Object.assign(walker, STAGE_POSE); cut = true; }
+  if (posed) { Object.assign(walker, testPose); cut = true; }
   placeWalker();
   wake();
   document.addEventListener("visibilitychange", () => {
