@@ -1,0 +1,43 @@
+{
+  "v": 1,
+  "show": "1986-07-04",
+  "analysed": "gd1986-07-04.sbd.miller.118659.flac16",
+  "playing": "gd1986-07-04.sbd.miller.118659.flac16",
+  "step": 1,
+  "tracks": [
+    {
+      "title": "Touch Of Grey",
+      "analysedDuration": 5,
+      "playingDuration": 5,
+      "env": {
+        "rms": "AECAwP8=",
+        "bass": "ChQeKDI=",
+        "bright": "/wD/AP8="
+      },
+      "tempo": "eMg=",
+      "peaks": [
+        [
+          3,
+          0.9
+        ]
+      ]
+    },
+    {
+      "title": "Fire On The Mountain",
+      "analysedDuration": 24,
+      "playingDuration": 30,
+      "env": {
+        "rms": "AAoUHigyPEZQWmRueIKMlqCqtL7I0tzm",
+        "bass": "5tzSyL60qqCWjIJ4bmRaUEY8MigeFAoA",
+        "bright": "ZGRkZGRkZGRkZGRkZGRkZGRkZGRkZGRk"
+      },
+      "tempo": "YIAAAGT/",
+      "peaks": [
+        [
+          20,
+          1
+        ]
+      ]
+    }
+  ]
+}

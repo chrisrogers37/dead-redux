@@ -3,6 +3,7 @@ import {
   getDailyShow,
   getTodayDateStr,
   isValidDateStr,
+  isCatalogShow,
   getShowCount,
 } from "../daily-show";
 
@@ -39,6 +40,28 @@ describe("isValidDateStr", () => {
     expect(isValidDateStr("not-a-date")).toBe(false);
     expect(isValidDateStr("2026/02/16")).toBe(false);
     expect(isValidDateStr("")).toBe(false);
+  });
+
+  it("rejects a day its month does not have, which Date.parse would roll into the next month", () => {
+    expect(isValidDateStr("1986-02-30")).toBe(false);
+    expect(isValidDateStr("1986-02-29")).toBe(false);
+    expect(isValidDateStr("1986-04-31")).toBe(false);
+  });
+
+  it("accepts the 29th of February in a leap year", () => {
+    expect(isValidDateStr("1988-02-29")).toBe(true);
+  });
+});
+
+describe("isCatalogShow", () => {
+  it("accepts the date of a show in the catalog", () => {
+    expect(isCatalogShow("1986-07-04")).toBe(true);
+  });
+
+  it("rejects a date with no show in the catalog, and a show date not written YYYY-MM-DD", () => {
+    expect(isCatalogShow("1986-07-05")).toBe(false);
+    expect(isCatalogShow("2001-01-01")).toBe(false);
+    expect(isCatalogShow("1986-7-4")).toBe(false);
   });
 });
 

@@ -50,29 +50,43 @@ interface RelistenTrack {
   flac_url: string | null;
 }
 
+/** What Relisten answered for a show date: the show, no record of it, or a failure to answer. */
+export type ShowLookup =
+  | { kind: "found"; details: ShowDetails }
+  | { kind: "missing" }
+  | { kind: "failed"; reason: string };
+
 /**
- * Fetch full show details from Relisten by date string.
+ * Look a show up on Relisten by date string, at the year's path and then at the show's own.
  *
  * @param dateStr - ISO date: "1977-05-08"
- * @returns ShowDetails or null if not found
+ * @returns The show, from the first path that answers ok; "missing" when both answer 404, as Relisten does for a date it has no
+ *   record of; or "failed" otherwise, naming each path that failed in the form the maps job logs a refusal in ("<url> answered 403
+ *   (server cloudflare, cf-mitigated challenge)", or "<url> could not be reached: <why>").
  */
-export async function fetchShowDetails(
-  dateStr: string
-): Promise<ShowDetails | null> {
+export async function lookUpShow(dateStr: string): Promise<ShowLookup> {
   const year = dateStr.split("-")[0];
-  const url = `${API_BASE}/years/${year}/${dateStr}`;
-
-  const res = await fetch(url, { next: { revalidate: 86400 } }); // Cache for 24h
-
-  if (!res.ok) {
-    // Try alternate endpoint format
-    const altUrl = `${API_BASE}/shows/${dateStr}`;
-    const altRes = await fetch(altUrl, { next: { revalidate: 86400 } });
-    if (!altRes.ok) return null;
-    return parseShowResponse(await altRes.json());
+  const failures: string[] = [];
+  for (const url of [`${API_BASE}/years/${year}/${dateStr}`, `${API_BASE}/shows/${dateStr}`]) {
+    let res: Response;
+    try {
+      res = await fetch(url, { next: { revalidate: 86400 } }); // Cache for 24h
+    } catch (err) {
+      failures.push(`${url} could not be reached: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    if (res.ok) return { kind: "found", details: parseShowResponse(await res.json()) };
+    if (res.status !== 404) failures.push(refusal(url, res));
   }
+  return failures.length === 0 ? { kind: "missing" } : { kind: "failed", reason: failures.join("; ") };
+}
 
-  return parseShowResponse(await res.json());
+/** An answer that is not ok, as the maps job logs one: the URL, the status, and the server and cf-mitigated mark when it has them. */
+function refusal(url: string, res: Response): string {
+  const server = res.headers.get("server");
+  const mitigated = res.headers.get("cf-mitigated");
+  const by = [server && `server ${server}`, mitigated && `cf-mitigated ${mitigated}`].filter(Boolean).join(", ");
+  return `${url} answered ${res.status}${by ? ` (${by})` : ""}`;
 }
 
 function parseShowResponse(data: RelistenShowResponse): ShowDetails {
