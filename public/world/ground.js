@@ -16,9 +16,10 @@ export const FACING = Math.atan2(TRAILHEAD[0] - STAGE[0], TRAILHEAD[1] - STAGE[1
 /* The test hook ?pose=stage: on the open ground in front of the stage, 35.5 m from its centre and 14 degrees off its front, facing it
    and looking a little down. In third person the look down raises the boom, so the stage stands over the bear's head. */
 export const STAGE_POSE = { x: -4.2, z: 110.7, heading: 0.863, pitch: -0.2 };
-/* The test hook ?pose=path: on the loop's closing stretch, heading along it toward the trailhead, where the stage first shows whole and
-   clear of the fog: its front, about 72 m off, at the right of the frame. */
-export const PATH_POSE = { x: 36.6, z: 96.9, heading: 1.968, pitch: 0 };
+/* The test hook ?pose=path: on the loop's last stretch, heading along it toward the trailhead, a few metres past where the stage first
+   shows whole and clear of the fog, and past the landmark there, so the boom stands its full length behind the bear: the stage's front,
+   about 72 m off, at the right of the frame. */
+export const PATH_POSE = { x: 30.2, z: 99.4, heading: 1.928, pitch: 0 };
 
 /* The island's own height, before the stage's shelf. */
 export function slope(x, z) {
