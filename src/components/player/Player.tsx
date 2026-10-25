@@ -33,7 +33,7 @@ const PLAYER_LETTERS = new Set(["KeyK", "KeyJ", "KeyL", "KeyN", "KeyP"]);
 
 declare global {
   interface Window {
-    /** Render and playback stats the CI shoot script logs after every shot. */
+    /** Render and playback stats the CI shoot script logs after every shot and every control a recording holds. */
     __hill?: Record<string, unknown>;
   }
 }

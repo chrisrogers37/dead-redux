@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { verdict } from "../../../public/world/audio.js";
+import { listenerAt, verdict } from "../../../public/world/audio.js";
 
 /* Every combination of the four inputs. */
 const ALL = [false, true].flatMap((routes) =>
@@ -21,5 +21,19 @@ describe("verdict", () => {
     expect(verdict({ ...ready, running: true, metadata: false })).toBe("wait");
     expect(verdict({ ...ready, running: false, metadata: true })).toBe("wait");
     expect(verdict({ ...ready, running: true, metadata: true })).toBe("route");
+  });
+});
+
+describe("listenerAt", () => {
+  /* The visitor's bear's head and the camera, apart, as the world passes them. */
+  const head = { x: 39.2, y: 13.6, z: 24.2 };
+  const camera = { position: { x: 52, y: 22.5, z: 31 } };
+
+  it("stands at the visitor's bear's head in third person: the very point the bear moves, so it goes where the bear goes", () => {
+    expect(listenerAt(true, head, camera)).toBe(head);
+  });
+
+  it("stands at the camera in first person", () => {
+    expect(listenerAt(false, head, camera)).toBe(camera.position);
   });
 });

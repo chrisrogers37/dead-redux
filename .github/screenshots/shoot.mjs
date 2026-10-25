@@ -199,23 +199,40 @@ const RECORDINGS = [
     click: "#world[data-world='ready'] ~ div [data-action='follow']",
     waitFor: "[data-action='follow'][aria-pressed='true']",
   },
-  // From ?pose=stage the click starts the show, then the visitor's bear walks down the lawn to the platform and stops at its edge. CI's
-  // software renderer draws a few frames a second, each moving the world at most 50 ms, so the walk is held for 15 s and the recording
-  // runs 16.
+  // From ?pose=stage the click starts the show, then the visitor's bear walks down the lawn to the platform and stops at its edge. The
+  // walk is 25.7 m, and a frame moves the bear at most 0.6 m (12 m/s, each frame's step capped at 50 ms), so it takes 43 frames. CI's
+  // software renderer draws this view about once every 0.44 s, so the walk takes about 19 s there: it is held for 25 s, a few seconds
+  // of them at the edge, and the recording runs 26.
   {
     device: "desktop",
     name: "stage",
     path: "/2026-10-20?pose=stage",
     click: "canvas",
-    keys: [["ArrowUp", 15_000]],
-    recordMs: 16_000,
+    keys: [["ArrowUp", 25_000]],
+    recordMs: 26_000,
+  },
+  // The sound's listener through the camera's modes, from ?pose=stage: the click starts the show, B walks with the bears, a step walks
+  // again, F leans back, Escape leaves it and a step walks on. The stats line after each control shows the mode, where the listener
+  // stands and where the visitor's bear's head does; in third person they are the same point in every mode.
+  {
+    device: "desktop",
+    name: "stage-modes",
+    path: "/2026-10-20?pose=stage",
+    click: "canvas",
+    keys: [
+      ["KeyB", 3000],
+      ["ArrowUp", 2000],
+      ["KeyF", 3000],
+      ["Escape", 500],
+      ["ArrowUp", 2000],
+    ],
   },
 ];
 
 // How long each recording runs once the page has loaded and any control is pressed, unless it names its own `recordMs`.
 const RECORD_MS = 10_000;
 
-// Logs the page's render stats (window.__hill) for a shot; null on a page without them.
+// Logs the page's render stats (window.__hill) for a shot, or for a recording after each control it holds; null on a page without them.
 const logStats = async (page, file) => {
   const stats = await page.evaluate(() => JSON.stringify(window.__hill ?? null));
   console.log(`stats ${file} ${stats}`);
@@ -405,6 +422,7 @@ try {
       await page.waitForTimeout(ms);
       await page.keyboard.up(key);
       held += ms;
+      await logStats(page, `${file} after ${key}`);
     }
     // A pad is held with a mouse press, not a touch; the log says so.
     for (const [pad, ms] of pads ?? []) {
@@ -424,6 +442,7 @@ try {
       await page.mouse.up();
       held += ms;
       console.log(`${file}: ${pad} held ${ms} ms with the mouse, not a touch`);
+      await logStats(page, `${file} after ${pad}`);
     }
     await page.waitForTimeout(Math.max(recordMs - held, 0));
     const video = page.video();

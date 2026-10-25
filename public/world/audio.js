@@ -88,11 +88,16 @@ export function startSound(at, phone) {
   if (document.querySelector("main")?.dataset.joined === "true") ensureContext();
 }
 
-/* The listener stands at `pos` and faces where the camera looks, with the camera's up. It reads the camera's world matrix, so it is
-   called after the frame renders. The listener's AudioParams where the browser has them, else its older setters. */
-export function listen(pos, camera) {
+/* Where the listener stands: at the visitor's bear's head in third person, at the camera in first. `head` is the point the bear moves,
+   not a copy, so the listener goes wherever the bear goes. */
+export const listenerAt = (third, head, camera) => (third ? head : camera.position);
+
+/* The listener stands where the view puts it (listenerAt) and faces where the camera looks, with the camera's up. It reads the camera's
+   world matrix, so it is called after the frame renders. The listener's AudioParams where the browser has them, else its older
+   setters. */
+export function listen(third, head, camera) {
   if (!ctx) return;
-  const l = ctx.listener, m = camera.matrixWorld.elements;
+  const pos = listenerAt(third, head, camera), l = ctx.listener, m = camera.matrixWorld.elements;
   const fx = -m[8], fy = -m[9], fz = -m[10], ux = m[4], uy = m[5], uz = m[6];
   if (l.positionX) {
     l.positionX.value = pos.x; l.positionY.value = pos.y; l.positionZ.value = pos.z;
@@ -104,5 +109,10 @@ export function listen(pos, camera) {
   }
 }
 
-/* For the stats: the context's state (null before the first move) and how many elements play through the graph. */
-export const soundStats = () => ({ context: ctx?.state ?? null, routed: [...slots.values()].filter((s) => s.source).length });
+/* For the stats: the context's state (null before the first move), how many elements play through the graph, and where the listener
+   stands, read back from its AudioParams to the centimetre (null before the first move, or where the browser has only the setters). */
+export const soundStats = () => {
+  const l = ctx?.listener;
+  const listener = l?.positionX ? [l.positionX.value, l.positionY.value, l.positionZ.value].map((v) => Math.round(v * 100) / 100) : null;
+  return { context: ctx?.state ?? null, routed: [...slots.values()].filter((s) => s.source).length, listener };
+};

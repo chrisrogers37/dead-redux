@@ -308,16 +308,18 @@ function start(gl) {
     sun.castShadow = quality.shadows;
     stage.light.visible = quality.stageLight;
   }
-  /* The stats the CI shoot script logs after every shot and ?stats=1 shows, read live. They are defined on window.__hill, which the
-     player also writes, so its fields stay. */
+  /* The stats the CI shoot script logs after every shot and every control a recording holds, and ?stats=1 shows, read live. They are
+     defined on window.__hill, which the player also writes, so its fields stay. */
   const stat = (get) => ({ get, enumerable: true, configurable: true });
   Object.defineProperties((window.__hill ??= {}), {
     tier: stat(() => tier), scale: stat(() => quality.scale), rung: stat(() => rung),
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
     frameMs: stat(() => Math.round(frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
-    /* The view, whether the visitor's bear is drawn, whether its feet land in the frame (and above the now-plate on a phone), and where
-       its head lands, as fractions from the top-left. */
+    mode: stat(() => mode),
+    /* The view, whether the visitor's bear is drawn, where its head stands to the centimetre (the sound's listener in third person),
+       whether its feet land in the frame (and above the now-plate on a phone), and where its head lands, as fractions from the top-left. */
     avatar: stat(() => ({ view: third ? "third" : "first", shown: avatar.g.visible,
+      head: avatar.head.toArray().map((v) => Math.round(v * 100) / 100),
       ...(third ? avatar.report(camera, phone ? plateTop / frameH : null) : { clear: false, screen: null }) })),
   });
 
@@ -454,8 +456,9 @@ function start(gl) {
     cut = false;
 
     renderer.render(scene, camera);
-    /* The sound's listener is the visitor: their bear's head in third person, the camera in first; it faces where the camera looks. */
-    listen(third ? avatar.head : camera.position, camera);
+    /* The sound's listener is the visitor: their bear's head in third person, the camera in first (listenerAt); it faces where the
+       camera looks. */
+    listen(third, avatar.head, camera);
   }
 
   /* The page reads the tier beside the world's state. */
