@@ -104,6 +104,23 @@ describe("rise", () => {
     expect(LEN * room).toBeCloseTo(entry - 0.5, 9);
   });
 
+  it("measures the entry distance along +z and along a diagonal", () => {
+    expect(nearest(HEAD, line(Math.PI / 2), [landmark(Math.PI / 2, 7, 20)], [])).toBeCloseTo(6.2 / Math.cos(EL), 9);
+    // Along the diagonal the line enters the box at its near corner, 0.8 m in on both axes.
+    expect(nearest(HEAD, line(Math.PI / 4), [landmark(Math.PI / 4, 7, 20)], [])).toBeCloseTo((7 - 0.8 * Math.SQRT2) / Math.cos(EL), 9);
+  });
+
+  it("takes the nearer of two landmarks on one line, in either order", () => {
+    const near = landmark(0, 7, 20), far = landmark(0, 12, 20);
+    expect(nearest(HEAD, line(0), [far, near], [])).toBeCloseTo(6.2 / Math.cos(EL), 9);
+    expect(nearest(HEAD, line(0), [near, far], [])).toBeCloseTo(6.2 / Math.cos(EL), 9);
+  });
+
+  it("keeps a face just beyond the camera from drawing it in", () => {
+    // Its near face is 11.2 m along the boom, past the camera at 11 m.
+    expect(rise(HEAD, line(0), LEN, [landmark(0, 11.2 * Math.cos(EL) + 0.8, 20)], [], 0, 1).room).toBe(1);
+  });
+
   it("draws the camera in front of a landmark with the boom below the head, as when the walker looks up", () => {
     const box = landmark(0, 7, 20);
     const dir = line(0, -0.24);
