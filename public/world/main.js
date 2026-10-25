@@ -9,6 +9,7 @@ import { buildAvatar } from "./avatar.js";
 import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
 import { keepOut } from "./collide.js";
+import { keepSpot } from "./modes.js";
 import { listen, soundStats, startSound } from "./audio.js";
 import { buildStage, STAGE_COLUMN, STAGE_REACH, STAGE_SOUND } from "./stage.js";
 import { budgetFor, median, pickTier, SLOW_MS, stepDown, WINDOW } from "./quality.js";
@@ -190,12 +191,16 @@ function start(gl) {
     const d = slotD(), p = line.at(d), t = line.tangentAt(d);
     return { x: p.x, z: p.z, heading: Math.atan2(-t.x, -t.z) };
   }
-  /* Puts the walker in its place in the line. Every walk starts there: one begun in attract, the descent or lean-back, one that leaves
-     follow, and the walk reduced motion opens on. */
+  /* Puts the walker in its place in the line, where every camera but the walk's and follow's keeps it, and where the walk reduced motion
+     opens on. */
   function toSlot() {
     const s = slot();
     walker.x = s.x; walker.z = s.z; walker.heading = s.heading;
   }
+  /* A walk starts where the visitor's bear last stood in a walk, or at the nearest spot where a walker may stand if it no longer may
+     there, else in its place in the line, as the first walk after the descent does (modes.js). */
+  const spot = keepSpot(walker, slot, () => ({ bound: BOUND, stage: STAGE_COLUMN, stageReach: STAGE_REACH, bears: bearSpots,
+    bearReach: third ? BODY_REACH : BEAR_REACH }));
   /* The camera that walks with the bears, in follow and attract, its eye above their heads; it looks at the lead bear, turned by `yaw`
      and tilted by `pitch`. In third person it stands behind the visitor's bear and to its left, away from the path, along the chord from
      that bear to the lead one, and looks 2 m over the lead bear's head, so all six read: 16 m behind and 6 m to the left with the eye
@@ -228,11 +233,11 @@ function start(gl) {
      head stands 36 % up the frame, at most 0.3 rad. */
   const keepInView = (from, look) => phone ? avatar.turnDown(camera, from, look, avatar.feet, plateY(), 0.45) : avatar.turnDown(camera, from, look, avatar.top, -0.28);
   const forward = () => new THREE.Vector3(-Math.sin(walker.heading), 0, -Math.cos(walker.heading));
-  /* Changes the camera's mode and tells the page. A walk starts in the visitor's place in the line; entering follow frames the bears
-     again, level. */
+  /* Changes the camera's mode and tells the page. A walk starts where the visitor's bear last stood in one (`spot`); entering follow
+     frames the bears again, level. */
   function setMode(m) {
     if (m === mode) return;
-    if (m === "walk") toSlot();
+    if (m === "walk") spot.walk();
     if (m === "follow") { followBase = walker.heading; walker.pitch = 0; }
     mode = m;
     document.dispatchEvent(new CustomEvent("world:mode", { detail: { mode } }));
@@ -413,6 +418,7 @@ function start(gl) {
       keepOut(walker, stageSpot, STAGE_REACH);
       keepOut(walker, bearSpots, third ? BODY_REACH : BEAR_REACH);
       avatar.step(walker.x, walker.z, walker.heading, dt);
+      spot.stand();
       if (third) aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));
       else {
         placeWalker();
