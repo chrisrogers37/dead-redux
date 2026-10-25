@@ -1,6 +1,6 @@
 /* eslint-disable */
 import * as THREE from "three";
-import { height } from "./island.js";
+import { height } from "./ground.js";
 import { buildBear } from "./bears.js";
 import { rise } from "./boom.js";
 

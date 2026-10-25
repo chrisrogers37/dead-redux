@@ -104,9 +104,14 @@ const PAGES = [
     shots: [],
     steps: [playStep("fixed-space-start", { ms: 12000, shot: "fixed-space" })],
   },
-  // The fixed day from ?pose=stage: the visitor's bear on the lawn in front of the stage, and over its head the six players against the
+  // The fixed day from ?pose=stage: the visitor's bear on the slope in front of the stage, and over its head the six players against the
   // panel, the open front toward the camera.
   { path: "/2026-10-20?pose=stage", devices: ["desktop"], shots: ["fixed-stage"] },
+  // The fixed day from ?pose=slope: the visitor's bear higher up the slope, looking down over it to the stage at its foot.
+  { path: "/2026-10-20?pose=slope", devices: ["desktop"], shots: ["fixed-stage-slope"] },
+  // The fixed day from ?pose=path: the visitor's bear on the loop at the summit's north-east shoulder, heading along it, and down the slope
+  // to the left of it the stage's front.
+  { path: "/2026-10-20?pose=path", devices: ["desktop"], shots: ["fixed-stage-path"] },
   // The end shot shows the last screen, where the archive's count line sits.
   { path: "/archive", shots: ["archive"], end: "archive-end" },
   // A fixed past day, so its shots compare across runs.
@@ -199,10 +204,10 @@ const RECORDINGS = [
     click: "#world[data-world='ready'] ~ div [data-action='follow']",
     waitFor: "[data-action='follow'][aria-pressed='true']",
   },
-  // From ?pose=stage the click starts the show, then the visitor's bear walks down the lawn to the platform and stops at its edge. The
-  // walk is 25.7 m, and a frame moves the bear at most 0.6 m (12 m/s, each frame's step capped at 50 ms), so it takes 43 frames. CI's
-  // software renderer draws this view about once every 0.44 s, so the walk takes about 19 s there: it is held for 25 s, a few seconds
-  // of them at the edge, and the recording runs 26.
+  // From ?pose=stage the click starts the show, then the visitor's bear walks down the slope to the platform and stops at its edge. The
+  // walk is 23 m, and a frame moves the bear at most 0.6 m (12 m/s, each frame's step capped at 50 ms), so it takes 39 frames. CI's
+  // software renderer draws this view about once every 0.5 s, so the walk takes about 20 s there: it is held for 25 s, a few seconds of
+  // them at the edge, and the recording runs 26.
   {
     device: "desktop",
     name: "stage",
