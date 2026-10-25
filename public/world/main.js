@@ -233,11 +233,12 @@ function start(gl) {
      head stands 36 % up the frame, at most 0.3 rad. */
   const keepInView = (from, look) => phone ? avatar.turnDown(camera, from, look, avatar.feet, plateY(), 0.45) : avatar.turnDown(camera, from, look, avatar.top, -0.28);
   const forward = () => new THREE.Vector3(-Math.sin(walker.heading), 0, -Math.cos(walker.heading));
-  /* Changes the camera's mode and tells the page. A walk starts where the visitor's bear last stood in one (`spot`); entering follow
-     frames the bears again, level. */
+  /* Changes the camera's mode and tells the page. A walk starts where the visitor's bear last stood in one (`spot`). Where that is away
+     from its place in the line the camera cuts to it, since easing there would carry the view across the island without the bear in
+     it; entering follow frames the bears again, level. */
   function setMode(m) {
     if (m === mode) return;
-    if (m === "walk") spot.walk();
+    if (m === "walk" && spot.walk() !== "slot") cut = true;
     if (m === "follow") { followBase = walker.heading; walker.pitch = 0; }
     mode = m;
     document.dispatchEvent(new CustomEvent("world:mode", { detail: { mode } }));
