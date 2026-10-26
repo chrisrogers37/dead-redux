@@ -41,6 +41,8 @@ body { background-color: var(--page); color: var(--ink); }
 #world { position: fixed; inset: 0; outline: none; touch-action: none; }
 #world canvas { display: block; width: 100%; height: 100%; }
 #world:focus-visible { box-shadow: inset 0 0 0 3px var(--accent); }
+/* The canvas covers the container's own ring, so a focused world draws the ring on the canvas, over the picture. */
+#world:focus-visible canvas { outline: 3px solid var(--accent); outline-offset: -3px; }
 .plate { background: rgba(11, 11, 13, 0.9); border-radius: 4px; padding: 16px; }
 .hud { position: fixed; z-index: 10; }
 /* The chip that names the next show fades in; a reduced-motion visitor sees it at once (the rule below turns animations off). */
@@ -57,11 +59,25 @@ body { background-color: var(--page); color: var(--ink); }
 .pad [data-pad="down"] { grid-column: 2; grid-row: 2; }
 .pad [data-pad="right"] { grid-column: 3; grid-row: 2; }
 
-/* The seek slider: a 6-px track filled with the accent up to the playing position (--p), a 16-px accent thumb ringed in the page colour. */
-.seek { appearance: none; height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent) var(--p), var(--line) var(--p)); }
-.seek::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 2px solid var(--page); }
+/* The seek slider: a 44-px band to touch, with a 6-px track (8 in lean-back), filled with the accent up to the playing position (--p),
+   and a 16-px accent thumb ringed in the page colour. The padding makes the band: it starts where the control row ends, so the two
+   never share a touch, and the track lies 12 px into it (16 under lean-back's line), with the rest below. A block, so the margin
+   alone takes the padding back: 7 px stays under the track, as it did. */
+.seek { appearance: none; display: block; box-sizing: content-box; height: 6px; padding: 12px 0 26px; margin: 0 0 -19px; background: none; }
+.seek::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent) var(--p), var(--line) var(--p)); }
+.seek::-moz-range-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent) var(--p), var(--line) var(--p)); }
+/* WebKit and Blink hang the thumb from the track's top, so it is pulled up by half the difference; Gecko centres its own. */
+.seek::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; margin-top: -5px; border-radius: 50%; background: var(--accent); border: 2px solid var(--page); }
 .seek::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); border: 2px solid var(--page); }
-[data-mode="leanback"] .seek { height: 8px; }
+/* The ring sits round the track, not the band: 3 px of page, then the 3-px accent. The outline stays, transparent, for forced colours,
+   which drop box shadows and draw the outline round the band instead. */
+.seek:focus-visible { outline-color: transparent; }
+.seek:focus-visible::-webkit-slider-runnable-track { box-shadow: 0 0 0 3px var(--page), 0 0 0 6px var(--accent); }
+.seek:focus-visible::-moz-range-track { box-shadow: 0 0 0 3px var(--page), 0 0 0 6px var(--accent); }
+[data-mode="leanback"] .seek { height: 8px; padding: 16px 0 20px; margin: 0 0 -13px; }
+[data-mode="leanback"] .seek::-webkit-slider-runnable-track { height: 8px; }
+[data-mode="leanback"] .seek::-moz-range-track { height: 8px; }
+[data-mode="leanback"] .seek::-webkit-slider-thumb { margin-top: -4px; }
 
 /* The designed still for a browser without WebGL 2: a sky, the hill, its two caves, the ring. */
 .world-fallback { display: none; position: fixed; inset: 0; overflow: hidden; }
