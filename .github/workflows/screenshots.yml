@@ -68,6 +68,14 @@ jobs:
             "$OUT_DIR/desktop-reduced-home-diff.png"
         env:
           OUT_DIR: ${{ runner.temp }}/screenshots
+      # Fetches the manifest and each icon it lists, checks the declared sizes against the PNGs served, and asks Chrome whether the
+      # site installs. Runs after a failed compare too; a failed check fails the run, and the upload below keeps the shots.
+      - name: Check the install
+        id: install
+        if: success() || steps.compare.outcome == 'failure'
+        run: node install.mjs
+        env:
+          SITE_URL: ${{ github.event.deployment_status.environment_url || inputs.url }}
       # The integrity values a modulepreload link can pin for the world's two CDN files.
       - name: Print the CDN files' sha384
         continue-on-error: true
@@ -81,9 +89,9 @@ jobs:
             h=$(curl -fsS --max-time 20 "$u" | openssl dgst -sha384 -binary | openssl base64 -A)
             echo "sha384-$h  $u" | tee -a "$GITHUB_STEP_SUMMARY"
           done
-      # Also runs when an enforced compare fails, so the shots and the diff are kept.
+      # Also runs when an enforced compare or the install check fails, so the shots and the diff are kept.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: success() || steps.compare.outcome == 'failure'
+        if: success() || steps.compare.outcome == 'failure' || steps.install.outcome == 'failure'
         with:
           name: screenshots-${{ steps.shoot.outputs.host }}-${{ github.sha }}
           path: ${{ runner.temp }}/screenshots
