@@ -181,6 +181,28 @@ describe("pickBestSource", () => {
     expect(bestOf(most, titled)?.upstreamIdentifier).toBe("titled");
   });
 
+  it("counts a source with no tracks as labeled, so it ranks ahead of placeholders whatever their ratings", () => {
+    const placeholders = source("placeholders", true, 9.9, 99, ["gd72-09-10t01.mp3", "gd72-09-10t02.mp3"]);
+    const empty = source("empty", false, 1, 0, []);
+    expect(bestOf(placeholders, empty)?.upstreamIdentifier).toBe("empty");
+  });
+
+  it("counts a source of blank titles as labeled, and prints its titles blank", () => {
+    const placeholders = source("placeholders", true, 9.9, 99, ["gd72-09-10t01.mp3", "gd72-09-10t02.mp3"]);
+    const blank = source("blank", false, 1, 0, ["", ""]);
+    const best = bestOf(placeholders, blank);
+    expect(best?.upstreamIdentifier).toBe("blank");
+    expect(titlesOf(best)).toEqual(["", ""]);
+  });
+
+  it("counts the titles of every set, not only the first", () => {
+    const twoSets = source("two-sets", true, 9, 5, ["Bertha", "Deal"]);
+    const placeholders = source("two-sets", true, 9, 5, ["gd72-09-10t03.mp3", "gd72-09-10t04.mp3", "gd72-09-10t05.mp3"]);
+    twoSets.sets.push({ ...placeholders.sets[0], name: "Set 2" });
+    const titled = source("titled", true, 8, 5, ["Bertha", "Deal", "El Paso"]);
+    expect(bestOf(twoSets, titled)?.upstreamIdentifier).toBe("titled");
+  });
+
   it("ranks a soundboard with file-name titles after a titled audience recording", () => {
     const best = bestOf(
       source("sbd-file-names", true, 9.5, 30, ["gd72-09-10t01.mp3", "gd72-09-10t02.mp3"]),
@@ -219,6 +241,26 @@ describe("lookUpShow", () => {
       kind: "failed",
       reason: `${YEAR} could not be reached: fetch failed; ${SHOW} could not be reached: fetch failed`,
     });
+  });
+
+  it("cleans what it parses: the four short facts as plain text, and a leading track number off a title", async () => {
+    const answered = source("cleaned", true, 9, 5, ["01 Bertha", "02. Deal", "Dark Star.mp3"]);
+    answered.source = "<b>SBD</b> &gt; DAT";
+    answered.taper = "Rob&nbsp;Bertrando";
+    answered.lineage = "DAT &gt; CD &gt; FLAC";
+    answered.transferrer = "&lt;unknown&gt;";
+    const show = { date: "1986-07-04", display_date: "1986-07-04", venue: null, tour: null, sources: [answered], avg_rating: 9 };
+    relisten(() => new Response(JSON.stringify(show)));
+    const result = await lookUpShow("1986-07-04");
+    if (result.kind !== "found") throw new Error(`expected the show, got ${result.kind}`);
+    const [parsed] = result.details.sources;
+    expect(parsed).toMatchObject({
+      source: "SBD > DAT",
+      taper: "Rob Bertrando",
+      lineage: "DAT > CD > FLAC",
+      transferrer: "<unknown>",
+    });
+    expect(titlesOf(parsed)).toEqual(["Bertha", "Deal", "Track 3"]);
   });
 
   it("names a refusal as the maps job names one", async () => {

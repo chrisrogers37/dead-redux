@@ -57,8 +57,8 @@ export class HttpError extends Error {
 }
 
 /* What a failed answer says failed behind it: the `error` of a JSON answer, as the site's /api/playing gives when Relisten fails to
-   answer it, cut to a line; null for any other answer, whose body is let go unread. A JSON body that does not parse only loses the
-   detail, since the answer has failed anyway. */
+   answer it, cut to its first 300 characters, newlines included; null for any other answer, whose body is let go unread. A JSON body
+   that does not parse only loses the detail, since the answer has failed anyway. */
 async function errorOf(res) {
   if (!res.headers.get("content-type")?.includes("application/json")) {
     await res.body?.cancel();
