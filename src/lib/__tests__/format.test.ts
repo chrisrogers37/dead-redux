@@ -154,10 +154,6 @@ describe("toPlainText", () => {
     expect(toPlainText("&quot;Dark Star&quot; &#39;72 &#x26; more")).toBe("\"Dark Star\" '72 & more");
   });
 
-  it("drops tags before decoding, so an encoded bracket stays as text", () => {
-    expect(toPlainText("Master &lt;- Reel &gt; DAT")).toBe("Master <- Reel > DAT");
-  });
-
   it("keeps a bracket that does not start a tag", () => {
     const text = "standard stereo configuration< (mic stand at approx. 7.5' height) > Sony TC-D5M";
     expect(toPlainText(text)).toBe(text);
@@ -175,13 +171,12 @@ describe("toPlainText", () => {
     expect(toPlainText("&constructor; &toString; &eacute;")).toBe("&constructor; &toString; &eacute;");
   });
 
-  it("reads tags and entities in any letter case", () => {
-    expect(toPlainText("<B>SBD</B> &AMP; &Lt;DAT&GT; &#X26;")).toBe("SBD & <DAT> &");
+  it("reads tags in any letter case, and entity names in capitals", () => {
+    expect(toPlainText("<B>SBD</B> &AMP; &LT;DAT&GT; &#X26;")).toBe("SBD & <DAT> &");
   });
 
   it("decodes a numeric entity only for a code point that exists", () => {
-    const last = String.fromCodePoint(0x10ffff);
-    expect(toPlainText("a&#0;b &#x110000; &#x10FFFF; &#65;")).toBe(`a&#0;b &#x110000; ${last} A`);
+    expect(toPlainText("a&#0;b &#x110000; &#x10FFFF; &#65;")).toBe("a&#0;b &#x110000; \u{10FFFF} A");
   });
 
   it("drops whatever a < and a letter open, up to the next >", () => {

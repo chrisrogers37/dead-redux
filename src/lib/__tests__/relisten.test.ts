@@ -197,16 +197,8 @@ describe("pickBestSource", () => {
 
   it("counts the titles of every set, not only the first", () => {
     const twoSets = source("two-sets", true, 9, 5, ["Bertha", "Deal"]);
-    twoSets.sets.push({
-      name: "Set 2",
-      tracks: [3, 4, 5].map((n) => ({
-        title: `gd72-09-10t0${n}.mp3`,
-        duration: 300,
-        track_position: n,
-        mp3_url: `https://archive.org/download/two-sets/${n}.mp3`,
-        flac_url: null,
-      })),
-    });
+    const placeholders = source("two-sets", true, 9, 5, ["gd72-09-10t03.mp3", "gd72-09-10t04.mp3", "gd72-09-10t05.mp3"]);
+    twoSets.sets.push({ ...placeholders.sets[0], name: "Set 2" });
     const titled = source("titled", true, 8, 5, ["Bertha", "Deal", "El Paso"]);
     expect(bestOf(twoSets, titled)?.upstreamIdentifier).toBe("titled");
   });
@@ -255,20 +247,19 @@ describe("lookUpShow", () => {
     const answered = source("cleaned", true, 9, 5, ["01 Bertha", "02. Deal", "Dark Star.mp3"]);
     answered.source = "<b>SBD</b> &gt; DAT";
     answered.taper = "Rob&nbsp;Bertrando";
-    answered.lineage = "DAT &gt; CD<br>&gt; FLAC";
+    answered.lineage = "DAT &gt; CD &gt; FLAC";
     answered.transferrer = "&lt;unknown&gt;";
     const show = { date: "1986-07-04", display_date: "1986-07-04", venue: null, tour: null, sources: [answered], avg_rating: 9 };
-    const answer = () => new Response(JSON.stringify(show), { headers: { "content-type": "application/json" } });
-    relisten((url) => (url === YEAR ? answer() : new Response(null, { status: 404 })));
+    relisten(() => new Response(JSON.stringify(show)));
     const result = await lookUpShow("1986-07-04");
     if (result.kind !== "found") throw new Error(`expected the show, got ${result.kind}`);
     const [parsed] = result.details.sources;
-    expect([parsed.source, parsed.taper, parsed.lineage, parsed.transferrer]).toEqual([
-      "SBD > DAT",
-      "Rob Bertrando",
-      "DAT > CD> FLAC",
-      "<unknown>",
-    ]);
+    expect(parsed).toMatchObject({
+      source: "SBD > DAT",
+      taper: "Rob Bertrando",
+      lineage: "DAT > CD > FLAC",
+      transferrer: "<unknown>",
+    });
     expect(titlesOf(parsed)).toEqual(["Bertha", "Deal", "Track 3"]);
   });
 

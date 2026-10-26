@@ -418,6 +418,9 @@ exit "\${STUB_FFMPEG_EXIT:-0}"
 type Answer = Response | Error;
 const ok = () => new Response("{}", { status: 200 });
 const httpStatus = (code: number) => new Response(null, { status: code });
+// The site's route when Relisten fails behind it: a 502 whose JSON body says what failed.
+const jsonError = (error: string) =>
+  new Response(JSON.stringify({ error }), { status: 502, headers: { "content-type": "application/json", server: "Vercel" } });
 
 // A client's io: every request is recorded and answered from the queue, and every pause is recorded and skipped.
 function fakeClientIO(answers: Answer[]) {
@@ -487,11 +490,7 @@ describe("politeClient", () => {
   });
 
   it("says what a JSON error answer says failed behind it, as the site's route does for Relisten", async () => {
-    const said = () =>
-      new Response(JSON.stringify({ error: "upstream answered 403" }), {
-        status: 502,
-        headers: { "content-type": "application/json", server: "Vercel" },
-      });
+    const said = () => jsonError("upstream answered 403");
     const f = fakeClientIO([said(), said(), said()]);
     await expect(politeClient(f.io).request("https://example.test/1", (res: Response) => res.json())).rejects.toThrow(
       "https://example.test/1 answered 502 (server Vercel): upstream answered 403"
@@ -500,16 +499,11 @@ describe("politeClient", () => {
 
   it("keeps the first 300 characters of a long JSON error, newlines included", async () => {
     const error = `upstream answered 403\n${"x".repeat(400)}`;
-    const said = () =>
-      new Response(JSON.stringify({ error }), {
-        status: 502,
-        headers: { "content-type": "application/json", server: "Vercel" },
-      });
-    const f = fakeClientIO([said(), said(), said()]);
-    const failure = await politeClient(f.io)
-      .request("https://example.test/1", (res: Response) => res.json())
-      .catch((err: Error) => err);
-    expect((failure as Error).message).toBe(`https://example.test/1 answered 502 (server Vercel): ${error.slice(0, 300)}`);
+    const f = fakeClientIO([jsonError(error), jsonError(error), jsonError(error)]);
+    await expect(politeClient(f.io).request("https://example.test/1", (res: Response) => res.json())).rejects.toHaveProperty(
+      "message",
+      `https://example.test/1 answered 502 (server Vercel): ${error.slice(0, 300)}`
+    );
   });
 
   it("does not retry a refusal, and pauses before the next request all the same", async () => {

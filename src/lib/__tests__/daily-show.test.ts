@@ -31,31 +31,9 @@ describe("getDailyShow", () => {
   });
 });
 
-describe("isValidDateStr", () => {
-  it("accepts valid date strings", () => {
-    expect(isValidDateStr("2026-02-16")).toBe(true);
-    expect(isValidDateStr("1977-05-08")).toBe(true);
-  });
-
-  it("rejects invalid formats", () => {
-    expect(isValidDateStr("not-a-date")).toBe(false);
-    expect(isValidDateStr("2026/02/16")).toBe(false);
-    expect(isValidDateStr("")).toBe(false);
-  });
-
-  it("rejects a day its month does not have, which Date.parse would roll into the next month", () => {
-    expect(isValidDateStr("1986-02-30")).toBe(false);
-    expect(isValidDateStr("1986-02-29")).toBe(false);
-    expect(isValidDateStr("1986-04-31")).toBe(false);
-  });
-
-  it("accepts the 29th of February in a leap year", () => {
-    expect(isValidDateStr("1988-02-29")).toBe(true);
-  });
-});
-
 // The date rule exists twice: the site's isValidDateStr and the world's isShowDate
-// (public/world/maps.js), which do not import each other. One table holds both to it.
+// (public/world/maps.js), which do not import each other. One table holds both to it,
+// a day its month does not have included, which Date.parse would roll into the next month.
 const DATE_RULES: { name: string; rule: (value: string) => boolean }[] = [
   { name: "isValidDateStr", rule: isValidDateStr },
   { name: "isShowDate", rule: isShowDate },
@@ -64,6 +42,7 @@ const DATE_RULES: { name: string; rule: (value: string) => boolean }[] = [
 describe.each(DATE_RULES)("the date rule, as $name holds it", ({ rule }) => {
   it.each<[string, boolean]>([
     ["1977-05-08", true],
+    ["2026-02-16", true],
     ["1988-02-29", true],
     ["2000-02-29", true],
     ["1986-02-29", false],
@@ -72,7 +51,10 @@ describe.each(DATE_RULES)("the date rule, as $name holds it", ({ rule }) => {
     ["1900-02-29", false],
     ["1986-13-01", false],
     ["1986-00-10", false],
-  ])("judges %s %s", (date, accepted) => {
+    ["not-a-date", false],
+    ["2026/02/16", false],
+    ["", false],
+  ])("judges %j %s", (date, accepted) => {
     expect(rule(date)).toBe(accepted);
   });
 
