@@ -56,28 +56,81 @@ describe("featuredWindow", () => {
 describe("showsToMap", () => {
   const featured = featuredWindow("2026-10-01", 5, showOn);
 
-  it("lists each show once, in the order they are featured", () => {
-    expect(showsToMap(featured, new Set(), 10)).toEqual(["1977-05-08", "1977-05-09", "1981-08-06", "1990-03-29"]);
+  // The recording each map was made from, by show date.
+  const SBD = new Map([
+    ["1977-05-08", "gd77-05-08.sbd"],
+    ["1981-08-06", "gd81-08-06.sbd"],
+  ]);
+  // The page plays what each map was made from: the answer when nothing has changed.
+  const asMapped = (have: Map<string, string>) => async (show: string) => have.get(show) ?? null;
+
+  it("lists each show once, in the order they are featured", async () => {
+    expect(await showsToMap(featured, new Map(), 10, asMapped(new Map()))).toEqual([
+      "1977-05-08",
+      "1977-05-09",
+      "1981-08-06",
+      "1990-03-29",
+    ]);
   });
 
-  it("leaves out the shows that have a map", () => {
-    expect(showsToMap(featured, new Set(["1977-05-08", "1981-08-06"]), 10)).toEqual(["1977-05-09", "1990-03-29"]);
+  it("leaves out the shows whose map is of the recording the page plays", async () => {
+    expect(await showsToMap(featured, SBD, 10, asMapped(SBD))).toEqual(["1977-05-09", "1990-03-29"]);
   });
 
-  it("stops at the limit", () => {
-    expect(showsToMap(featured, new Set(), 2)).toEqual(["1977-05-08", "1977-05-09"]);
-    expect(showsToMap(featured, new Set(["1977-05-08"]), 2)).toEqual(["1977-05-09", "1981-08-06"]);
+  it("stops at the limit", async () => {
+    expect(await showsToMap(featured, new Map(), 2, asMapped(new Map()))).toEqual(["1977-05-08", "1977-05-09"]);
+    const one = new Map([["1977-05-08", "gd77-05-08.sbd"]]);
+    expect(await showsToMap(featured, one, 2, asMapped(one))).toEqual(["1977-05-09", "1981-08-06"]);
   });
 
-  it("lists nothing when every show has a map", () => {
-    expect(showsToMap(featured, new Set(featured.map((day: { show: string }) => day.show)), 10)).toEqual([]);
+  it("lists nothing when every show's map is of the recording the page plays", async () => {
+    const all = new Map(featured.map((day: { show: string }): [string, string] => [day.show, `gd${day.show}.sbd`]));
+    expect(await showsToMap(featured, all, 10, asMapped(all))).toEqual([]);
+  });
+
+  it("maps a show again when the page plays another recording than its map was made from", async () => {
+    const playing = async (show: string) => (show === "1977-05-08" ? "gd77-05-08.aud" : (SBD.get(show) ?? null));
+    expect(await showsToMap(featured, SBD, 10, playing)).toEqual(["1977-05-08", "1977-05-09", "1990-03-29"]);
+  });
+
+  it("counts a map that names no recording as made from another", async () => {
+    const unnamed = new Map([["1977-05-08", ""]]);
+    expect(await showsToMap(featured, unnamed, 1, async () => "gd77-05-08.sbd")).toEqual(["1977-05-08"]);
+  });
+
+  it("keeps a map when what the page plays cannot be learned", async () => {
+    expect(await showsToMap(featured, SBD, 1, async () => null)).toEqual(["1977-05-09"]);
+  });
+
+  it("asks only about the shows that have a map, once each", async () => {
+    const asked: string[] = [];
+    const playing = async (show: string) => {
+      asked.push(show);
+      return SBD.get(show) ?? null;
+    };
+    expect(await showsToMap(featured, SBD, 10, playing)).toEqual(["1977-05-09", "1990-03-29"]);
+    expect(asked).toEqual(["1977-05-08", "1981-08-06"]);
+  });
+
+  it("asks nothing more once the limit is picked", async () => {
+    const asked: string[] = [];
+    const playing = async (show: string) => {
+      asked.push(show);
+      return SBD.get(show) ?? null;
+    };
+    const later = new Map([["1981-08-06", "gd81-08-06.sbd"]]);
+    expect(await showsToMap(featured, later, 2, playing)).toEqual(["1977-05-08", "1977-05-09"]);
+    expect(asked).toEqual([]);
   });
 });
 
-// A run's io: what it prints, what it says about each day, and the files it can read.
-function fakeIO(files: Record<string, string> = {}) {
+// A run's io: what it prints and what it says, the maps directories it can read ({ dir: { name: text } }), and the site it asks,
+// whose /api/playing/<show date> answers with `playing[show date]`: the identifier of the recording the page plays, or the HTTP
+// status of a failure. Every URL asked is in `asked`.
+function fakeIO(dirs: Record<string, Record<string, string>> = {}, playing: Record<string, string | number> = {}) {
   const out: string[] = [];
   const log: string[] = [];
+  const asked: string[] = [];
   const io = {
     out: (line: string) => {
       out.push(line);
@@ -85,48 +138,102 @@ function fakeIO(files: Record<string, string> = {}) {
     log: (line: string) => {
       log.push(line);
     },
-    read: (file: string) => {
-      if (!(file in files)) throw new Error(`ENOENT: ${file}`);
-      return files[file];
+    list: (dir: string) => {
+      if (!(dir in dirs)) throw new Error(`ENOENT: ${dir}`);
+      return Object.keys(dirs[dir]);
     },
+    read: (file: string) => {
+      const cut = file.lastIndexOf("/");
+      const text = dirs[file.slice(0, cut)]?.[file.slice(cut + 1)];
+      if (text === undefined) throw new Error(`ENOENT: ${file}`);
+      return text;
+    },
+    fetch: async (url: string) => {
+      asked.push(url);
+      const answer = playing[url.slice(url.lastIndexOf("/") + 1)] ?? 404;
+      return typeof answer === "string"
+        ? new Response(JSON.stringify({ identifier: answer, tracks: [] }), { headers: { "content-type": "application/json" } })
+        : new Response(null, { status: answer });
+    },
+    sleep: async () => {},
   };
-  return { io, out, log };
+  return { io, out, log, asked };
 }
+
+// A map's file, as far as the pick reads it.
+const mapOf = (playing: string) => JSON.stringify({ v: 1, show: "1986-07-04", analysed: playing, playing, step: 1, tracks: [] });
 
 describe("main", () => {
   const ARGS = ["--from", "2026-10-20", "--days", "1", "--limit", "2"];
+  const MAPPED = { maps: { "1986-07-04.json": mapOf("gd86-07-04.sbd") } };
 
-  it("prints the show to map and says which show each day features", () => {
+  it("prints the show to map and says which show each day features", async () => {
     const f = fakeIO();
-    expect(main(ARGS, f.io)).toBe(0);
+    expect(await main(ARGS, f.io)).toBe(0);
     expect(f.out).toEqual(["1986-07-04"]);
     expect(f.log).toEqual(["2026-10-20 features 1986-07-04"]);
+    expect(f.asked).toEqual([]);
   });
 
-  it("leaves out a show that has a map, and says so", () => {
-    const f = fakeIO({ "have.txt": "1986-07-04\n" });
-    expect(main([...ARGS, "--have", "have.txt"], f.io)).toBe(0);
+  it("leaves out a show whose map is of the recording the page plays, and says so", async () => {
+    const f = fakeIO(MAPPED, { "1986-07-04": "gd86-07-04.sbd" });
+    expect(await main([...ARGS, "--maps", "maps"], f.io)).toBe(0);
     expect(f.out).toEqual([]);
-    expect(f.log).toEqual(["2026-10-20 features 1986-07-04, which has a map"]);
+    expect(f.log).toEqual([
+      "2026-10-20 features 1986-07-04, which has a map",
+      "1986-07-04: the page still plays gd86-07-04.sbd",
+    ]);
   });
 
-  it("reads a have file of one date a line, blank lines and spaces ignored", () => {
-    const f = fakeIO({ "have.txt": "1977-05-08\r\n\n  1986-07-04  \n" });
-    expect(main([...ARGS, "--have", "have.txt"], f.io)).toBe(0);
+  it("maps a show again when the page plays another recording than its map was made from, and says so", async () => {
+    const f = fakeIO(MAPPED, { "1986-07-04": "gd86-07-04.aud" });
+    expect(await main([...ARGS, "--maps", "maps"], f.io)).toBe(0);
+    expect(f.out).toEqual(["1986-07-04"]);
+    expect(f.log).toContain("1986-07-04: its map was made from gd86-07-04.sbd, and the page now plays gd86-07-04.aud");
+  });
+
+  it("asks production's /api/playing route, or the site it is given", async () => {
+    const production = fakeIO(MAPPED, { "1986-07-04": "gd86-07-04.sbd" });
+    await main([...ARGS, "--maps", "maps"], production.io);
+    expect(production.asked).toEqual(["https://dead-redux.vercel.app/api/playing/1986-07-04"]);
+    const preview = fakeIO(MAPPED, { "1986-07-04": "gd86-07-04.sbd" });
+    await main([...ARGS, "--maps", "maps", "--site", "https://preview.example.test/"], preview.io);
+    expect(preview.asked).toEqual(["https://preview.example.test/api/playing/1986-07-04"]);
+  });
+
+  it("keeps a map, and says why, when the site cannot say what the page plays", async () => {
+    const f = fakeIO(MAPPED, { "1986-07-04": 404 });
+    expect(await main([...ARGS, "--maps", "maps"], f.io)).toBe(0);
     expect(f.out).toEqual([]);
+    expect(f.log).toContain(
+      "1986-07-04: its map stands, as what the page plays could not be learned: https://dead-redux.vercel.app/api/playing/1986-07-04 answered 404"
+    );
   });
 
-  it("looks as many days ahead as asked and prints at most the limit", () => {
+  it("reads only the maps directory's <show date>.json files, and maps again a show whose map names no recording", async () => {
+    const f = fakeIO({ maps: { "1986-07-04.json": "{}", "README.md": "not a map" } }, { "1986-07-04": "gd86-07-04.sbd" });
+    expect(await main([...ARGS, "--maps", "maps"], f.io)).toBe(0);
+    expect(f.out).toEqual(["1986-07-04"]);
+  });
+
+  it("reads an empty maps directory as no maps", async () => {
+    const f = fakeIO({ maps: {} });
+    expect(await main([...ARGS, "--maps", "maps"], f.io)).toBe(0);
+    expect(f.out).toEqual(["1986-07-04"]);
+    expect(f.asked).toEqual([]);
+  });
+
+  it("looks as many days ahead as asked and prints at most the limit", async () => {
     const f = fakeIO();
-    expect(main(["--from", "2026-10-20", "--days", "3", "--limit", "2"], f.io)).toBe(0);
+    expect(await main(["--from", "2026-10-20", "--days", "3", "--limit", "2"], f.io)).toBe(0);
     expect(f.log).toHaveLength(3);
     expect(f.out).toHaveLength(2);
     expect(f.out[0]).toBe("1986-07-04");
   });
 
-  it("looks 14 days ahead for 2 shows from today, unless told otherwise", () => {
+  it("looks 14 days ahead for 2 shows from today, unless told otherwise", async () => {
     const f = fakeIO();
-    expect(main([], f.io)).toBe(0);
+    expect(await main([], f.io)).toBe(0);
     expect(f.log).toHaveLength(14);
     expect(f.out).toHaveLength(2);
   });
@@ -141,12 +248,13 @@ describe("main", () => {
     { name: "a start that is not a date", args: ["--from", "tomorrow"] },
     { name: "a start that is not on the calendar", args: ["--from", "2026-13-45"] },
     { name: "a start its month does not have", args: ["--from", "1986-02-30"] },
+    { name: "a site that is not an origin", args: ["--site", "https://example.test/maps"] },
     { name: "an option it does not know", args: ["--max", "3"] },
     { name: "an option without a value", args: ["--days"] },
-    { name: "a have file it cannot read", args: ["--have", "missing.txt"] },
-  ])("refuses $name", ({ args }) => {
+    { name: "a maps directory it cannot read", args: ["--maps", "missing"] },
+  ])("refuses $name", async ({ args }) => {
     const f = fakeIO();
-    expect(main(args, f.io)).toBe(2);
+    expect(await main(args, f.io)).toBe(2);
     expect(f.out).toEqual([]);
     expect(f.log).toHaveLength(1);
   });
