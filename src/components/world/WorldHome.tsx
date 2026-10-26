@@ -10,6 +10,7 @@ import { Player, type PlayerState, type Routing } from "@/components/player/Play
 import { keyBelongsToControl, lettersActive, setSingleKey, singleKeyOn, subscribeSingleKey } from "@/components/player/keys";
 import { useEventListener } from "@/components/player/useEventListener";
 import { firstPersonOn, setFirstPerson, subscribeView } from "./view";
+import { soundLabel } from "@/lib/sound";
 
 interface Props { show: ShowSummary; featuredDate: string; bestSource: Source | null; isToday: boolean; tourName: string | null; testHooks: boolean; }
 
@@ -46,23 +47,25 @@ function subscribeWorld(onChange: () => void) {
 const worldState = () => document.getElementById("world")?.dataset.world ?? "loading";
 const worldTier = () => document.getElementById("world")?.dataset.tier ?? null;
 
-interface DetailsProps { source: Source; show: ShowSummary; tracks: Track[]; tourName: string | null; routing: Routing; archiveUrl: string; singleKey: boolean; first: boolean; }
+interface DetailsProps { source: Source; show: ShowSummary; tracks: Track[]; tourName: string | null; routing: Routing; world: string; archiveUrl: string; singleKey: boolean; first: boolean; }
 
 /**
  * What Details holds: the source, the recording's facts, how the sound plays, the single-key and view switches and the archive links.
  * It opens as a panel above the now-plate's stack (it is positioned against the fixed wrapper), so the plate keeps its size and the
  * bears stay in view while it is shut.
  */
-function DetailsPanel({ source, show, tracks, tourName, routing, archiveUrl, singleKey, first }: DetailsProps) {
-  /* On a phone the panel fits between the top HUD and the now-plate, so it never slides under the icon column. */
+function DetailsPanel({ source, show, tracks, tourName, routing, world, archiveUrl, singleKey, first }: DetailsProps) {
+  /* The panel fits between the now-plate's stack and the top plates above it, at every width, so it never slides under them. Only the
+     plates it would run into count: on a phone both, on a wider screen the top-right row. */
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
     const wrapper = el?.closest(".hud");
     if (!el || !wrapper) return;
     const fit = () => {
-      if (!window.matchMedia("(max-width: 639px)").matches) { el.style.maxHeight = ""; return; }
-      const hud = Math.max(0, ...Array.from(document.querySelectorAll("[data-hud='top']"), (n) => n.getBoundingClientRect().bottom));
+      const { left, right } = el.getBoundingClientRect();
+      const above = Array.from(document.querySelectorAll("[data-hud='top']"), (n) => n.getBoundingClientRect()).filter((r) => r.left < right && r.right > left);
+      const hud = Math.max(0, ...above.map((r) => r.bottom));
       el.style.maxHeight = `${Math.max(0, Math.floor(wrapper.getBoundingClientRect().top - 8 - (hud + 8)))}px`;
     };
     fit();
@@ -73,20 +76,18 @@ function DetailsPanel({ source, show, tracks, tourName, routing, archiveUrl, sin
     observer.observe(wrapper);
     return () => { details?.removeEventListener("toggle", fit); window.removeEventListener("resize", fit); observer.disconnect(); };
   }, []);
+  const reviews = `${source.numReviews} review${source.numReviews === 1 ? "" : "s"}`;
   const facts: [label: string, value: string | null | undefined][] = [
     ["Taper", source.taper],
     ["Lineage", source.lineage],
     ["Transferrer", source.transferrer],
     ["Source", source.source],
-    ["Rating", show.avgRating > 0 ? `${formatRating(show.avgRating)} / 10` : null],
+    ["Rating", show.avgRating > 0 ? `${formatRating(show.avgRating)} / 10 · ${reviews}` : reviews],
     ["Total time", formatDuration(tracks.reduce((sum, t) => sum + (t.duration || 0), 0))],
     ["Tour", tourName],
   ];
   return (
-    <div ref={ref} className="plate absolute right-0 bottom-full mb-2 w-[420px] max-sm:left-0 max-sm:w-auto max-h-[45vh] overflow-y-auto space-y-3">
-      <p className="t-row text-ink">
-        {source.source && <>{source.source} · </>}{source.numReviews} review{source.numReviews === 1 ? "" : "s"}
-      </p>
+    <div ref={ref} className="plate absolute right-0 bottom-full mb-2 w-[420px] max-sm:left-0 max-sm:w-auto overflow-y-auto space-y-3">
       <dl className="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-1 t-row">
         {facts.filter(([, value]) => value).map(([label, value]) => (
           <Fragment key={label}>
@@ -95,16 +96,18 @@ function DetailsPanel({ source, show, tracks, tourName, routing, archiveUrl, sin
           </Fragment>
         ))}
         <dt className="text-muted">Sound</dt>
-        <dd className="text-ink">{routing === "webaudio" ? "through the world" : "plain stereo"}</dd>
+        <dd className="text-ink">{soundLabel(routing, world)}</dd>
       </dl>
       {/* Single-key shortcuts (off leaves the letter keys to the world while it has focus). */}
       <button type="button" role="switch" aria-checked={singleKey} onClick={() => setSingleKey(!singleKey)} className="t-row text-ink underline hover:text-accent inline-flex items-center min-h-11">
         Single-key shortcuts: {singleKey ? "on" : "off"}
       </button>
-      {/* The view: the visitor's bear seen from behind (off), or the walk through its eyes (on); V toggles it too. */}
-      <button type="button" role="switch" aria-checked={first} data-action="view" onClick={() => setFirstPerson(!first)} className="t-row text-ink underline hover:text-accent flex w-fit items-center min-h-11">
-        First-person view: {first ? "on" : "off"}
-      </button>
+      {/* The view: the visitor's bear seen from behind (off), or the walk through its eyes (on); V toggles it too. The still has no view. */}
+      {world !== "fallback" && (
+        <button type="button" role="switch" aria-checked={first} data-action="view" onClick={() => setFirstPerson(!first)} className="t-row text-ink underline hover:text-accent flex w-fit items-center min-h-11">
+          First-person view: {first ? "on" : "off"}
+        </button>
+      )}
       <p className="t-row">
         <a href="https://archive.org/details/GratefulDead" target="_blank" rel="noopener noreferrer" className="text-muted underline hover:text-ink">
           Recordings stream from the Live Music Archive under the band&rsquo;s non-commercial trading policy
@@ -142,6 +145,8 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
   const [joined, setJoined] = useState(false);
   const tier = useSyncExternalStore(subscribeWorld, worldTier, () => null);
   const worldStatus = useSyncExternalStore(subscribeWorld, worldState, () => "loading");
+  /* The still: no world loaded, so nothing that walks or looks is shown. */
+  const fallback = worldStatus === "fallback";
   /* The single-key setting, mirrored onto <main> for the world module's keys. */
   const singleKey = useSyncExternalStore(subscribeSingleKey, singleKeyOn, () => true);
   /* The view setting, mirrored onto <main> for the world module. */
@@ -197,11 +202,10 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
   return (
     <main data-mode={leanback ? "leanback" : undefined} data-state={playerState} data-routing={routing} data-joined={joined ? "true" : undefined} data-single-key={singleKey ? "on" : "off"} data-view={first ? "first" : "third"} data-test-hooks={testHooks ? "1" : undefined} className="world-page relative h-screen">
       <script type="application/json" id="world-data" dangerouslySetInnerHTML={{ __html: data.replace(/</g, "\\u003c") }} />
-      <div id="world" data-world="loading" tabIndex={0} role="application"
+      <div id="world" data-world="loading" tabIndex={fallback ? undefined : 0} role="application" aria-hidden={fallback || undefined}
         aria-label="The island. Walk and turn with the arrow keys or W A S D, and look up and down with T and G; the first move starts the show." />
       <div className="world-fallback" aria-hidden="true">
         <div className="sky" /><div className="ring" /><div className="hill" /><div className="cave l" /><div className="cave r" /><div className="water" />
-        <p className="hud plate t-body text-ink" style={{ left: 24, bottom: 24 }}>This world needs WebGL 2 · {formatDate(show.date)} · {show.venue}</p>
       </div>
 
       {!leanback && (
@@ -212,6 +216,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
             <p className="t-label text-accent mt-1">{isToday ? <>Today&rsquo;s show · {formatDate(featuredDate)}</> : <>Featured {formatDate(featuredDate)}</>}</p>
             <h1 className="t-date text-ink mt-2">{formatDate(show.date)}</h1>
             <p className="t-body text-muted mt-1">{show.venue} · {show.location}</p>
+            {fallback && <p className="t-row text-muted mt-2">This world needs WebGL 2</p>}
           </div>
           {/* Above the now-plate's stack, so an open Details panel never covers these controls on a short screen. */}
           <div data-hud="top" className="hud right-6 top-6 max-sm:right-3 max-sm:top-3 flex gap-2 max-sm:flex-col max-sm:items-end z-20!">
@@ -221,12 +226,14 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
               <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M21 8v13H3V8" /><path d="M1 3h22v5H1z" /><path d="M10 12h4" /></svg>
             </a>
             {/* Asks the player to start the show (nothing once it has), then puts the camera behind the bears. */}
-            <button type="button" data-action="follow" aria-pressed={follow} aria-label="Walk with the bears"
-              onClick={() => { document.dispatchEvent(new Event("player:join")); document.dispatchEvent(new Event("world:follow")); }}
-              className="plate t-body text-ink h-11 flex items-center aria-pressed:shadow-[inset_0_0_0_2px_var(--accent)]">
-              <span className="max-sm:hidden">Walk with the bears</span>
-              <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="15" r="4" /><circle cx="6" cy="9" r="1.5" /><circle cx="12" cy="6" r="1.5" /><circle cx="18" cy="9" r="1.5" /></svg>
-            </button>
+            {!fallback && (
+              <button type="button" data-action="follow" aria-pressed={follow} aria-label="Walk with the bears"
+                onClick={() => { document.dispatchEvent(new Event("player:join")); document.dispatchEvent(new Event("world:follow")); }}
+                className="plate t-body text-ink h-11 flex items-center aria-pressed:shadow-[inset_0_0_0_2px_var(--accent)]">
+                <span className="max-sm:hidden">Walk with the bears</span>
+                <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="15" r="4" /><circle cx="6" cy="9" r="1.5" /><circle cx="12" cy="6" r="1.5" /><circle cx="18" cy="9" r="1.5" /></svg>
+              </button>
+            )}
             <button type="button" data-action="lean-back" onClick={() => setLeanback(true)} aria-label="Lean back" className="plate t-body text-ink h-11 flex items-center">
               <span className="max-sm:hidden">Lean back</span>
               <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="1" /><path d="M8 21h8" /></svg>
@@ -244,7 +251,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
       {/* Bottom-right on a desktop, so the bears at the trailhead stay in view; full width above the pad on a phone, a plate higher
           while the hint shows. The wrapper and the plate stay mounted in every mode, so the player keeps playing. */}
       <div className={leanback ? "hud left-16 bottom-12" : `hud right-6 bottom-6 flex flex-col items-end gap-2 max-sm:left-3 max-sm:right-3 max-sm:items-stretch ${hinting ? "max-sm:bottom-[212px]" : "max-sm:bottom-[160px]"}`}>
-        {!leanback && (
+        {!leanback && !fallback && (
           <div className={`plate t-tag text-muted ${stats ? "" : "max-sm:hidden"}`}>
             <p className="max-sm:hidden">Arrows or WASD to roam, drag to look</p>
             {stats && <p className="text-[13px] leading-4 font-mono normal-case tracking-normal mt-1 max-w-[360px] wrap-anywhere">{stats}</p>}
@@ -253,7 +260,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
         <div className={leanback ? "plate" : "plate w-[360px] max-sm:w-auto"}>
           {bestSource && tracks.length > 0 ? (
             <Player tracks={tracks} sets={sets} featuredDate={featuredDate} showDate={show.date} venue={show.venue} archiveUrl={archiveUrl} leanback={leanback} startAt={startAt}>
-              <DetailsPanel source={bestSource} show={show} tracks={tracks} tourName={tourName} routing={routing} archiveUrl={archiveUrl} singleKey={singleKey} first={first} />
+              <DetailsPanel source={bestSource} show={show} tracks={tracks} tourName={tourName} routing={routing} world={worldStatus} archiveUrl={archiveUrl} singleKey={singleKey} first={first} />
             </Player>
           ) : (
             <>
@@ -264,8 +271,8 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
         </div>
       </div>
 
-      {/* The pad stays mounted in lean-back, only hidden: the world binds its buttons once, when it loads. */}
-      <div className={`hud pad left-1/2 -translate-x-1/2 bottom-6 sm:hidden! ${leanback ? "hidden!" : ""}`} aria-label="Walk">
+      {/* The pad stays mounted in lean-back and in the still, only hidden: the world binds its buttons once, when it loads. */}
+      <div className={`hud pad left-1/2 -translate-x-1/2 bottom-6 sm:hidden! ${leanback || fallback ? "hidden!" : ""}`} aria-label="Walk">
         <button type="button" data-pad="up" aria-label="Walk forward">↑</button>
         <button type="button" data-pad="left" aria-label="Turn left">←</button>
         <button type="button" data-pad="down" aria-label="Walk back">↓</button>

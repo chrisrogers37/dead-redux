@@ -3,7 +3,7 @@
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import type { DerivedSets, Track } from "@/lib/types";
 import { formatDate } from "@/lib/format";
-import { corsAfterError } from "@/lib/fallback";
+import { corsAfterError, stateAfterError } from "@/lib/fallback";
 import { nextIndex, prevIndex, setName } from "@/lib/queue";
 import { Transport } from "./Transport";
 import { keyBelongsToControl, lettersActive } from "./keys";
@@ -259,10 +259,13 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
     const g = eng.current;
     if (g.joined) return;
     g.joined = true;
+    /* A source that failed before the join loads again, with its retries to come. */
+    if (activeEl()?.error) { clearRetry(); g.held[g.active] = -1; g.retries = 0; }
     playbackSession();
     const at = startAt && fits(startAt, tracks.length) ? startAt : null;
     const from = at ?? readResume(featuredDate, tracks.length);
     if (from) goTo(from.index, from.seconds);
+    else cue(g.active, g.index, 0);
     play();
     document.dispatchEvent(new Event("player:start"));
     if (TWO_ELEMENTS) unlockIdle();
@@ -371,17 +374,14 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
 
   /**
    * A failed track reloads from where it stopped, three times, then says it could not play. Playback stays wanted, so Next goes on
-   * with the show.
+   * with the show. Before the join the now-plate stays idle through all of it: the show has not started.
    */
   function retry(el: HTMLAudioElement) {
     const g = eng.current;
     clearStall();
-    if (g.retries >= RETRIES) {
-      setState("error");
-      return;
-    }
+    setState(stateAfterError(g.joined, g.retries, RETRIES));
+    if (g.retries >= RETRIES) return;
     g.retries += 1;
-    setState("stalled");
     const at = Math.floor(el.currentTime);
     const index = g.index;
     g.retryTimer = window.setTimeout(() => {
