@@ -38,7 +38,26 @@ jobs:
         with:
           node-version: 24
       - run: npm install
-      - run: npx playwright install --with-deps --only-shell chromium
+      # The browser's system packages, fonts mostly, are kept between runs, since the Ubuntu mirror can take over ten minutes to serve
+      # them. A run that restores them puts them where apt looks first, so apt installs them without downloading.
+      - name: Restore the browser's system packages
+        id: apt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-archives
+          key: playwright-apt-1.64.1-${{ runner.os }}-${{ runner.arch }}
+      - run: |
+          if compgen -G "$HOME/apt-archives/*.deb" > /dev/null; then sudo cp "$HOME"/apt-archives/*.deb /var/cache/apt/archives/; fi
+          npx playwright install --with-deps --only-shell chromium
+          mkdir -p "$HOME/apt-archives"
+          if compgen -G "/var/cache/apt/archives/*.deb" > /dev/null; then cp /var/cache/apt/archives/*.deb "$HOME/apt-archives/"; fi
+          echo "$(find "$HOME/apt-archives" -name '*.deb' | wc -l) packages kept"
+      - name: Keep the browser's system packages
+        if: steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-archives
+          key: playwright-apt-1.64.1-${{ runner.os }}-${{ runner.arch }}
       # Playwright records video with its own ffmpeg.
       - run: npx playwright install ffmpeg
       - id: shoot
@@ -46,15 +65,15 @@ jobs:
         env:
           SITE_URL: ${{ github.event.deployment_status.environment_url || inputs.url }}
           OUT_DIR: ${{ runner.temp }}/screenshots
-      # MP4 copies of the recordings play on phones.
+      # MP4 copies of the recordings play on phones. ffmpeg is the ffmpeg-static package's build, which npm install fetched from GitHub,
+      # not apt's.
       - name: Convert recordings to MP4
         working-directory: ${{ runner.temp }}/screenshots
         run: |
           shopt -s nullglob
-          sudo apt-get update -q
-          sudo apt-get install -y -q ffmpeg
+          ffmpeg=$(node -p 'require(process.argv[1])' "$GITHUB_WORKSPACE/.github/screenshots/node_modules/ffmpeg-static")
           for f in *.webm; do
-            ffmpeg -hide_banner -loglevel error -i "$f" \
+            "$ffmpeg" -hide_banner -loglevel error -i "$f" \
               -c:v libx264 -pix_fmt yuv420p -crf 20 -movflags +faststart "${f%.webm}.mp4"
           done
       # Writes its count to the job summary and its diff into the artifact; fails only when enforced.

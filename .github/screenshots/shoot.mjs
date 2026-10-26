@@ -1,7 +1,8 @@
-import { appendFile, mkdir, mkdtemp, writeFile } from "fs/promises";
+import { appendFile, mkdir, mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { chromium, request } from "playwright";
+import { chromium } from "playwright";
+import { saveAssets } from "./assets.mjs";
 
 const DEVICES = {
   desktop: { viewport: { width: 1440, height: 900 } },
@@ -271,10 +272,23 @@ const RECORDINGS = [
 // How long each recording runs once the page has loaded and any control is pressed, unless it names its own `recordMs`.
 const RECORD_MS = 10_000;
 
+// Each tier's draw-call budget.
+const CALL_BUDGET = { desktop: 70, phone: 45, tv: 60 };
+
+// What fails the run once every shot is taken: a generated image the site answers with an error, a frame over its tier's draw-call
+// budget, and a show playing with its sound neither through the world nor in plain stereo for a reason the player names.
+const failures = [];
+
 // Logs the page's render stats (window.__hill) for a shot, or for a recording after each control it holds; null on a page without them.
+// A frame over its tier's draw-call budget is a failure.
 const logStats = async (page, file) => {
   const stats = await page.evaluate(() => JSON.stringify(window.__hill ?? null));
   console.log(`stats ${file} ${stats}`);
+  const { tier, calls } = JSON.parse(stats) ?? {};
+  const budget = CALL_BUDGET[tier];
+  if (budget !== undefined && typeof calls === "number" && calls > budget) {
+    failures.push(`${file}: ${calls} draw calls, over the ${tier} budget of ${budget}`);
+  }
 };
 
 // Logs every control's box after a page's first shot, so a touch target is read rather than measured: links, buttons, summaries,
@@ -417,14 +431,21 @@ try {
           console.log(`${laterFile}  ${url}  ${selector}`);
           await logStats(page, laterFile);
           // Serialised in the page, so each reading prints as one line of JSON.
-          const [analysis, lastGapMs, routing] = await page.evaluate(() => [
+          const [analysis, lastGapMs, routing, state, world, corsFallback] = await page.evaluate(() => [
             JSON.stringify(window.__hill?.analysis ?? null),
             JSON.stringify(window.__hill?.lastGapMs ?? null),
             document.querySelector("main")?.dataset.routing ?? null,
+            document.querySelector("main")?.dataset.state ?? null,
+            document.getElementById("world")?.dataset.world ?? null,
+            window.__hill?.corsFallback ?? null,
           ]);
           console.log(`analysis ${laterFile} ${analysis}`);
           console.log(`lastGapMs ${laterFile} ${lastGapMs}`);
           console.log(`routing ${laterFile} ${routing}`);
+          // By now a playing show sounds through the world, or in plain stereo for a reason the player names (its corsFallback stat).
+          if (state === "playing" && world === "ready" && routing !== "webaudio" && !(routing === "plain" && corsFallback)) {
+            failures.push(`${laterFile}: playing, with routing ${routing} and no corsFallback`);
+          }
         }
       }
 
@@ -512,19 +533,9 @@ try {
     console.log(`${file}  ${url}`);
   }
 
-  const api = await request.newContext();
-  for (const path of ASSETS) {
-    const response = await api.get(new URL(path, site).href);
-    // An image the site does not serve is logged and skipped.
-    if (!response.ok()) {
-      console.log(`${path} answered ${response.status()}`);
-      continue;
-    }
-    const file = `asset-${path.slice(1).replace(/\.png$/, "").replace(/\//g, "-")}.png`;
-    await writeFile(join(outDir, file), await response.body());
-    console.log(`${file}  ${path}`);
-  }
-  await api.dispose();
+  failures.push(...(await saveAssets(site, ASSETS, outDir)));
+  for (const failure of failures) console.log(`failure ${failure}`);
+  if (failures.length > 0) throw new Error(`${failures.length} failure(s); each has its own "failure" line above`);
 } finally {
   await browser.close();
   await noWebGL.close();
