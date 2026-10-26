@@ -232,6 +232,12 @@ describe("main", () => {
     expect(f.out).toEqual(["1986-07-04"]);
   });
 
+  it("maps again a show whose map does not parse, rather than stopping the run", async () => {
+    const f = fakeIO({ maps: { "1986-07-04.json": "not json" } }, { "1986-07-04": "gd86-07-04.sbd" });
+    expect(await main([...ARGS, "--maps", "maps"], f.io)).toBe(0);
+    expect(f.out).toEqual(["1986-07-04"]);
+  });
+
   it("reads an empty maps directory as no maps", async () => {
     const f = fakeIO({ maps: {} });
     expect(await main([...ARGS, "--maps", "maps"], f.io)).toBe(0);
