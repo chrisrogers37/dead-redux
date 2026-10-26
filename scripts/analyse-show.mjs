@@ -14,6 +14,12 @@ import { checkMap, isDuration, isShowDate, MAP_VERSION, MAX_MAP_BYTES, MAX_PEAKS
 
 // The site whose /api/playing route says what the page plays; a branch's preview can stand in for it.
 export const SITE = "https://dead-redux.vercel.app";
+
+/** A site as given on a command line, its trailing slashes cut, when that is an origin (a scheme and a host, nothing after); else null. */
+export function siteOf(text) {
+  const site = String(text ?? "").replace(/\/+$/, "");
+  return /^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?$/.test(site) ? site : null;
+}
 // Every track the page plays streams from here, and the analysis fetches from nowhere else.
 const MP3_PREFIX = "https://archive.org/download/";
 export const USER_AGENT = "dead-redux-maps (+https://dead-redux.vercel.app)";
@@ -616,7 +622,7 @@ export async function main(args, io = nodeIO) {
   let site = SITE;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--out") out = args[++i];
-    else if (args[i] === "--site") site = (args[++i] ?? "").replace(/\/+$/, "");
+    else if (args[i] === "--site") site = args[++i] ?? "";
     else dates.push(args[i]);
   }
   const notDate = dates.find((date) => !isShowDate(date));
@@ -624,8 +630,8 @@ export async function main(args, io = nodeIO) {
     io.error(notDate !== undefined ? `Not a show date: ${notDate}` : USAGE);
     return 2;
   }
-  // A site is an origin: a scheme and a host, nothing after.
-  if (!/^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?$/.test(site)) {
+  const origin = siteOf(site);
+  if (origin === null) {
     io.error(`Not a site: ${site}`);
     return 2;
   }
@@ -638,7 +644,7 @@ export async function main(args, io = nodeIO) {
   let failed = false;
   for (const date of dates) {
     try {
-      const { map, text } = await analyseShow(date, client.request, io, site);
+      const { map, text } = await analyseShow(date, client.request, io, origin);
       const problems = checkMap(map);
       if (problems.length > 0) throw new Error(`the map fails its schema: ${problems.join("; ")}`);
       await fs.writeFile(join(out, `${date}.json`), text);
