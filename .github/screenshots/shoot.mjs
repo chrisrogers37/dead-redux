@@ -20,7 +20,17 @@ const DEVICES = {
     isMobile: true,
     hasTouch: true,
   },
+  // Without WebGL 2, for the designed still. That is a launch switch, so these two get their own browser, and they shoot only the
+  // pages that name them.
+  "desktop-nowebgl": { viewport: { width: 1440, height: 900 } },
+  "phone-nowebgl": {
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+  },
 };
+const NO_WEBGL = new Set(["desktop-nowebgl", "phone-nowebgl"]);
 
 // archive.org can take tens of seconds to start a stream from CI, so a play step waits this long for the player to settle.
 const PLAY_WAIT_MS = 45_000;
@@ -77,6 +87,22 @@ const PAGES = [
       { click: "[data-action='view']", shot: "fixed-third-person" },
     ],
   },
+  // The fixed day without WebGL 2: the designed still under the HUD, its Details, then the show playing from the still.
+  {
+    path: "/2026-10-20",
+    devices: ["desktop-nowebgl", "phone-nowebgl"],
+    ready: "#world[data-world='fallback']",
+    shots: ["fixed"],
+    steps: [{ click: "[data-action='details']", shot: "fixed-details" }, playStep("fixed-playing")],
+  },
+  // The fixed day's focus walk, under reduced motion so the ten shots differ by the ring alone: Tab lands on the world, Archive,
+  // Walk with the bears, Lean back, Share, prev, play, next, Details and the seek slider, with a shot after each press.
+  {
+    path: "/2026-10-20",
+    devices: ["desktop-reduced"],
+    shots: [],
+    steps: Array.from({ length: 10 }, (_, i) => ({ press: "Tab", shot: `fixed-focus-${i + 1}` })),
+  },
   // The fixed day 5 s before its first track ends: playing crosses into track 2, and the later shot logs the gap between them.
   {
     path: "/2026-10-20?at=0&t=93",
@@ -116,6 +142,14 @@ const PAGES = [
   { path: "/archive", shots: ["archive"], end: "archive-end" },
   // A fixed past day, so its shots compare across runs.
   { path: "/2026-03-01", shots: ["2026-03-01"] },
+  // The same day, which no step plays, so no saved point stands in: L seeks 10 s before the first move, and play starts from there.
+  // Both state lines read about 0:10.
+  {
+    path: "/2026-03-01",
+    devices: ["desktop"],
+    shots: [],
+    steps: [{ focus: "#world", press: "KeyL", player: true, shot: "2026-03-01-seek-before-join" }, playStep("2026-03-01-seek-playing")],
+  },
   // A fixed past day whose show has a partial date and one track.
   { path: "/2026-05-10", shots: ["2026-05-10"] },
   // A fixed past day with a long featured month over a long show month.
@@ -243,6 +277,22 @@ const logStats = async (page, file) => {
   console.log(`stats ${file} ${stats}`);
 };
 
+// Logs every control's box after a page's first shot, so a touch target is read rather than measured: links, buttons, summaries,
+// inputs and the world's focusable container, `small` on one under 44 px either way, `hidden` on one not rendered.
+const logBoxes = async (page, file) => {
+  const boxes = await page.evaluate(() =>
+    Array.from(document.querySelectorAll("a, button, summary, input, [tabindex='0']"), (el) => {
+      const { x, y, width, height } = el.getBoundingClientRect();
+      const name = el.dataset.action ?? el.dataset.pad ?? (el.id || el.getAttribute("aria-label") || el.textContent.trim());
+      return { name, x, y, width, height, visible: el.checkVisibility() };
+    })
+  );
+  for (const { name, x, y, width, height, visible } of boxes) {
+    const size = `${Math.round(width)}x${Math.round(height)} at ${Math.round(x)},${Math.round(y)}`;
+    console.log(`box ${file} ${name}: ${visible ? `${size}${width < 44 || height < 44 ? " small" : ""}` : "hidden"}`);
+  }
+};
+
 // Opens a page once its document arrives, then waits for the rest: an embedded player can
 // hold back the load event past a navigation's time limit.
 const open = async (page, url) => {
@@ -273,11 +323,12 @@ if (process.env.GITHUB_OUTPUT) {
 const outDir = process.env.OUT_DIR;
 await mkdir(outDir, { recursive: true });
 
-// The runner has no GPU, so WebGL runs in software.
+// The runner has no GPU, so WebGL runs in software; the no-WebGL devices get a browser with it off.
 const browser = await chromium.launch({ args: ["--enable-unsafe-swiftshader"] });
+const noWebGL = await chromium.launch({ args: ["--disable-webgl", "--disable-webgl2", "--disable-3d-apis"] });
 try {
   for (const [device, options] of Object.entries(DEVICES)) {
-    const context = await browser.newContext(options);
+    const context = await (NO_WEBGL.has(device) ? noWebGL : browser).newContext(options);
     const page = await context.newPage();
     // Playwright trims the clip to the page, so it only cuts tall pages short.
     const clip = {
@@ -287,13 +338,13 @@ try {
       height: options.viewport.height * MAX_SCREENS,
     };
 
-    for (const { path, shots, steps, end, devices } of PAGES) {
+    for (const { path, shots, steps, end, devices, ready } of PAGES) {
       // The TV device is for lean-back, so it shoots only the home page.
       if (device === "tv" && path !== "/") {
         continue;
       }
-      // A page may name the devices that shoot it.
-      if (devices && !devices.includes(device)) {
+      // A page may name the devices that shoot it; a device without WebGL shoots only the pages that do.
+      if (devices ? !devices.includes(device) : NO_WEBGL.has(device)) {
         continue;
       }
       const url = pageUrl(path, device);
@@ -305,6 +356,12 @@ try {
       await page
         .waitForLoadState("networkidle", { timeout: 10_000 })
         .catch(() => console.log(`${url} never went network-idle; shooting anyway`));
+      // A page may name a state to wait for before its first shot.
+      if (ready) {
+        await page
+          .waitForSelector(ready, { timeout: 15_000 })
+          .catch(() => console.log(`${url} never reached ${ready}; shooting anyway`));
+      }
       // A running clock is not motion, so the reduced-motion shots hide it to stay comparable.
       if (options.reducedMotion) {
         await page.addStyleTag({ content: '[data-mask="time"]{visibility:hidden}' });
@@ -318,21 +375,19 @@ try {
         await page.screenshot({ path: join(outDir, file), fullPage: true, clip });
         console.log(`${file}  ${url}`);
         await logStats(page, file);
+        if (i === 0) await logBoxes(page, file);
       }
 
       for (const step of steps ?? []) {
         const selector = step.click ?? step.focus;
-        // A control missing from the page is logged and skipped, not an error.
-        if ((await page.locator(selector).count()) === 0) {
+        // A control missing from the page is logged and skipped, not an error; a step that only presses a key has none to miss.
+        if (selector && (await page.locator(selector).count()) === 0) {
           console.log(`${step.shot}: ${selector} absent`);
           continue;
         }
-        if (step.focus) {
-          await page.focus(selector);
-          if (step.press) await page.keyboard.press(step.press);
-        } else {
-          await page.click(selector);
-        }
+        if (step.focus) await page.focus(selector);
+        else if (step.click) await page.click(selector);
+        if (step.press) await page.keyboard.press(step.press);
         if (step.waitFor) {
           await page
             .waitForSelector(step.waitFor, { timeout: step.waitMs ?? 15_000 })
@@ -352,7 +407,7 @@ try {
         await page.waitForTimeout(STEP_SETTLE_MS);
         const file = `${device}-${step.shot}.png`;
         await page.screenshot({ path: join(outDir, file), fullPage: true, clip });
-        console.log(`${file}  ${url}  ${selector}`);
+        console.log(`${file}  ${url}  ${selector ?? `press ${step.press}`}`);
         await logStats(page, file);
         // The follow-up shot shows the page after it has been playing for a while.
         if (step.later) {
@@ -472,4 +527,5 @@ try {
   await api.dispose();
 } finally {
   await browser.close();
+  await noWebGL.close();
 }
