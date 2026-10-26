@@ -100,6 +100,7 @@ export function useNextShow({ today, renderedAt, pastPick, fakeNow, leanback, sl
     const next = afterShow(today, now(), pastPick?.featuredDate ?? null);
     if (next?.kind === "day") {
       carryOver();
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- the world starts once per page load
       window.location.assign("/");
       return;
     }
