@@ -142,6 +142,14 @@ const PAGES = [
   { path: "/archive", shots: ["archive"], end: "archive-end" },
   // A fixed past day, so its shots compare across runs.
   { path: "/2026-03-01", shots: ["2026-03-01"] },
+  // The same day, which no step plays, so no saved point stands in: L seeks 10 s before the first move, and play starts from there.
+  // Both state lines read about 0:10.
+  {
+    path: "/2026-03-01",
+    devices: ["desktop"],
+    shots: [],
+    steps: [{ focus: "#world", press: "KeyL", player: true, shot: "2026-03-01-seek-before-join" }, playStep("2026-03-01-seek-playing")],
+  },
   // A fixed past day whose show has a partial date and one track.
   { path: "/2026-05-10", shots: ["2026-05-10"] },
   // A fixed past day with a long featured month over a long show month.

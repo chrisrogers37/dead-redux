@@ -259,13 +259,15 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
     const g = eng.current;
     if (g.joined) return;
     g.joined = true;
-    /* A source that failed before the join loads again, with its retries to come. */
-    if (activeEl()?.error) { clearRetry(); g.held[g.active] = -1; g.retries = 0; }
+    /* A source that failed before the join loads again, with its retries to come. A working one keeps any position set before the
+       join (the seek slider, J or L). */
+    const failed = !!activeEl()?.error;
+    if (failed) { clearRetry(); g.held[g.active] = -1; g.retries = 0; }
     playbackSession();
     const at = startAt && fits(startAt, tracks.length) ? startAt : null;
     const from = at ?? readResume(featuredDate, tracks.length);
     if (from) goTo(from.index, from.seconds);
-    else cue(g.active, g.index, 0);
+    else if (failed) cue(g.active, g.index, 0);
     play();
     document.dispatchEvent(new Event("player:start"));
     if (TWO_ELEMENTS) unlockIdle();
