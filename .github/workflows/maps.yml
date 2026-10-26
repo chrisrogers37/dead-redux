@@ -6,12 +6,13 @@ name: Maps
 # analyse takes ffmpeg from the runner.
 on:
   schedule:
-    # Daily: the earliest missing maps among the next 14 featured days, at most 2 a run.
+    # Daily: the earliest maps among the next 14 featured days that are missing or made from a recording the page no longer
+    # plays, at most 2 a run.
     - cron: "20 6 * * *"
   workflow_dispatch:
     inputs:
       date:
-        description: A show date (YYYY-MM-DD) to map. Empty maps the next featured days that have no map.
+        description: A show date (YYYY-MM-DD) to map. Empty maps the next featured days that have no map of the recording the page plays.
         required: false
         default: ""
       branch:
@@ -61,8 +62,11 @@ jobs:
           echo "ffmpeg: $(command -v ffmpeg)"
       - name: Pick the shows
         id: pick
+        # Asking the site what each mapped show's page plays takes seconds; a site that hangs fails this step, not the whole job's time.
+        timeout-minutes: 10
         env:
           DATE: ${{ inputs.date }}
+          SITE: ${{ inputs.site }}
         run: |
           if [ -n "$DATE" ]; then
             if ! [[ "$DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
@@ -86,13 +90,20 @@ jobs:
               exit "$ls_status"
               ;;
           esac
+          # Each branch's maps are unpacked into have/, the maps branch's after main's: of a show both have, the maps branch holds
+          # the newer map.
+          mkdir -p "$RUNNER_TEMP/have"
           for ref in origin/main origin/maps; do
-            if git rev-parse --verify -q "$ref" >/dev/null; then
-              git ls-tree --name-only "$ref" public/maps/
+            if git rev-parse --verify -q "$ref" >/dev/null && [ -n "$(git ls-tree "$ref" public/maps)" ]; then
+              git archive "$ref" public/maps | tar -x -C "$RUNNER_TEMP/have" --strip-components=2
             fi
-          done | sed -n 's|^public/maps/\([0-9-]*\)\.json$|\1|p' | sort -u > "$RUNNER_TEMP/have.txt"
-          # featured-on.mjs imports the site's own schedule. Node strips the types; the hook resolves the imports.
-          node --import ./scripts/resolve-ts.mjs scripts/featured-on.mjs --days 14 --limit 2 --have "$RUNNER_TEMP/have.txt" \
+          done
+          # featured-on.mjs imports the site's own schedule. Node strips the types; the hook resolves the imports. It asks the same
+          # site as Analyse what the page plays for each mapped show, and picks a show again whose map was made from another
+          # recording.
+          site=()
+          if [ -n "$SITE" ]; then site=(--site "$SITE"); fi
+          node --import ./scripts/resolve-ts.mjs scripts/featured-on.mjs --days 14 --limit 2 --maps "$RUNNER_TEMP/have" "${site[@]}" \
             > "$RUNNER_TEMP/shows.txt"
           echo "shows=$(tr '\n' ' ' < "$RUNNER_TEMP/shows.txt")" >> "$GITHUB_OUTPUT"
       - name: Analyse

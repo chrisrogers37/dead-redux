@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { corsAfterError } from "../fallback";
+import { corsAfterError, stateAfterError } from "../fallback";
 
 describe("corsAfterError", () => {
   it("re-mounts only the idle element when its preload fails the CORS check", () => {
@@ -24,5 +24,21 @@ describe("corsAfterError", () => {
 
   it("changes nothing for an element already without crossOrigin", () => {
     expect(corsAfterError([true, false], 1, false)).toBe(null);
+  });
+});
+
+describe("stateAfterError", () => {
+  it("leaves the player idle before the join, whatever the count: the show has not started", () => {
+    expect(stateAfterError(false, 0, 3)).toBe("idle");
+    expect(stateAfterError(false, 3, 3)).toBe("idle");
+  });
+
+  it("shows Reconnecting while a reload is due after the join", () => {
+    expect(stateAfterError(true, 0, 3)).toBe("stalled");
+    expect(stateAfterError(true, 2, 3)).toBe("stalled");
+  });
+
+  it("says the track could not play once the retries are spent", () => {
+    expect(stateAfterError(true, 3, 3)).toBe("error");
   });
 });
