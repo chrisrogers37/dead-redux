@@ -498,6 +498,20 @@ describe("politeClient", () => {
     );
   });
 
+  it("keeps the first 300 characters of a long JSON error, newlines included", async () => {
+    const error = `upstream answered 403\n${"x".repeat(400)}`;
+    const said = () =>
+      new Response(JSON.stringify({ error }), {
+        status: 502,
+        headers: { "content-type": "application/json", server: "Vercel" },
+      });
+    const f = fakeClientIO([said(), said(), said()]);
+    const failure = await politeClient(f.io)
+      .request("https://example.test/1", (res: Response) => res.json())
+      .catch((err: Error) => err);
+    expect((failure as Error).message).toBe(`https://example.test/1 answered 502 (server Vercel): ${error.slice(0, 300)}`);
+  });
+
   it("does not retry a refusal, and pauses before the next request all the same", async () => {
     const f = fakeClientIO([httpStatus(404), ok()]);
     const client = politeClient(f.io);

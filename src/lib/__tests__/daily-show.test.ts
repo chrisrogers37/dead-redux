@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { isShowDate } from "../../../public/world/maps.js";
 import {
   getDailyShow,
   getTodayDateStr,
@@ -50,6 +51,53 @@ describe("isValidDateStr", () => {
 
   it("accepts the 29th of February in a leap year", () => {
     expect(isValidDateStr("1988-02-29")).toBe(true);
+  });
+});
+
+// The date rule exists twice: the site's isValidDateStr and the world's isShowDate
+// (public/world/maps.js), which do not import each other. One table holds both to it.
+const DATE_RULES: { name: string; rule: (value: string) => boolean }[] = [
+  { name: "isValidDateStr", rule: isValidDateStr },
+  { name: "isShowDate", rule: isShowDate },
+];
+
+describe.each(DATE_RULES)("the date rule, as $name holds it", ({ rule }) => {
+  it.each<[string, boolean]>([
+    ["1977-05-08", true],
+    ["1988-02-29", true],
+    ["2000-02-29", true],
+    ["1986-02-29", false],
+    ["1986-02-30", false],
+    ["1986-04-31", false],
+    ["1900-02-29", false],
+    ["1986-13-01", false],
+    ["1986-00-10", false],
+  ])("judges %s %s", (date, accepted) => {
+    expect(rule(date)).toBe(accepted);
+  });
+
+  it("refuses an expanded year, which Date.parse reads back as itself", () => {
+    expect(new Date(Date.parse("+010000-01")).toISOString().slice(0, 10)).toBe("+010000-01");
+    expect(rule("+010000-01")).toBe(false);
+    expect(rule("-000001-01")).toBe(false);
+  });
+
+  // Each zone's offset on the date, so a zone that did not take is a failure, not a pass.
+  it.each<[string, number]>([
+    ["America/Los_Angeles", 480],
+    ["Pacific/Pago_Pago", 660],
+    ["Asia/Kolkata", -330],
+  ])("reads the date in UTC, so it holds in %s", (zone, offset) => {
+    const saved = process.env.TZ;
+    process.env.TZ = zone;
+    try {
+      expect(new Date(Date.parse("1988-02-29")).getTimezoneOffset()).toBe(offset);
+      expect(rule("1988-02-29")).toBe(true);
+      expect(rule("1986-02-30")).toBe(false);
+    } finally {
+      if (saved === undefined) delete process.env.TZ;
+      else process.env.TZ = saved;
+    }
   });
 });
 
