@@ -5,7 +5,7 @@ import {
   getDailyPicksRange,
   getLaunchDate,
 } from "../archive";
-import { getTodayDateStr } from "../daily-show";
+import { getTodayDateStr } from "../site-day";
 
 describe("getDailyPick", () => {
   it("returns a pick with featured date and show", () => {

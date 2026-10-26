@@ -6,7 +6,8 @@
 // line: the maps that exist), at most LIMIT. What it reports about each day goes to stderr.
 import { readFileSync } from "fs";
 import { pathToFileURL } from "url";
-import { getDailyShow, getTodayDateStr, isValidDateStr } from "../src/lib/daily-show";
+import { getDailyShow, isValidDateStr } from "../src/lib/daily-show";
+import { getTodayDateStr } from "../src/lib/site-day";
 
 const USAGE = "Usage: node --import ./scripts/resolve-ts.mjs scripts/featured-on.mjs [--from YYYY-MM-DD] [--days N] [--limit N] [--have FILE]";
 

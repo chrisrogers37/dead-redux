@@ -1,4 +1,5 @@
-import { getDailyShow, getTodayDateStr } from "./daily-show";
+import { getDailyShow } from "./daily-show";
+import { getTodayDateStr, pastPickDay } from "./site-day";
 import type { ShowSummary } from "./types";
 
 export interface DailyPick {
@@ -60,4 +61,16 @@ export function getArchivePicks(today: string = getTodayDateStr()): DailyPick[] 
   return getDailyPicksRange(getLaunchDate(), today).filter(
     (pick) => pick.featuredDate < today
   );
+}
+
+/**
+ * A random past pick to offer when a page's show ends: a day from launch through yesterday, apart from the page's own day;
+ * null while there is none.
+ *
+ * @param today - Today's date string.
+ * @param featured - The page's featured date.
+ */
+export function randomPastPick(today: string, featured: string): DailyPick | null {
+  const day = pastPickDay(getLaunchDate(), today, featured, Math.random());
+  return day ? getDailyPick(day) : null;
 }

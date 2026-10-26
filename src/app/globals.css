@@ -43,6 +43,11 @@ body { background-color: var(--page); color: var(--ink); }
 #world:focus-visible { box-shadow: inset 0 0 0 3px var(--accent); }
 .plate { background: rgba(11, 11, 13, 0.9); border-radius: 4px; padding: 16px; }
 .hud { position: fixed; z-index: 10; }
+/* The chip that names the next show fades in; a reduced-motion visitor sees it at once (the rule below turns animations off). */
+.chip { animation: chip-in 240ms ease-out; }
+@keyframes chip-in { from { opacity: 0; } }
+/* Lean-back hides the cursor after 3 s without input. */
+.cursor-off, .cursor-off * { cursor: none; }
 
 /* The on-screen pad (phone). */
 .pad { display: grid; grid-template-columns: repeat(3, 56px); grid-template-rows: repeat(2, 56px); gap: 4px; }
