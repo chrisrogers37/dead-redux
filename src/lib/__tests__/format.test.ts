@@ -90,6 +90,38 @@ describe("isPlaceholderTitle", () => {
     expect(isPlaceholderTitle("Track")).toBe(false);
     expect(isPlaceholderTitle("Tracks Of My Tears")).toBe(false);
   });
+
+  it.each(["mp3", "flac", "shn", "wav", "ogg", "m4a", "aif", "aiff"])("recognizes a file name ending .%s", (ext) => {
+    expect(isPlaceholderTitle(`gd77-05-08d2t03.${ext}`)).toBe(true);
+  });
+
+  it("counts a file name as a placeholder even when it carries a song name", () => {
+    expect(isPlaceholderTitle("Dark Star.mp3")).toBe(true);
+  });
+
+  it.each([
+    "gd80-07-01s1t06.ape",
+    "gd80-07-01s1t06.wv",
+    "gd80-07-01s1t06.opus",
+    "gd80-07-01s1t06.aac",
+    "gd80-07-01s1t06.wma",
+    "gd80-07-01s1t06.mp4",
+    "gd80-07-01s1t06.mp2",
+    "gd80-07-01s1t06.shnf",
+    "gd80-07-01s1t06.flac16",
+    "gd80-07-01s1t06",
+    "gd80-10-13s2t04 C.C.Rider",
+    "gd19870327.14.drums",
+  ])("does not count %s, which ends in no listed extension", (title) => {
+    expect(isPlaceholderTitle(title)).toBe(false);
+  });
+
+  it("matches each pattern whole: an extension at the end, the word Track and a number alone", () => {
+    expect(isPlaceholderTitle("gd77-05-08d2t03.mp3 (tuning)")).toBe(false);
+    expect(isPlaceholderTitle("gd77-05-08d2t03xmp3")).toBe(false);
+    expect(isPlaceholderTitle("Big Track 7")).toBe(false);
+    expect(isPlaceholderTitle("Track 7 Jam")).toBe(false);
+  });
 });
 
 describe("notesToLines", () => {
@@ -123,10 +155,6 @@ describe("toPlainText", () => {
     expect(toPlainText("&quot;Dark Star&quot; &#39;72 &#x26; more")).toBe("\"Dark Star\" '72 & more");
   });
 
-  it("drops tags before decoding, so an encoded bracket stays as text", () => {
-    expect(toPlainText("Master &lt;- Reel &gt; DAT")).toBe("Master <- Reel > DAT");
-  });
-
   it("keeps a bracket that does not start a tag", () => {
     const text = "standard stereo configuration< (mic stand at approx. 7.5' height) > Sony TC-D5M";
     expect(toPlainText(text)).toBe(text);
@@ -134,6 +162,26 @@ describe("toPlainText", () => {
 
   it("collapses whitespace, &nbsp; included", () => {
     expect(toPlainText("  SBD&nbsp;&gt;\n  DAT  ")).toBe("SBD > DAT");
+  });
+
+  it("decodes after dropping tags, so an encoded tag stays as text", () => {
+    expect(toPlainText("&lt;b&gt;bold&lt;/b&gt;")).toBe("<b>bold</b>");
+  });
+
+  it("leaves a named entity it does not know as written", () => {
+    expect(toPlainText("&constructor; &toString; &eacute;")).toBe("&constructor; &toString; &eacute;");
+  });
+
+  it("reads tags in any letter case, and entity names in capitals", () => {
+    expect(toPlainText("<B>SBD</B> &AMP; &LT;DAT&GT; &#X26;")).toBe("SBD & <DAT> &");
+  });
+
+  it("decodes a numeric entity only for a code point that exists", () => {
+    expect(toPlainText("a&#0;b &#x110000; &#x10FFFF; &#65;")).toBe("a&#0;b &#x110000; \u{10FFFF} A");
+  });
+
+  it("drops whatever a < and a letter open, up to the next >", () => {
+    expect(toPlainText("Master <bracketed note> Reel <br>DAT")).toBe("Master Reel DAT");
   });
 });
 
