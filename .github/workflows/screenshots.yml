@@ -25,8 +25,9 @@ jobs:
       (github.event.deployment_status.state == 'success' &&
       github.event.deployment.environment == 'Preview')
     runs-on: ubuntu-24.04
-    # Room for every shot and recording, the play steps' waits for archive.org's stream, and the MP4 conversion.
-    timeout-minutes: 25
+    # Room for every shot and recording, the play steps' waits for archive.org's stream and the MP4 conversion (a run takes about 12
+    # minutes), and for the browser's system packages, which the Ubuntu mirror can take over ten minutes to serve.
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: .github/screenshots
@@ -38,26 +39,7 @@ jobs:
         with:
           node-version: 24
       - run: npm install
-      # The browser's system packages, fonts mostly, are kept between runs, since the Ubuntu mirror can take over ten minutes to serve
-      # them. A run that restores them puts them where apt looks first, so apt installs them without downloading.
-      - name: Restore the browser's system packages
-        id: apt-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/apt-archives
-          key: playwright-apt-1.64.1-${{ runner.os }}-${{ runner.arch }}
-      - run: |
-          if compgen -G "$HOME/apt-archives/*.deb" > /dev/null; then sudo cp "$HOME"/apt-archives/*.deb /var/cache/apt/archives/; fi
-          npx playwright install --with-deps --only-shell chromium
-          mkdir -p "$HOME/apt-archives"
-          if compgen -G "/var/cache/apt/archives/*.deb" > /dev/null; then cp /var/cache/apt/archives/*.deb "$HOME/apt-archives/"; fi
-          echo "$(find "$HOME/apt-archives" -name '*.deb' | wc -l) packages kept"
-      - name: Keep the browser's system packages
-        if: steps.apt-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/apt-archives
-          key: playwright-apt-1.64.1-${{ runner.os }}-${{ runner.arch }}
+      - run: npx playwright install --with-deps --only-shell chromium
       # Playwright records video with its own ffmpeg.
       - run: npx playwright install ffmpeg
       - id: shoot
