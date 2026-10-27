@@ -309,6 +309,16 @@ describe("lookUpShow", () => {
     expect(signals[0]).toBe(signals[1]);
   });
 
+  it("gives the look-up six seconds when no budget is passed", async () => {
+    // An already-spent signal stands in for the six seconds, so the test does not wait them out.
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation(() => AbortSignal.abort(new DOMException("timed out", "TimeoutError")));
+    relisten((_url, init) => hang(init));
+    expect(await lookUpShow("1986-07-04")).toEqual({ kind: "failed", reason: `${YEAR} did not answer within 6000 ms` });
+    expect(timeout).toHaveBeenCalledWith(6000);
+  });
+
   it("logs one line when it fails, and none when the show is missing or found", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     relisten(() => new Response(null, { status: 503 }));

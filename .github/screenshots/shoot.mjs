@@ -203,7 +203,8 @@ const PAGES = [
   // A fixed past day with a long featured month over a long show month.
   { path: "/2026-09-29", shots: ["2026-09-29"] },
   // The fixed day with Relisten's answer forced, on previews: the look-up failed (the plate says so, with Try again and the Relisten
-  // link), then in lean-back; and a show it has no recording of (the plate as before). The world loads without a path either way.
+  // link), then in lean-back; and a show it has no recording of (the plate as before). Either way the world loads without the
+  // show's path.
   {
     path: "/2026-10-20?lookup=failed",
     devices: ["desktop", "phone", "phone-360"],
