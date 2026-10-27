@@ -139,6 +139,53 @@ const PAGES = [
   // The fixed day from ?pose=path: the visitor's bear on the loop at the summit's north-east shoulder, heading along it, and down the slope
   // to the left of it the stage's front.
   { path: "/2026-10-20?pose=path", devices: ["desktop"], shots: ["fixed-stage-path"] },
+  // The fixed day with the site's day faked as 2099-01-01, a day it will not reach: the chip names the new day at load and stays while
+  // the show plays on (the 8-s shot's clock has moved; the url line still reads the fixed page); in lean-back it sits above the title; its
+  // link loads today's page, which arrives leaned back and starts the show, or shows it paused where the browser refuses.
+  {
+    path: "/2026-10-20?day=2099-01-01",
+    devices: ["desktop", "phone", "desktop-reduced"],
+    shots: ["fixed-newday"],
+    steps: [
+      playStep("fixed-newday-playing", { ms: 8000, shot: "fixed-newday-8s" }),
+      { click: "[data-action='lean-back']", waitFor: "[data-mode='leanback']", shot: "fixed-newday-leanback" },
+      {
+        click: "[data-action='play-next']",
+        waitFor: "main:not(:has([data-next]))[data-state='playing'], main:not(:has([data-next]))[data-state='paused']",
+        waitMs: PLAY_WAIT_MS,
+        player: true,
+        shot: "fixed-newday-tapped",
+      },
+    ],
+  },
+  // The fixed day 6 s before its last track ends (U.S. Blues, 287 s): the show ends, and the offer names a past pick.
+  {
+    path: "/2026-10-20?at=18&t=281",
+    devices: ["desktop", "phone"],
+    shots: [],
+    steps: [playStep("fixed-end-start", { ms: 12000, shot: "fixed-end" })],
+  },
+  // The same with the day faked: at the end (about 6.5 s in) the new day loads on its own; 20 s on, the later shot is today's page,
+  // its state in the log, and never lands mid-navigation.
+  {
+    path: "/2026-10-20?day=2099-01-01&at=18&t=281",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-turn-start", { ms: 20000, shot: "fixed-turned" })],
+  },
+  // The sleep timer counting seconds, in lean-back: one press sets 30 s; 32 s on, the show is paused and, with no input since the
+  // click, the cursor is hidden; a key brings it back.
+  {
+    path: "/2026-10-20?sleep=seconds",
+    devices: ["desktop"],
+    shots: [],
+    steps: [
+      playStep("fixed-sleep-playing"),
+      { click: "[data-action='lean-back']", waitFor: "[data-mode='leanback']", shot: "fixed-sleep-leanback" },
+      { click: "[data-action='sleep']", shot: "fixed-sleep-30", later: { ms: 32000, shot: "fixed-slept" } },
+      { focus: "[data-action='sleep']", press: "ShiftLeft", shot: "fixed-cursor-back" },
+    ],
+  },
   // The end shot shows the last screen, where the archive's count line sits.
   { path: "/archive", shots: ["archive"], end: "archive-end" },
   // A fixed past day, so its shots compare across runs.
@@ -311,6 +358,24 @@ const open = async (page, url) => {
   return response;
 };
 
+// Logs where a shot was taken and what the page says: its URL, the player's state with the now-plate's sentence, whether lean-back has
+// hidden the cursor, and the next-show chip's kind and text, or null without one.
+const logPage = async (page, file) => {
+  const [state, line, cursor, next] = await page.evaluate(() => {
+    const chip = document.querySelector("[data-next]");
+    return [
+      document.querySelector("main")?.dataset.state ?? null,
+      document.querySelector("[data-action='play']")?.closest(".plate")?.querySelector(".t-tag")?.textContent ?? null,
+      document.documentElement.classList.contains("cursor-off"),
+      chip ? `${chip.dataset.next} · ${chip.textContent}` : null,
+    ];
+  });
+  console.log(`url ${file} ${page.url()}`);
+  console.log(`state ${file} ${state} · ${line}`);
+  console.log(`cursor ${file} ${cursor}`);
+  console.log(`next ${file} ${next}`);
+};
+
 const site = new URL(process.env.SITE_URL);
 if (site.protocol !== "https:") {
   throw new Error(`SITE_URL must be an https URL, got ${process.env.SITE_URL}`);
@@ -383,6 +448,7 @@ try {
         await page.screenshot({ path: join(outDir, file), fullPage: true, clip });
         console.log(`${file}  ${url}`);
         await logStats(page, file);
+        await logPage(page, file);
         if (i === 0) await logBoxes(page, file);
       }
 
@@ -417,6 +483,7 @@ try {
         await page.screenshot({ path: join(outDir, file), fullPage: true, clip });
         console.log(`${file}  ${url}  ${selector ?? `press ${step.press}`}`);
         await logStats(page, file);
+        await logPage(page, file);
         // The follow-up shot shows the page after it has been playing for a while.
         if (step.later) {
           await page.waitForTimeout(step.later.ms);
@@ -424,6 +491,7 @@ try {
           await page.screenshot({ path: join(outDir, laterFile), fullPage: true, clip });
           console.log(`${laterFile}  ${url}  ${selector}`);
           await logStats(page, laterFile);
+          await logPage(page, laterFile);
           // Serialised in the page, so each reading prints as one line of JSON.
           const [analysis, lastGapMs, routing, state, world, corsFallback] = await page.evaluate(() => [
             JSON.stringify(window.__hill?.analysis ?? null),

@@ -9,7 +9,8 @@ import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { setTimeout as sleep } from "timers/promises";
 import { pathToFileURL } from "url";
-import { getDailyShow, getTodayDateStr, isValidDateStr } from "../src/lib/daily-show";
+import { getDailyShow, isValidDateStr } from "../src/lib/daily-show";
+import { getTodayDateStr } from "../src/lib/site-day";
 import { HttpError, politeClient, SITE, siteOf } from "./analyse-show.mjs";
 
 const USAGE =

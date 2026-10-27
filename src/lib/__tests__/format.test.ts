@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   formatDuration,
   formatDate,
+  formatMonthDay,
   formatRating,
   isPlaceholderTitle,
   notesToLines,
@@ -188,5 +189,16 @@ describe("formatRating", () => {
   it("rounds to one decimal", () => {
     expect(formatRating(9.570934)).toBe("9.6");
     expect(formatRating(8.0)).toBe("8.0");
+  });
+});
+
+describe("formatMonthDay", () => {
+  it("gives the month and day", () => {
+    expect(formatMonthDay("2026-10-27")).toBe("October 27");
+    expect(formatMonthDay("1977-05-08")).toBe("May 8");
+  });
+
+  it("leaves a partial date as written", () => {
+    expect(formatMonthDay("1977-XX-XX")).toBe("1977-XX-XX");
   });
 });
