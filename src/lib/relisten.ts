@@ -56,29 +56,40 @@ export type ShowLookup =
   | { kind: "missing" }
   | { kind: "failed"; reason: string };
 
+/** The whole look-up, both paths together, gets this long to answer; past it the page renders without a recording and says so. */
+export const LOOKUP_BUDGET_MS = 6000;
+
 /**
- * Look a show up on Relisten by date string, at the year's path and then at the show's own.
+ * Look a show up on Relisten by date string, at the year's path and then at the show's own, within one time budget for both.
  *
  * @param dateStr - ISO date: "1977-05-08"
+ * @param budgetMs - How long both paths together may take; LOOKUP_BUDGET_MS unless a test says otherwise.
  * @returns The show, from the first path that answers ok; "missing" when both answer 404, as Relisten does for a date it has no
  *   record of; or "failed" otherwise, naming each path that failed in the form the maps job logs a refusal in ("<url> answered 403
- *   (server cloudflare, cf-mitigated challenge)", or "<url> could not be reached: <why>").
+ *   (server cloudflare, cf-mitigated challenge)", "<url> could not be reached: <why>", or "<url> did not answer within 6000 ms",
+ *   after which no other path is tried). A failure is logged once, here, for every caller.
  */
-export async function lookUpShow(dateStr: string): Promise<ShowLookup> {
+export async function lookUpShow(dateStr: string, budgetMs = LOOKUP_BUDGET_MS): Promise<ShowLookup> {
   const year = dateStr.split("-")[0];
   const failures: string[] = [];
+  // One budget for both paths: the second gets what the first left.
+  const signal = AbortSignal.timeout(budgetMs);
   for (const url of [`${API_BASE}/years/${year}/${dateStr}`, `${API_BASE}/shows/${dateStr}`]) {
-    let res: Response;
     try {
-      res = await fetch(url, { next: { revalidate: 86400 } }); // Cache for 24h
+      const res = await fetch(url, { signal, next: { revalidate: 86400 } }); // Cache for 24h
+      if (res.ok) return { kind: "found", details: parseShowResponse(await res.json()) };
+      if (res.status !== 404) failures.push(refusal(url, res));
     } catch (err) {
+      if (signal.aborted) {
+        failures.push(`${url} did not answer within ${budgetMs} ms`);
+        break;
+      }
       failures.push(`${url} could not be reached: ${err instanceof Error ? err.message : String(err)}`);
-      continue;
     }
-    if (res.ok) return { kind: "found", details: parseShowResponse(await res.json()) };
-    if (res.status !== 404) failures.push(refusal(url, res));
   }
-  return failures.length === 0 ? { kind: "missing" } : { kind: "failed", reason: failures.join("; ") };
+  const lookup: ShowLookup = failures.length === 0 ? { kind: "missing" } : { kind: "failed", reason: failures.join("; ") };
+  if (lookup.kind === "failed") console.error(`Relisten gave no answer for ${dateStr}: ${lookup.reason}`);
+  return lookup;
 }
 
 /** An answer that is not ok, as the maps job logs one: the URL, the status, and the server and cf-mitigated mark when it has them. */

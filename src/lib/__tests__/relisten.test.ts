@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HttpError } from "../../../scripts/analyse-show.mjs";
 import { lookUpShow, parseSource, pickBestSource, type RelistenSource } from "../relisten";
 import type { Source } from "../types";
@@ -217,13 +217,37 @@ describe("lookUpShow", () => {
   const YEAR = `${API}/years/1986/1986-07-04`;
   const SHOW = `${API}/shows/1986-07-04`;
   const realFetch = globalThis.fetch;
-  // Relisten, played by a stand-in for fetch that answers each path with `answer`.
-  const relisten = (answer: (url: string) => Response) => {
-    globalThis.fetch = (async (input: RequestInfo | URL) => answer(String(input))) as typeof fetch;
+  let requested: string[];
+  let signals: (AbortSignal | null | undefined)[];
+  // Relisten, played by a stand-in for fetch that answers each path with `answer` and records each request's URL and signal.
+  const relisten = (answer: (url: string, init?: RequestInit) => Response | Promise<Response>) => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      requested.push(url);
+      signals.push(init?.signal);
+      return answer(url, init);
+    }) as typeof fetch;
   };
+  // A path that never answers, as fetch does with a signal: it rejects with the signal's reason once the signal aborts, at once if it
+  // already has, and otherwise never settles.
+  const hang = (init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      if (!signal) return;
+      if (signal.aborted) reject(signal.reason);
+      else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+
+  beforeEach(() => {
+    requested = [];
+    signals = [];
+    // A failed look-up logs one line; the cases here keep the run quiet.
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
 
   afterEach(() => {
     globalThis.fetch = realFetch;
+    vi.restoreAllMocks();
   });
 
   it("is missing only when both paths answer 404", async () => {
@@ -267,5 +291,47 @@ describe("lookUpShow", () => {
     relisten(() => new Response(null, { status: 403, headers: { server: "cloudflare", "cf-mitigated": "challenge" } }));
     const job = (url: string) => new HttpError(url, 403, "cloudflare", "challenge").message;
     expect(await lookUpShow("1986-07-04")).toEqual({ kind: "failed", reason: `${job(YEAR)}; ${job(SHOW)}` });
+  });
+
+  it("gives up on a path that never answers once the budget is spent, and asks no other", async () => {
+    relisten((_url, init) => hang(init));
+    expect(await lookUpShow("1986-07-04", 20)).toEqual({ kind: "failed", reason: `${YEAR} did not answer within 20 ms` });
+    expect(requested).toEqual([YEAR]);
+  });
+
+  it("spends one budget across both paths", async () => {
+    relisten((url, init) => (url === YEAR ? new Response(null, { status: 503 }) : hang(init)));
+    expect(await lookUpShow("1986-07-04", 20)).toEqual({
+      kind: "failed",
+      reason: `${YEAR} answered 503; ${SHOW} did not answer within 20 ms`,
+    });
+    // The second path gets what the first left: both requests carry the one signal.
+    expect(signals[0]).toBe(signals[1]);
+  });
+
+  it("gives the look-up six seconds when no budget is passed", async () => {
+    // An already-spent signal stands in for the six seconds, so the test does not wait them out.
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation(() => AbortSignal.abort(new DOMException("timed out", "TimeoutError")));
+    relisten((_url, init) => hang(init));
+    expect(await lookUpShow("1986-07-04")).toEqual({ kind: "failed", reason: `${YEAR} did not answer within 6000 ms` });
+    expect(timeout).toHaveBeenCalledWith(6000);
+  });
+
+  it("logs one line when it fails, and none when the show is missing or found", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    relisten(() => new Response(null, { status: 503 }));
+    await lookUpShow("1986-07-04");
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith(`Relisten gave no answer for 1986-07-04: ${YEAR} answered 503; ${SHOW} answered 503`);
+    relisten(() => new Response(null, { status: 404 }));
+    expect((await lookUpShow("1986-07-04")).kind).toBe("missing");
+    expect(error).toHaveBeenCalledTimes(1);
+    const answered = source("cleaned", true, 9, 5, ["Bertha"]);
+    const show = { date: "1986-07-04", display_date: "1986-07-04", venue: null, tour: null, sources: [answered], avg_rating: 9 };
+    relisten(() => new Response(JSON.stringify(show)));
+    expect((await lookUpShow("1986-07-04")).kind).toBe("found");
+    expect(error).toHaveBeenCalledTimes(1);
   });
 });

@@ -10,11 +10,12 @@ import { Player, type PlayerState, type Routing } from "@/components/player/Play
 import { keyBelongsToControl, lettersActive, setSingleKey, singleKeyOn, subscribeSingleKey } from "@/components/player/keys";
 import { useEventListener } from "@/components/player/useEventListener";
 import { firstPersonOn, setFirstPerson, subscribeView } from "./view";
+import { NoRecording } from "./NoRecording";
 import { soundLabel } from "@/lib/sound";
 import { LeanBackCorner } from "./LeanBackCorner";
 import { NextChip, useNextShow, type PastPick } from "./NextShow";
 
-interface Props { show: ShowSummary; featuredDate: string; today: string; renderedAt: number; pastPick: PastPick | null; bestSource: Source | null; isToday: boolean; tourName: string | null; testHooks: boolean; }
+interface Props { show: ShowSummary; featuredDate: string; today: string; renderedAt: number; pastPick: PastPick | null; bestSource: Source | null; isToday: boolean; tourName: string | null; testHooks: boolean; lookupFailed: boolean; }
 
 function seedFromDate(date: string): number {
   let h = 2166136261;
@@ -123,7 +124,7 @@ function DetailsPanel({ source, show, tracks, tourName, routing, world, archiveU
 }
 
 /* The page: the world's container, the HUD on plates, the hooks, the show as JSON for the world, and the module loader. */
-export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bestSource, isToday, tourName, testHooks }: Props) {
+export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bestSource, isToday, tourName, testHooks, lookupFailed }: Props) {
   const tracks = useMemo(() => flatten(bestSource), [bestSource]);
   const sets = useMemo(() => (bestSource ? deriveSets(bestSource) : NO_SETS), [bestSource]);
   const data = useMemo(() => JSON.stringify({
@@ -288,10 +289,7 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
               <DetailsPanel source={bestSource} show={show} tracks={tracks} tourName={tourName} routing={routing} world={worldStatus} archiveUrl={archiveUrl} singleKey={singleKey} first={first} />
             </Player>
           ) : (
-            <>
-              <p className="t-body text-ink">No recording for this show.</p>
-              <a href={relisten} target="_blank" rel="noopener noreferrer" className="t-row text-muted underline hover:text-ink">Open on Relisten ↗</a>
-            </>
+            <NoRecording failed={lookupFailed} relisten={relisten} />
           )}
         </div>
       </div>
