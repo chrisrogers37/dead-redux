@@ -154,6 +154,15 @@ const PAGES = [
   { path: "/2026-05-10", shots: ["2026-05-10"] },
   // A fixed past day with a long featured month over a long show month.
   { path: "/2026-09-29", shots: ["2026-09-29"] },
+  // The fixed day with Relisten's answer forced, on previews: the look-up failed (the plate says so, with Try again and the Relisten
+  // link), then in lean-back; and a show it has no recording of (the plate as before). The world loads without a path either way.
+  {
+    path: "/2026-10-20?lookup=failed",
+    devices: ["desktop", "phone", "phone-360"],
+    shots: ["fixed-lookup-failed"],
+    steps: [{ click: "[data-action='lean-back']", waitFor: "[data-mode='leanback']", shot: "fixed-lookup-failed-leanback" }],
+  },
+  { path: "/2026-10-20?lookup=missing", devices: ["desktop", "phone"], shots: ["fixed-no-recording"] },
 ];
 
 // Generated images are saved byte for byte as the site serves them.
