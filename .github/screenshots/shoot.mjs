@@ -188,6 +188,14 @@ const PAGES = [
   },
   // The end shot shows the last screen, where the archive's count line sits.
   { path: "/archive", shots: ["archive"], end: "archive-end" },
+  // September 2026 opened from the archive's month list: a closed month, so its rows compare across runs. The log's url line reads
+  // the month's own page, and the end shot shows its list, which names October and not September, over the count line.
+  {
+    path: "/archive",
+    shots: [],
+    steps: [{ click: "a[href='/archive/2026-09']", waitFor: "main[data-month='2026-09']", shot: "archive-2026-09" }],
+    end: "archive-2026-09-end",
+  },
   // A fixed past day, so its shots compare across runs.
   { path: "/2026-03-01", shots: ["2026-03-01"] },
   // The same day, which no step plays, so no saved point stands in: L seeks 10 s before the first move, and play starts from there.
@@ -234,7 +242,7 @@ const STEP_SETTLE_MS = 1000;
 // How long a page gets to finish loading; a slower page is logged and shot anyway.
 const LOAD_MS = 30_000;
 
-// Full-page shots stop at this many screens; the archive lists every day.
+// Full-page shots stop at this many screens; the archive lists a month.
 const MAX_SCREENS = 4;
 
 // Short recordings show the motion that stills cannot. Lean-back records on the TV.
