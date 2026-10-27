@@ -11,6 +11,29 @@ export function assetAction(status) {
   return "fail";
 }
 
+/** Each world tier's draw-call budget: a frame over its tier's budget fails the run. */
+export const CALL_BUDGET = { desktop: 70, phone: 45, tv: 60 };
+
+/**
+ * Why a frame's render stats (window.__hill) fail the run, or null when they pass: more draw calls than its tier's budget. A page
+ * without stats, a frame at its budget and a tier with no budget all pass.
+ */
+export function callsFailure(stats) {
+  const { tier, calls } = stats ?? {};
+  const budget = CALL_BUDGET[tier];
+  return budget !== undefined && typeof calls === "number" && calls > budget ? `${calls} draw calls, over the ${tier} budget of ${budget}` : null;
+}
+
+/**
+ * Why a play step's later shot fails the run, or null when it passes: a show playing on a ready world whose sound goes neither through
+ * the world ("webaudio") nor in plain stereo for a reason the player names (its corsFallback stat).
+ */
+export function routingFailure({ state, world, routing, corsFallback }) {
+  return state === "playing" && world === "ready" && routing !== "webaudio" && !(routing === "plain" && corsFallback)
+    ? `playing, with routing ${routing} and no corsFallback`
+    : null;
+}
+
 /** The file a generated image is saved as: "/icon-192.png" as asset-icon-192.png, "/2026-03-01/opengraph-image" as asset-2026-03-01-opengraph-image.png. */
 export const assetFile = (path) => `asset-${path.slice(1).replace(/\.png$/, "").replace(/\//g, "-")}.png`;
 

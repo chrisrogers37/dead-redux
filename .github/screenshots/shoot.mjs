@@ -2,7 +2,7 @@ import { appendFile, mkdir, mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { chromium } from "playwright";
-import { saveAssets } from "./assets.mjs";
+import { callsFailure, routingFailure, saveAssets } from "./assets.mjs";
 
 const DEVICES = {
   desktop: { viewport: { width: 1440, height: 900 } },
@@ -272,9 +272,6 @@ const RECORDINGS = [
 // How long each recording runs once the page has loaded and any control is pressed, unless it names its own `recordMs`.
 const RECORD_MS = 10_000;
 
-// Each tier's draw-call budget.
-const CALL_BUDGET = { desktop: 70, phone: 45, tv: 60 };
-
 // What fails the run once every shot is taken: a generated image the site answers with an error, a frame over its tier's draw-call
 // budget, and a show playing with its sound neither through the world nor in plain stereo for a reason the player names.
 const failures = [];
@@ -284,11 +281,8 @@ const failures = [];
 const logStats = async (page, file) => {
   const stats = await page.evaluate(() => JSON.stringify(window.__hill ?? null));
   console.log(`stats ${file} ${stats}`);
-  const { tier, calls } = JSON.parse(stats) ?? {};
-  const budget = CALL_BUDGET[tier];
-  if (budget !== undefined && typeof calls === "number" && calls > budget) {
-    failures.push(`${file}: ${calls} draw calls, over the ${tier} budget of ${budget}`);
-  }
+  const failure = callsFailure(JSON.parse(stats));
+  if (failure) failures.push(`${file}: ${failure}`);
 };
 
 // Logs every control's box after a page's first shot, so a touch target is read rather than measured: links, buttons, summaries,
@@ -443,9 +437,8 @@ try {
           console.log(`lastGapMs ${laterFile} ${lastGapMs}`);
           console.log(`routing ${laterFile} ${routing}`);
           // By now a playing show sounds through the world, or in plain stereo for a reason the player names (its corsFallback stat).
-          if (state === "playing" && world === "ready" && routing !== "webaudio" && !(routing === "plain" && corsFallback)) {
-            failures.push(`${laterFile}: playing, with routing ${routing} and no corsFallback`);
-          }
+          const routed = routingFailure({ state, world, routing, corsFallback });
+          if (routed) failures.push(`${laterFile}: ${routed}`);
         }
       }
 

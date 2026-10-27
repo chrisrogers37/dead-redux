@@ -4,7 +4,7 @@ import { mkdtemp, readdir, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { assetAction, assetFile, saveAssets } from "../../.github/screenshots/assets.mjs";
+import { assetAction, assetFile, callsFailure, routingFailure, saveAssets } from "../../.github/screenshots/assets.mjs";
 
 describe("assetAction", () => {
   it("saves a 200 and skips a 404, an image whose change has not landed yet", () => {
@@ -22,6 +22,53 @@ describe("assetFile", () => {
     expect(assetFile("/icon")).toBe("asset-icon.png");
     expect(assetFile("/icon-192.png")).toBe("asset-icon-192.png");
     expect(assetFile("/2026-03-01/opengraph-image")).toBe("asset-2026-03-01-opengraph-image.png");
+  });
+});
+
+describe("callsFailure", () => {
+  it("fails a frame over its tier's budget, and names the tier and the budget", () => {
+    expect(callsFailure({ tier: "desktop", calls: 71 })).toBe("71 draw calls, over the desktop budget of 70");
+    expect(callsFailure({ tier: "phone", calls: 46 })).toBe("46 draw calls, over the phone budget of 45");
+    expect(callsFailure({ tier: "tv", calls: 61 })).toBe("61 draw calls, over the tv budget of 60");
+  });
+
+  it("passes a frame at its tier's budget", () => {
+    expect(callsFailure({ tier: "desktop", calls: 70 })).toBe(null);
+    expect(callsFailure({ tier: "phone", calls: 45 })).toBe(null);
+    expect(callsFailure({ tier: "tv", calls: 60 })).toBe(null);
+  });
+
+  it("passes a page without stats, and a tier with no budget", () => {
+    expect(callsFailure(null)).toBe(null);
+    expect(callsFailure({ tier: "watch", calls: 500 })).toBe(null);
+  });
+});
+
+describe("routingFailure", () => {
+  /* A show playing on a ready world, with the routing a case names and no reason given for plain stereo. */
+  const playing = (routing: string) => ({ state: "playing", world: "ready", routing, corsFallback: null });
+  /* What the player records in window.__hill when an audio element fails its CORS load and falls back to plain stereo. */
+  const corsFallback = { element: "show-audio-a", code: 4, message: "MEDIA_ELEMENT_ERROR: Format error" };
+
+  it("fails a show playing on a ready world whose routing is still pending", () => {
+    expect(routingFailure(playing("pending"))).toBe("playing, with routing pending and no corsFallback");
+  });
+
+  it("fails plain stereo that the player gives no reason for", () => {
+    expect(routingFailure(playing("plain"))).toBe("playing, with routing plain and no corsFallback");
+  });
+
+  it("passes a show that sounds through the world", () => {
+    expect(routingFailure(playing("webaudio"))).toBe(null);
+  });
+
+  it("passes plain stereo that the player names a reason for", () => {
+    expect(routingFailure({ ...playing("plain"), corsFallback })).toBe(null);
+  });
+
+  it("passes a show that is not playing, and a world that is not ready, whatever the routing", () => {
+    expect(routingFailure({ ...playing("pending"), state: "paused" })).toBe(null);
+    expect(routingFailure({ ...playing("pending"), world: "loading" })).toBe(null);
   });
 });
 
