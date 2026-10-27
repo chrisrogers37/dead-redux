@@ -25,8 +25,10 @@ jobs:
       (github.event.deployment_status.state == 'success' &&
       github.event.deployment.environment == 'Preview')
     runs-on: ubuntu-24.04
-    # Room for every shot and recording, the play steps' waits for archive.org's stream, and the MP4 conversion.
-    timeout-minutes: 25
+    # Room for every shot and recording, the play steps' waits for archive.org's stream and the MP4 conversion (a run takes about 12
+    # minutes), and for the browser's system packages, which the Ubuntu mirror can take over ten minutes to serve. A job cut at its
+    # limit uploads nothing, so the limit leaves room to spare.
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: .github/screenshots
@@ -37,7 +39,13 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      - run: npm install
+      - run: npm ci
+      # ffmpeg-static's install script fetches ffmpeg from the package's GitHub release and checks no digest. This is the sha256 of the
+      # b6.0 release's linux-x64 build; a different binary fails the run before anything uses it.
+      - name: Check ffmpeg's sha256
+        run: |
+          echo "ed652b2f32e0851d1946894fb8333f5b677c1b2ce6b9d187910a67f8b99da028  node_modules/ffmpeg-static/ffmpeg" \
+            | sha256sum --check --strict
       - run: npx playwright install --with-deps --only-shell chromium
       # Playwright records video with its own ffmpeg.
       - run: npx playwright install ffmpeg
@@ -46,15 +54,15 @@ jobs:
         env:
           SITE_URL: ${{ github.event.deployment_status.environment_url || inputs.url }}
           OUT_DIR: ${{ runner.temp }}/screenshots
-      # MP4 copies of the recordings play on phones.
+      # MP4 copies of the recordings play on phones. ffmpeg is the ffmpeg-static package's build, which npm ci fetched from GitHub and
+      # the step above checked, not apt's.
       - name: Convert recordings to MP4
         working-directory: ${{ runner.temp }}/screenshots
         run: |
           shopt -s nullglob
-          sudo apt-get update -q
-          sudo apt-get install -y -q ffmpeg
+          ffmpeg=$(node -p 'require(process.argv[1])' "$GITHUB_WORKSPACE/.github/screenshots/node_modules/ffmpeg-static")
           for f in *.webm; do
-            ffmpeg -hide_banner -loglevel error -i "$f" \
+            "$ffmpeg" -hide_banner -loglevel error -i "$f" \
               -c:v libx264 -pix_fmt yuv420p -crf 20 -movflags +faststart "${f%.webm}.mp4"
           done
       # Writes its count to the job summary and its diff into the artifact; fails only when enforced.
@@ -88,9 +96,9 @@ jobs:
             h=$(curl -fsS --max-time 20 "$u" | openssl dgst -sha384 -binary | openssl base64 -A)
             echo "sha384-$h  $u" | tee -a "$GITHUB_STEP_SUMMARY"
           done
-      # Also runs when an enforced compare or the install check fails, so the shots and the diff are kept.
+      # Also runs when the shoot's gate, an enforced compare or the install check fails, so the shots and the diff are kept.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: success() || steps.compare.outcome == 'failure' || steps.install.outcome == 'failure'
+        if: success() || steps.shoot.outcome == 'failure' || steps.compare.outcome == 'failure' || steps.install.outcome == 'failure'
         with:
           name: screenshots-${{ steps.shoot.outputs.host }}-${{ github.sha }}
           path: ${{ runner.temp }}/screenshots
