@@ -14,7 +14,8 @@ export const STAGE_REACH = 11;
 /* The column the third-person camera keeps out of (avatar.js): every solid of the stage stands inside it, the PA stacks' outer corners
    10.9 m from the centre and the roof's top 8.45 m above the floor, and no walk does. */
 export const STAGE_COLUMN = { x: STAGE[0], z: STAGE[1], r: 10.95, top: SHELF_Y + 8.45 };
-/* Where the show sounds from, 2 m above the platform's centre, and the way its sound faces: the stage's own. */
+/* Where the show sounds from: over the platform's centre, 2 m above the shelf, which puts it 0.8 m above the platform's floor (1.2 m
+   up); and the way its sound faces: the stage's own. */
 export const STAGE_SOUND = { x: STAGE[0], y: SHELF_Y + 2, z: STAGE[1], facing: [Math.sin(FACING), 0, Math.cos(FACING)] };
 
 /* Builds the stage. With `shadows` the sun casts the desktop's one shadow map, framed on the stage alone. Returns the group, the light

@@ -233,4 +233,20 @@ describe("enterColumn", () => {
   it("leaves out a column that stands around the start", () => {
     expect(enterColumn({ x: 1, y: 2, z: 0 }, { x: -1, y: 0, z: 0 }, column)).toBe(Infinity);
   });
+
+  it("meets the side of a column from starts along the z axis and off both axes", () => {
+    // From (0, 2, 15) straight at the centre: 15 m out, the side is 10 m out, so 5 m on.
+    expect(enterColumn({ x: 0, y: 2, z: 15 }, { x: 0, y: 0, z: -1 }, column)).toBeCloseTo(5, 9);
+    // From (-9, 2, -12), a 9-12-15 triangle, so 15 m out; toward the centre along (9, 0, 12) / 15 the side is 5 m on.
+    expect(enterColumn({ x: -9, y: 2, z: -12 }, { x: 9 / 15, y: 0, z: 12 / 15 }, column)).toBeCloseTo(5, 9);
+    // From (6, 2, -18) toward +z the line passes 6 m from the centre, so it enters where z² = 10² - 6², at z = -8: 10 m on.
+    expect(enterColumn({ x: 6, y: 2, z: -18 }, { x: 0, y: 0, z: 1 }, column)).toBeCloseTo(10, 9);
+  });
+
+  it("meets the side of a column that stands away from the origin", () => {
+    // The last two walks with the column moved to (10, 20) and the starts moved with it: the same 5 m and 10 m on.
+    const moved = { x: 10, z: 20, r: 10, top: 8 };
+    expect(enterColumn({ x: 1, y: 2, z: 8 }, { x: 9 / 15, y: 0, z: 12 / 15 }, moved)).toBeCloseTo(5, 9);
+    expect(enterColumn({ x: 16, y: 2, z: 2 }, { x: 0, y: 0, z: 1 }, moved)).toBeCloseTo(10, 9);
+  });
 });
