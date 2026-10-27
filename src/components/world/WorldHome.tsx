@@ -12,8 +12,10 @@ import { useEventListener } from "@/components/player/useEventListener";
 import { firstPersonOn, setFirstPerson, subscribeView } from "./view";
 import { NoRecording } from "./NoRecording";
 import { soundLabel } from "@/lib/sound";
+import { LeanBackCorner } from "./LeanBackCorner";
+import { NextChip, useNextShow, type PastPick } from "./NextShow";
 
-interface Props { show: ShowSummary; featuredDate: string; bestSource: Source | null; isToday: boolean; tourName: string | null; testHooks: boolean; lookupFailed: boolean; }
+interface Props { show: ShowSummary; featuredDate: string; today: string; renderedAt: number; pastPick: PastPick | null; bestSource: Source | null; isToday: boolean; tourName: string | null; testHooks: boolean; lookupFailed: boolean; }
 
 function seedFromDate(date: string): number {
   let h = 2166136261;
@@ -122,7 +124,7 @@ function DetailsPanel({ source, show, tracks, tourName, routing, world, archiveU
 }
 
 /* The page: the world's container, the HUD on plates, the hooks, the show as JSON for the world, and the module loader. */
-export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, testHooks, lookupFailed }: Props) {
+export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bestSource, isToday, tourName, testHooks, lookupFailed }: Props) {
   const tracks = useMemo(() => flatten(bestSource), [bestSource]);
   const sets = useMemo(() => (bestSource ? deriveSets(bestSource) : NO_SETS), [bestSource]);
   const data = useMemo(() => JSON.stringify({
@@ -139,6 +141,14 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
 
   const [leanback, setLeanback] = useState(false);
   const [follow, setFollow] = useState(false);
+  /* When lean-back's sleep timer ends, in ms since the epoch; null while it is off. Leaving lean-back turns it off. */
+  const [sleepEndsAt, setSleepEndsAt] = useState<number | null>(null);
+  /* The last track has ended, as the player reports it. */
+  const [over, setOver] = useState(false);
+  function leave() {
+    setLeanback(false);
+    setSleepEndsAt(null);
+  }
   /* The player's state, mirrored onto <main>. A show without a recording has no player and stays "error", its sound plain; the player
      starts "idle", its sound pending, and announces its first state before this component's listener exists. */
   const [playerState, setPlayerState] = useState<PlayerState>(tracks.length ? "idle" : "error");
@@ -153,12 +163,20 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
   /* The view setting, mirrored onto <main> for the world module. */
   const first = useSyncExternalStore(subscribeView, firstPersonOn, () => false);
   /* Test hooks, on preview deployments only, where the server marks <main data-test-hooks="1">: ?at=<track>&t=<seconds> is where the
-     first move starts, ?stats=1 shows window.__hill in the legend plate. */
+     first move starts, ?stats=1 shows window.__hill in the legend plate, ?day=<YYYY-MM-DD> is the site's day the day watcher reads in
+     place of the clock, ?sleep=seconds makes the sleep timer count seconds. */
   const search = useSyncExternalStore(subscribe, () => window.location.search, () => "");
   const hooks = testHooks ? new URLSearchParams(search) : null;
   const at = hooks?.get("at");
   const startAt = at ? { index: Number(at), seconds: Number(hooks?.get("t")) || 0 } : null;
   const showStats = hooks?.get("stats") === "1";
+  const day = hooks?.get("day");
+  const fakeAt = day ? Date.parse(`${day}T12:00:00Z`) : NaN;
+  const fakeNow = Number.isNaN(fakeAt) ? null : fakeAt;
+  const sleepUnit = hooks?.get("sleep") === "seconds" ? 1000 : 60_000;
+  /* The next show: the new day's once the site's day has turned, or a past pick once this show is over. */
+  const next = useNextShow({ today, renderedAt, pastPick, fakeNow, leanback, sleepEndsAt, over,
+    onCarry: (c) => { if (c.leanback) setLeanback(true); setSleepEndsAt(c.sleepEndsAt); } });
   const [stats, setStats] = useState<string | null>(null);
 
   /* Load the world once. A plain script element keeps the module out of the bundler. If the script errors,
@@ -173,9 +191,10 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
   }, []);
 
   /* The player reports its state and the first move. */
-  useEventListener<CustomEvent<{ state: PlayerState; routing: Routing }>>("document", "player:state", (e) => {
+  useEventListener<CustomEvent<{ state: PlayerState; routing: Routing; over: boolean }>>("document", "player:state", (e) => {
     setPlayerState(e.detail.state);
     setRouting(e.detail.routing);
+    setOver(e.detail.over);
   });
   useEventListener("document", "player:start", () => setJoined(true));
 
@@ -189,8 +208,8 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
   }, [showStats]);
 
   useEventListener<KeyboardEvent>("window", "keydown", (e) => {
-    if (e.key === "Escape") setLeanback(false);
-    else if (e.code === "KeyF" && !e.repeat && !keyBelongsToControl(e) && lettersActive(e)) setLeanback((v) => !v);
+    if (e.key === "Escape") leave();
+    else if (e.code === "KeyF" && !e.repeat && !keyBelongsToControl(e) && lettersActive(e)) { if (leanback) leave(); else setLeanback(true); }
     else if (e.code === "KeyV" && !e.repeat && !keyBelongsToControl(e) && lettersActive(e)) setFirstPerson(!first);
   });
 
@@ -211,13 +230,17 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
 
       {!leanback && (
         <>
-          {/* On a phone the plate ends 8 px before the icon column (which starts 64 px from the right edge), so its lines wrap before the column. */}
-          <div data-hud="top" className="hud plate left-6 top-6 max-sm:left-3 max-sm:top-3 max-sm:right-[72px]">
-            <p className="t-tag text-muted">Dead Redux</p>
-            <p className="t-label text-accent mt-1">{isToday ? <>Today&rsquo;s show · {formatDate(featuredDate)}</> : <>Featured {formatDate(featuredDate)}</>}</p>
-            <h1 className="t-date text-ink mt-2">{formatDate(show.date)}</h1>
-            <p className="t-body text-muted mt-1">{show.venue} · {show.location}</p>
-            {fallback && <p className="t-row text-muted mt-2">This world needs WebGL 2</p>}
+          {/* The title plate and, once the site's day has turned, the chip under it, in one column. On a phone the column ends 8 px
+              before the icon column (which starts 64 px from the right edge), so its lines wrap before the column. */}
+          <div data-hud="top" className="hud left-6 top-6 max-sm:left-3 max-sm:top-3 max-sm:right-[72px] flex flex-col items-start max-sm:items-stretch gap-2">
+            <div className="plate">
+              <p className="t-tag text-muted">Dead Redux</p>
+              <p className="t-label text-accent mt-1">{isToday ? <>Today&rsquo;s show · {formatDate(featuredDate)}</> : <>Featured {formatDate(featuredDate)}</>}</p>
+              <h1 className="t-date text-ink mt-2">{formatDate(show.date)}</h1>
+              <p className="t-body text-muted mt-1">{show.venue} · {show.location}</p>
+              {fallback && <p className="t-row text-muted mt-2">This world needs WebGL 2</p>}
+            </div>
+            {next?.kind === "day" && <NextChip next={next} leanback={false} />}
           </div>
           {/* Above the now-plate's stack, so an open Details panel never covers these controls on a short screen. */}
           <div data-hud="top" className="hud right-6 top-6 max-sm:right-3 max-sm:top-3 flex gap-2 max-sm:flex-col max-sm:items-end z-20!">
@@ -251,13 +274,15 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
 
       {/* Bottom-right on a desktop, so the bears at the trailhead stay in view; full width above the pad on a phone, a plate higher
           while the hint shows. The wrapper and the plate stay mounted in every mode, so the player keeps playing. */}
-      <div className={leanback ? "hud left-16 bottom-12" : `hud right-6 bottom-6 flex flex-col items-end gap-2 max-sm:left-3 max-sm:right-3 max-sm:items-stretch ${hinting ? "max-sm:bottom-[212px]" : "max-sm:bottom-[160px]"}`}>
+      <div className={leanback ? "hud left-16 bottom-12 flex flex-col items-start gap-2" : `hud right-6 bottom-6 flex flex-col items-end gap-2 max-sm:left-3 max-sm:right-3 max-sm:items-stretch ${hinting ? "max-sm:bottom-[212px]" : "max-sm:bottom-[160px]"}`}>
         {!leanback && !fallback && (
           <div className={`plate t-tag text-muted ${stats ? "" : "max-sm:hidden"}`}>
             <p className="max-sm:hidden">Arrows or WASD to roam, drag to look</p>
             {stats && <p className="text-[13px] leading-4 font-mono normal-case tracking-normal mt-1 max-w-[360px] wrap-anywhere">{stats}</p>}
           </div>
         )}
+        {/* The past pick above the now-plate; in lean-back, the new day too, above the title. */}
+        {next && (next.kind === "past" || leanback) && <NextChip next={next} leanback={leanback} />}
         <div className={leanback ? "plate" : "plate w-[360px] max-sm:w-auto"}>
           {bestSource && tracks.length > 0 ? (
             <Player tracks={tracks} sets={sets} featuredDate={featuredDate} showDate={show.date} venue={show.venue} archiveUrl={archiveUrl} leanback={leanback} startAt={startAt}>
@@ -277,9 +302,7 @@ export function WorldHome({ show, featuredDate, bestSource, isToday, tourName, t
         <button type="button" data-pad="right" aria-label="Turn right">→</button>
       </div>
 
-      {leanback && (
-        <button type="button" onClick={() => setLeanback(false)} className="hud plate right-16 top-12 text-[24px] leading-8 text-ink">Leave · Esc</button>
-      )}
+      {leanback && <LeanBackCorner sleepEndsAt={sleepEndsAt} onSleep={setSleepEndsAt} unit={sleepUnit} onLeave={leave} />}
     </main>
   );
 }

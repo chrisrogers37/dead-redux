@@ -1,7 +1,8 @@
-import { appendFile, mkdir, mkdtemp, writeFile } from "fs/promises";
+import { appendFile, mkdir, mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { chromium, request } from "playwright";
+import { chromium } from "playwright";
+import { callsFailure, routingFailure, saveAssets } from "./assets.mjs";
 
 const DEVICES = {
   desktop: { viewport: { width: 1440, height: 900 } },
@@ -138,6 +139,53 @@ const PAGES = [
   // The fixed day from ?pose=path: the visitor's bear on the loop at the summit's north-east shoulder, heading along it, and down the slope
   // to the left of it the stage's front.
   { path: "/2026-10-20?pose=path", devices: ["desktop"], shots: ["fixed-stage-path"] },
+  // The fixed day with the site's day faked as 2099-01-01, a day it will not reach: the chip names the new day at load and stays while
+  // the show plays on (the 8-s shot's clock has moved; the url line still reads the fixed page); in lean-back it sits above the title; its
+  // link loads today's page, which arrives leaned back and starts the show, or shows it paused where the browser refuses.
+  {
+    path: "/2026-10-20?day=2099-01-01",
+    devices: ["desktop", "phone", "desktop-reduced"],
+    shots: ["fixed-newday"],
+    steps: [
+      playStep("fixed-newday-playing", { ms: 8000, shot: "fixed-newday-8s" }),
+      { click: "[data-action='lean-back']", waitFor: "[data-mode='leanback']", shot: "fixed-newday-leanback" },
+      {
+        click: "[data-action='play-next']",
+        waitFor: "main:not(:has([data-next]))[data-state='playing'], main:not(:has([data-next]))[data-state='paused']",
+        waitMs: PLAY_WAIT_MS,
+        player: true,
+        shot: "fixed-newday-tapped",
+      },
+    ],
+  },
+  // The fixed day 6 s before its last track ends (U.S. Blues, 287 s): the show ends, and the offer names a past pick.
+  {
+    path: "/2026-10-20?at=18&t=281",
+    devices: ["desktop", "phone"],
+    shots: [],
+    steps: [playStep("fixed-end-start", { ms: 12000, shot: "fixed-end" })],
+  },
+  // The same with the day faked: at the end (about 6.5 s in) the new day loads on its own; 20 s on, the later shot is today's page,
+  // its state in the log, and never lands mid-navigation.
+  {
+    path: "/2026-10-20?day=2099-01-01&at=18&t=281",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-turn-start", { ms: 20000, shot: "fixed-turned" })],
+  },
+  // The sleep timer counting seconds, in lean-back: one press sets 30 s; 32 s on, the show is paused and, with no input since the
+  // click, the cursor is hidden; a key brings it back.
+  {
+    path: "/2026-10-20?sleep=seconds",
+    devices: ["desktop"],
+    shots: [],
+    steps: [
+      playStep("fixed-sleep-playing"),
+      { click: "[data-action='lean-back']", waitFor: "[data-mode='leanback']", shot: "fixed-sleep-leanback" },
+      { click: "[data-action='sleep']", shot: "fixed-sleep-30", later: { ms: 32000, shot: "fixed-slept" } },
+      { focus: "[data-action='sleep']", press: "ShiftLeft", shot: "fixed-cursor-back" },
+    ],
+  },
   // The end shot shows the last screen, where the archive's count line sits.
   { path: "/archive", shots: ["archive"], end: "archive-end" },
   // A fixed past day, so its shots compare across runs.
@@ -280,10 +328,17 @@ const RECORDINGS = [
 // How long each recording runs once the page has loaded and any control is pressed, unless it names its own `recordMs`.
 const RECORD_MS = 10_000;
 
+// What fails the run once every shot is taken: a generated image the site answers with an error, a frame over its tier's draw-call
+// budget, and a show playing with its sound neither through the world nor in plain stereo for a reason the player names.
+const failures = [];
+
 // Logs the page's render stats (window.__hill) for a shot, or for a recording after each control it holds; null on a page without them.
+// A frame over its tier's draw-call budget is a failure.
 const logStats = async (page, file) => {
   const stats = await page.evaluate(() => JSON.stringify(window.__hill ?? null));
   console.log(`stats ${file} ${stats}`);
+  const failure = callsFailure(JSON.parse(stats));
+  if (failure) failures.push(`${file}: ${failure}`);
 };
 
 // Logs every control's box after a page's first shot, so a touch target is read rather than measured: links, buttons, summaries,
@@ -310,6 +365,24 @@ const open = async (page, url) => {
     .waitForLoadState("load", { timeout: LOAD_MS })
     .catch(() => console.log(`${url} never finished loading; going on anyway`));
   return response;
+};
+
+// Logs where a shot was taken and what the page says: its URL, the player's state with the now-plate's sentence, whether lean-back has
+// hidden the cursor, and the next-show chip's kind and text, or null without one.
+const logPage = async (page, file) => {
+  const [state, line, cursor, next] = await page.evaluate(() => {
+    const chip = document.querySelector("[data-next]");
+    return [
+      document.querySelector("main")?.dataset.state ?? null,
+      document.querySelector("[data-action='play']")?.closest(".plate")?.querySelector(".t-tag")?.textContent ?? null,
+      document.documentElement.classList.contains("cursor-off"),
+      chip ? `${chip.dataset.next} · ${chip.textContent}` : null,
+    ];
+  });
+  console.log(`url ${file} ${page.url()}`);
+  console.log(`state ${file} ${state} · ${line}`);
+  console.log(`cursor ${file} ${cursor}`);
+  console.log(`next ${file} ${next}`);
 };
 
 const site = new URL(process.env.SITE_URL);
@@ -384,6 +457,7 @@ try {
         await page.screenshot({ path: join(outDir, file), fullPage: true, clip });
         console.log(`${file}  ${url}`);
         await logStats(page, file);
+        await logPage(page, file);
         if (i === 0) await logBoxes(page, file);
       }
 
@@ -418,6 +492,7 @@ try {
         await page.screenshot({ path: join(outDir, file), fullPage: true, clip });
         console.log(`${file}  ${url}  ${selector ?? `press ${step.press}`}`);
         await logStats(page, file);
+        await logPage(page, file);
         // The follow-up shot shows the page after it has been playing for a while.
         if (step.later) {
           await page.waitForTimeout(step.later.ms);
@@ -425,15 +500,22 @@ try {
           await page.screenshot({ path: join(outDir, laterFile), fullPage: true, clip });
           console.log(`${laterFile}  ${url}  ${selector}`);
           await logStats(page, laterFile);
+          await logPage(page, laterFile);
           // Serialised in the page, so each reading prints as one line of JSON.
-          const [analysis, lastGapMs, routing] = await page.evaluate(() => [
+          const [analysis, lastGapMs, routing, state, world, corsFallback] = await page.evaluate(() => [
             JSON.stringify(window.__hill?.analysis ?? null),
             JSON.stringify(window.__hill?.lastGapMs ?? null),
             document.querySelector("main")?.dataset.routing ?? null,
+            document.querySelector("main")?.dataset.state ?? null,
+            document.getElementById("world")?.dataset.world ?? null,
+            window.__hill?.corsFallback ?? null,
           ]);
           console.log(`analysis ${laterFile} ${analysis}`);
           console.log(`lastGapMs ${laterFile} ${lastGapMs}`);
           console.log(`routing ${laterFile} ${routing}`);
+          // By now a playing show sounds through the world, or in plain stereo for a reason the player names (its corsFallback stat).
+          const routed = routingFailure({ state, world, routing, corsFallback });
+          if (routed) failures.push(`${laterFile}: ${routed}`);
         }
       }
 
@@ -521,19 +603,9 @@ try {
     console.log(`${file}  ${url}`);
   }
 
-  const api = await request.newContext();
-  for (const path of ASSETS) {
-    const response = await api.get(new URL(path, site).href);
-    // An image the site does not serve is logged and skipped.
-    if (!response.ok()) {
-      console.log(`${path} answered ${response.status()}`);
-      continue;
-    }
-    const file = `asset-${path.slice(1).replace(/\.png$/, "").replace(/\//g, "-")}.png`;
-    await writeFile(join(outDir, file), await response.body());
-    console.log(`${file}  ${path}`);
-  }
-  await api.dispose();
+  failures.push(...(await saveAssets(site, ASSETS, outDir)));
+  for (const failure of failures) console.log(`failure ${failure}`);
+  if (failures.length > 0) throw new Error(`${failures.length} failure(s); each has its own "failure" line above`);
 } finally {
   await browser.close();
   await noWebGL.close();

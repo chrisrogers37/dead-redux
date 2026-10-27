@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
-import { getDailyShow, getTodayDateStr } from "@/lib/daily-show";
+import { getDailyShow } from "@/lib/daily-show";
+import { getTodayDateStr } from "@/lib/site-day";
 import { formatDate } from "@/lib/format";
 import { ShareCard } from "@/lib/share-card";
 

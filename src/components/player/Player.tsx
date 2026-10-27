@@ -538,22 +538,25 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
   /* Another control can start the show: a player:join dispatched synchronously inside its own activating handler joins, as the first move does. */
   useEventListener("document", "player:join", () => join());
 
+  /* Lean-back's sleep timer stops the show. */
+  useEventListener("document", "player:pause", () => pause());
+
   /* The world says how each element sounds. */
   useEventListener<CustomEvent<{ el: HTMLAudioElement; routing: Routing }>>("document", "world:routing", (e) => {
     const { el, routing } = e.detail;
     setRoutes((m) => (m.get(el) === routing ? m : new Map(m).set(el, routing)));
   });
 
-  /* Tells the world and the HUD the state, and how the active element sounds: pending until the world reports it. A track change can make
-     the other element the active one. */
+  /* Tells the world and the HUD the state, and whether the last track has ended, and how the active element sounds: pending until the
+     world reports it. A track change can make the other element the active one. */
   const publishState = useEffectEvent(() => {
     const el = activeEl();
     const routing = (el ? routes.get(el) : undefined) ?? "pending";
-    document.dispatchEvent(new CustomEvent("player:state", { detail: { state, routing } }));
+    document.dispatchEvent(new CustomEvent("player:state", { detail: { state, routing, over } }));
   });
   useEffect(() => {
     publishState();
-  }, [state, routes, view.index]);
+  }, [state, routes, view.index, over]);
 
   useEffect(() => {
     const g = eng.current;

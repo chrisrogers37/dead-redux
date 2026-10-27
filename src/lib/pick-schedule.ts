@@ -23,7 +23,7 @@ export interface PickSchedule {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Whole days since 1970-01-01 for an ISO date string "YYYY-MM-DD". */
-function dayNumber(dateStr: string): number {
+export function dayNumber(dateStr: string): number {
   return Date.parse(`${dateStr}T00:00:00Z`) / DAY_MS;
 }
 

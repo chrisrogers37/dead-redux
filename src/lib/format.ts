@@ -32,6 +32,18 @@ export function formatDate(dateStr: string): string {
   return isNaN(date.getTime()) ? dateStr : dateFormat.format(date);
 }
 
+// Built once, like dateFormat.
+const monthDayFormat = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
+
+/**
+ * Format an ISO date string as its month and day, for a day the reader knows the year of.
+ * "2026-10-27" → "October 27"; a partial date stays as written.
+ */
+export function formatMonthDay(dateStr: string): string {
+  const date = new Date(dateStr + "T00:00:00Z");
+  return isNaN(date.getTime()) ? dateStr : monthDayFormat.format(date);
+}
+
 /**
  * Drop a leading track number from a track title. "01 Tuning", "1. Tuning", "8) Tuning",
  * "12 - Tuning", "12- Tuning", "12 -Tuning" and "01-Tuning" all become "Tuning";
