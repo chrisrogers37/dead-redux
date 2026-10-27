@@ -34,6 +34,22 @@ export function routingFailure({ state, world, routing, corsFallback }) {
     : null;
 }
 
+/**
+ * Runs fn in the page, as page.evaluate does, and once more if a navigation destroyed the page's context mid-read: a step can leave the
+ * page reloading itself (the day turning, say) just as the run reads it. The second read waits for the new page's load and calls
+ * onReread first. Any other error, or a second destroyed context, still fails the run.
+ */
+export async function evaluateAcrossNavigation(page, fn, onReread = () => {}) {
+  try {
+    return await page.evaluate(fn);
+  } catch (error) {
+    if (!String(error?.message).includes("Execution context was destroyed")) throw error;
+    onReread();
+    await page.waitForLoadState("load");
+    return await page.evaluate(fn);
+  }
+}
+
 /** The file a generated image is saved as: "/icon-192.png" as asset-icon-192.png, "/2026-03-01/opengraph-image" as asset-2026-03-01-opengraph-image.png. */
 export const assetFile = (path) => `asset-${path.slice(1).replace(/\.png$/, "").replace(/\//g, "-")}.png`;
 

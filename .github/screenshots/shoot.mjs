@@ -2,7 +2,7 @@ import { appendFile, mkdir, mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { chromium } from "playwright";
-import { callsFailure, routingFailure, saveAssets } from "./assets.mjs";
+import { callsFailure, evaluateAcrossNavigation, routingFailure, saveAssets } from "./assets.mjs";
 
 const DEVICES = {
   desktop: { viewport: { width: 1440, height: 900 } },
@@ -333,10 +333,13 @@ const RECORD_MS = 10_000;
 // budget, and a show playing with its sound neither through the world nor in plain stereo for a reason the player names.
 const failures = [];
 
+// What the log says when a read had to wait for the page to load again: the shot was taken, then the page navigated as it was read.
+const reread = (file) => () => console.log(`reread ${file}: the page navigated while it was read`);
+
 // Logs the page's render stats (window.__hill) for a shot, or for a recording after each control it holds; null on a page without them.
 // A frame over its tier's draw-call budget is a failure.
 const logStats = async (page, file) => {
-  const stats = await page.evaluate(() => JSON.stringify(window.__hill ?? null));
+  const stats = await evaluateAcrossNavigation(page, () => JSON.stringify(window.__hill ?? null), reread(file));
   console.log(`stats ${file} ${stats}`);
   const failure = callsFailure(JSON.parse(stats));
   if (failure) failures.push(`${file}: ${failure}`);
@@ -371,7 +374,7 @@ const open = async (page, url) => {
 // Logs where a shot was taken and what the page says: its URL, the player's state with the now-plate's sentence, whether lean-back has
 // hidden the cursor, and the next-show chip's kind and text, or null without one.
 const logPage = async (page, file) => {
-  const [state, line, cursor, next] = await page.evaluate(() => {
+  const [state, line, cursor, next] = await evaluateAcrossNavigation(page, () => {
     const chip = document.querySelector("[data-next]");
     return [
       document.querySelector("main")?.dataset.state ?? null,
@@ -379,7 +382,7 @@ const logPage = async (page, file) => {
       document.documentElement.classList.contains("cursor-off"),
       chip ? `${chip.dataset.next} · ${chip.textContent}` : null,
     ];
-  });
+  }, reread(file));
   console.log(`url ${file} ${page.url()}`);
   console.log(`state ${file} ${state} · ${line}`);
   console.log(`cursor ${file} ${cursor}`);
