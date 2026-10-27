@@ -186,12 +186,13 @@ const PAGES = [
       { focus: "[data-action='sleep']", press: "ShiftLeft", shot: "fixed-cursor-back" },
     ],
   },
-  // The end shot shows the last screen, where the archive's count line sits.
-  { path: "/archive", shots: ["archive"], end: "archive-end" },
+  // The end shot shows the last screen, where the archive's count line sits. The TV shoots the archive too, at 1920 by 1080.
+  { path: "/archive", devices: ["desktop", "desktop-reduced", "phone", "phone-360", "tv"], shots: ["archive"], end: "archive-end" },
   // September 2026 opened from the archive's month list: a closed month, so its rows compare across runs. The log's url line reads
   // the month's own page, and the end shot shows its list, which names October and not September, over the count line.
   {
     path: "/archive",
+    devices: ["desktop", "desktop-reduced", "phone", "phone-360", "tv"],
     shots: [],
     steps: [{ click: "a[href='/archive/2026-09']", waitFor: "main[data-month='2026-09']", shot: "archive-2026-09" }],
     end: "archive-2026-09-end",
@@ -430,8 +431,8 @@ try {
     };
 
     for (const { path, shots, steps, end, devices, ready } of PAGES) {
-      // The TV device is for lean-back, so it shoots only the home page.
-      if (device === "tv" && path !== "/") {
+      // The TV device is for lean-back, so it shoots the home page and only the other pages that name it.
+      if (device === "tv" && path !== "/" && !devices?.includes("tv")) {
         continue;
       }
       // A page may name the devices that shoot it; a device without WebGL shoots only the pages that do.
