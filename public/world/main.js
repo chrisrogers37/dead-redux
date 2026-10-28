@@ -1,7 +1,7 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { buildIsland } from "./island.js";
-import { height, PATH_POSE, SLOPE_POSE, STAGE_POSE } from "./ground.js";
+import { BOUND, height, PATH_POSE, SLOPE_POSE, STAGE_POSE } from "./ground.js";
 import { buildPath, layout, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
 import { makeBuilders } from "./landmarks.js";
 import { buildBears } from "./bears.js";
@@ -160,10 +160,14 @@ function start(gl) {
   let third = true, cut = false;
   /* The test hooks ?pose=stage, ?pose=slope and ?pose=path, on preview deployments only (the server marks <main data-test-hooks="1">):
      the walk starts with the visitor on the slope in front of the stage, higher up it, or on the path where it shows the stage
-     (ground.js), with no descent, and no idle time hands the view to attract. */
+     (ground.js), with no descent, and no idle time hands the view to attract. ?pose=sweep is the same walk from the trailhead, for the
+     CI shoot's draw-call sweep: a `world:pose` event (x, z, heading, pitch) puts the visitor anywhere with the camera cut, the world
+     holds rung 0, and it draws at a twentieth of the frame's size, which changes no draw call: three culls against the camera, whose
+     aspect stays the frame's. */
   const hook = main.dataset.testHooks === "1" ? new URLSearchParams(location.search).get("pose") : null;
   const testPose = hook === "stage" ? STAGE_POSE : hook === "slope" ? SLOPE_POSE : hook === "path" ? PATH_POSE : null;
-  const posed = testPose !== null;
+  const sweep = hook === "sweep";
+  const posed = testPose !== null || sweep;
   let mode = reduced || posed ? "walk" : "descent";
   let idleTimer = 0, elapsed = 0;
   /* The descent's length, in seconds of world time. A frame adds at most 50 ms to the world's time, so a slow load stretches the
@@ -181,9 +185,6 @@ function start(gl) {
   /* The stage's platform is solid too: a walk stops at its edge, STAGE_REACH from the centre of its column (stage.js). */
   const stageSpot = [STAGE_COLUMN];
   const line = buildWalkLine(path, 7);
-  /* The walk keeps within this distance of the island's centre: past the bears' line, which reaches 112.4 m out, by more than a reach,
-     so stepping back from a bear never carries a walker past it. */
-  const BOUND = 117;
   /* How far the lead bear is along its line. Until the show first plays the bears stand where it is, from the world's first frame
      even if it is already playing; then they set off and keep their own pace while it plays. Under reduced motion they stand at the
      landmark of the song that plays. */
@@ -339,7 +340,7 @@ function start(gl) {
     const dt = Math.min(0.05, dtMs / 1000);
     last = now;
     elapsed += dt;
-    if (!reduced) sample(dtMs);
+    if (!reduced && !sweep) sample(dtMs);
 
     /* The show. */
     locate(now);
@@ -477,7 +478,16 @@ function start(gl) {
   container.dataset.world = "ready";
   locate(performance.now());
   if (reduced) { bearD = line.dOf(landmarkU[index]); toSlot(); }
-  if (posed) { Object.assign(walker, testPose); cut = true; }
+  if (testPose) { Object.assign(walker, testPose); cut = true; }
+  if (sweep) {
+    quality = { ...quality, scale: 0.05 };
+    resize();
+    document.addEventListener("world:pose", ({ detail: { x, z, heading, pitch } }) => {
+      Object.assign(walker, { x, z, heading, pitch });
+      cut = true;
+      wake();
+    });
+  }
   placeWalker();
   wake();
   document.addEventListener("visibilitychange", () => {

@@ -46,6 +46,24 @@ jobs:
         run: |
           echo "ed652b2f32e0851d1946894fb8333f5b677c1b2ce6b9d187910a67f8b99da028  node_modules/ffmpeg-static/ffmpeg" \
             | sha256sum --check --strict
+      # The world's CDN files and the sha384 of each as three@0.185.0's npm package holds it: the world imports three.module.min.js and
+      # BufferGeometryUtils.js, and three.module.min.js imports three.core.min.js. A file the CDN serves with another hash, or does not
+      # serve, fails the run before the shoot loads it. These are the integrity values a modulepreload link can pin.
+      - name: Check the CDN files' sha384
+        timeout-minutes: 2
+        run: |
+          set -o pipefail
+          failed=0
+          while read -r want u; do
+            got="sha384-$(curl -fsS --max-time 20 --retry 2 "$u" | openssl dgst -sha384 -binary | openssl base64 -A)" || got="nothing"
+            if [ "$got" = "$want" ]; then verdict="matches"; else verdict="FAILS: the CDN served $got"; failed=1; fi
+            echo "$want  $u  $verdict" | tee -a "$GITHUB_STEP_SUMMARY"
+          done <<'EOF'
+          sha384-QHQk1LzjJlJYNdthXjKCmffpDRZL3EqJ7LfqBzyKyvGgjAYM2ZVuYtFGg42NcAJ/ https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.min.js
+          sha384-hVJglfJ3ExjEf/gZlu5Oiq3Zi9zgxOs4Kut5eM2Ts9j5xj0UcGQ6Np1eU3Qpw/5c https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.core.min.js
+          sha384-05mkYituMJObxUkTK7xbW9SA45DEaxOge7FQUGrhW3dsFz0fckzykM6RMAPN26rD https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/utils/BufferGeometryUtils.js
+          EOF
+          exit "$failed"
       - run: npx playwright install --with-deps --only-shell chromium
       # Playwright records video with its own ffmpeg.
       - run: npx playwright install ffmpeg
@@ -83,19 +101,6 @@ jobs:
         run: node install.mjs
         env:
           SITE_URL: ${{ github.event.deployment_status.environment_url || inputs.url }}
-      # The integrity values a modulepreload link can pin for the world's two CDN files.
-      - name: Print the CDN files' sha384
-        continue-on-error: true
-        # A stalled CDN fails this step quickly, and the upload below still runs.
-        timeout-minutes: 1
-        run: |
-          set -o pipefail
-          for u in \
-            https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.min.js \
-            https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/utils/BufferGeometryUtils.js; do
-            h=$(curl -fsS --max-time 20 "$u" | openssl dgst -sha384 -binary | openssl base64 -A)
-            echo "sha384-$h  $u" | tee -a "$GITHUB_STEP_SUMMARY"
-          done
       # Also runs when the shoot's gate, an enforced compare or the install check fails, so the shots and the diff are kept.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: success() || steps.shoot.outcome == 'failure' || steps.compare.outcome == 'failure' || steps.install.outcome == 'failure'

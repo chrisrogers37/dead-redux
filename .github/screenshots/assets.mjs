@@ -1,5 +1,6 @@
 import { writeFile } from "fs/promises";
 import { join } from "path";
+import { BOUND } from "../../public/world/ground.js";
 
 /**
  * What the run does with a generated image's answer: it saves a 200 and skips a 404, since an image can be missing before the change
@@ -22,6 +23,49 @@ export function callsFailure(stats) {
   const { tier, calls } = stats ?? {};
   const budget = CALL_BUDGET[tier];
   return budget !== undefined && typeof calls === "number" && calls > budget ? `${calls} draw calls, over the ${tier} budget of ${budget}` : null;
+}
+
+/**
+ * The poses the sweep puts the visitor's bear in: every place on a square grid `spacing` metres apart inside the walk, which keeps within
+ * BOUND of the island's centre (ground.js), and on the ring at the bound itself at about the same spacing, each faced `headings` ways
+ * evenly round, at each of `pitches`.
+ */
+export function walkPoses(spacing, headings, pitches) {
+  const places = [];
+  const n = Math.floor(BOUND / spacing);
+  for (let i = -n; i <= n; i++) {
+    for (let j = -n; j <= n; j++) if (Math.hypot(i, j) * spacing < BOUND) places.push([i * spacing, j * spacing]);
+  }
+  const ring = Math.ceil((2 * Math.PI * BOUND) / spacing);
+  for (let k = 0; k < ring; k++) places.push([BOUND * Math.sin((2 * Math.PI * k) / ring), BOUND * Math.cos((2 * Math.PI * k) / ring)]);
+  return places.flatMap(([x, z]) =>
+    Array.from({ length: headings }, (_, h) => pitches.map((pitch) => ({ x, z, heading: (2 * Math.PI * h) / headings, pitch }))).flat()
+  );
+}
+
+/**
+ * Runs in a page opened with ?pose=sweep (main.js): puts the visitor at each pose in turn with a `world:pose` event and reads the draw
+ * calls of a frame the world draws after it. Returns the calls in the poses' order, and fails if 60 animation frames pass without one.
+ */
+export async function readWalkCalls(poses) {
+  const calls = [];
+  for (const pose of poses) {
+    const drawn = window.__hill.frames;
+    document.dispatchEvent(new CustomEvent("world:pose", { detail: pose }));
+    for (let waited = 0; window.__hill.frames === drawn; waited++) {
+      if (waited === 60) throw new Error(`the world drew no frame for the pose ${JSON.stringify(pose)}`);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    calls.push(window.__hill.calls);
+  }
+  return calls;
+}
+
+/** The most draw calls a sweep read, and the first of its poses that drew them. */
+export function sweepPeak(poses, calls) {
+  let at = 0;
+  for (let i = 1; i < calls.length; i++) if (calls[i] > calls[at]) at = i;
+  return { calls: calls[at], pose: poses[at] };
 }
 
 /**
