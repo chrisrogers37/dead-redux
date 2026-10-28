@@ -1,7 +1,8 @@
 /* eslint-disable */
 
 /* Quality tiers and the frame-time downgrade. The tier is picked once at boot, from the screen and the browser or from ?tier=. Its
-   budget is rung 0, and a device that renders slowly steps down one rung at a time and never back up. */
+   budget is rung 0, and a device that renders slowly steps down one rung at a time and never back up. The frames the world draws while
+   it loads decide nothing, so a slow load alone never steps it down. */
 
 /* Rung 0 of each tier. Only the desktop draws a shadow map, the stage's. */
 const BUDGETS = {
@@ -16,10 +17,11 @@ export const SLOW_MS = 34;
 export const WINDOW = 60;
 
 /* The downgrade's sampler. Each frame's time goes in, and every WINDOW frames the window's median is measured. A median over SLOW_MS
-   asks for one rung down. */
+   asks for one rung down, unless the window holds a frame the world drew while loading: a slow load is not a slow device. */
 export function frameSampler() {
   const times = [];
   let frameMs = 0;
+  let loadFree = true;
   return {
     /* The last window's median frame time, in milliseconds; 0 until the first window ends. */
     get frameMs() {
@@ -28,10 +30,13 @@ export function frameSampler() {
     /* Adds a frame's time, and whether the world drew it while loading. True when the window it ends asks for one rung down. */
     add(dtMs, loading) {
       times.push(dtMs);
+      if (loading) loadFree = false;
       if (times.length < WINDOW) return false;
       frameMs = median(times);
+      const decides = loadFree;
       times.length = 0;
-      return frameMs > SLOW_MS;
+      loadFree = true;
+      return decides && frameMs > SLOW_MS;
     },
   };
 }
