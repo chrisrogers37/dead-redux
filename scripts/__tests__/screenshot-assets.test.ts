@@ -4,7 +4,14 @@ import { mkdtemp, readdir, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { assetAction, assetFile, callsFailure, routingFailure, saveAssets } from "../../.github/screenshots/assets.mjs";
+import {
+  assetAction,
+  assetFile,
+  callsFailure,
+  evaluateAcrossNavigation,
+  routingFailure,
+  saveAssets,
+} from "../../.github/screenshots/assets.mjs";
 
 describe("assetAction", () => {
   it("saves a 200 and skips a 404, an image whose change has not landed yet", () => {
@@ -69,6 +76,48 @@ describe("routingFailure", () => {
   it("passes a show that is not playing, and a world that is not ready, whatever the routing", () => {
     expect(routingFailure({ ...playing("pending"), state: "paused" })).toBe(null);
     expect(routingFailure({ ...playing("pending"), world: "loading" })).toBe(null);
+  });
+});
+
+describe("evaluateAcrossNavigation", () => {
+  // What Playwright throws when the page navigates while page.evaluate runs.
+  const destroyed = () => new Error("page.evaluate: Execution context was destroyed, most likely because of a navigation");
+  // A stand-in page: each evaluate takes the next answer (an Error is thrown), and every call is recorded in order.
+  const stand = (...answers: unknown[]) => {
+    const calls: string[] = [];
+    const page = {
+      evaluate: async () => {
+        calls.push("evaluate");
+        const answer = answers.shift();
+        if (answer instanceof Error) throw answer;
+        return answer;
+      },
+      waitForLoadState: async (state: string) => {
+        calls.push(`wait ${state}`);
+      },
+    };
+    return { page, calls };
+  };
+
+  it("reads once when nothing navigates", async () => {
+    const { page, calls } = stand("read");
+    expect(await evaluateAcrossNavigation(page, () => null)).toBe("read");
+    expect(calls).toEqual(["evaluate"]);
+  });
+
+  it("reads again once the new page has loaded when a navigation destroyed the first read, and says so", async () => {
+    const { page, calls } = stand(destroyed(), "reread");
+    const notes: string[] = [];
+    expect(await evaluateAcrossNavigation(page, () => null, () => notes.push("reread"))).toBe("reread");
+    expect(calls).toEqual(["evaluate", "wait load", "evaluate"]);
+    expect(notes).toEqual(["reread"]);
+  });
+
+  it("fails on any other error, and on a second destroyed read", async () => {
+    await expect(evaluateAcrossNavigation(stand(new Error("boom")).page, () => null)).rejects.toThrow("boom");
+    await expect(evaluateAcrossNavigation(stand(destroyed(), destroyed()).page, () => null)).rejects.toThrow(
+      "Execution context was destroyed",
+    );
   });
 });
 
