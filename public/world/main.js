@@ -13,7 +13,7 @@ import { keepSpot } from "./modes.js";
 import { cueClock } from "./clock.js";
 import { listen, soundStats, startSound } from "./audio.js";
 import { buildStage, STAGE_COLUMN, STAGE_REACH, STAGE_SOUND } from "./stage.js";
-import { budgetFor, median, pickTier, SLOW_MS, stepDown, WINDOW } from "./quality.js";
+import { budgetFor, frameSampler, pickTier, stepDown } from "./quality.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
    The setlist is the path; each song is a landmark; five bears walk it ahead of the listener. */
@@ -167,6 +167,9 @@ function start(gl) {
   const posed = testPose !== null;
   let mode = reduced || posed ? "walk" : "descent";
   let idleTimer = 0, elapsed = 0;
+  /* The descent's length, in seconds of world time. A frame adds at most 50 ms to the world's time, so a slow load stretches the
+     descent rather than outrunning it. */
+  const DESCENT_S = 6;
   /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
   let followBase = 0;
   /* The bears walk their own line at a lively pace, five 7 m apart by distance along it. The line keeps 7 m to the left of the path
@@ -295,15 +298,12 @@ function start(gl) {
     camera.lookAt(look);
   }
 
-  /* The downgrade: every WINDOW frames the median frame time decides; over SLOW_MS, one rung down (quality.js). */
-  const frameTimes = [];
-  let frameMs = 0;
+  /* The downgrade (quality.js): every WINDOW frames the median frame time decides, and over SLOW_MS the world steps down a rung. The
+     world's first DESCENT_S seconds are its load, and a window that holds a frame of them decides nothing, even when input cuts the
+     descent short or a test pose skips it. */
+  const sampler = frameSampler();
   function sample(dtMs) {
-    frameTimes.push(dtMs);
-    if (frameTimes.length < WINDOW) return;
-    frameMs = median(frameTimes);
-    frameTimes.length = 0;
-    if (frameMs <= SLOW_MS) return;
+    if (!sampler.add(dtMs, elapsed < DESCENT_S)) return;
     const next = stepDown(quality);
     if (!next) return;
     quality = next;
@@ -325,7 +325,7 @@ function start(gl) {
   Object.defineProperties((window.__hill ??= {}), {
     tier: stat(() => tier), scale: stat(() => quality.scale), rung: stat(() => rung),
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
-    frameMs: stat(() => Math.round(frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
+    frameMs: stat(() => Math.round(sampler.frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
     mode: stat(() => mode),
     /* The view, whether the visitor's bear is drawn, where its head stands to the centimetre (the sound's listener in third person),
        whether its feet land in the frame (and above the now-plate on a phone), and where its head lands, as fractions from the top-left. */
@@ -435,11 +435,11 @@ function start(gl) {
       avatar.step(s.x, s.z, s.heading, dt);
       if (mode === "descent") {
         /* From above the summit, where the island reads as the mark, north up the screen, down to the camera that walks with the bears. */
-        const k = easeOut(elapsed / 6);
+        const k = easeOut(elapsed / DESCENT_S);
         const end = postPose(0, 0);
         camera.position.set(end.pos.x * k, 140 + (end.pos.y - 140) * k, end.pos.z * k);
         aim(lookTarget.set(end.look.x * k, end.look.y * k, -3 + (end.look.z + 3) * k), true);
-        if (elapsed >= 6) setMode("attract");
+        if (elapsed >= DESCENT_S) setMode("attract");
       } else if (mode === "attract" || mode === "follow") {
         /* In follow, turning adds an offset to the look. */
         if (mode === "follow") walker.heading += ((keys.left ? 1 : 0) - (keys.right ? 1 : 0)) * 1.6 * dt;

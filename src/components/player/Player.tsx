@@ -7,6 +7,7 @@ import { corsAfterError, stateAfterError } from "@/lib/fallback";
 import { nextIndex, prevIndex, setName } from "@/lib/queue";
 import { Transport } from "./Transport";
 import { cueQueue } from "./cue";
+import { joinMoves } from "./join";
 import { keyBelongsToControl, lettersActive } from "./keys";
 import { useEventListener } from "./useEventListener";
 import { useFirstMove } from "./useFirstMove";
@@ -244,8 +245,8 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
   }
 
   /**
-   * Starts the show, synchronously inside the activating event's handler: play() first, then player:start, whose listener in the world
-   * creates and resumes the AudioContext under the same user activation. Nothing here awaits.
+   * Starts the show, synchronously inside the activating event's handler. Its first moves are joinMoves', in the order a phone's audio
+   * needs. Nothing here awaits.
    */
   function join() {
     const g = eng.current;
@@ -258,10 +259,7 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
     playbackSession();
     const at = startAt && fits(startAt, tracks.length) ? startAt : null;
     const from = at ?? readResume(featuredDate, tracks.length);
-    if (from) goTo(from.index, from.seconds);
-    else if (failed) cue(g.active, g.index, 0);
-    play();
-    document.dispatchEvent(new Event("player:start"));
+    joinMoves(from, failed, { goTo, recue: () => cue(g.active, g.index, 0), play });
     if (TWO_ELEMENTS) unlockIdle();
     setJoined(true);
     setState("loading");

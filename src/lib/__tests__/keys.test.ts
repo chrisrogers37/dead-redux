@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { keyBelongsToControl, lettersActive } from "../../components/player/keys";
+import { lettersActive as worldLettersActive } from "../../../public/world/input.js";
 
 // The page's elements, played by stand-ins that answer only what keys.ts asks of them: node has no DOM. `matches` knows the two
 // selectors keys.ts uses and throws on any other, so a changed selector fails here instead of passing.
@@ -118,5 +119,57 @@ describe("lettersActive", () => {
       },
     });
     expect(lettersActive(press("KeyK", html("div")))).toBe(true);
+  });
+});
+
+// The letter-key rule exists twice: the player's lettersActive and the world's (public/world/input.js), which do not import each other.
+// The player reads the Details switch from storage, the world from the data-single-key attribute the page mirrors onto <main>: "on",
+// "off", or none. One table holds both to the rule: letters act unless the switch is off, and then only when the key is pressed in the
+// world.
+const mainWith = (singleKey?: string) => ({ dataset: singleKey === undefined ? {} : { singleKey } });
+
+// Each copy of the rule, asked whether a press of K acts. `setting` is the switch as it is stored or as the attribute reads, undefined
+// being none.
+const LETTER_RULES: { name: string; act: (setting: string | undefined, target: unknown) => boolean }[] = [
+  {
+    name: "lettersActive",
+    act: (setting, target) => {
+      stored.clear();
+      if (setting !== undefined) stored.set(SINGLE_KEY, setting);
+      return lettersActive(press("KeyK", target));
+    },
+  },
+  { name: "worldLettersActive", act: (setting, target) => worldLettersActive(mainWith(setting), press("KeyK", target)) },
+];
+
+// Where a key can be pressed, and whether that is in the world.
+const PRESSED_ON: [string, unknown, boolean][] = [
+  ["a plain element", html("div"), false],
+  ["no target", null, false],
+  ["an element in the world", html("canvas", {}, true), true],
+];
+
+const SETTINGS: [string, string | undefined][] = [
+  ["unset", undefined],
+  ["on", "on"],
+  ["off", "off"],
+];
+
+type Row = [switchName: string, pressedOn: string, acts: boolean, setting: string | undefined, target: unknown];
+
+// Every setting of the switch against every place of pressing: the first two items name the row, the rest are what it runs on.
+const ROWS = SETTINGS.flatMap(([switchName, setting]) =>
+  PRESSED_ON.map(([pressedOn, target, inWorld]): Row => [switchName, pressedOn, setting !== "off" || inWorld, setting, target]),
+);
+
+describe.each(LETTER_RULES)("the letter rule, as $name holds it", ({ act }) => {
+  it.each<Row>(ROWS)("with the switch %s, a key pressed on %s answers %s", (_switchName, _pressedOn, acts, setting, target) => {
+    expect(act(setting, target)).toBe(acts);
+  });
+});
+
+describe("worldLettersActive", () => {
+  it("acts anywhere when the page has no main element", () => {
+    for (const [, target] of PRESSED_ON) expect(worldLettersActive(null, press("KeyK", target))).toBe(true);
   });
 });
