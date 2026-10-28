@@ -2,7 +2,17 @@ import { appendFile, mkdir, mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { chromium } from "playwright";
-import { callsFailure, evaluateAcrossNavigation, routingFailure, saveAssets } from "./assets.mjs";
+import { PATH_POSE, SLOPE_POSE, STAGE_POSE } from "../../public/world/ground.js";
+import {
+  CALL_BUDGET,
+  callsFailure,
+  evaluateAcrossNavigation,
+  readWalkCalls,
+  routingFailure,
+  saveAssets,
+  sweepPeak,
+  walkPoses,
+} from "./assets.mjs";
 
 const DEVICES = {
   desktop: { viewport: { width: 1440, height: 900 } },
@@ -221,7 +231,15 @@ const PAGES = [
     steps: [{ click: "[data-action='lean-back']", waitFor: "[data-mode='leanback']", shot: "fixed-lookup-failed-leanback" }],
   },
   { path: "/2026-10-20?lookup=missing", devices: ["desktop", "phone"], shots: ["fixed-no-recording"] },
+  // The walk's draw calls on the fixed day, from ?pose=sweep: the visitor's bear at each of the sweep's poses, with the world on the
+  // day's first track and then on Drums (index 13), where the left cave lights. The log names each device's peak and the pose that
+  // drew it.
+  { path: "/2026-10-20?pose=sweep", devices: ["desktop", "phone", "tv"], ready: "#world[data-world='ready']", shots: [], sweep: [0, 13] },
 ];
+
+// The test poses (ground.js) open each sweep, so their calls can be read beside the full-size shots taken from them.
+const TEST_POSES = { stage: STAGE_POSE, slope: SLOPE_POSE, path: PATH_POSE };
+const SWEEP_POSES = [...Object.values(TEST_POSES), ...walkPoses(15, 12)];
 
 // Generated images are saved byte for byte as the site serves them.
 const ASSETS = [
@@ -339,7 +357,8 @@ const RECORDINGS = [
 const RECORD_MS = 10_000;
 
 // What fails the run once every shot is taken: a generated image the site answers with an error, a frame over its tier's draw-call
-// budget, and a show playing with its sound neither through the world nor in plain stereo for a reason the player names.
+// budget, a show playing with its sound neither through the world nor in plain stereo for a reason the player names, and a sweep that
+// cannot finish.
 const failures = [];
 
 // What the log says when a read had to wait for the page to load again: the shot was taken, then the page navigated as it was read.
@@ -352,6 +371,30 @@ const logStats = async (page, file) => {
   console.log(`stats ${file} ${stats}`);
   const failure = callsFailure(JSON.parse(stats));
   if (failure) failures.push(`${file}: ${failure}`);
+};
+
+// The sweep's line for each page and device, for the job summary.
+const sweeps = [];
+
+// For each track index, puts the world on that track, as the player's player:track event does, then the visitor's bear at each of the
+// sweep's poses, and logs the most draw calls a frame drew, the pose that drew them, the tier's budget and the test poses' calls.
+const sweepWalk = async (page, device, tracks) => {
+  for (const index of tracks) {
+    const started = Date.now();
+    const [tier, title] = await page.evaluate((i) => {
+      document.dispatchEvent(new CustomEvent("player:track", { detail: { index: i, position: 0 } }));
+      return [window.__hill.tier, JSON.parse(document.getElementById("world-data").textContent).tracks[i]?.title ?? null];
+    }, index);
+    const calls = await page.evaluate(readWalkCalls, SWEEP_POSES);
+    const { calls: peak, pose } = sweepPeak(SWEEP_POSES, calls);
+    const where = `x ${pose.x.toFixed(1)}, z ${pose.z.toFixed(1)}, heading ${pose.heading.toFixed(3)}`;
+    const tests = Object.keys(TEST_POSES).map((name, i) => `${name} ${calls[i]}`).join(", ");
+    const line =
+      `${device}, track index ${index} (${title}): at most ${peak} draw calls over ${calls.length} poses (the ${tier} budget is ` +
+      `${CALL_BUDGET[tier]}), at ${where}; the test poses ${tests}; ${Math.round((Date.now() - started) / 1000)} s`;
+    console.log(`sweep ${line}`);
+    sweeps.push(line);
+  }
 };
 
 // Logs every control's box after a page's first shot, so a touch target is read rather than measured: links, buttons, summaries,
@@ -433,7 +476,7 @@ try {
       height: options.viewport.height * MAX_SCREENS,
     };
 
-    for (const { path, shots, steps, end, devices, ready } of PAGES) {
+    for (const { path, shots, steps, end, devices, ready, sweep } of PAGES) {
       // The TV device is for lean-back, so it shoots the home page and only the other pages that name it.
       if (device === "tv" && path !== "/" && !devices?.includes("tv")) {
         continue;
@@ -461,6 +504,8 @@ try {
       if (options.reducedMotion) {
         await page.addStyleTag({ content: '[data-mask="time"]{visibility:hidden}' });
       }
+      // A sweep that cannot finish fails the run at the end, so the shots after it are still taken.
+      if (sweep) await sweepWalk(page, device, sweep).catch((error) => failures.push(`sweep ${device}: ${error.message}`));
 
       for (const [i, shot] of shots.entries()) {
         if (i > 0) {
@@ -614,6 +659,11 @@ try {
     await context.close();
     await video.saveAs(join(outDir, file));
     console.log(`${file}  ${url}`);
+  }
+
+  // The job summary shows the sweep's peaks on the run's page, so nobody has to open the log.
+  if (process.env.GITHUB_STEP_SUMMARY && sweeps.length > 0) {
+    await appendFile(process.env.GITHUB_STEP_SUMMARY, `### The walk's draw calls\n\n${sweeps.map((line) => `- ${line}`).join("\n")}\n`);
   }
 
   failures.push(...(await saveAssets(site, ASSETS, outDir)));
