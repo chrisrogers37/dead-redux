@@ -1,0 +1,40 @@
+# One-off mutation check of the first move's order, the world's identifier and the world's single-key rule tests, on a runner, after the
+# branch's own lint, type-check and unit tests. It lives only on its scratch branch, which is never merged, and runs when this file or
+# its script is pushed there.
+name: Mutants (scratch)
+
+on:
+  push:
+    branches: [scratch/first-move-mutants]
+    paths:
+      - .github/workflows/mutants.yml
+      - .github/scratch/mutants.sh
+
+permissions: {}
+
+jobs:
+  mutants:
+    name: Mutants
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Each check after lint runs even when an earlier one failed, so one run reports them all.
+      - run: npm run lint
+        if: ${{ !cancelled() }}
+      - run: npx tsc --noEmit
+        if: ${{ !cancelled() }}
+      - run: npm run test:run
+        if: ${{ !cancelled() }}
+      - run: bash .github/scratch/mutants.sh
+        if: ${{ !cancelled() }}
