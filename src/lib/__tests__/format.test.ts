@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   formatDuration,
   formatDate,
+  formatMonth,
   formatMonthDay,
   formatRating,
   isPlaceholderTitle,
@@ -200,5 +201,18 @@ describe("formatMonthDay", () => {
 
   it("leaves a partial date as written", () => {
     expect(formatMonthDay("1977-XX-XX")).toBe("1977-XX-XX");
+  });
+});
+
+describe("formatMonth", () => {
+  it("gives the month and year", () => {
+    expect(formatMonth("2026-10")).toBe("October 2026");
+    expect(formatMonth("1977-05")).toBe("May 1977");
+  });
+
+  it("leaves what is not a month as written", () => {
+    expect(formatMonth("2026-XX")).toBe("2026-XX");
+    expect(formatMonth("2026-9")).toBe("2026-9");
+    expect(formatMonth("2026-13")).toBe("2026-13");
   });
 });

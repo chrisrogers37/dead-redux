@@ -25,7 +25,7 @@ jobs:
       (github.event.deployment_status.state == 'success' &&
       github.event.deployment.environment == 'Preview')
     runs-on: ubuntu-24.04
-    # Room for every shot and recording, the play steps' waits for archive.org's stream and the MP4 conversion (a run takes about 15
+    # Room for every shot and recording, the play steps' waits for archive.org's stream and the MP4 conversion (a run takes about 20
     # minutes), and for the browser's system packages, which the Ubuntu mirror can take over ten minutes to serve. A job cut at its
     # limit uploads nothing, so the limit leaves room to spare.
     timeout-minutes: 40
