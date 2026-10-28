@@ -1,4 +1,5 @@
-import { getDailyShow, getTodayDateStr } from "./daily-show";
+import { getDailyShow } from "./daily-show";
+import { getTodayDateStr, pastPickDay } from "./site-day";
 import type { ShowSummary } from "./types";
 
 export interface DailyPick {
@@ -60,4 +61,39 @@ export function getArchivePicks(today: string = getTodayDateStr()): DailyPick[] 
   return getDailyPicksRange(getLaunchDate(), today).filter(
     (pick) => pick.featuredDate < today
   );
+}
+
+/** One month of the archive: its key, "2026-10", which is also its URL part, and its picks, newest first. */
+export interface ArchiveMonth {
+  key: string;
+  picks: DailyPick[];
+}
+
+/**
+ * The picks grouped by the month they were featured in, newest month first and each month's picks newest first, as the picks
+ * come. The first month is the one the archive's newest day falls in.
+ *
+ * @param picks - Picks newest first, as getArchivePicks returns them.
+ */
+export function archiveMonths(picks: DailyPick[]): ArchiveMonth[] {
+  const months: ArchiveMonth[] = [];
+  for (const pick of picks) {
+    const key = pick.featuredDate.slice(0, 7);
+    const last = months[months.length - 1];
+    if (last && last.key === key) last.picks.push(pick);
+    else months.push({ key, picks: [pick] });
+  }
+  return months;
+}
+
+/**
+ * A random past pick to offer when a page's show ends: a day from launch through yesterday, apart from the page's own day;
+ * null while there is none.
+ *
+ * @param today - Today's date string.
+ * @param featured - The page's featured date.
+ */
+export function randomPastPick(today: string, featured: string): DailyPick | null {
+  const day = pastPickDay(getLaunchDate(), today, featured, Math.random());
+  return day ? getDailyPick(day) : null;
 }

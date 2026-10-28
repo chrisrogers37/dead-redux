@@ -86,6 +86,108 @@ describe("keepOut", () => {
     expect(walker.z).toBeCloseTo(CLOSEST / 2, 9);
   });
 
+  it("pushes a walker just inside either reach out to it, and leaves one at the reach where it stands", () => {
+    const bear = { x: 2, z: -1 };
+    for (const reach of [REACH, BODY_REACH]) {
+      for (let k = 0; k < 8; k++) {
+        const a = (k * Math.PI) / 4 + 0.3;
+        for (const gap of [1e-3, 1e-6]) {
+          const walker = { x: bear.x + (reach - gap) * Math.cos(a), z: bear.z + (reach - gap) * Math.sin(a), heading: 0 };
+          keepOut(walker, [bear], reach);
+          expect(distance(walker, bear)).toBeCloseTo(reach, 9);
+          expect(Math.atan2(walker.z - bear.z, walker.x - bear.x)).toBeCloseTo(Math.atan2(Math.sin(a), Math.cos(a)), 9);
+        }
+        const walker = { x: bear.x + reach * Math.cos(a), z: bear.z + reach * Math.sin(a), heading: 0 };
+        const before = { ...walker };
+        keepOut(walker, [bear], reach);
+        expect(walker).toEqual(before);
+      }
+    }
+  });
+
+  it("steps a walker on a bear's centre back against any heading", () => {
+    // Heading h faces (-sin h, -cos h), so back is (sin h, cos h).
+    for (const heading of [1, -2.5, Math.PI / 2]) {
+      const walker = { x: -2, z: 3, heading };
+      keepOut(walker, [{ x: -2, z: 3 }], BODY_REACH);
+      expect(walker.x).toBeCloseTo(-2 + BODY_REACH * Math.sin(heading), 9);
+      expect(walker.z).toBeCloseTo(3 + BODY_REACH * Math.cos(heading), 9);
+    }
+  });
+
+  it("puts a walker inside two reaches where they cross on its side, for pairs lying any way", () => {
+    const half = Math.sqrt(BODY_REACH ** 2 - (CLOSEST / 2) ** 2);
+    for (const angle of [0.4, 1.3, 2.6, -2]) {
+      // The pair's own frame, turned by `angle`: one bear at its origin, the other CLOSEST along it.
+      const at = (x: number, z: number) => ({
+        x: 5 + x * Math.cos(angle) - z * Math.sin(angle),
+        z: -4 + x * Math.sin(angle) + z * Math.cos(angle),
+      });
+      const bears = [at(0, 0), at(0, CLOSEST)];
+      for (const side of [0.5, -0.5]) {
+        const walker = { ...at(side, CLOSEST / 2 + 0.3), heading: 0 };
+        keepOut(walker, bears, BODY_REACH);
+        const want = at(Math.sign(side) * half, CLOSEST / 2);
+        expect(walker.x).toBeCloseTo(want.x, 9);
+        expect(walker.z).toBeCloseTo(want.z, 9);
+      }
+    }
+  });
+
+  it("settles a walker whose push out of one reach lands in the next, on each side, for pairs lying any way", () => {
+    // Two bears 7 m apart, as they walk; there the body reaches overlap.
+    const half = Math.sqrt(BODY_REACH ** 2 - 3.5 ** 2);
+    for (const angle of [0, 0.7, 2.2, -1.1]) {
+      const at = (x: number, z: number) => ({
+        x: -3 + x * Math.cos(angle) - z * Math.sin(angle),
+        z: 6 + x * Math.sin(angle) + z * Math.cos(angle),
+      });
+      const bears = [at(0, 0), at(0, 7)];
+      for (const side of [0.3, -0.3]) {
+        // Inside the first bear's reach only; straight out of it is inside the second's.
+        const walker = { ...at(side, 3), heading: 0 };
+        expect(distance(walker, bears[1])).toBeGreaterThan(BODY_REACH);
+        keepOut(walker, bears, BODY_REACH);
+        const want = at(Math.sign(side) * half, 3.5);
+        expect(walker.x).toBeCloseTo(want.x, 9);
+        expect(walker.z).toBeCloseTo(want.z, 9);
+        for (const bear of bears) expect(distance(walker, bear)).toBeGreaterThanOrEqual(BODY_REACH - 1e-9);
+      }
+    }
+  });
+
+  it("does not count a bear half a millimetre outside the reach", () => {
+    // 3 m from the first bear and 3.9005 m from the second, off the line it is pushed along; the push leaves the second 4.0 m away.
+    const walker = { x: 3, z: 0, heading: 0 };
+    keepOut(walker, [{ x: 0, z: 0 }, { x: 3, z: BODY_REACH + 5e-4 }], BODY_REACH);
+    expect(walker.x).toBeCloseTo(BODY_REACH, 9);
+    expect(walker.z).toBeCloseTo(0, 9);
+  });
+
+  it("sends a walker on the line between two bears, heading across it, out on the side away from the nearer bear's partner", () => {
+    // Heading 0 faces -z, across a line along x, so the walker has no left of the line to step to. It goes out along the normal
+    // from the nearer bear toward the other: behind it (+z) when nearer the first, ahead (-z) when nearer the second. The choice is
+    // arbitrary; pinning it makes a change to it deliberate.
+    const bears = [{ x: 0, z: 0 }, { x: 3, z: 0 }];
+    const half = Math.sqrt(BODY_REACH ** 2 - 1.5 ** 2);
+    for (const [x, z] of [[1, half], [2, -half]]) {
+      const walker = { x, z: 0, heading: 0 };
+      keepOut(walker, bears, BODY_REACH);
+      expect(walker.x).toBeCloseTo(1.5, 9);
+      expect(walker.z).toBeCloseTo(z, 9);
+    }
+  });
+
+  it("holds a walker off only the bears it is given, so one the downgrade dropped is no longer solid", () => {
+    const bears = [{ x: 0, z: 0 }, { x: 0, z: 7 }, { x: 0, z: 14 }];
+    // main.js drops bears from the end of the line and shortens the spots to match.
+    const walker = { x: 0.5, z: 13, heading: 0 };
+    keepOut(walker, bears.slice(0, 2), BODY_REACH);
+    expect(walker).toEqual({ x: 0.5, z: 13, heading: 0 });
+    keepOut(walker, bears, BODY_REACH);
+    expect(distance(walker, bears[2])).toBeCloseTo(BODY_REACH, 9);
+  });
+
   it("keeps a walk pressed into the gap between two bears outside both", () => {
     // Walking across the line between them, toward +x.
     const bears = [{ x: 0, z: 0 }, { x: 0, z: CLOSEST }];
@@ -130,5 +232,21 @@ describe("enterColumn", () => {
 
   it("leaves out a column that stands around the start", () => {
     expect(enterColumn({ x: 1, y: 2, z: 0 }, { x: -1, y: 0, z: 0 }, column)).toBe(Infinity);
+  });
+
+  it("meets the side of a column from starts along the z axis and off both axes", () => {
+    // From (0, 2, 15) straight at the centre: 15 m out, the side is 10 m out, so 5 m on.
+    expect(enterColumn({ x: 0, y: 2, z: 15 }, { x: 0, y: 0, z: -1 }, column)).toBeCloseTo(5, 9);
+    // From (-9, 2, -12), a 9-12-15 triangle, so 15 m out; toward the centre along (9, 0, 12) / 15 the side is 5 m on.
+    expect(enterColumn({ x: -9, y: 2, z: -12 }, { x: 9 / 15, y: 0, z: 12 / 15 }, column)).toBeCloseTo(5, 9);
+    // From (6, 2, -18) toward +z the line passes 6 m from the centre, so it enters where z² = 10² - 6², at z = -8: 10 m on.
+    expect(enterColumn({ x: 6, y: 2, z: -18 }, { x: 0, y: 0, z: 1 }, column)).toBeCloseTo(10, 9);
+  });
+
+  it("meets the side of a column that stands away from the origin", () => {
+    // The last two walks with the column moved to (10, 20) and the starts moved with it: the same 5 m and 10 m on.
+    const moved = { x: 10, z: 20, r: 10, top: 8 };
+    expect(enterColumn({ x: 1, y: 2, z: 8 }, { x: 9 / 15, y: 0, z: 12 / 15 }, moved)).toBeCloseTo(5, 9);
+    expect(enterColumn({ x: 16, y: 2, z: 2 }, { x: 0, y: 0, z: 1 }, moved)).toBeCloseTo(10, 9);
   });
 });

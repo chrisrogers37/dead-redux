@@ -1,26 +1,21 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { height, STAGE, SHELF_Y } from "./island.js";
+import { FACING, height, STAGE, SHELF_Y } from "./ground.js";
 import { mesh, mergeStill } from "./landmarks.js";
 
-/* The stage, on its shelf on the south-east slope: a platform whose open front faces the summit, so the hill above it is the lawn; a roof
-   on two posts over a back wall with a light panel in the sky's first colour; two PA stacks; a light; and six players as flat black
+/* The stage, on its shelf at the island's north-east edge: a platform whose open front faces the island's middle (ground.js); a roof on
+   two posts over a back wall with a light panel in the sky's first colour; two PA stacks; a light; and six players as flat black
    silhouettes, never likenesses: two guitars, a bass, keys and two drummers. */
 
-/* The stage faces the summit. A group's local +z points along its facing, the repo's convention (the bears face along their line so). */
-const FACING = Math.atan2(-STAGE[0], -STAGE[1]);
 /* How near a walk comes to the stage's centre: the platform's edge stands 9.5 m out, and a bear's belly reaches 1.3 m ahead of its centre
    below the platform's top. */
 export const STAGE_REACH = 11;
 /* The column the third-person camera keeps out of (avatar.js): every solid of the stage stands inside it, the PA stacks' outer corners
    10.9 m from the centre and the roof's top 8.45 m above the floor, and no walk does. */
 export const STAGE_COLUMN = { x: STAGE[0], z: STAGE[1], r: 10.95, top: SHELF_Y + 8.45 };
-/* The test hook ?pose=stage: on the lawn in front of the stage, 36.7 m from its centre and 40 degrees off its front, facing it and
-   looking down, since the lawn stands about 10 m above the stage. In third person the look down raises the boom, so the stage stands
-   over the bear's head. */
-export const STAGE_POSE = { x: 39.2, z: 24.2, heading: 2.922, pitch: -0.3 };
-/* Where the show sounds from, 2 m above the platform's centre, and the way its sound faces: the stage's own. */
+/* Where the show sounds from: over the platform's centre, 2 m above the shelf, which puts it 0.8 m above the platform's floor (1.2 m
+   up); and the way its sound faces: the stage's own. */
 export const STAGE_SOUND = { x: STAGE[0], y: SHELF_Y + 2, z: STAGE[1], facing: [Math.sin(FACING), 0, Math.cos(FACING)] };
 
 /* Builds the stage. With `shadows` the sun casts the desktop's one shadow map, framed on the stage alone. Returns the group, the light
@@ -33,8 +28,8 @@ export function buildStage(scene, sun, shadows) {
   scene.add(group);
 
   /* The still parts, merged into one mesh that casts the stage's shadow and takes it: the platform, whose skirt reaches 1.5 m below the
-     shelf because the shelf's blend leaves the ground up to 0.7 m lower at the platform's edge; the posts, the roof and the back wall;
-     and the PA stacks, standing on the ground beside it. */
+     shelf, so no gap opens under its edge where the shelf blends into the ground; the posts, the roof and the back wall; and the PA
+     stacks, standing on the ground beside it. */
   const wood = new THREE.MeshLambertMaterial({ color: 0x6b4e2e, flatShading: true });
   const stone = new THREE.MeshLambertMaterial({ color: 0x8e8a82, flatShading: true });
   const dark = new THREE.MeshLambertMaterial({ color: 0x1a1816, flatShading: true });

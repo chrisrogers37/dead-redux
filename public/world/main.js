@@ -1,6 +1,7 @@
 /* eslint-disable */
 import * as THREE from "three";
-import { height, buildIsland } from "./island.js";
+import { buildIsland } from "./island.js";
+import { height, PATH_POSE, SLOPE_POSE, STAGE_POSE } from "./ground.js";
 import { buildPath, layout, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
 import { makeBuilders } from "./landmarks.js";
 import { buildBears } from "./bears.js";
@@ -8,8 +9,9 @@ import { buildAvatar } from "./avatar.js";
 import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
 import { keepOut } from "./collide.js";
+import { keepSpot } from "./modes.js";
 import { analyse, analysisStats, listen, mappings, soundStats, startSound } from "./audio.js";
-import { buildStage, STAGE_COLUMN, STAGE_POSE, STAGE_REACH, STAGE_SOUND } from "./stage.js";
+import { buildStage, STAGE_COLUMN, STAGE_REACH, STAGE_SOUND } from "./stage.js";
 import { budgetFor, median, pickTier, SLOW_MS, stepDown, WINDOW } from "./quality.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
@@ -163,9 +165,12 @@ function start(gl) {
   const walker = { x: trailhead.x, z: trailhead.z, heading: 0, pitch: 0 };
   const t0 = tangentAt(0); walker.heading = Math.atan2(-t0.x, -t0.z);
   let third = true, cut = false;
-  /* The test hook ?pose=stage, on preview deployments only (the server marks <main data-test-hooks="1">): the walk starts with the
-     visitor on the lawn in front of the stage, with no descent, and no idle time hands the view to attract. */
-  const posed = main.dataset.testHooks === "1" && new URLSearchParams(location.search).get("pose") === "stage";
+  /* The test hooks ?pose=stage, ?pose=slope and ?pose=path, on preview deployments only (the server marks <main data-test-hooks="1">):
+     the walk starts with the visitor on the slope in front of the stage, higher up it, or on the path where it shows the stage
+     (ground.js), with no descent, and no idle time hands the view to attract. */
+  const hook = main.dataset.testHooks === "1" ? new URLSearchParams(location.search).get("pose") : null;
+  const testPose = hook === "stage" ? STAGE_POSE : hook === "slope" ? SLOPE_POSE : hook === "path" ? PATH_POSE : null;
+  const posed = testPose !== null;
   let mode = reduced || posed ? "walk" : "descent";
   let idleTimer = 0, elapsed = 0;
   /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
@@ -193,12 +198,16 @@ function start(gl) {
     const d = slotD(), p = line.at(d), t = line.tangentAt(d);
     return { x: p.x, z: p.z, heading: Math.atan2(-t.x, -t.z) };
   }
-  /* Puts the walker in its place in the line. Every walk starts there: one begun in attract, the descent or lean-back, one that leaves
-     follow, and the walk reduced motion opens on. */
+  /* Puts the walker in its place in the line, where every camera but the walk's and follow's keeps it, and where the walk reduced motion
+     opens on. */
   function toSlot() {
     const s = slot();
     walker.x = s.x; walker.z = s.z; walker.heading = s.heading;
   }
+  /* A walk starts where the visitor's bear last stood in a walk, or at the nearest spot where a walker may stand if it no longer may
+     there, else in its place in the line, as the first walk after the descent does (modes.js). */
+  const spot = keepSpot(walker, slot, () => ({ bound: BOUND, stage: STAGE_COLUMN, stageReach: STAGE_REACH, bears: bearSpots,
+    bearReach: third ? BODY_REACH : BEAR_REACH }));
   /* The camera that walks with the bears, in follow and attract, its eye above their heads; it looks at the lead bear, turned by `yaw`
      and tilted by `pitch`. In third person it stands behind the visitor's bear and to its left, away from the path, along the chord from
      that bear to the lead one, and looks 2 m over the lead bear's head, so all six read: 16 m behind and 6 m to the left with the eye
@@ -231,11 +240,12 @@ function start(gl) {
      head stands 36 % up the frame, at most 0.3 rad. */
   const keepInView = (from, look) => phone ? avatar.turnDown(camera, from, look, avatar.feet, plateY(), 0.45) : avatar.turnDown(camera, from, look, avatar.top, -0.28);
   const forward = () => new THREE.Vector3(-Math.sin(walker.heading), 0, -Math.cos(walker.heading));
-  /* Changes the camera's mode and tells the page. A walk starts in the visitor's place in the line; entering follow frames the bears
-     again, level. */
+  /* Changes the camera's mode and tells the page. A walk starts where the visitor's bear last stood in one (`spot`). Where that is away
+     from its place in the line the camera cuts to it, since easing there would carry the view across the island without the bear in
+     it; entering follow frames the bears again, level. */
   function setMode(m) {
     if (m === mode) return;
-    if (m === "walk") toSlot();
+    if (m === "walk" && spot.walk() !== "slot") cut = true;
     if (m === "follow") { followBase = walker.heading; walker.pitch = 0; }
     mode = m;
     document.dispatchEvent(new CustomEvent("world:mode", { detail: { mode } }));
@@ -315,16 +325,18 @@ function start(gl) {
     sun.castShadow = quality.shadows;
     stage.light.visible = quality.stageLight;
   }
-  /* The stats the CI shoot script logs after every shot and ?stats=1 shows, read live. They are defined on window.__hill, which the
-     player also writes, so its fields stay. */
+  /* The stats the CI shoot script logs after every shot and every control a recording holds, and ?stats=1 shows, read live. They are
+     defined on window.__hill, which the player also writes, so its fields stay. */
   const stat = (get) => ({ get, enumerable: true, configurable: true });
   Object.defineProperties((window.__hill ??= {}), {
     tier: stat(() => tier), scale: stat(() => quality.scale), rung: stat(() => rung),
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
     frameMs: stat(() => Math.round(frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
-    /* The view, whether the visitor's bear is drawn, whether its feet land in the frame (and above the now-plate on a phone), and where
-       its head lands, as fractions from the top-left. */
+    mode: stat(() => mode),
+    /* The view, whether the visitor's bear is drawn, where its head stands to the centimetre (the sound's listener in third person),
+       whether its feet land in the frame (and above the now-plate on a phone), and where its head lands, as fractions from the top-left. */
     avatar: stat(() => ({ view: third ? "third" : "first", shown: avatar.g.visible,
+      head: avatar.head.toArray().map((v) => Math.round(v * 100) / 100),
       ...(third ? avatar.report(camera, phone ? plateTop / frameH : null) : { clear: false, screen: null }) })),
     analysis: stat(() => ({ source: drive?.source ?? null, weight: Math.round(weight * 1000) / 1000, ...analysisStats() })),
   });
@@ -426,6 +438,7 @@ function start(gl) {
       keepOut(walker, stageSpot, STAGE_REACH);
       keepOut(walker, bearSpots, third ? BODY_REACH : BEAR_REACH);
       avatar.step(walker.x, walker.z, walker.heading, dt);
+      spot.stand();
       if (third) aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));
       else {
         placeWalker();
@@ -473,8 +486,9 @@ function start(gl) {
     cut = false;
 
     renderer.render(scene, camera);
-    /* The sound's listener is the visitor: their bear's head in third person, the camera in first; it faces where the camera looks. */
-    listen(third ? avatar.head : camera.position, camera);
+    /* The sound's listener is the visitor: their bear's head in third person, the camera in first (listenerAt); it faces where the
+       camera looks. */
+    listen(third, avatar.head, camera);
   }
 
   /* The page reads the tier beside the world's state. */
@@ -482,7 +496,7 @@ function start(gl) {
   container.dataset.world = "ready";
   locate(performance.now());
   if (reduced) { bearD = line.dOf(landmarkU[index]); toSlot(); }
-  if (posed) { Object.assign(walker, STAGE_POSE); cut = true; }
+  if (posed) { Object.assign(walker, testPose); cut = true; }
   placeWalker();
   wake();
   document.addEventListener("visibilitychange", () => {

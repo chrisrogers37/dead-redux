@@ -7,16 +7,6 @@ const shows: ShowSummary[] = showCatalog as ShowSummary[];
 const showsByDate = new Map(shows.map((show) => [show.date, show]));
 const schedule: PickSchedule = pickSchedule;
 
-/** The site's day turns over at midnight in this time zone. */
-const TIME_ZONE = "America/New_York";
-
-const dayFormat = new Intl.DateTimeFormat("en-US", {
-  timeZone: TIME_ZONE,
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-
 /**
  * Get the show featured on a date.
  * Everyone visiting on the same day sees the same show, and a date keeps its
@@ -34,22 +24,21 @@ export function getDailyShow(dateStr: string): ShowSummary {
 }
 
 /**
- * Get today's date string ("YYYY-MM-DD") in the site's time zone.
- *
- * @param now - The moment to read. Defaults to the current time.
+ * Check if a date string is a real calendar date, written YYYY-MM-DD. Date.parse alone rolls a day the month does not have into the
+ * next month (1986-02-30 becomes March 2), so the date it parses must also read back as the same string. The map schema's isShowDate
+ * (public/world/maps.js) holds the same rule for the world's side.
  */
-export function getTodayDateStr(now: Date = new Date()): string {
-  const parts = Object.fromEntries(
-    dayFormat.formatToParts(now).map((part): [string, string] => [part.type, part.value])
-  );
-  return `${parts.year}-${parts.month}-${parts.day}`;
+export function isValidDateStr(dateStr: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
+  const time = Date.parse(dateStr);
+  return !isNaN(time) && new Date(time).toISOString().slice(0, 10) === dateStr;
 }
 
 /**
- * Check if a date string is valid and corresponds to a real date.
+ * Check if a date string is the date of a show in the catalog.
  */
-export function isValidDateStr(dateStr: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) && !isNaN(Date.parse(dateStr));
+export function isCatalogShow(dateStr: string): boolean {
+  return showsByDate.has(dateStr);
 }
 
 /**

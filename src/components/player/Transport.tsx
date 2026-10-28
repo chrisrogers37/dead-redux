@@ -66,7 +66,7 @@ export function Transport({
       step={1}
       value={value}
       onChange={(e) => onSeek(Number(e.currentTarget.value))}
-      className={leanback ? "seek w-full mt-4" : "seek w-full mt-3"}
+      className="seek w-full"
       style={{ "--p": `${(value / max) * 100}%` } as CSSProperties}
     />
   );
@@ -136,7 +136,7 @@ export function Transport({
           </svg>
         </button>
         <details className="ml-2">
-          <summary data-action="details" className="t-row text-muted cursor-pointer">Details</summary>
+          <summary data-action="details" className="t-row text-muted cursor-pointer py-3">Details</summary>
           {children}
         </details>
       </div>

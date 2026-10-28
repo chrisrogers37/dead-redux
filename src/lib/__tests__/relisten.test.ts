@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { parseSource, pickBestSource, type RelistenSource } from "../relisten";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { HttpError } from "../../../scripts/analyse-show.mjs";
+import { lookUpShow, parseSource, pickBestSource, type RelistenSource } from "../relisten";
 import type { Source } from "../types";
 
 // Shaped like a source in Relisten's answer for /years/<year>/<date>. The real sources keep
@@ -180,11 +181,157 @@ describe("pickBestSource", () => {
     expect(bestOf(most, titled)?.upstreamIdentifier).toBe("titled");
   });
 
+  it("counts a source with no tracks as labeled, so it ranks ahead of placeholders whatever their ratings", () => {
+    const placeholders = source("placeholders", true, 9.9, 99, ["gd72-09-10t01.mp3", "gd72-09-10t02.mp3"]);
+    const empty = source("empty", false, 1, 0, []);
+    expect(bestOf(placeholders, empty)?.upstreamIdentifier).toBe("empty");
+  });
+
+  it("counts a source of blank titles as labeled, and prints its titles blank", () => {
+    const placeholders = source("placeholders", true, 9.9, 99, ["gd72-09-10t01.mp3", "gd72-09-10t02.mp3"]);
+    const blank = source("blank", false, 1, 0, ["", ""]);
+    const best = bestOf(placeholders, blank);
+    expect(best?.upstreamIdentifier).toBe("blank");
+    expect(titlesOf(best)).toEqual(["", ""]);
+  });
+
+  it("counts the titles of every set, not only the first", () => {
+    const twoSets = source("two-sets", true, 9, 5, ["Bertha", "Deal"]);
+    const placeholders = source("two-sets", true, 9, 5, ["gd72-09-10t03.mp3", "gd72-09-10t04.mp3", "gd72-09-10t05.mp3"]);
+    twoSets.sets.push({ ...placeholders.sets[0], name: "Set 2" });
+    const titled = source("titled", true, 8, 5, ["Bertha", "Deal", "El Paso"]);
+    expect(bestOf(twoSets, titled)?.upstreamIdentifier).toBe("titled");
+  });
+
   it("ranks a soundboard with file-name titles after a titled audience recording", () => {
     const best = bestOf(
       source("sbd-file-names", true, 9.5, 30, ["gd72-09-10t01.mp3", "gd72-09-10t02.mp3"]),
       source("aud-titled", false, 7, 2, ["Bertha", "Deal"])
     );
     expect(best?.upstreamIdentifier).toBe("aud-titled");
+  });
+});
+
+describe("lookUpShow", () => {
+  const API = "https://api.relisten.net/api/v2/artists/grateful-dead";
+  const YEAR = `${API}/years/1986/1986-07-04`;
+  const SHOW = `${API}/shows/1986-07-04`;
+  const realFetch = globalThis.fetch;
+  let requested: string[];
+  let signals: (AbortSignal | null | undefined)[];
+  // Relisten, played by a stand-in for fetch that answers each path with `answer` and records each request's URL and signal.
+  const relisten = (answer: (url: string, init?: RequestInit) => Response | Promise<Response>) => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      requested.push(url);
+      signals.push(init?.signal);
+      return answer(url, init);
+    }) as typeof fetch;
+  };
+  // A path that never answers, as fetch does with a signal: it rejects with the signal's reason once the signal aborts, at once if it
+  // already has, and otherwise never settles.
+  const hang = (init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      if (!signal) return;
+      if (signal.aborted) reject(signal.reason);
+      else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+
+  beforeEach(() => {
+    requested = [];
+    signals = [];
+    // A failed look-up logs one line; the cases here keep the run quiet.
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("is missing only when both paths answer 404", async () => {
+    relisten(() => new Response(null, { status: 404 }));
+    expect(await lookUpShow("1986-07-04")).toEqual({ kind: "missing" });
+  });
+
+  it("fails when either path answers anything else, naming each path that failed", async () => {
+    relisten((url) => new Response(null, { status: url === YEAR ? 503 : 404 }));
+    expect(await lookUpShow("1986-07-04")).toEqual({ kind: "failed", reason: `${YEAR} answered 503` });
+    relisten(() => {
+      throw new TypeError("fetch failed");
+    });
+    expect(await lookUpShow("1986-07-04")).toEqual({
+      kind: "failed",
+      reason: `${YEAR} could not be reached: fetch failed; ${SHOW} could not be reached: fetch failed`,
+    });
+  });
+
+  it("cleans what it parses: the four short facts as plain text, and a leading track number off a title", async () => {
+    const answered = source("cleaned", true, 9, 5, ["01 Bertha", "02. Deal", "Dark Star.mp3"]);
+    answered.source = "<b>SBD</b> &gt; DAT";
+    answered.taper = "Rob&nbsp;Bertrando";
+    answered.lineage = "DAT &gt; CD &gt; FLAC";
+    answered.transferrer = "&lt;unknown&gt;";
+    const show = { date: "1986-07-04", display_date: "1986-07-04", venue: null, tour: null, sources: [answered], avg_rating: 9 };
+    relisten(() => new Response(JSON.stringify(show)));
+    const result = await lookUpShow("1986-07-04");
+    if (result.kind !== "found") throw new Error(`expected the show, got ${result.kind}`);
+    const [parsed] = result.details.sources;
+    expect(parsed).toMatchObject({
+      source: "SBD > DAT",
+      taper: "Rob Bertrando",
+      lineage: "DAT > CD > FLAC",
+      transferrer: "<unknown>",
+    });
+    expect(titlesOf(parsed)).toEqual(["Bertha", "Deal", "Track 3"]);
+  });
+
+  it("names a refusal as the maps job names one", async () => {
+    relisten(() => new Response(null, { status: 403, headers: { server: "cloudflare", "cf-mitigated": "challenge" } }));
+    const job = (url: string) => new HttpError(url, 403, "cloudflare", "challenge").message;
+    expect(await lookUpShow("1986-07-04")).toEqual({ kind: "failed", reason: `${job(YEAR)}; ${job(SHOW)}` });
+  });
+
+  it("gives up on a path that never answers once the budget is spent, and asks no other", async () => {
+    relisten((_url, init) => hang(init));
+    expect(await lookUpShow("1986-07-04", 20)).toEqual({ kind: "failed", reason: `${YEAR} did not answer within 20 ms` });
+    expect(requested).toEqual([YEAR]);
+  });
+
+  it("spends one budget across both paths", async () => {
+    relisten((url, init) => (url === YEAR ? new Response(null, { status: 503 }) : hang(init)));
+    expect(await lookUpShow("1986-07-04", 20)).toEqual({
+      kind: "failed",
+      reason: `${YEAR} answered 503; ${SHOW} did not answer within 20 ms`,
+    });
+    // The second path gets what the first left: both requests carry the one signal.
+    expect(signals[0]).toBe(signals[1]);
+  });
+
+  it("gives the look-up six seconds when no budget is passed", async () => {
+    // An already-spent signal stands in for the six seconds, so the test does not wait them out.
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation(() => AbortSignal.abort(new DOMException("timed out", "TimeoutError")));
+    relisten((_url, init) => hang(init));
+    expect(await lookUpShow("1986-07-04")).toEqual({ kind: "failed", reason: `${YEAR} did not answer within 6000 ms` });
+    expect(timeout).toHaveBeenCalledWith(6000);
+  });
+
+  it("logs one line when it fails, and none when the show is missing or found", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    relisten(() => new Response(null, { status: 503 }));
+    await lookUpShow("1986-07-04");
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith(`Relisten gave no answer for 1986-07-04: ${YEAR} answered 503; ${SHOW} answered 503`);
+    relisten(() => new Response(null, { status: 404 }));
+    expect((await lookUpShow("1986-07-04")).kind).toBe("missing");
+    expect(error).toHaveBeenCalledTimes(1);
+    const answered = source("cleaned", true, 9, 5, ["Bertha"]);
+    const show = { date: "1986-07-04", display_date: "1986-07-04", venue: null, tour: null, sources: [answered], avg_rating: 9 };
+    relisten(() => new Response(JSON.stringify(show)));
+    expect((await lookUpShow("1986-07-04")).kind).toBe("found");
+    expect(error).toHaveBeenCalledTimes(1);
   });
 });

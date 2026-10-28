@@ -1,25 +1,34 @@
 import { connection } from "next/server";
-import { getDailyShow, getTodayDateStr } from "@/lib/daily-show";
-import { fetchShowDetails, pickBestSource } from "@/lib/relisten";
-import { testHooksEnabled } from "@/lib/test-hooks";
+import { randomPastPick } from "@/lib/archive";
+import { getDailyShow } from "@/lib/daily-show";
+import { lookUpShow, pickBestSource } from "@/lib/relisten";
+import { readSiteDay } from "@/lib/site-day";
+import { forcedLookup, testHooksEnabled } from "@/lib/test-hooks";
 import { WorldHome } from "@/components/world/WorldHome";
 
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   // Today's show depends on the date, so the page renders on every visit.
   // The Relisten fetch keeps its own 24-hour cache.
   await connection();
-  const today = getTodayDateStr();
+  const { day: today, at: renderedAt } = readSiteDay();
   const show = getDailyShow(today);
-  const details = await fetchShowDetails(show.date);
+  // A show Relisten has no record of renders without a recording; one it fails to answer for says so. A preview may force either.
+  const lookup = forcedLookup((await searchParams).lookup) ?? (await lookUpShow(show.date));
+  const details = lookup.kind === "found" ? lookup.details : null;
   const bestSource = details ? pickBestSource(details.sources) : null;
+  const pastPick = randomPastPick(today, today);
   return (
     <WorldHome
       show={show}
       featuredDate={today}
+      today={today}
+      renderedAt={renderedAt}
+      pastPick={pastPick ? { featuredDate: pastPick.featuredDate, showDate: pastPick.show.date, venue: pastPick.show.venue } : null}
       bestSource={bestSource}
       isToday
       tourName={details?.tour?.name ?? null}
       testHooks={testHooksEnabled()}
+      lookupFailed={lookup.kind === "failed"}
     />
   );
 }

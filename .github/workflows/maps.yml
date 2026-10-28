@@ -1,0 +1,211 @@
+name: Maps
+
+# A map of each featured show for the world's third layer (public/world/maps.js), made ahead of its day from the recording the
+# page plays. Untrusted media goes through ffmpeg, so the work is split: analyse can only read the repo, and publish, the one job
+# that can push, only checks the maps before it commits them. Neither installs a package: the scripts run on Node alone, and
+# analyse takes ffmpeg from the runner.
+on:
+  schedule:
+    # Daily: the earliest maps among the next 14 featured days that are missing or made from a recording the page no longer
+    # plays, at most 2 a run.
+    - cron: "20 6 * * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: A show date (YYYY-MM-DD) to map. Empty maps the next featured days that have no map of the recording the page plays.
+        required: false
+        default: ""
+      branch:
+        description: The branch the maps are committed to. Empty means maps.
+        required: false
+        default: ""
+      site:
+        description: The site whose /api/playing route names the recording each page plays, such as a branch's preview. Empty means production.
+        required: false
+        default: ""
+
+permissions: {}
+
+concurrency:
+  # One run at a time per target branch, so two publishes never race.
+  group: maps-${{ inputs.branch || 'maps' }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  analyse:
+    runs-on: ubuntu-24.04
+    # Two shows of about 180 MB each, fetched one request at a time and decoded as they arrive.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      made: ${{ steps.analyse.outputs.made }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # The runner's image may have ffmpeg already. A stalled package mirror fails this step, not the whole job's time.
+      - name: Install ffmpeg
+        timeout-minutes: 10
+        run: |
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update -q
+            sudo apt-get install -y -q ffmpeg
+          fi
+          echo "ffmpeg: $(command -v ffmpeg)"
+      - name: Pick the shows
+        id: pick
+        # Asking the site what each mapped show's page plays takes seconds; a site that hangs fails this step, not the whole job's time.
+        timeout-minutes: 10
+        env:
+          DATE: ${{ inputs.date }}
+          SITE: ${{ inputs.site }}
+        run: |
+          if [ -n "$DATE" ]; then
+            if ! [[ "$DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+              echo "::error::Not a show date: $DATE"
+              exit 1
+            fi
+            echo "shows=$DATE" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # A show has a map when public/maps/<show date>.json is on main or on the maps branch.
+          git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+          # ls-remote exits 2 for a missing branch, which is normal before the first run; any other failure stops the step, so a
+          # failed read never passes for "no maps yet". The full ref name, because a bare "maps" also matches a branch like feat/maps.
+          ls_status=0
+          git ls-remote --exit-code origin refs/heads/maps >/dev/null || ls_status=$?
+          case "$ls_status" in
+            0) git fetch --no-tags --depth=1 origin +refs/heads/maps:refs/remotes/origin/maps ;;
+            2) echo "No maps branch yet." ;;
+            *)
+              echo "::error::Could not read the maps branch: git ls-remote exited $ls_status"
+              exit "$ls_status"
+              ;;
+          esac
+          # Each branch's maps are unpacked into have/, the maps branch's after main's: of a show both have, the maps branch holds
+          # the newer map.
+          mkdir -p "$RUNNER_TEMP/have"
+          for ref in origin/main origin/maps; do
+            if git rev-parse --verify -q "$ref" >/dev/null && [ -n "$(git ls-tree "$ref" public/maps)" ]; then
+              git archive "$ref" public/maps | tar -x -C "$RUNNER_TEMP/have" --strip-components=2
+            fi
+          done
+          # featured-on.mjs imports the site's own schedule. Node strips the types; the hook resolves the imports. It asks the same
+          # site as Analyse what the page plays for each mapped show, and picks a show again whose map was made from another
+          # recording.
+          site=()
+          if [ -n "$SITE" ]; then site=(--site "$SITE"); fi
+          node --import ./scripts/resolve-ts.mjs scripts/featured-on.mjs --days 14 --limit 2 --maps "$RUNNER_TEMP/have" "${site[@]}" \
+            > "$RUNNER_TEMP/shows.txt"
+          echo "shows=$(tr '\n' ' ' < "$RUNNER_TEMP/shows.txt")" >> "$GITHUB_OUTPUT"
+      - name: Analyse
+        id: analyse
+        if: steps.pick.outputs.shows != ''
+        env:
+          SHOWS: ${{ steps.pick.outputs.shows }}
+          OUT_DIR: ${{ runner.temp }}/maps
+          SITE: ${{ inputs.site }}
+        run: |
+          mkdir -p "$OUT_DIR"
+          status=0
+          # The site's /api/playing route names what each page plays; without a site input the script reads production.
+          site=()
+          if [ -n "$SITE" ]; then site=(--site "$SITE"); fi
+          # One word per show date. A show that fails is logged and the others still run; the job fails after the upload.
+          # shellcheck disable=SC2086
+          node scripts/analyse-show.mjs --out "$OUT_DIR" "${site[@]}" $SHOWS || status=$?
+          made=$(find "$OUT_DIR" -maxdepth 1 -name '*.json' -printf '%f\n' | sed 's/\.json$//' | sort | tr '\n' ' ')
+          echo "made=$made" >> "$GITHUB_OUTPUT"
+          exit "$status"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() && steps.analyse.outputs.made != '' }}
+        with:
+          name: maps-${{ github.run_id }}
+          path: ${{ runner.temp }}/maps/*.json
+          if-no-files-found: error
+          retention-days: 7
+          # A re-run of this job replaces the earlier attempt's artifact, and a re-run of publish alone still finds it by this name.
+          overwrite: true
+
+  publish:
+    needs: analyse
+    # Publishes what analyse made, even when another show in the run failed.
+    if: ${{ !cancelled() && needs.analyse.outputs.made != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      # The checker comes from this run's own commit; the maps go onto the target branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tools
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: site
+          # Every branch, so the target branch's tip is there to add the maps to.
+          fetch-depth: 0
+      - name: Switch to the branch
+        id: branch
+        working-directory: site
+        env:
+          BRANCH_INPUT: ${{ inputs.branch }}
+        run: |
+          branch="${BRANCH_INPUT:-maps}"
+          # Maps go to the maps branch or to a pull request's branch, never straight to main.
+          case "$branch" in
+            main | HEAD | refs/* | -*)
+              echo "::error::Maps are not committed to $branch."
+              exit 1
+              ;;
+          esac
+          if ! git check-ref-format --branch "$branch" >/dev/null; then
+            echo "::error::Not a branch name: $branch"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The job only adds commits of maps on top of the branch; it never merges or rebases. A push by the job's token may not
+          # change a workflow file, and a merge of main would carry main's workflow changes into the push. The maps branch starts
+          # from main when it is missing, so once its pull request merges, deleting the branch lets the next run start it again.
+          if git rev-parse --verify -q "refs/remotes/origin/$branch" >/dev/null; then
+            git checkout -q -B "$branch" "origin/$branch"
+          elif [ "$branch" = maps ]; then
+            git checkout -q -b maps origin/main
+          else
+            echo "::error::There is no branch $branch."
+            exit 1
+          fi
+          echo "name=$branch" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: maps-${{ github.run_id }}
+          path: ${{ runner.temp }}/incoming
+      - name: Check the maps and add them
+        run: node tools/scripts/check-maps.mjs "$RUNNER_TEMP/incoming" site/public/maps
+      - name: Commit and push
+        working-directory: site
+        env:
+          BRANCH: ${{ steps.branch.outputs.name }}
+          MADE: ${{ needs.analyse.outputs.made }}
+        run: |
+          git add public/maps
+          if git diff --cached --quiet; then
+            echo "These maps are already on $BRANCH."
+            exit 0
+          fi
+          git commit -q -m "maps: add ${MADE% }"
+          git push origin "HEAD:refs/heads/$BRANCH"
+          echo "Pushed $(git rev-parse HEAD) to $BRANCH."
