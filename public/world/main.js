@@ -10,7 +10,7 @@ import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
 import { keepOut } from "./collide.js";
 import { keepSpot } from "./modes.js";
-import { listen, soundStats, startSound } from "./audio.js";
+import { analyse, analysisStats, listen, mappings, soundStats, startSound } from "./audio.js";
 import { buildStage, STAGE_COLUMN, STAGE_REACH, STAGE_SOUND } from "./stage.js";
 import { budgetFor, median, pickTier, SLOW_MS, stepDown, WINDOW } from "./quality.js";
 
@@ -107,6 +107,8 @@ function start(gl) {
 
   /* ---------- the stage ---------- */
   const stage = buildStage(scene, sun, quality.shadows);
+  /* The lights' own intensities, which layer 2 scales. */
+  const lightBase = { hemi: hemi.intensity, stage: stage.light.intensity };
   /* The desktop's one shadow map, the stage's, is drawn once: nothing that casts a shadow moves. */
   renderer.shadowMap.enabled = quality.shadows;
   renderer.shadowMap.autoUpdate = false;
@@ -148,6 +150,11 @@ function start(gl) {
     if (i === N - 1) return 0.8; return i < Math.floor(N * 0.37) ? 0.5 : 0.7;
   };
   let energy = 0.5;
+  /* Layer 2: this frame's drive from the music (null while nothing plays through the analyser, and always under reduced motion), the last
+     drive heard, and how far the world follows it, easing over 0.8 s each way so it never snaps to or from the music. */
+  let drive = null, heard = null, weight = 0;
+  /* The bears' leg phase, which the music's loudness speeds; it accumulates, so a change of rate never jumps the legs. */
+  let gait = 0;
   let rnd = (() => { let s = data.seed * 9301 + 49297; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; })();
   let nextDrop = 40 + rnd() * 20, dropAt = -99;
 
@@ -331,11 +338,14 @@ function start(gl) {
     avatar: stat(() => ({ view: third ? "third" : "first", shown: avatar.g.visible,
       head: avatar.head.toArray().map((v) => Math.round(v * 100) / 100),
       ...(third ? avatar.report(camera, phone ? plateTop / frameH : null) : { clear: false, screen: null }) })),
+    analysis: stat(() => ({ source: drive?.source ?? null, weight: Math.round(weight * 1000) / 1000, ...analysisStats() })),
   });
 
   function frame(now) {
     raf = !reduced || held() ? requestAnimationFrame(frame) : 0;
-    const dtMs = now - last;
+    /* A frame's timestamp marks the frame's start, which can come before the clock reading of the wake that asked for it, so time never
+       runs back: under reduced motion every frame follows a wake. */
+    const dtMs = Math.max(0, now - last);
     const dt = Math.min(0.05, dtMs / 1000);
     last = now;
     elapsed += dt;
@@ -347,14 +357,21 @@ function start(gl) {
     /* State changes blend over about eight seconds; under reduced motion they land at once. */
     const blend = reduced ? 1 : Math.min(1, dt * 0.12);
     energy += (targetEnergy - energy) * blend;
+    drive = reduced ? null : analyse(now);
+    if (drive) heard = drive;
+    weight = Math.max(0, Math.min(1, weight + (drive ? dt : -dt) / 0.8));
+    const layer2 = mappings(heard, weight);
     const f = total > 0 ? showPos / total : 0;
     const [c0, c1] = skyPair(index, f, set2Start, encoreStart);
-    skyMat.uniforms.uEnergy.value = energy;
+    skyMat.uniforms.uEnergy.value = energy * layer2.energy;
+    skyMat.uniforms.uAmber.value = layer2.amber;
     skyMat.uniforms.uC0.value.lerp(c0, blend);
     skyMat.uniforms.uC1.value.lerp(c1, blend);
     skyMat.uniforms.uC2.value.copy(skyMat.uniforms.uC0.value).lerp(skyMat.uniforms.uPage.value, 0.7);
     hemi.color.copy(skyMat.uniforms.uC0.value).lerp(new THREE.Color(0xffffff), 0.3);
-    stage.panel.material.color.copy(skyMat.uniforms.uC0.value);
+    hemi.intensity = lightBase.hemi * layer2.hemi;
+    stage.panel.material.color.copy(skyMat.uniforms.uC0.value).multiplyScalar(layer2.panel);
+    stage.light.intensity = lightBase.stage * layer2.stage;
     if (!reduced) {
       skyMat.uniforms.uTime.value = elapsed;
       if (elapsed >= nextDrop) { dropAt = elapsed; skyMat.uniforms.uDrop.value.set(0.2 + rnd() * 0.6, 0.3 + rnd() * 0.5, 0); nextDrop = elapsed + 40 + rnd() * 20; }
@@ -363,6 +380,7 @@ function start(gl) {
         if (m.kind === "spin") m.obj.rotation.y += dt * 0.3;
         else if (m.kind === "pulse") m.obj.material.emissiveIntensity = 0.6 + 0.4 * Math.sin(elapsed * 3);
         else if (m.kind === "bob") m.obj.position.y = 4 + 0.5 * Math.sin(elapsed * 1.5);
+        else if (m.kind === "flame") m.obj.intensity = m.base * layer2.flame;
       }
       stage.move(dt, elapsed, playing);
     } else {
@@ -392,13 +410,14 @@ function start(gl) {
       if (playing) { bearsOff = true; bearD += BEAR_SPEED * dt; }
       bearsPlaced = true;
     }
+    gait += layer2.rate * dt;
     for (let k = 0; k < bears.length; k++) {
       const b = bears[k];
       const db = bearD - k * BEAR_GAP;
       const p = line.at(db), tg = line.tangentAt(db);
       b.g.position.copy(p);
       b.g.rotation.y = Math.atan2(tg.x, tg.z);
-      const swing = (playing && !reduced) ? Math.sin(elapsed * 6 + b.phase) * 0.5 : 0;
+      const swing = (playing && !reduced) ? Math.sin(gait + b.phase) * layer2.amp : 0;
       b.legs[0].rotation.x = swing; b.legs[3].rotation.x = swing; b.legs[1].rotation.x = -swing; b.legs[2].rotation.x = -swing;
     }
 

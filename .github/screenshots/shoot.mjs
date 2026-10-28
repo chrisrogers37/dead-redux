@@ -132,8 +132,14 @@ const PAGES = [
     steps: [playStep("fixed-space-start", { ms: 12000, shot: "fixed-space" })],
   },
   // The fixed day from ?pose=stage: the visitor's bear on the slope in front of the stage, and over its head the six players against the
-  // panel, the open front toward the camera.
-  { path: "/2026-10-20?pose=stage", devices: ["desktop"], shots: ["fixed-stage"] },
+  // panel, the open front toward the camera. Then the show plays, shot again 8 s later from the same still camera, where the panel and the
+  // light follow the music.
+  {
+    path: "/2026-10-20?pose=stage",
+    devices: ["desktop"],
+    shots: ["fixed-stage"],
+    steps: [playStep("fixed-stage-playing", { ms: 8000, shot: "fixed-stage-playing-8s" })],
+  },
   // The fixed day from ?pose=slope: the visitor's bear higher up the slope, looking down over it to the stage at its foot.
   { path: "/2026-10-20?pose=slope", devices: ["desktop"], shots: ["fixed-stage-slope"] },
   // The fixed day from ?pose=path: the visitor's bear on the loop at the summit's north-east shoulder, heading along it, and down the slope
@@ -515,17 +521,20 @@ try {
           await logStats(page, laterFile);
           await logPage(page, laterFile);
           // Serialised in the page, so each reading prints as one line of JSON.
-          const [analysis, lastGapMs, routing, state, world, corsFallback] = await page.evaluate(() => [
+          const [analysis, lastGapMs, routing, state, world, corsFallback, line] = await page.evaluate(() => [
             JSON.stringify(window.__hill?.analysis ?? null),
             JSON.stringify(window.__hill?.lastGapMs ?? null),
             document.querySelector("main")?.dataset.routing ?? null,
             document.querySelector("main")?.dataset.state ?? null,
             document.getElementById("world")?.dataset.world ?? null,
             window.__hill?.corsFallback ?? null,
+            document.querySelector("[data-action='play']")?.closest(".plate")?.querySelector(".t-tag")?.textContent ?? null,
           ]);
           console.log(`analysis ${laterFile} ${analysis}`);
           console.log(`lastGapMs ${laterFile} ${lastGapMs}`);
           console.log(`routing ${laterFile} ${routing}`);
+          // The player's state and the now-plate's sentence at the later shot, so a stream that stalled shows here.
+          console.log(`state ${laterFile} ${state} · ${line}`);
           // By now a playing show sounds through the world, or in plain stereo for a reason the player names (its corsFallback stat).
           const routed = routingFailure({ state, world, routing, corsFallback });
           if (routed) failures.push(`${laterFile}: ${routed}`);
