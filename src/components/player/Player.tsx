@@ -6,6 +6,7 @@ import { formatDate } from "@/lib/format";
 import { corsAfterError, stateAfterError } from "@/lib/fallback";
 import { nextIndex, prevIndex, setName } from "@/lib/queue";
 import { Transport } from "./Transport";
+import { cueQueue } from "./cue";
 import { keyBelongsToControl, lettersActive } from "./keys";
 import { useEventListener } from "./useEventListener";
 import { useFirstMove } from "./useFirstMove";
@@ -176,15 +177,6 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
     }
   }
 
-  /** Moves the queue to a track and tells the world. */
-  function setIndex(index: number) {
-    const g = eng.current;
-    if (index === g.index) return;
-    const from = g.index;
-    g.index = index;
-    document.dispatchEvent(new CustomEvent("player:track", { detail: { index, from } }));
-  }
-
   function showTrack(index: number, position: number) {
     setView({ index, position, duration: tracks[index].duration });
   }
@@ -232,7 +224,7 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
     g.over = false;
     setOver(false);
     cue(g.active, i, seconds);
-    setIndex(i);
+    cueQueue(g, i, seconds);
     showTrack(i, seconds);
     if (g.wantPlay) {
       setState("loading");
@@ -358,7 +350,7 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
     if (TWO_ELEMENTS && slotEl(slot) && g.held[slot] === next) g.active = slot;
     else cue(g.active, next, 0);
     play();
-    setIndex(next);
+    cueQueue(g, next, 0);
     showTrack(next, 0);
   }
 

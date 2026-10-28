@@ -3,10 +3,11 @@ export interface Queue {
   index: number;
 }
 
-/** Moves the queue to a track and, when the track changes, tells the world which, before its audio plays. */
+/**
+ * Moves the queue to a track and tells the world where it is cued, before the audio plays: the track and the position in it, so the
+ * bears wait at the cued point rather than at the track's start. A cue within the track the queue is on is told too.
+ */
 export function cueQueue(queue: Queue, index: number, position: number): void {
-  if (index === queue.index) return;
-  const from = queue.index;
   queue.index = index;
-  document.dispatchEvent(new CustomEvent("player:track", { detail: { index, from } }));
+  document.dispatchEvent(new CustomEvent("player:track", { detail: { index, position } }));
 }
