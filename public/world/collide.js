@@ -39,3 +39,37 @@ export function enterColumn(o, d, { x, z, r, top }) {
   if (o.y + d.y * t0 <= top) return t0;
   return o.y + d.y * t1 <= top ? (top - o.y) / d.y : Infinity;
 }
+
+/* A landmark stands clear of the bears' line when, seen from above, every point of the line keeps CLEAR from all of it: a bear's
+   half-width, 1.5 m (bears.js), and a quarter metre more. */
+export const CLEAR = 1.75;
+
+/* The convex hull of points [x, z], counter-clockwise: a landmark's outline seen from above (path.js). */
+export function hull(points) {
+  const p = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const turn = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  /* One side of the hull, along `list`: a point where the outline would not turn left is dropped. */
+  const side = (list) => {
+    const h = [];
+    for (const q of list) { while (h.length > 1 && turn(h[h.length - 2], h[h.length - 1], q) <= 0) h.pop(); h.push(q); }
+    return h.slice(0, -1);
+  };
+  return side(p).concat(side(p.reverse()));
+}
+
+/* How far a point stands outside a convex outline given counter-clockwise, or, negative, how deep inside it. */
+export function outside(poly, x, z) {
+  let inside = poly.length > 2, d = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const [ax, az] = poly[i], [bx, bz] = poly[(i + 1) % poly.length], ex = bx - ax, ez = bz - az, wx = x - ax, wz = z - az;
+    if (ex * wz - ez * wx < 0) inside = false;
+    const t = Math.max(0, Math.min(1, (wx * ex + wz * ez) / (ex * ex + ez * ez || 1)));
+    d = Math.min(d, Math.hypot(wx - ex * t, wz - ez * t));
+  }
+  return inside ? -d : d;
+}
+
+/* Where a landmark stands: at its song's point (x, z), wherever the bears' line passes. */
+export function standClear(x, z, rot, poly, pts, within = 20) {
+  return { x, z };
+}
