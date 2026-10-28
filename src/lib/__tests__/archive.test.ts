@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  archiveMonths,
   getArchivePicks,
   getDailyPick,
   getDailyPicksRange,
@@ -67,5 +68,42 @@ describe("getArchivePicks", () => {
     expect(before[0].featuredDate).toBe("2026-10-18");
     expect(after[0].featuredDate).toBe("2026-10-19");
     expect(after).toHaveLength(before.length + 1);
+  });
+});
+
+describe("archiveMonths", () => {
+  it("groups the picks by featured month, newest first", () => {
+    const months = archiveMonths(getArchivePicks("2026-10-20"));
+    expect(months.map((month) => month.key)).toEqual([
+      "2026-10",
+      "2026-09",
+      "2026-08",
+      "2026-07",
+      "2026-06",
+      "2026-05",
+      "2026-04",
+      "2026-03",
+      "2026-02",
+    ]);
+    expect(months.map((month) => month.picks.length)).toEqual([19, 30, 31, 31, 30, 31, 30, 31, 13]);
+    expect(months[0].picks[0].featuredDate).toBe("2026-10-19");
+    const launchMonth = months[months.length - 1];
+    expect(launchMonth.picks[launchMonth.picks.length - 1].featuredDate).toBe(getLaunchDate());
+  });
+
+  it("opens the month just closed on the first of a month, and a one-day month on the second", () => {
+    const first = archiveMonths(getArchivePicks("2026-11-01"));
+    expect(first[0].key).toBe("2026-10");
+    expect(first[0].picks).toHaveLength(31);
+
+    const second = archiveMonths(getArchivePicks("2026-11-02"));
+    expect(second[0].key).toBe("2026-11");
+    expect(second[0].picks.map((pick) => pick.featuredDate)).toEqual(["2026-11-01"]);
+    expect(second[1].key).toBe("2026-10");
+    expect(second[1].picks).toHaveLength(31);
+  });
+
+  it("has no months with no picks", () => {
+    expect(archiveMonths([])).toEqual([]);
   });
 });
