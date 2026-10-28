@@ -91,9 +91,11 @@ function start(gl) {
   const path = buildPath();
   const { at, tangentAt } = path;
   const landmarkU = layout(tracks, set2Start, path);
+  /* The bears' own line, 7 m to the left of the path, which every landmark stands clear of (path.js). */
+  const line = buildWalkLine(path, 7);
   const builders = makeBuilders(phone);
   const { moving } = builders;
-  const landmarks = placeLandmarks(scene, path, tracks, hasShow, builders, landmarkU);
+  const landmarks = placeLandmarks(scene, path, tracks, hasShow, builders, landmarkU, line);
   if (hasShow) buildSegues(scene, path, tracks, landmarkU);
 
   /* ---------- the bears ---------- */
@@ -175,8 +177,8 @@ function start(gl) {
   const DESCENT_S = 6;
   /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
   let followBase = 0;
-  /* The bears walk their own line at a lively pace, five 7 m apart by distance along it. The line keeps 7 m to the left of the path
-     so they pass the landmarks rather than walk through them (path.js). */
+  /* The bears walk their own line at a lively pace, five 7 m apart by distance along it, and pass the landmarks rather than walk
+     through them (path.js). */
   const BEAR_GAP = 7, BEAR_SPEED = 2.5;
   /* How near a walk comes to a bear's centre. In first person a bear's snout tip ends 2.4 m ahead of it, and the camera draws nothing
      nearer than 0.5 m. In third person the walker is a bear too, and one bear's snout tip meets another's flank 1.5 m from its centre.
@@ -184,7 +186,6 @@ function start(gl) {
   const BEAR_REACH = 2.9, BODY_REACH = 3.9, bearSpots = bears.map((b) => b.g.position);
   /* The stage's platform is solid too: a walk stops at its edge, STAGE_REACH from the centre of its column (stage.js). */
   const stageSpot = [STAGE_COLUMN];
-  const line = buildWalkLine(path, 7);
   /* The walk keeps within this distance of the island's centre: past the bears' line, which reaches 112.4 m out, by more than a reach,
      so stepping back from a bear never carries a walker past it. */
   const BOUND = 117;
@@ -391,7 +392,7 @@ function start(gl) {
     }
 
     /* The beam stands on the landmark of the song that plays. */
-    const lp = at(landmarkU[index]);
+    const lp = landmarks[index]?.position ?? at(landmarkU[index]);
     beam.position.set(lp.x, lp.y + 18, lp.z);
 
     /* The bears. Before the show first plays they stand where it is, and a world that opens while it plays places them there in its

@@ -69,7 +69,27 @@ export function outside(poly, x, z) {
   return inside ? -d : d;
 }
 
-/* Where a landmark stands: at its song's point (x, z), wherever the bears' line passes. */
+/* Where a landmark stands so the bears' line passes clear of it: at its song's point (x, z) if every point of the line `pts` ([x, z])
+   keeps CLEAR outside its outline `poly`, given in its own frame and turned `rot` about the vertical as the landmark is; else at the
+   nearest spot where they do, searched on rings 0.25 m apart in 32 directions, the roomiest spot of the first ring that has one. A
+   landmark with no such spot within `within` metres stays at its point. */
 export function standClear(x, z, rot, poly, pts, within = 20) {
+  const c = Math.cos(rot), s = Math.sin(rot), reach = Math.max(0, ...poly.map(([px, pz]) => Math.hypot(px, pz)));
+  const near = pts.filter(([px, pz]) => Math.hypot(px - x, pz - z) < reach + CLEAR + within);
+  /* The least room the line leaves a landmark standing at (cx, cz): each point taken into the landmark's frame. */
+  const room = (cx, cz) => {
+    let m = Infinity;
+    for (const [px, pz] of near) { const dx = px - cx, dz = pz - cz; m = Math.min(m, outside(poly, dx * c - dz * s, dx * s + dz * c)); }
+    return m;
+  };
+  if (room(x, z) >= CLEAR) return { x, z };
+  for (let r = 0.25; r <= within; r += 0.25) {
+    let best = null;
+    for (let k = 0; k < 32; k++) {
+      const cx = x + r * Math.cos((k * Math.PI) / 16), cz = z + r * Math.sin((k * Math.PI) / 16), m = room(cx, cz);
+      if (m >= CLEAR && (!best || m > best.m)) best = { x: cx, z: cz, m };
+    }
+    if (best) return { x: best.x, z: best.z };
+  }
   return { x, z };
 }
