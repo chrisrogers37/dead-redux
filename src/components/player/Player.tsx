@@ -6,6 +6,7 @@ import { formatDate } from "@/lib/format";
 import { corsAfterError, stateAfterError } from "@/lib/fallback";
 import { nextIndex, prevIndex, setName } from "@/lib/queue";
 import { Transport } from "./Transport";
+import { joinMoves } from "./join";
 import { keyBelongsToControl, lettersActive } from "./keys";
 import { useEventListener } from "./useEventListener";
 import { useFirstMove } from "./useFirstMove";
@@ -266,10 +267,12 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
     playbackSession();
     const at = startAt && fits(startAt, tracks.length) ? startAt : null;
     const from = at ?? readResume(featuredDate, tracks.length);
-    if (from) goTo(from.index, from.seconds);
-    else if (failed) cue(g.active, g.index, 0);
-    play();
-    document.dispatchEvent(new Event("player:start"));
+    joinMoves(from, failed, {
+      goTo,
+      recue: () => cue(g.active, g.index, 0),
+      play,
+      start: () => document.dispatchEvent(new Event("player:start")),
+    });
     if (TWO_ELEMENTS) unlockIdle();
     setJoined(true);
     setState("loading");

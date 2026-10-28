@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { keyBelongsToControl, lettersActive } from "../../components/player/keys";
+import { lettersActive as worldLettersActive } from "../../../public/world/input.js";
 
 // The page's elements, played by stand-ins that answer only what keys.ts asks of them: node has no DOM. `matches` knows the two
 // selectors keys.ts uses and throws on any other, so a changed selector fails here instead of passing.
@@ -118,5 +119,57 @@ describe("lettersActive", () => {
       },
     });
     expect(lettersActive(press("KeyK", html("div")))).toBe(true);
+  });
+});
+
+// The world keeps its own copy of the rule (public/world/input.js): it reads the Details switch from the data-single-key attribute the
+// page mirrors onto <main>, where the player reads it from storage. The same stand-ins play the page's elements.
+describe("the world's lettersActive", () => {
+  // The page's <main>, which carries the Details switch as its data-single-key attribute: "on", "off", or none.
+  const mainWith = (singleKey?: string) => ({ dataset: singleKey === undefined ? {} : { singleKey } });
+
+  it("acts anywhere while the attribute is absent, since only off turns the letter keys off", () => {
+    for (const target of [html("div"), null, html("canvas", {}, true)]) {
+      expect(worldLettersActive(mainWith(), press("KeyK", target))).toBe(true);
+    }
+  });
+
+  it("acts anywhere while the attribute is on", () => {
+    for (const target of [html("div"), null, html("canvas", {}, true)]) {
+      expect(worldLettersActive(mainWith("on"), press("KeyK", target))).toBe(true);
+    }
+  });
+
+  it("stays off outside the world while the attribute is off", () => {
+    for (const target of [html("div"), null]) {
+      expect(worldLettersActive(mainWith("off"), press("KeyK", target))).toBe(false);
+    }
+  });
+
+  it("acts inside the world while the attribute is off", () => {
+    expect(worldLettersActive(mainWith("off"), press("KeyK", html("canvas", {}, true)))).toBe(true);
+  });
+
+  it("acts anywhere when the page has no main element", () => {
+    for (const target of [html("div"), null, html("canvas", {}, true)]) {
+      expect(worldLettersActive(null, press("KeyK", target))).toBe(true);
+    }
+  });
+
+  it("answers as the player's rule does, on the same events", () => {
+    const targets: [string, unknown][] = [
+      ["a plain element", html("div")],
+      ["no target", null],
+      ["an element in the world", html("canvas", {}, true)],
+    ];
+    for (const setting of [undefined, "on", "off"]) {
+      // One setting of the switch, held where each rule reads it: in storage for the player, on <main> for the world.
+      stored.clear();
+      if (setting !== undefined) stored.set(SINGLE_KEY, setting);
+      for (const [where, target] of targets) {
+        const e = press("KeyK", target);
+        expect(worldLettersActive(mainWith(setting), e), `${setting ?? "unset"}, ${where}`).toBe(lettersActive(e));
+      }
+    }
   });
 });
