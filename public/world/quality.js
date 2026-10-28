@@ -15,6 +15,27 @@ export const SLOW_MS = 34;
 /* Frames in each median. */
 export const WINDOW = 60;
 
+/* The downgrade's sampler. Each frame's time goes in, and every WINDOW frames the window's median is measured. A median over SLOW_MS
+   asks for one rung down. */
+export function frameSampler() {
+  const times = [];
+  let frameMs = 0;
+  return {
+    /* The last window's median frame time, in milliseconds; 0 until the first window ends. */
+    get frameMs() {
+      return frameMs;
+    },
+    /* Adds a frame's time, and whether the world drew it while loading. True when the window it ends asks for one rung down. */
+    add(dtMs, loading) {
+      times.push(dtMs);
+      if (times.length < WINDOW) return false;
+      frameMs = median(times);
+      times.length = 0;
+      return frameMs > SLOW_MS;
+    },
+  };
+}
+
 /* The tier: ?tier= when it names one; a phone by its width, or by touch on a screen under 900 px wide; a TV by a wide screen without a
    fine pointer, or by its browser's name; else a desktop. */
 export function pickTier() {
