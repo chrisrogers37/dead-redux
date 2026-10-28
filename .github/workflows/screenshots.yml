@@ -68,7 +68,7 @@ jobs:
             echo "$want  $u  $verdict" | tee -a "$GITHUB_STEP_SUMMARY"
           done <<'EOF'
           sha384-QHQk1LzjJlJYNdthXjKCmffpDRZL3EqJ7LfqBzyKyvGgjAYM2ZVuYtFGg42NcAJ/ build/three.module.min.js
-          sha384-hVJglfJ3ExjEf/gZlu5Oiq3Zi9zgxOs4Kut5eM2Ts9j5xj0UcGQ6Np1eU3Qpw/5c build/three.core.min.js
+          sha384-hVJglfJ4ExjEf/gZlu5Oiq3Zi9zgxOs4Kut5eM2Ts9j5xj0UcGQ6Np1eU3Qpw/5c build/three.core.min.js
           sha384-05mkYituMJObxUkTK7xbW9SA45DEaxOge7FQUGrhW3dsFz0fckzykM6RMAPN26rD examples/jsm/utils/BufferGeometryUtils.js
           EOF
           exit "$failed"
