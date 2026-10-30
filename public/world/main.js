@@ -179,10 +179,11 @@ function start(gl) {
   /* The bears walk their own line at a lively pace, five 7 m apart by distance along it. The line keeps 7 m to the left of the path
      so they pass the landmarks rather than walk through them (path.js). */
   const BEAR_GAP = 7, BEAR_SPEED = 2.5;
-  /* How near a walk comes to a bear's centre. In first person a bear's snout tip ends 2.4 m ahead of it, and the camera draws nothing
-     nearer than 0.5 m. In third person the walker is a bear too, and one bear's snout tip meets another's flank 1.5 m from its centre.
-     Neighbours stay at least 5.9 m apart on the line's tightest bend, so the wider reaches overlap there (collide.js). */
-  const BEAR_REACH = 2.9, BODY_REACH = 3.9, bearSpots = bears.map((b) => b.g.position);
+  /* How near a walk comes to a bear's centre, in either view: one bear's snout tip meets another's flank 1.5 m from its centre, and a
+     snout tip ends 2.4 m ahead of it. In first person the camera stands where the visitor's bear would, so a bear's snout tip stays 1.5 m
+     from the eye, clear of the camera's 0.5 m near plane at any pitch and through the walking bob. Neighbours stay at least 5.9 m apart
+     on the line's tightest bend, so the reaches overlap there (collide.js). */
+  const BODY_REACH = 3.9, bearSpots = bears.map((b) => b.g.position);
   /* The stage's platform is solid too: a walk stops at its edge, STAGE_REACH from the centre of its column (stage.js). */
   const stageSpot = [STAGE_COLUMN];
   const line = buildWalkLine(path, 7);
@@ -208,7 +209,7 @@ function start(gl) {
   /* A walk starts where the visitor's bear last stood in a walk, or at the nearest spot where a walker may stand if it no longer may
      there, else in its place in the line, as the first walk after the descent does (modes.js). */
   const spot = keepSpot(walker, slot, () => ({ bound: BOUND, stage: STAGE_COLUMN, stageReach: STAGE_REACH, bears: bearSpots,
-    bearReach: third ? BODY_REACH : BEAR_REACH }));
+    bearReach: BODY_REACH }));
   /* The camera that walks with the bears, in follow and attract, its eye above their heads; it looks at the lead bear, turned by `yaw`
      and tilted by `pitch`. In third person it stands behind the visitor's bear and to its left, away from the path, along the chord from
      that bear to the lead one, and looks 2 m over the lead bear's head, so all six read: 16 m behind and 6 m to the left with the eye
@@ -464,7 +465,7 @@ function start(gl) {
       const d = Math.hypot(walker.x, walker.z);
       if (d > BOUND) { walker.x *= BOUND / d; walker.z *= BOUND / d; }
       keepOut(walker, stageSpot, STAGE_REACH);
-      keepOut(walker, bearSpots, third ? BODY_REACH : BEAR_REACH);
+      keepOut(walker, bearSpots, BODY_REACH);
       avatar.step(walker.x, walker.z, walker.heading, dt);
       spot.stand();
       if (third) aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));
