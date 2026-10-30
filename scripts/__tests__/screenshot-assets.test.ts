@@ -9,6 +9,7 @@ import {
   assetFile,
   callsFailure,
   evaluateAcrossNavigation,
+  nearFailure,
   routingFailure,
   saveAssets,
 } from "../../.github/screenshots/assets.mjs";
@@ -48,6 +49,24 @@ describe("callsFailure", () => {
   it("passes a page without stats, and a tier with no budget", () => {
     expect(callsFailure(null)).toBe(null);
     expect(callsFailure({ tier: "watch", calls: 500 })).toBe(null);
+  });
+});
+
+describe("nearFailure", () => {
+  it("fails a first-person frame with a bear nearer than the near plane, and names the depth", () => {
+    expect(nearFailure({ bears: { near: 0.46, cover: 1 } })).toBe("a bear 0.46 m from the camera, inside its 0.5 m near plane");
+  });
+
+  it("passes a bear at the near plane and beyond it", () => {
+    expect(nearFailure({ bears: { near: 0.5, cover: 1 } })).toBe(null);
+    expect(nearFailure({ bears: { near: 1.45, cover: 0.4 } })).toBe(null);
+  });
+
+  it("passes a page without stats, a frame in third person, and a first-person frame with no bear in view", () => {
+    expect(nearFailure(null)).toBe(null);
+    expect(nearFailure({})).toBe(null);
+    expect(nearFailure({ bears: null })).toBe(null);
+    expect(nearFailure({ bears: { near: null, cover: 0 } })).toBe(null);
   });
 });
 

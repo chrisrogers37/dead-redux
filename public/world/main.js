@@ -161,10 +161,14 @@ function start(gl) {
   let third = true, cut = false;
   /* The test hooks ?pose=stage, ?pose=slope and ?pose=path, on preview deployments only (the server marks <main data-test-hooks="1">):
      the walk starts with the visitor on the slope in front of the stage, higher up it, or on the path where it shows the stage
-     (ground.js), with no descent, and no idle time hands the view to attract. */
+     (ground.js), with no descent, and no idle time hands the view to attract. ?pose=snout stands the walker in front of the lead bear's
+     snout looking a little down, and ?pose=pass behind the last bear, a little to its side, facing its way; both start inside the
+     bear's reach and are taken again when the view changes, so the walk's keep-out sets each view's distance. */
   const hook = main.dataset.testHooks === "1" ? new URLSearchParams(location.search).get("pose") : null;
   const testPose = hook === "stage" ? STAGE_POSE : hook === "slope" ? SLOPE_POSE : hook === "path" ? PATH_POSE : null;
-  const posed = testPose !== null;
+  const bearHook = hook === "snout" || hook === "pass" ? hook : null;
+  let bearPose = bearHook;
+  const posed = testPose !== null || bearPose !== null;
   let mode = reduced || posed ? "walk" : "descent";
   let idleTimer = 0, elapsed = 0;
   /* The descent's length, in seconds of world time. A frame adds at most 50 ms to the world's time, so a slow load stretches the
@@ -270,7 +274,7 @@ function start(gl) {
     const lean = main.dataset.mode === "leanback";
     playing = main.dataset.state === "playing";
     const t = main.dataset.view !== "first";
-    if (t !== third) { third = t; cut = true; }
+    if (t !== third) { third = t; cut = true; bearPose = bearHook; }
     avatar.g.visible = third;
     measurePlate();
     if (lean && mode !== "drift") setMode("drift");
@@ -319,6 +323,34 @@ function start(gl) {
     sun.castShadow = quality.shadows;
     stage.light.visible = quality.stageLight;
   }
+  const vertex = new THREE.Vector3();
+  /* In first person, how near the view comes to a bear and how much of the frame's width one covers: the depth of the nearest bear
+     vertex in front of the camera, in the view or within half of it past an edge (the near plane, 0.5 m, cuts any face with a vertex
+     nearer than that), and the widest share of the frame's width that one bear spans. */
+  function bearsInView() {
+    camera.updateMatrixWorld();
+    const ty = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2), tx = ty * camera.aspect;
+    let near = Infinity, cover = 0;
+    for (const b of bears) {
+      b.g.updateMatrixWorld();
+      let lo = Infinity, hi = -Infinity;
+      b.g.traverse((o) => {
+        if (!o.isMesh) return;
+        const pos = o.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          vertex.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld).applyMatrix4(camera.matrixWorldInverse);
+          const d = -vertex.z;
+          if (d <= 0) continue;
+          const x = vertex.x / (d * tx), y = vertex.y / (d * ty);
+          if (Math.abs(x) <= 1.5 && Math.abs(y) <= 1.5 && d < near) near = d;
+          if (d >= camera.near) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
+        }
+      });
+      if (hi > lo) cover = Math.max(cover, (Math.min(hi, 1) - Math.max(lo, -1)) / 2);
+    }
+    const round = (v) => Math.round(v * 100) / 100;
+    return { near: near === Infinity ? null : round(near), cover: round(cover) };
+  }
   /* The stats the CI shoot script logs after every shot and every control a recording holds, and ?stats=1 shows, read live. They are
      defined on window.__hill, which the player also writes, so its fields stay. */
   const stat = (get) => ({ get, enumerable: true, configurable: true });
@@ -332,6 +364,8 @@ function start(gl) {
     avatar: stat(() => ({ view: third ? "third" : "first", shown: avatar.g.visible,
       head: avatar.head.toArray().map((v) => Math.round(v * 100) / 100),
       ...(third ? avatar.report(camera, phone ? plateTop / frameH : null) : { clear: false, screen: null }) })),
+    /* In first person, the nearest bear vertex's depth in the view and the widest share of the frame's width one bear covers. */
+    bears: stat(() => (third ? null : bearsInView())),
   });
 
   function frame(now) {
@@ -401,6 +435,18 @@ function start(gl) {
       b.g.rotation.y = Math.atan2(tg.x, tg.z);
       const swing = (playing && !reduced) ? Math.sin(elapsed * 6 + b.phase) * 0.5 : 0;
       b.legs[0].rotation.x = swing; b.legs[3].rotation.x = swing; b.legs[1].rotation.x = -swing; b.legs[2].rotation.x = -swing;
+    }
+
+    /* A bear pose (the test hooks) lands once the bears stand where this frame puts them: the walker 2 m from the lead bear's centre,
+       in front of its snout and facing it, or from the last bear's, behind it and 0.35 m across, facing its way. Either is inside any
+       reach, so the keep-out below sets how near. */
+    if (bearPose) {
+      const lead = bearPose === "snout", g = bears[lead ? 0 : bears.length - 1].g, r = g.rotation.y;
+      const along = lead ? 2 : -2, across = lead ? 0 : 0.35;
+      walker.x = g.position.x + Math.sin(r) * along + Math.cos(r) * across;
+      walker.z = g.position.z + Math.cos(r) * along - Math.sin(r) * across;
+      walker.heading = lead ? r : r + Math.PI; walker.pitch = lead ? -0.25 : 0;
+      bearPose = null; cut = true;
     }
 
     /* The camera. T and G (or a vertical drag) look up and down, up to 0.8 rad either way, while walking or with the bears. */
@@ -478,7 +524,7 @@ function start(gl) {
   container.dataset.world = "ready";
   locate(performance.now());
   if (reduced) { bearD = line.dOf(landmarkU[index]); toSlot(); }
-  if (posed) { Object.assign(walker, testPose); cut = true; }
+  if (testPose !== null) { Object.assign(walker, testPose); cut = true; }
   placeWalker();
   wake();
   document.addEventListener("visibilitychange", () => {

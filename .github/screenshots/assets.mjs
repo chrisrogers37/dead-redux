@@ -24,6 +24,18 @@ export function callsFailure(stats) {
   return budget !== undefined && typeof calls === "number" && calls > budget ? `${calls} draw calls, over the ${tier} budget of ${budget}` : null;
 }
 
+/** The world camera's near plane, in metres (main.js): a face with a vertex nearer than this is cut. */
+export const NEAR_PLANE = 0.5;
+
+/**
+ * Why a frame's render stats (window.__hill) fail the run, or null when they pass: a first-person frame whose nearest bear vertex in view
+ * is inside the camera's near plane. A page without stats, a frame in third person and a frame with no bear in view all pass.
+ */
+export function nearFailure(stats) {
+  const near = stats?.bears?.near;
+  return typeof near === "number" && near < NEAR_PLANE ? `a bear ${near} m from the camera, inside its ${NEAR_PLANE} m near plane` : null;
+}
+
 /**
  * Why a play step's later shot fails the run, or null when it passes: a show playing on a ready world whose sound goes neither through
  * the world ("webaudio") nor in plain stereo for a reason the player names (its corsFallback stat).

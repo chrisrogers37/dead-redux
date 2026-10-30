@@ -2,7 +2,7 @@ import { appendFile, mkdir, mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { chromium } from "playwright";
-import { callsFailure, evaluateAcrossNavigation, routingFailure, saveAssets } from "./assets.mjs";
+import { callsFailure, evaluateAcrossNavigation, nearFailure, routingFailure, saveAssets } from "./assets.mjs";
 
 const DEVICES = {
   desktop: { viewport: { width: 1440, height: 900 } },
@@ -86,6 +86,27 @@ const PAGES = [
       { click: "[data-action='details']", shot: "fixed-view-details" },
       { click: "[data-action='view']", shot: "fixed-first-person" },
       { click: "[data-action='view']", shot: "fixed-third-person" },
+    ],
+  },
+  // The fixed day in first person at a bear's reach, on previews: ?pose=snout stands the walker in front of the lead bear's snout looking
+  // a little down, and ?pose=pass behind the last bear and a little to its side; V turns to first person for the shot and back. The
+  // stats line's `bears` gives the nearest bear depth in view and the share of the frame's width a bear covers.
+  {
+    path: "/2026-10-20?pose=snout",
+    devices: ["desktop", "phone"],
+    shots: [],
+    steps: [
+      { focus: "#world", press: "KeyV", shot: "fixed-reach-snout" },
+      { focus: "#world", press: "KeyV", shot: "fixed-reach-snout-third" },
+    ],
+  },
+  {
+    path: "/2026-10-20?pose=pass",
+    devices: ["desktop", "phone"],
+    shots: [],
+    steps: [
+      { focus: "#world", press: "KeyV", shot: "fixed-reach-pass" },
+      { focus: "#world", press: "KeyV", shot: "fixed-reach-pass-third" },
     ],
   },
   // The fixed day without WebGL 2: the designed still under the HUD, its Details, then the show playing from the still.
@@ -339,19 +360,22 @@ const RECORDINGS = [
 const RECORD_MS = 10_000;
 
 // What fails the run once every shot is taken: a generated image the site answers with an error, a frame over its tier's draw-call
-// budget, and a show playing with its sound neither through the world nor in plain stereo for a reason the player names.
+// budget, a first-person frame where a bear comes inside the camera's near plane, and a show playing with its sound neither through
+// the world nor in plain stereo for a reason the player names.
 const failures = [];
 
 // What the log says when a read had to wait for the page to load again: the shot was taken, then the page navigated as it was read.
 const reread = (file) => () => console.log(`reread ${file}: the page navigated while it was read`);
 
 // Logs the page's render stats (window.__hill) for a shot, or for a recording after each control it holds; null on a page without them.
-// A frame over its tier's draw-call budget is a failure.
+// A frame over its tier's draw-call budget is a failure, and so is a first-person frame where a bear comes inside the near plane.
 const logStats = async (page, file) => {
   const stats = await evaluateAcrossNavigation(page, () => JSON.stringify(window.__hill ?? null), reread(file));
   console.log(`stats ${file} ${stats}`);
-  const failure = callsFailure(JSON.parse(stats));
-  if (failure) failures.push(`${file}: ${failure}`);
+  const parsed = JSON.parse(stats);
+  for (const failure of [callsFailure(parsed), nearFailure(parsed)]) {
+    if (failure) failures.push(`${file}: ${failure}`);
+  }
 };
 
 // Logs every control's box after a page's first shot, so a touch target is read rather than measured: links, buttons, summaries,
