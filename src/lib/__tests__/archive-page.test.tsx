@@ -49,4 +49,9 @@ describe("Archive", () => {
     expect(rows(html)).toEqual([]);
     expect(html).not.toContain("data-month");
   });
+
+  it("names its navigation, so a screen reader announces the site's links as one landmark", () => {
+    const html = renderToStaticMarkup(<Archive months={months} open={months[0]} />);
+    expect(html.match(/<nav[^>]*>/g)).toEqual([expect.stringContaining('aria-label="Site"')]);
+  });
 });
