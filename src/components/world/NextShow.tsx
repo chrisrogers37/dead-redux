@@ -111,8 +111,7 @@ export function useNextShow({ today, renderedAt, pastPick, fakeNow, leanback, sl
     return () => window.clearTimeout(timer);
   }, [over]);
 
-  // A no-break space keeps the month with its day, however narrow the chip is.
-  if (turned) return { kind: "day", href: "/", line: `A new show is up for ${formatMonthDay(turned).replace(" ", "\u00a0")}.`, carryOver };
+  if (turned) return { kind: "day", href: "/", line: `A new show is up for ${formatMonthDay(turned)}.`, carryOver };
   if (offering && pastPick) {
     return { kind: "past", href: `/${pastPick.featuredDate}`, line: `${pastPick.venue} · ${formatDate(pastPick.showDate)}`, carryOver };
   }
@@ -127,11 +126,11 @@ interface ChipProps {
 
 /**
  * The chip: the eyebrow for a past pick, the line, and the link that loads the next show. It blocks nothing and takes no focus.
- * Out of lean-back it is as wide as the plate beside it: the past pick as the now-plate's 360 px, and the new day's chip as the
- * title plate, since it adds nothing to that column's width (its inline size is contained) and stretches to it, wrapping its line.
+ * Out of lean-back it is as wide as the plate beside it: the past pick as the now-plate, and the new day's chip as the title plate,
+ * since it adds nothing to that column's width (its inline size is contained) and stretches to it, wrapping its line.
  */
 export function NextChip({ next, leanback }: ChipProps) {
-  const width = leanback ? "" : next.kind === "past" ? "sm:w-[360px]" : "self-stretch [contain:inline-size]";
+  const width = leanback ? "" : next.kind === "past" ? "sm:w-[360px]" : "self-stretch contain-inline-size";
   return (
     <div data-next={next.kind} role="status" className={`plate chip ${width}`}>
       {next.kind === "past" && (
