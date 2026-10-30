@@ -1,0 +1,85 @@
+{
+ "date": "1986-07-04T00:00:00Z",
+ "identifier": "gd1986-07-04.sbd.miller.118659.flac16",
+ "sources": 15,
+ "set2Start": 7,
+ "encoreStart": 18,
+ "tracks": [
+  {
+   "title": "Tuning",
+   "duration": 98
+  },
+  {
+   "title": "Jack Straw",
+   "duration": 386
+  },
+  {
+   "title": "Dupree's Diamond Blues",
+   "duration": 461
+  },
+  {
+   "title": "C C Rider",
+   "duration": 418
+  },
+  {
+   "title": "Tennessee Jed",
+   "duration": 540
+  },
+  {
+   "title": "My Brother Esau",
+   "duration": 258
+  },
+  {
+   "title": "Touch Of Grey",
+   "duration": 333
+  },
+  {
+   "title": "Cold Rain And Snow ->",
+   "duration": 368
+  },
+  {
+   "title": "Fire On The Mountain ->",
+   "duration": 570
+  },
+  {
+   "title": "Samson And Delilah",
+   "duration": 342
+  },
+  {
+   "title": "The Wheel ->",
+   "duration": 283
+  },
+  {
+   "title": "I Need A Miracle ->",
+   "duration": 213
+  },
+  {
+   "title": "Uncle John's Band ->",
+   "duration": 450
+  },
+  {
+   "title": "Drums ->",
+   "duration": 502
+  },
+  {
+   "title": "Space ->",
+   "duration": 232
+  },
+  {
+   "title": "Gimme Some Lovin' ->",
+   "duration": 313
+  },
+  {
+   "title": "Goin' Down The Road Feeling Bad ->",
+   "duration": 307
+  },
+  {
+   "title": "Turn On Your Lovelight",
+   "duration": 272
+  },
+  {
+   "title": "U.S. Blues",
+   "duration": 287
+  }
+ ]
+}

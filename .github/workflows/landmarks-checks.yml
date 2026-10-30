@@ -1,0 +1,56 @@
+name: Landmark placement checks
+
+on:
+  push:
+    branches: [scratch/landmarks-checks-82]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: three 0.185.0
+        run: bash .github/scratch/landmarks/fetch_three.sh
+      - name: The base's world files
+        run: |
+          mkdir -p "$RUNNER_TEMP/base"
+          git archive 697e8b6896f4d173043e75b11957c581c3c8276a public/world | tar -x -C "$RUNNER_TEMP/base"
+          git log -1 --format='head %H' && git rev-parse HEAD~1 | sed 's/^/parent /'
+      - name: Run the checks
+        env:
+          BENCH_KIT: ${{ github.workspace }}/.github/scratch/landmarks
+          BENCH_TMP: ${{ runner.temp }}/bench
+          BENCH_THREE_DIR: ${{ runner.temp }}/three
+          BENCH_BASE_WORLD: ${{ runner.temp }}/base/public/world
+          BENCH_HEAD_WORLD: ${{ github.workspace }}/public/world
+          BENCH_FIXED_DAY: ${{ github.workspace }}/.github/scratch/landmarks/fixed_day.json
+          BENCH_OUT: ${{ github.workspace }}/bench-out
+        run: |
+          set -o pipefail
+          mkdir -p "$BENCH_OUT" "$BENCH_TMP"
+          node --version
+          python3 --version
+          nproc
+          grep -m1 'model name' /proc/cpuinfo || true
+          python3 .github/scratch/landmarks/bench.py all 2>&1 | tee "$BENCH_OUT/all.txt"
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f bench-out/all.txt ]; then
+            { echo '```'; head -c 900000 bench-out/all.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: landmark-checks-${{ github.sha }}
+          path: bench-out
