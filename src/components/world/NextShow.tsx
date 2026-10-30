@@ -111,7 +111,8 @@ export function useNextShow({ today, renderedAt, pastPick, fakeNow, leanback, sl
     return () => window.clearTimeout(timer);
   }, [over]);
 
-  if (turned) return { kind: "day", href: "/", line: `A new show is up for ${formatMonthDay(turned)}.`, carryOver };
+  // A no-break space keeps the month with its day, however narrow the chip is.
+  if (turned) return { kind: "day", href: "/", line: `A new show is up for ${formatMonthDay(turned).replace(" ", "\u00a0")}.`, carryOver };
   if (offering && pastPick) {
     return { kind: "past", href: `/${pastPick.featuredDate}`, line: `${pastPick.venue} · ${formatDate(pastPick.showDate)}`, carryOver };
   }
