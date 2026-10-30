@@ -319,6 +319,7 @@ async function main() {
         for (let j = 0; j < chunk.length; j++) {
           const gb = B.groups[j], gh = H.groups[j];
           if (c0 === 0 && j === 0) { // the placed group's own footprint must equal the cached one, moved by the group's matrix
+            gh.updateMatrixWorld(true); gb.updateMatrixWorld(true); // the groups' world matrices, which the footprint reads, are made before it is taken
             const direct = giftWrap(footprintOf(gh, H.builders.moving).pts), cached = worldHull(H0, gh);
             const key = (A) => A.map((p) => p[0].toFixed(7) + "," + p[1].toFixed(7)).sort().join(";");
             if (key(direct) !== key(cached)) S.consistBad++;

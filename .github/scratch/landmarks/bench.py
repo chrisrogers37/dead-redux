@@ -281,7 +281,7 @@ def cmd_planted():
     print("-- nearest-spot oracle on the search-grid defects")
     for kinds in ([13], [24]):
         base = None
-        for who, head in (("control", HEAD_WORLD),) + tuple((mid, make_mutant(mid, [(f, o, n)] + ([("collide.js", "(k * Math.PI) / 16", "(k * Math.PI) / 4")] if mid == "C5" else []))) for mid, f, o, n, _ in PLANTED_NEAREST):
+        for who, head in (("control", HEAD_WORLD),) + tuple((mid, make_mutant(mid, [(f, o, n)] + ([("collide.js", "cx = x + r * Math.cos((k * Math.PI) / 16), cz = z + r * Math.sin((k * Math.PI) / 16)", "cx = x + r * Math.cos((k * Math.PI) / 4), cz = z + r * Math.sin((k * Math.PI) / 4)")] if mid == "C5" else []))) for mid, f, o, n, _ in PLANTED_NEAREST):
             objs, info = run_node("nearest", {"tier": "desktop", "kinds": kinds, "stride": 4.0, "perKind": 4}, head_world=head, max_s=9000)
             if info["killed"] or info["rc"] != 0 or not objs:
                 print(f"  {who}: RUN FAILED {info}")
@@ -293,6 +293,55 @@ def cmd_planted():
             else:
                 line += "  -> " + ("CAUGHT" if ov and base is not None and max(ov) > base + 0.1 else "NOT CAUGHT")
             print(line, flush=True)
+
+
+OPT_EDITS = [  # the room test of standClear: the nearest line points first, and a candidate is refused as soon as one point is nearer than CLEAR
+    ("  const near = pts.filter(([px, pz]) => Math.hypot(px - x, pz - z) < reach + CLEAR + within);",
+     "  const near = pts.filter(([px, pz]) => Math.hypot(px - x, pz - z) < reach + CLEAR + within).sort((a, b) => Math.hypot(a[0] - x, a[1] - z) - Math.hypot(b[0] - x, b[1] - z));"),
+    ("    for (const [px, pz] of near) { const dx = px - cx, dz = pz - cz; m = Math.min(m, outside(poly, dx * c - dz * s, dx * s + dz * c)); }",
+     "    for (const [px, pz] of near) { const dx = px - cx, dz = pz - cz; m = Math.min(m, outside(poly, dx * c - dz * s, dx * s + dz * c)); if (m < CLEAR) return m; }"),
+]
+
+
+def cmd_make_opt():
+    dst = SP + "/opt/world"
+    shutil.rmtree(SP + "/opt", ignore_errors=True)
+    shutil.copytree(HEAD_WORLD, dst)
+    path = dst + "/collide.js"
+    text = open(path).read()
+    for old, new in OPT_EDITS:
+        assert text.count(old) == 1, f"an edit matches {text.count(old)} times"
+        text = text.replace(old, new)
+    open(path, "w").write(text)
+    print("variant world:", dst)
+
+
+def cmd_variant():
+    """The head against a copy of itself with OPT_EDITS in collide.js: BASE_WORLD must be the head's world, HEAD_WORLD the copy (see cmd_make_opt)."""
+    def banner(title):
+        print(f"\n##### {title}\n", flush=True)
+
+    base = {"tier": "desktop", "stride": "1", "per": "8", "kinds": None, "tag": "v1", "head": HEAD_WORLD, "per-kind": "4", "n": None}
+    banner("the fixed day: the head against the variant")
+    cmd_fixed()
+    tot = {"n": 0, "moved": 0, "shapeBad": 0, "yBad": 0, "cpuBase": 0.0, "cpuHead": 0.0}
+    for tag, extra in (("v1", {}), ("v500", {"n": "500"})):
+        banner(f"sweep {tag}, desktop, every kind: positions of the variant against the head's")
+        rows, t = summary(sweep({**base, **extra, "tag": tag}, quiet=True))
+        banner(f"sweep {tag}, phone, kinds 15 20 24")
+        rows2, t2 = summary(sweep({**base, **extra, "tier": "phone", "kinds": "15,20,24", "tag": tag + "p"}, quiet=True), only_kinds={15, 20, 24})
+        for rr in (rows, rows2):
+            for x in rr:
+                for k in ("n", "moved", "shapeBad", "yBad"):
+                    tot[k] += x[k]
+                tot["cpuBase"] += x.get("cpuBase", 0.0)
+                tot["cpuHead"] += x.get("cpuHead", 0.0)
+    banner("CPU time of placeLandmarks, one landmark per call: the head (columns 'base') against the variant (columns 'head')")
+    cmd_timing({**base, "tag": "vt1", "n": "60", "per": "8"})
+    cmd_timing({**base, "tier": "phone", "kinds": "15,24", "tag": "vt1p", "n": "60", "per": "2"})
+    banner("VARIANT TOTALS")
+    print(f"placements compared {tot['n']}, positions that differ from the head's {tot['moved']}, shapes that differ {tot['shapeBad']}, height rule broken {tot['yBad']}; "
+          f"CPU ms summed over the sweeps: head {tot['cpuBase']:.0f}, variant {tot['cpuHead']:.0f}")
 
 
 def cmd_all():
@@ -346,6 +395,10 @@ def main():
         cmd_planted()
     elif cmd == "all":
         cmd_all()
+    elif cmd == "make_opt":
+        cmd_make_opt()
+    elif cmd == "variant":
+        cmd_variant()
     else:
         print(__doc__)
 
