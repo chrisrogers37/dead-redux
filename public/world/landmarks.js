@@ -7,21 +7,45 @@ export const mesh = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat);
 /* One flat-shaded material whose colour comes from the vertices, shared by every merged mesh. */
 const vertexColoured = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
 
-/* Merges a group's still Lambert meshes into one vertex-coloured mesh, so together they cost one draw call. Meshes listed in `keep`,
-   meshes that glow (an emissive colour) or wear another material (unlit or shiny), and lights stay as they are. */
-export function mergeStill(group, keep = []) {
-  const still = group.children.filter((c) => c.isMesh && !keep.includes(c) && c.material.isMeshLambertMaterial && c.material.emissive.getHex() === 0);
-  if (still.length < 2) return;
-  const parts = still.map((m) => {
-    m.updateMatrix();
-    const geo = (m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone()).applyMatrix4(m.matrix);
+/* A still mesh: a Lambert one that does not glow and is not listed in `keep`. Meshes that glow (an emissive colour) or wear another
+   material (unlit or shiny), and lights, are never merged. */
+const isStill = (c, keep) => c.isMesh && !keep.includes(c) && c.material.isMeshLambertMaterial && c.material.emissive.getHex() === 0;
+
+/* A mesh's geometry in the space `matrix` takes it to, with a colour per vertex: the colours it already carries when its material
+   reads them (a merged mesh), else its material's colour. */
+function colouredPart(m, matrix) {
+  const geo = (m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone()).applyMatrix4(matrix);
+  if (!m.material.vertexColors) {
     const colors = new Float32Array(geo.attributes.position.count * 3);
     for (let i = 0; i < colors.length; i += 3) m.material.color.toArray(colors, i);
     geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-    return geo;
+  }
+  return geo;
+}
+
+/* Merges a group's still meshes into one vertex-coloured mesh, so together they cost one draw call. */
+export function mergeStill(group, keep = []) {
+  const still = group.children.filter((c) => isStill(c, keep));
+  if (still.length < 2) return;
+  const parts = still.map((m) => {
+    m.updateMatrix();
+    return colouredPart(m, m.matrix);
   });
   group.remove(...still);
   group.add(new THREE.Mesh(mergeGeometries(parts), vertexColoured));
+}
+
+/* Every landmark's still parts in one mesh across the whole path. A landmark merged on its own (makeBuilders) still costs a draw call
+   or two, and a view along the path from the walk's edge holds every landmark; merged across the path, their still parts cost one
+   call between them. Run it after anything reads a landmark's own bounds (the camera's keep-out boxes, avatar.js), which the merge a
+   landmark at a time keeps tight to its parts. A part that moves (`keep`), glows or wears another material stays in its landmark. */
+export function mergeLandmarks(scene, landmarks, keep) {
+  const still = landmarks.flatMap((g) => g.children.filter((c) => isStill(c, keep)));
+  if (still.length < 2) return;
+  scene.updateMatrixWorld(true);
+  const parts = still.map((m) => colouredPart(m, m.matrixWorld));
+  for (const m of still) m.removeFromParent();
+  scene.add(new THREE.Mesh(mergeGeometries(parts), vertexColoured));
 }
 
 /* The builders table: a title rule and the landmark it builds; a song no rule matches gets a standing stone. */
