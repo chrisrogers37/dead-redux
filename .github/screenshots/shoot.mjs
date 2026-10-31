@@ -149,6 +149,14 @@ const PAGES = [
   // The fixed day from ?pose=path: the visitor's bear on the loop at the summit's north-east shoulder, heading along it, and down the slope
   // to the left of it the stage's front.
   { path: "/2026-10-20?pose=path", devices: ["desktop"], shots: ["fixed-stage-path"] },
+  // The fixed day from ?pose=landmark-K: from 30 m over a landmark, north up, with the bears standing where their line passes nearest it,
+  // the lead bear there. Jack Straw (1) stands by the trailhead, which the line rounds as the loop closes; Touch Of Grey (6) on the
+  // summit's south-west shoulder and Cold Rain And Snow (7) on the summit, both beside the line from the left cave to the right one;
+  // Uncle John's Band (12) on the bend at the island's west end, where the line draws in.
+  { path: "/2026-10-20?pose=landmark-1", devices: ["desktop"], shots: ["fixed-over-jack-straw"] },
+  { path: "/2026-10-20?pose=landmark-6", devices: ["desktop"], shots: ["fixed-over-touch-of-grey"] },
+  { path: "/2026-10-20?pose=landmark-7", devices: ["desktop"], shots: ["fixed-over-cold-rain"] },
+  { path: "/2026-10-20?pose=landmark-12", devices: ["desktop"], shots: ["fixed-over-uncle-johns-band"] },
   // The fixed day with the site's day faked as 2099-01-01, a day it will not reach: the chip names the new day at load and stays while
   // the show plays on (the 8-s shot's clock has moved; the url line still reads the fixed page); in lean-back it sits above the title; its
   // link loads today's page, which arrives leaned back and starts the show, or shows it paused where the browser refuses.
@@ -299,6 +307,9 @@ const RECORDINGS = [
       ["[data-pad='left']", 1200],
     ],
   },
+  // The fixed day's descent with nothing pressed: from over the summit down to the camera that walks with the bears, which wait at the
+  // trailhead. CI draws about two frames a second and each adds at most 50 ms of world time, so the 6-s descent takes about a minute there.
+  { device: "desktop", name: "descent", path: "/2026-10-20", recordMs: 75_000 },
   // Walking with the bears on the fixed day, once the world is ready: the button puts the camera behind the bears.
   {
     device: "desktop",

@@ -10,6 +10,7 @@ import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
 import { keepOut } from "./collide.js";
 import { keepSpot } from "./modes.js";
+import { cueClock } from "./clock.js";
 import { listen, soundStats, startSound } from "./audio.js";
 import { buildStage, STAGE_COLUMN, STAGE_REACH, STAGE_SOUND } from "./stage.js";
 import { budgetFor, frameSampler, pickTier, stepDown } from "./quality.js";
@@ -91,9 +92,14 @@ function start(gl) {
   const path = buildPath();
   const { at, tangentAt } = path;
   const landmarkU = layout(tracks, set2Start, path);
+  /* The bears' own line, 7 m to the left of the path, which every landmark stands clear of (path.js). */
+  const line = buildWalkLine(path, 7);
   const builders = makeBuilders(phone);
   const { moving } = builders;
-  const landmarks = placeLandmarks(scene, path, tracks, hasShow, builders, landmarkU);
+  const placeStart = performance.now();
+  const landmarks = placeLandmarks(scene, path, tracks, hasShow, builders, landmarkU, line);
+  /* How long the landmarks took to place, most of it their search for room beside the bears' line; the stats report it. */
+  (window.__hill ??= {}).placeMs = Math.round((performance.now() - placeStart) * 10) / 10;
   if (hasShow) buildSegues(scene, path, tracks, landmarkU);
 
   /* ---------- the bears ---------- */
@@ -125,10 +131,10 @@ function start(gl) {
   let playing = false, showPos = 0, index = 0, frac = 0;
   let clock = { index: 0, position: 0, duration: tracks[0].duration, at: performance.now() };
   document.addEventListener("player:now", (e) => { clock = e.detail; });
-  /* A track change reaches the world at once, before its audio plays, so the world shows where the show is while it loads. */
+  /* A cue reaches the world at once, before its audio plays, so the world shows where the show is while it loads: the bears wait
+     at the cued point (clock.js). */
   document.addEventListener("player:track", (e) => {
-    const i = Math.max(0, Math.min(N - 1, e.detail.index));
-    clock = { index: i, position: 0, duration: tracks[i].duration, at: performance.now() };
+    clock = cueClock(e.detail, tracks, performance.now());
     wake();
   });
   function locate(now) {
@@ -168,15 +174,19 @@ function start(gl) {
   const testPose = hook === "stage" ? STAGE_POSE : hook === "slope" ? SLOPE_POSE : hook === "path" ? PATH_POSE : null;
   const sweep = hook === "sweep";
   const posed = testPose !== null || sweep;
-  let mode = reduced || posed ? "walk" : "descent";
+  /* The test hook ?pose=landmark-K: from 30 m over song K's landmark, looking down with north up the screen, the bears standing where
+     their line passes nearest it, the lead bear there, with no descent. */
+  const overK = /^landmark-(\d+)$/.exec(hook ?? "");
+  const over = overK ? landmarks[Number(overK[1])] ?? null : null;
+  let mode = over ? "attract" : reduced || posed ? "walk" : "descent";
   let idleTimer = 0, elapsed = 0;
   /* The descent's length, in seconds of world time. A frame adds at most 50 ms to the world's time, so a slow load stretches the
      descent rather than outrunning it. */
   const DESCENT_S = 6;
   /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
   let followBase = 0;
-  /* The bears walk their own line at a lively pace, five 7 m apart by distance along it. The line keeps 7 m to the left of the path
-     so they pass the landmarks rather than walk through them (path.js). */
+  /* The bears walk their own line at a lively pace, five 7 m apart by distance along it, and pass the landmarks rather than walk
+     through them (path.js). */
   const BEAR_GAP = 7, BEAR_SPEED = 2.5;
   /* How near a walk comes to a bear's centre. In first person a bear's snout tip ends 2.4 m ahead of it, and the camera draws nothing
      nearer than 0.5 m. In third person the walker is a bear too, and one bear's snout tip meets another's flank 1.5 m from its centre.
@@ -184,11 +194,16 @@ function start(gl) {
   const BEAR_REACH = 2.9, BODY_REACH = 3.9, bearSpots = bears.map((b) => b.g.position);
   /* The stage's platform is solid too: a walk stops at its edge, STAGE_REACH from the centre of its column (stage.js). */
   const stageSpot = [STAGE_COLUMN];
-  const line = buildWalkLine(path, 7);
   /* How far the lead bear is along its line. Until the show first plays the bears stand where it is, from the world's first frame
      even if it is already playing; then they set off and keep their own pace while it plays. Under reduced motion they stand at the
      landmark of the song that plays. */
   let bearD = 0, bearsOff = false, bearsPlaced = false;
+  /* Under ?pose=landmark-K, how far along their line the bears pass nearest the landmark. */
+  let overD = 0;
+  for (let d = 0, near = Infinity; over && d < line.length; d += 0.25) {
+    const p = line.at(d), h = Math.hypot(p.x - over.position.x, p.z - over.position.z);
+    if (h < near) { near = h; overD = d; }
+  }
   /* The visitor's place in the line: a sixth bear, one gap behind the last bear shown, facing along the line. */
   const slotD = () => bearD - bears.length * BEAR_GAP;
   function slot() {
@@ -382,12 +397,13 @@ function start(gl) {
     }
 
     /* The beam stands on the landmark of the song that plays. */
-    const lp = at(landmarkU[index]);
+    const lp = landmarks[index]?.position ?? at(landmarkU[index]);
     beam.position.set(lp.x, lp.y + 18, lp.z);
 
     /* The bears. Before the show first plays they stand where it is, and a world that opens while it plays places them there in its
        first frame; in the frame it starts they walk on from where they stand, so nothing steps. */
-    if (reduced) bearD = line.dOf(landmarkU[index]);
+    if (over) bearD = overD;
+    else if (reduced) bearD = line.dOf(landmarkU[index]);
     else {
       if (!bearsOff && (!playing || !bearsPlaced)) bearD = line.dOf(landmarkU[index] + frac * (landmarkU[index + 1] - landmarkU[index]));
       if (playing) { bearsOff = true; bearD += BEAR_SPEED * dt; }
@@ -464,6 +480,11 @@ function start(gl) {
         }
       }
       avatar.settle(camera.position, lookTarget);
+    }
+    if (over) {
+      const o = over.position;
+      camera.position.set(o.x, o.y + 30, o.z);
+      camera.lookAt(o.x, o.y, o.z - 1);
     }
     cut = false;
 

@@ -11,7 +11,9 @@ interface Props {
  */
 export function NoRecording({ failed, relisten }: Props) {
   const link = (
-    <a href={relisten} target="_blank" rel="noopener noreferrer" className="t-row text-muted underline hover:text-ink">Open on Relisten ↗</a>
+    <a href={relisten} target="_blank" rel="noopener noreferrer" className="t-row text-muted underline hover:text-ink inline-flex items-center min-h-11">
+      Open on Relisten ↗
+    </a>
   );
   if (!failed) {
     return (
