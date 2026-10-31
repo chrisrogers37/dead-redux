@@ -106,13 +106,15 @@ function DetailsPanel({ source, show, tracks, tourName, routing, world, archiveU
           First-person view: {first ? "on" : "off"}
         </button>
       )}
+      {/* The two links grow into the 12 px between the panel's rows (space-y-3), which the same negative margin gives back: each is at
+          least 44 px tall, and nothing around it moves. */}
       <p className="t-row">
-        <a href="https://archive.org/details/GratefulDead" target="_blank" rel="noopener noreferrer" className="text-muted underline hover:text-ink">
+        <a href="https://archive.org/details/GratefulDead" target="_blank" rel="noopener noreferrer" className="text-muted underline hover:text-ink inline-flex py-3 -my-3">
           Recordings stream from the Live Music Archive under the band&rsquo;s non-commercial trading policy
         </a>
       </p>
       <p className="t-row">
-        <a href={archiveUrl} target="_blank" rel="noopener noreferrer" className="text-muted underline hover:text-ink">Open on archive.org ↗</a>
+        <a href={archiveUrl} target="_blank" rel="noopener noreferrer" className="text-muted underline hover:text-ink inline-flex py-3 -my-3">Open on archive.org ↗</a>
       </p>
     </div>
   );

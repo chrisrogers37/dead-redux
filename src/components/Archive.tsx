@@ -71,12 +71,14 @@ export function Archive({ months, open }: ArchiveProps) {
           </a>
           {" "}&middot; {count} show{count !== 1 ? "s" : ""} featured
         </p>
+        {/* The credit grows into the 8 px between the footer's paragraphs (space-y-2), which the same negative margin gives back: its
+            two or more lines make it over 44 px tall, and nothing around it moves. */}
         <p>
           <a
             href="https://archive.org/details/GratefulDead"
             target="_blank"
             rel="noopener noreferrer"
-            className="underline hover:text-ink"
+            className="underline hover:text-ink inline-flex py-2 -my-2"
           >
             Recordings stream from the Live Music Archive under the band&rsquo;s non-commercial trading policy
           </a>
