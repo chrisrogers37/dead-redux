@@ -236,12 +236,19 @@ const PAGES = [
       {
         click: "[data-action='play']",
         waitFor: "[data-state='error']",
-        waitMs: 30_000,
+        waitMs: PLAY_WAIT_MS,
         required: true,
         player: true,
         shot: "fixed-track-failed",
       },
-      { click: "[data-action='retry']", waitFor: "[data-state='stalled']", required: true, player: true, shot: "fixed-track-retry" },
+      {
+        click: "[data-action='retry']",
+        waitFor: "[data-state='stalled']",
+        waitMs: PLAY_WAIT_MS,
+        required: true,
+        player: true,
+        shot: "fixed-track-retry",
+      },
     ],
   },
 ];
