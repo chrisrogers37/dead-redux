@@ -1,6 +1,7 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { G, height, TRAILHEAD } from "./ground.js";
+import { hull, standClear } from "./collide.js";
 
 /* The setlist is the path: a closed loop over the island, with a landmark at each song's point. */
 export function buildPath() {
@@ -85,18 +86,43 @@ export function buildWalkLine({ curve, curveLength }, side, rMin = 4.5, passes =
   return { length, at, tangentAt, dOf };
 }
 
-/* Each song's landmark stands at its point on the path, facing along it. */
-export function placeLandmarks(scene, { at, tangentAt }, tracks, hasShow, { BUILDERS, standingStone }, landmarkU) {
+/* A landmark's outline seen from above, in its own frame (collide.js): the hull of all its parts, a part that spins covering the
+   circle it turns through. */
+function outline(g, moving) {
+  const v = new THREE.Vector3(), pts = [];
+  for (const o of g.children) {
+    if (!o.isMesh) continue;
+    o.updateMatrix();
+    const pos = o.geometry.attributes.position, spins = moving.some((m) => m.obj === o && m.kind === "spin");
+    const { x, z } = o.position;
+    let r = 0;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(o.matrix);
+      if (spins) r = Math.max(r, Math.hypot(v.x - x, v.z - z));
+      else pts.push([v.x, v.z]);
+    }
+    for (let k = 0; spins && k < 32; k++) pts.push([x + r * Math.cos((k * Math.PI) / 16), z + r * Math.sin((k * Math.PI) / 16)]);
+  }
+  return hull(pts);
+}
+
+/* Each song's landmark stands at its point on the path, facing along it, unless the bears' line passes too near: then at the nearest
+   spot clear of the line (collide.js). */
+export function placeLandmarks(scene, { at, tangentAt }, tracks, hasShow, { BUILDERS, standingStone, moving }, landmarkU, line) {
   const landmarks = [];
+  /* The bears' line, a point every quarter metre. */
+  const pts = [];
+  for (let d = 0; d < line.length; d += 0.25) { const p = line.at(d); pts.push([p.x, p.z]); }
   /* A show with no recording has no landmarks. */
   for (let i = 0; hasShow && i < tracks.length; i++) {
     const g = new THREE.Group();
     const p = at(landmarkU[i]);
-    g.position.copy(p);
     const t = tangentAt(landmarkU[i]);
     g.rotation.y = Math.atan2(t.x, t.z);
     const b = BUILDERS.find(([re]) => re.test(tracks[i].title));
     (b ? b[1] : standingStone)(g);
+    const s = standClear(p.x, p.z, g.rotation.y, outline(g, moving), pts);
+    g.position.set(s.x, height(s.x, s.z), s.z);
     scene.add(g);
     landmarks.push(g);
   }
