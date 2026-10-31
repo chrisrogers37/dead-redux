@@ -95,7 +95,10 @@ function start(gl) {
   const line = buildWalkLine(path, 7);
   const builders = makeBuilders(phone);
   const { moving } = builders;
+  const placeStart = performance.now();
   const landmarks = placeLandmarks(scene, path, tracks, hasShow, builders, landmarkU, line);
+  /* How long the landmarks took to place, most of it their search for room beside the bears' line; the stats report it. */
+  (window.__hill ??= {}).placeMs = Math.round((performance.now() - placeStart) * 10) / 10;
   if (hasShow) buildSegues(scene, path, tracks, landmarkU);
 
   /* ---------- the bears ---------- */
