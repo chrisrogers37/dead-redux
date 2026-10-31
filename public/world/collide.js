@@ -75,11 +75,18 @@ export function outside(poly, x, z) {
    landmark with no such spot within `within` metres stays at its point. */
 export function standClear(x, z, rot, poly, pts, within = 20) {
   const c = Math.cos(rot), s = Math.sin(rot), reach = Math.max(0, ...poly.map(([px, pz]) => Math.hypot(px, pz)));
-  const near = pts.filter(([px, pz]) => Math.hypot(px - x, pz - z) < reach + CLEAR + within);
-  /* The least room the line leaves a landmark standing at (cx, cz): each point taken into the landmark's frame. */
+  const near = pts.filter(([px, pz]) => Math.hypot(px - x, pz - z) < reach + CLEAR + within)
+    .sort((a, b) => Math.hypot(a[0] - x, a[1] - z) - Math.hypot(b[0] - x, b[1] - z));
+  /* The least room the line leaves a landmark standing at (cx, cz), each point taken into the landmark's frame, the points nearest the
+     song's point first. The search stops at the first point closer than CLEAR, since a caller only asks whether the room reaches CLEAR and
+     then compares rooms that do. */
   const room = (cx, cz) => {
     let m = Infinity;
-    for (const [px, pz] of near) { const dx = px - cx, dz = pz - cz; m = Math.min(m, outside(poly, dx * c - dz * s, dx * s + dz * c)); }
+    for (const [px, pz] of near) {
+      const dx = px - cx, dz = pz - cz;
+      m = Math.min(m, outside(poly, dx * c - dz * s, dx * s + dz * c));
+      if (m < CLEAR) return m;
+    }
     return m;
   };
   if (room(x, z) >= CLEAR) return { x, z };
