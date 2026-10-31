@@ -10,6 +10,7 @@ import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
 import { keepOut } from "./collide.js";
 import { keepSpot } from "./modes.js";
+import { cueClock } from "./clock.js";
 import { listen, soundStats, startSound } from "./audio.js";
 import { buildStage, STAGE_COLUMN, STAGE_REACH, STAGE_SOUND } from "./stage.js";
 import { budgetFor, frameSampler, pickTier, stepDown } from "./quality.js";
@@ -125,10 +126,10 @@ function start(gl) {
   let playing = false, showPos = 0, index = 0, frac = 0;
   let clock = { index: 0, position: 0, duration: tracks[0].duration, at: performance.now() };
   document.addEventListener("player:now", (e) => { clock = e.detail; });
-  /* A track change reaches the world at once, before its audio plays, so the world shows where the show is while it loads. */
+  /* A cue reaches the world at once, before its audio plays, so the world shows where the show is while it loads: the bears wait
+     at the cued point (clock.js). */
   document.addEventListener("player:track", (e) => {
-    const i = Math.max(0, Math.min(N - 1, e.detail.index));
-    clock = { index: i, position: 0, duration: tracks[i].duration, at: performance.now() };
+    clock = cueClock(e.detail, tracks, performance.now());
     wake();
   });
   function locate(now) {
