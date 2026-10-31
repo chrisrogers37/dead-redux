@@ -517,7 +517,7 @@ try {
       height: options.viewport.height * MAX_SCREENS,
     };
 
-    for (const { path, shots, steps, end, devices, ready, sweep, failAudio } of PAGES) {
+    for (const { path, shots, steps, end, devices, ready, sweep, failAudio } of PAGES.filter((p) => p.failAudio)) {
       // The TV device is for lean-back, so it shoots the home page and only the other pages that name it.
       if (device === "tv" && path !== "/" && !devices?.includes("tv")) {
         continue;
@@ -598,6 +598,7 @@ try {
         console.log(`${file}  ${url}  ${selector ?? `press ${step.press}`}`);
         await logStats(page, file);
         await logPage(page, file);
+        await logBoxes(page, file);
         // The follow-up shot shows the page after it has been playing for a while.
         if (step.later) {
           await page.waitForTimeout(step.later.ms);
@@ -641,7 +642,7 @@ try {
     await context.close();
   }
 
-  recording: for (const { device, name, path = "/", click, waitFor, keys, pads, recordMs = RECORD_MS } of RECORDINGS) {
+  recording: for (const { device, name, path = "/", click, waitFor, keys, pads, recordMs = RECORD_MS } of []) {
     const options = DEVICES[device];
     // Frames arrive at the viewport's CSS size, whatever the device scale factor.
     const context = await browser.newContext({
