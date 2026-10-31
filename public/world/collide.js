@@ -39,3 +39,64 @@ export function enterColumn(o, d, { x, z, r, top }) {
   if (o.y + d.y * t0 <= top) return t0;
   return o.y + d.y * t1 <= top ? (top - o.y) / d.y : Infinity;
 }
+
+/* A landmark stands clear of the bears' line when, seen from above, every point of the line keeps CLEAR from all of it: a bear's
+   half-width, 1.5 m (bears.js), and a quarter metre more. */
+export const CLEAR = 1.75;
+
+/* The convex hull of points [x, z], counter-clockwise: a landmark's outline seen from above (path.js). */
+export function hull(points) {
+  const p = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const turn = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  /* One side of the hull, along `list`: a point where the outline would not turn left is dropped. */
+  const side = (list) => {
+    const h = [];
+    for (const q of list) { while (h.length > 1 && turn(h[h.length - 2], h[h.length - 1], q) <= 0) h.pop(); h.push(q); }
+    return h.slice(0, -1);
+  };
+  return side(p).concat(side(p.reverse()));
+}
+
+/* How far a point stands outside a convex outline given counter-clockwise, or, negative, how deep inside it. */
+export function outside(poly, x, z) {
+  let inside = poly.length > 2, d = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const [ax, az] = poly[i], [bx, bz] = poly[(i + 1) % poly.length], ex = bx - ax, ez = bz - az, wx = x - ax, wz = z - az;
+    if (ex * wz - ez * wx < 0) inside = false;
+    const t = Math.max(0, Math.min(1, (wx * ex + wz * ez) / (ex * ex + ez * ez || 1)));
+    d = Math.min(d, Math.hypot(wx - ex * t, wz - ez * t));
+  }
+  return inside ? -d : d;
+}
+
+/* Where a landmark stands so the bears' line passes clear of it: at its song's point (x, z) if every point of the line `pts` ([x, z])
+   keeps CLEAR outside its outline `poly`, given in its own frame and turned `rot` about the vertical as the landmark is; else at the
+   nearest spot where they do, searched on rings 0.25 m apart in 32 directions, the roomiest spot of the first ring that has one. A
+   landmark with no such spot within `within` metres stays at its point. */
+export function standClear(x, z, rot, poly, pts, within = 20) {
+  const c = Math.cos(rot), s = Math.sin(rot), reach = Math.max(0, ...poly.map(([px, pz]) => Math.hypot(px, pz)));
+  const near = pts.filter(([px, pz]) => Math.hypot(px - x, pz - z) < reach + CLEAR + within)
+    .sort((a, b) => Math.hypot(a[0] - x, a[1] - z) - Math.hypot(b[0] - x, b[1] - z));
+  /* The least room the line leaves a landmark standing at (cx, cz), each point taken into the landmark's frame, the points nearest the
+     song's point first. The search stops at the first point closer than CLEAR, since a caller only asks whether the room reaches CLEAR and
+     then compares rooms that do. */
+  const room = (cx, cz) => {
+    let m = Infinity;
+    for (const [px, pz] of near) {
+      const dx = px - cx, dz = pz - cz;
+      m = Math.min(m, outside(poly, dx * c - dz * s, dx * s + dz * c));
+      if (m < CLEAR) return m;
+    }
+    return m;
+  };
+  if (room(x, z) >= CLEAR) return { x, z };
+  for (let r = 0.25; r <= within; r += 0.25) {
+    let best = null;
+    for (let k = 0; k < 32; k++) {
+      const cx = x + r * Math.cos((k * Math.PI) / 16), cz = z + r * Math.sin((k * Math.PI) / 16), m = room(cx, cz);
+      if (m >= CLEAR && (!best || m > best.m)) best = { x: cx, z: cz, m };
+    }
+    if (best) return { x: best.x, z: best.z };
+  }
+  return { x, z };
+}

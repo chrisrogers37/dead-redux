@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { enterColumn, keepOut } from "../../../public/world/collide.js";
+import { CLEAR, enterColumn, hull, keepOut, outside, standClear } from "../../../public/world/collide.js";
 
 // keepOut's own tests use any reach (REACH); BODY_REACH is the one the world keeps a walk from each bear's centre, in either view
 // (public/world/main.js).
@@ -248,5 +248,79 @@ describe("enterColumn", () => {
     const moved = { x: 10, z: 20, r: 10, top: 8 };
     expect(enterColumn({ x: 1, y: 2, z: 8 }, { x: 9 / 15, y: 0, z: 12 / 15 }, moved)).toBeCloseTo(5, 9);
     expect(enterColumn({ x: 16, y: 2, z: 2 }, { x: 0, y: 0, z: 1 }, moved)).toBeCloseTo(10, 9);
+  });
+});
+
+// The bears' line as path.js samples it for the landmarks, a point every quarter metre: here straight along x, at z.
+const lineAt = (z: number): [number, number][] => Array.from({ length: 241 }, (_, i) => [-30 + i * 0.25, z]);
+
+// A landmark's outline from above, in its own frame: a 2 m square.
+const SQUARE: [number, number][] = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+
+describe("hull", () => {
+  it("keeps only the corners of points that fill a square", () => {
+    const outline = hull([[0, 0], [1, 1], [-1, -1], [0.5, -1], [1, -1], [-1, 1], [1, 0.2], [-1, -1]]);
+    expect(outline).toHaveLength(4);
+    for (const corner of SQUARE) expect(outline).toContainEqual(corner);
+  });
+});
+
+describe("outside", () => {
+  it("measures how far a point stands outside a square, or how deep inside it", () => {
+    const square = hull(SQUARE);
+    expect(outside(square, 3, 0)).toBeCloseTo(2, 9);
+    expect(outside(square, 2, 2)).toBeCloseTo(Math.SQRT2, 9);
+    expect(outside(square, 0, 0)).toBeCloseTo(-1, 9);
+    expect(outside(square, 0.5, -0.2)).toBeCloseTo(-0.5, 9);
+  });
+});
+
+describe("standClear", () => {
+  it("leaves a landmark the line passes clear of at its song's point, at CLEAR from it too", () => {
+    expect(standClear(0, 0, 0, hull(SQUARE), lineAt(5))).toEqual({ x: 0, z: 0 });
+    expect(standClear(0, 0, 0, hull(SQUARE), lineAt(1 + CLEAR))).toEqual({ x: 0, z: 0 });
+  });
+
+  it("steps a landmark the line passes too near straight back from it, to CLEAR and no further", () => {
+    // The square's side is 1 m from the line, so it steps back 0.75 m.
+    const at = standClear(0, 0, 0, hull(SQUARE), lineAt(2));
+    expect(at.x).toBeCloseTo(0, 9);
+    expect(at.z).toBeCloseTo(2 - 1 - CLEAR, 9);
+  });
+
+  it("takes the roomiest spot on the nearest ring that has room", () => {
+    // With the line 2.1 m off, five spots 0.75 m away have room, and straight back has the most.
+    const at = standClear(0, 0, 0, hull(SQUARE), lineAt(2.1));
+    expect(at.x).toBeCloseTo(0, 9);
+    expect(at.z).toBeCloseTo(-0.75, 9);
+  });
+
+  it("turns the outline as the landmark is turned", () => {
+    // An arm 5 m out to the landmark's left (+x), as a rail is. Unturned it lies along a line 4 m off; turned a quarter it points to -z,
+    // across the line, so the landmark steps the other way until the arm's tip is CLEAR from it.
+    const arm = hull([[0, -0.15], [5, -0.15], [5, 0.15], [0, 0.15]]);
+    expect(standClear(0, 0, 0, arm, lineAt(-4))).toEqual({ x: 0, z: 0 });
+    const at = standClear(0, 0, Math.PI / 2, arm, lineAt(-4));
+    expect(at.x).toBeCloseTo(0, 9);
+    expect(at.z).toBeCloseTo(5 - 4 + CLEAR, 9);
+  });
+
+  it("finds the room between two lines", () => {
+    // Lines 4 m either side, the square 2.5 m toward one: it needs CLEAR from both, which it has 1.25 m from the middle.
+    const at = standClear(0, 2.5, 0, hull(SQUARE), [...lineAt(4), ...lineAt(-4)]);
+    expect(at.x).toBeCloseTo(0, 9);
+    expect(at.z).toBeCloseTo(4 - 1 - CLEAR, 9);
+  });
+
+  it("steps past the nearer of two lines that leave no room between them", () => {
+    // Lines at 4 and -1 leave 5 m, and the square needs 1 + CLEAR from each.
+    const at = standClear(0, 2.5, 0, hull(SQUARE), [...lineAt(4), ...lineAt(-1)]);
+    expect(at.x).toBeCloseTo(0, 9);
+    expect(at.z).toBeCloseTo(4 + 1 + CLEAR, 9);
+  });
+
+  it("leaves a landmark at its point when no spot within reach has room", () => {
+    // Lines 2 m either side leave none, and past them is 4.75 m away.
+    expect(standClear(0, 0, 0, hull(SQUARE), [...lineAt(2), ...lineAt(-2)], 4)).toEqual({ x: 0, z: 0 });
   });
 });
