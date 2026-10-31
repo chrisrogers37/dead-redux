@@ -12,7 +12,7 @@ export function assetAction(status) {
   return "fail";
 }
 
-/** Each world tier's draw-call budget: a frame over its tier's budget fails the run, and the walk's sweep logs each peak beside it. */
+/** Each world tier's draw-call budget: a frame over it fails the run, a shot's frame or the walk's peak in the sweep alike. */
 export const CALL_BUDGET = { desktop: 70, phone: 45, tv: 60 };
 
 /**

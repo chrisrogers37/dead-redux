@@ -233,7 +233,7 @@ const PAGES = [
   { path: "/2026-10-20?lookup=missing", devices: ["desktop", "phone"], shots: ["fixed-no-recording"] },
   // The walk's draw calls on the fixed day, from ?pose=sweep: the visitor's bear at each of the sweep's poses, with the world on the
   // day's first track and then on Drums (index 13), where the left cave lights. The log names each device's peak and the pose that
-  // drew it.
+  // drew it, and a peak over its tier's budget fails the run.
   { path: "/2026-10-20?pose=sweep", devices: ["desktop", "phone", "tv"], ready: "#world[data-world='ready']", shots: [], sweep: [0, 13] },
 ];
 
@@ -357,8 +357,8 @@ const RECORDINGS = [
 const RECORD_MS = 10_000;
 
 // What fails the run once every shot is taken: a generated image the site answers with an error, a frame over its tier's draw-call
-// budget, a show playing with its sound neither through the world nor in plain stereo for a reason the player names, and a sweep that
-// cannot finish.
+// budget (a shot's, or the walk's peak in a sweep), a show playing with its sound neither through the world nor in plain stereo for a
+// reason the player names, and a sweep that cannot finish.
 const failures = [];
 
 // What the log says when a read had to wait for the page to load again: the shot was taken, then the page navigated as it was read.
@@ -377,7 +377,8 @@ const logStats = async (page, file) => {
 const sweeps = [];
 
 // For each track index, puts the world on that track, as the player's player:track event does, then the visitor's bear at each of the
-// sweep's poses, and logs the most draw calls a frame drew, the pose that drew them, the tier's budget and the test poses' calls.
+// sweep's poses, and logs the most draw calls a frame drew, the pose that drew them, the tier's budget and the test poses' calls. A
+// peak over the budget is a failure, named with its pose.
 const sweepWalk = async (page, device, tracks) => {
   for (const index of tracks) {
     const started = Date.now();
@@ -394,6 +395,8 @@ const sweepWalk = async (page, device, tracks) => {
       `${CALL_BUDGET[tier]}), at ${where}; the test poses ${tests}; ${Math.round((Date.now() - started) / 1000)} s`;
     console.log(`sweep ${line}`);
     sweeps.push(line);
+    const over = callsFailure({ tier, calls: peak });
+    if (over) failures.push(`sweep ${device}, track index ${index}: ${over}, at ${where}`);
   }
 };
 
