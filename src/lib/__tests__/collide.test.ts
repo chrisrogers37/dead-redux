@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { CLEAR, enterColumn, hull, keepOut, outside, standClear } from "../../../public/world/collide.js";
 
-// The reaches the world keeps a walk from each bear's centre (public/world/main.js): BEAR_REACH in first person, BODY_REACH when the
-// walker is the visitor's bear.
+// keepOut's own tests use any reach (REACH); BODY_REACH is the one the world keeps a walk from each bear's centre, in either view
+// (public/world/main.js).
 const REACH = 2.9;
 const BODY_REACH = 3.9;
 // The bears' closest spacing on their line, on its tightest bend.
