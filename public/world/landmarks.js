@@ -35,16 +35,16 @@ export function mergeStill(group, keep = []) {
   group.add(new THREE.Mesh(mergeGeometries(parts), vertexColoured));
 }
 
-/* Every landmark's still parts in one mesh across the whole path. Merged a landmark at a time, each still costs a call or two, and a
-   view along the path from the walk's edge holds every landmark; merged across the path, their still parts cost one call between
-   them. Run it after anything reads a landmark's own bounds (the camera's keep-out boxes, avatar.js): the merged parts leave their
-   landmarks, and a part that moves (`keep`), glows or wears another material stays in its own. */
-export function mergeLandmarks(scene, landmarks, keep = []) {
+/* Every landmark's still parts in one mesh across the whole path. A landmark merged on its own (makeBuilders) still costs a draw call
+   or two, and a view along the path from the walk's edge holds every landmark; merged across the path, their still parts cost one
+   call between them. Run it after anything reads a landmark's own bounds (the camera's keep-out boxes, avatar.js), which the merge a
+   landmark at a time keeps tight to its parts. A part that moves (`keep`), glows or wears another material stays in its landmark. */
+export function mergeLandmarks(scene, landmarks, keep) {
   const still = landmarks.flatMap((g) => g.children.filter((c) => isStill(c, keep)));
   if (still.length < 2) return;
   scene.updateMatrixWorld(true);
   const parts = still.map((m) => colouredPart(m, m.matrixWorld));
-  for (const m of still) m.parent.remove(m);
+  for (const m of still) m.removeFromParent();
   scene.add(new THREE.Mesh(mergeGeometries(parts), vertexColoured));
 }
 

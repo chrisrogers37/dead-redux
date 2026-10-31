@@ -233,7 +233,7 @@ const PAGES = [
   { path: "/2026-10-20?lookup=missing", devices: ["desktop", "phone"], shots: ["fixed-no-recording"] },
   // The walk's draw calls on the fixed day, from ?pose=sweep: the visitor's bear at each of the sweep's poses, with the world on the
   // day's first track and then on Drums (index 13), where the left cave lights. The log names each device's peak and the pose that
-  // drew it, and a peak over its tier's budget fails the run.
+  // drew it.
   { path: "/2026-10-20?pose=sweep", devices: ["desktop", "phone", "tv"], ready: "#world[data-world='ready']", shots: [], sweep: [0, 13] },
 ];
 
