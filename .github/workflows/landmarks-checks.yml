@@ -21,34 +21,56 @@ jobs:
           node-version: 24
       - name: three 0.185.0
         run: bash .github/scratch/landmarks/fetch_three.sh
-      - name: The base's world files
+      - name: The world files of main, of the earlier head and of the current head
         run: |
-          mkdir -p "$RUNNER_TEMP/base"
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/base" "$RUNNER_TEMP/old" "$RUNNER_TEMP/new"
+          git fetch --no-tags origin refs/pull/82/head
+          test "$(git rev-parse FETCH_HEAD)" = 682b7d8c5688bff4e076d6e28320968db5a15b6b
           git archive 697e8b6896f4d173043e75b11957c581c3c8276a public/world | tar -x -C "$RUNNER_TEMP/base"
-          git log -1 --format='head %H' && git rev-parse HEAD~1 | sed 's/^/parent /'
-      - name: The same placements with an early exit in the room test
+          git archive 43a16abe830740f72507ea1d94cb01723e04739c public/world | tar -x -C "$RUNNER_TEMP/old"
+          git archive 682b7d8c5688bff4e076d6e28320968db5a15b6b public/world | tar -x -C "$RUNNER_TEMP/new"
+          for d in base old new; do sha256sum "$RUNNER_TEMP/$d/public/world/collide.js"; done
+      - name: The earlier head against the current head
         env:
           BENCH_KIT: ${{ github.workspace }}/.github/scratch/landmarks
           BENCH_TMP: ${{ runner.temp }}/bench
           BENCH_THREE_DIR: ${{ runner.temp }}/three
-          BENCH_BASE_WORLD: ${{ runner.temp }}/base/public/world
-          BENCH_HEAD_WORLD: ${{ github.workspace }}/public/world
+          BENCH_BASE_WORLD: ${{ runner.temp }}/old/public/world
+          BENCH_HEAD_WORLD: ${{ runner.temp }}/new/public/world
           BENCH_FIXED_DAY: ${{ github.workspace }}/.github/scratch/landmarks/fixed_day.json
-          BENCH_OUT: ${{ github.workspace }}/bench-out
+          BENCH_OUT: ${{ github.workspace }}/bench-out/variant
         run: |
           set -o pipefail
-          mkdir -p "$BENCH_OUT/variant" "$BENCH_TMP"
+          mkdir -p "$BENCH_OUT" "$BENCH_TMP"
           node --version
+          python3 --version
+          nproc
           grep -m1 'model name' /proc/cpuinfo || true
-          python3 .github/scratch/landmarks/bench.py make_opt
-          BENCH_BASE_WORLD="$BENCH_HEAD_WORLD" BENCH_HEAD_WORLD="$BENCH_TMP/opt/world" BENCH_OUT="$BENCH_OUT/variant" python3 .github/scratch/landmarks/bench.py variant 2>&1 | tee "$BENCH_OUT/variant.txt"
-          python3 .github/scratch/landmarks/bench.py planted 2>&1 | tee -a "$BENCH_OUT/variant.txt"
+          python3 .github/scratch/landmarks/bench.py variant 2>&1 | tee "${{ github.workspace }}/bench-out/variant.txt"
+      - name: The current head against main
+        if: always()
+        continue-on-error: true
+        env:
+          BENCH_KIT: ${{ github.workspace }}/.github/scratch/landmarks
+          BENCH_TMP: ${{ runner.temp }}/bench-all
+          BENCH_THREE_DIR: ${{ runner.temp }}/three
+          BENCH_BASE_WORLD: ${{ runner.temp }}/base/public/world
+          BENCH_HEAD_WORLD: ${{ runner.temp }}/new/public/world
+          BENCH_FIXED_DAY: ${{ github.workspace }}/.github/scratch/landmarks/fixed_day.json
+          BENCH_OUT: ${{ github.workspace }}/bench-out/all
+        run: |
+          set -o pipefail
+          mkdir -p "$BENCH_OUT" "$BENCH_TMP"
+          python3 .github/scratch/landmarks/bench.py all 2>&1 | tee "${{ github.workspace }}/bench-out/all.txt"
       - name: Summary
         if: always()
         run: |
-          if [ -f bench-out/variant.txt ]; then
-            { echo '```'; head -c 900000 bench-out/variant.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          fi
+          for f in variant all; do
+            if [ -f "bench-out/$f.txt" ]; then
+              { echo "## $f"; echo '```'; head -c 400000 "bench-out/$f.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
