@@ -106,7 +106,9 @@ export function Transport({
             <button type="button" data-action="retry" onClick={onRetry} className="t-row text-ink underline hover:text-accent inline-flex items-center min-h-11">
               Try again
             </button>
-            <a href={archiveUrl} target="_blank" rel="noopener noreferrer" className="t-row text-muted underline hover:text-ink">Open on archive.org ↗</a>
+            <a href={archiveUrl} target="_blank" rel="noopener noreferrer" className="t-row text-muted underline hover:text-ink inline-flex items-center min-h-11">
+              Open on archive.org ↗
+            </a>
           </div>
         </div>
       )}
