@@ -64,7 +64,7 @@ const playStep = (shot, later) => ({
 // Each step acts on the loaded page, then shoots it. The prefix keeps one page's file names
 // apart from another's, and afterPlaying ({ ms, shot }) adds a later shot of the play step.
 const playerSteps = (prefix, afterPlaying) => [
-  { click: "[data-action='details']", shot: `${prefix}details` },
+  { click: "[data-action='details']", boxes: true, shot: `${prefix}details` },
   // Keyboard focus, which is what draws the ring: Chromium shows :focus-visible after a Tab, not after a script focus that follows
   // a mouse click. Tab from the previous button lands on the play disc and starts nothing.
   { focus: "[data-action='prev']", press: "Tab", shot: `${prefix}focus-play` },
@@ -97,7 +97,7 @@ const PAGES = [
     shots: [],
     steps: [
       { focus: "#world", press: "KeyG", shot: "fixed-walk" },
-      { click: "[data-action='details']", shot: "fixed-view-details" },
+      { click: "[data-action='details']", boxes: true, shot: "fixed-view-details" },
       { click: "[data-action='view']", shot: "fixed-first-person" },
       { click: "[data-action='view']", shot: "fixed-third-person" },
     ],
@@ -129,7 +129,7 @@ const PAGES = [
     devices: ["desktop-nowebgl", "phone-nowebgl"],
     ready: "#world[data-world='fallback']",
     shots: ["fixed"],
-    steps: [{ click: "[data-action='details']", shot: "fixed-details" }, playStep("fixed-playing")],
+    steps: [{ click: "[data-action='details']", boxes: true, shot: "fixed-details" }, playStep("fixed-playing")],
   },
   // The fixed day's focus walk, under reduced motion so the ten shots differ by the ring alone: Tab lands on the world, Archive,
   // Walk with the bears, Lean back, Share, prev, play, next, Details and the seek slider, with a shot after each press.
@@ -466,8 +466,9 @@ const sweepWalk = async (page, device, tracks) => {
   }
 };
 
-// Logs every control's box after a page's first shot, so a touch target is read rather than measured: links, buttons, summaries,
-// inputs and the world's focusable container, `small` on one under 44 px either way, `hidden` on one not rendered.
+// Logs every control's box after a page's first shot and after a step that names `boxes`, so a touch target is read rather than
+// measured: links, buttons, summaries, inputs and the world's focusable container, `small` on one under 44 px either way, `hidden` on one
+// not rendered.
 const logBoxes = async (page, file) => {
   const boxes = await page.evaluate(() =>
     Array.from(document.querySelectorAll("a, button, summary, input, [tabindex='0']"), (el) => {
@@ -626,6 +627,7 @@ try {
         console.log(`${file}  ${url}  ${selector ?? `press ${step.press}`}`);
         await logStats(page, file);
         await logPage(page, file);
+        if (step.boxes) await logBoxes(page, file);
         // The follow-up shot shows the page after it has been playing for a while.
         if (step.later) {
           await page.waitForTimeout(step.later.ms);
