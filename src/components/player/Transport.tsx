@@ -22,6 +22,8 @@ interface Props {
   onPlay: () => void;
   onNext: () => void;
   onSeek: (seconds: number) => void;
+  /** Try again on a failed track: it loads again from where it stopped, with its reloads to come. */
+  onRetry: () => void;
   /** What Details holds. */
   children?: ReactNode;
 }
@@ -50,6 +52,7 @@ export function Transport({
   onPlay,
   onNext,
   onSeek,
+  onRetry,
   children,
 }: Props) {
   const max = Math.max(1, Math.round(duration));
@@ -97,9 +100,15 @@ export function Transport({
         {liveTitle}
       </p>
       {failed && (
-        <p className="t-row text-ink mt-2">
-          Could not play this track. <a href={archiveUrl} target="_blank" rel="noopener noreferrer" className="text-muted underline hover:text-ink">Open on archive.org ↗</a>
-        </p>
+        <div className="mt-2">
+          <p className="t-row text-ink">Could not play this track.</p>
+          <div className="flex items-center gap-4">
+            <button type="button" data-action="retry" onClick={onRetry} className="t-row text-ink underline hover:text-accent inline-flex items-center min-h-11">
+              Try again
+            </button>
+            <a href={archiveUrl} target="_blank" rel="noopener noreferrer" className="t-row text-muted underline hover:text-ink">Open on archive.org ↗</a>
+          </div>
+        </div>
       )}
       <div className="mt-3 flex items-center gap-3">
         <button

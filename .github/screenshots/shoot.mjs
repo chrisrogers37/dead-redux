@@ -46,6 +46,9 @@ const NO_WEBGL = new Set(["desktop-nowebgl", "phone-nowebgl"]);
 // archive.org can take tens of seconds to start a stream from CI, so a play step waits this long for the player to settle.
 const PLAY_WAIT_MS = 45_000;
 
+// A track's audio, which a page with failAudio aborts: Relisten's mp3 files.
+const isTrackAudio = (url) => url.pathname.endsWith(".mp3");
+
 // The play step: press play, wait for the player to settle, then shoot; `later` ({ ms, shot }) adds a later shot. The log names the
 // state the player reached and the sentence on its now-plate, so a slow upstream shows there instead of failing the step.
 const playStep = (shot, later) => ({
@@ -243,6 +246,33 @@ const PAGES = [
   // day's first track and then on Drums (index 13), where the left cave lights. The log names each device's peak and the pose that
   // drew it.
   { path: "/2026-10-20?pose=sweep", devices: ["desktop", "phone", "tv"], ready: "#world[data-world='ready']", shots: [], sweep: [0, 13] },
+  // The fixed day with every track's audio failing, on any deployment: the player spends its reloads, and the transport says it could
+  // not play, with Try again and the archive.org link. Try again starts the reloads over, so the now-plate says Reconnecting… again
+  // rather than staying on the error.
+  {
+    path: "/2026-10-20",
+    devices: ["desktop", "phone"],
+    shots: [],
+    failAudio: true,
+    steps: [
+      {
+        click: "[data-action='play']",
+        waitFor: "[data-state='error']",
+        waitMs: PLAY_WAIT_MS,
+        required: true,
+        player: true,
+        shot: "fixed-track-failed",
+      },
+      {
+        click: "[data-action='retry']",
+        waitFor: "[data-state='stalled']",
+        waitMs: PLAY_WAIT_MS,
+        required: true,
+        player: true,
+        shot: "fixed-track-retry",
+      },
+    ],
+  },
 ];
 
 // The test poses (ground.js) open each sweep, so their calls can be read beside the full-size shots taken from them.
@@ -368,8 +398,8 @@ const RECORDINGS = [
 const RECORD_MS = 10_000;
 
 // What fails the run once every shot is taken: a generated image the site answers with an error, a frame over its tier's draw-call
-// budget, a show playing with its sound neither through the world nor in plain stereo for a reason the player names, and a sweep that
-// cannot finish.
+// budget, a show playing with its sound neither through the world nor in plain stereo for a reason the player names, a required step
+// whose control is missing or whose state never comes, and a sweep that cannot finish.
 const failures = [];
 
 // What the log says when a read had to wait for the page to load again: the shot was taken, then the page navigated as it was read.
@@ -487,7 +517,7 @@ try {
       height: options.viewport.height * MAX_SCREENS,
     };
 
-    for (const { path, shots, steps, end, devices, ready, sweep } of PAGES) {
+    for (const { path, shots, steps, end, devices, ready, sweep, failAudio } of PAGES) {
       // The TV device is for lean-back, so it shoots the home page and only the other pages that name it.
       if (device === "tv" && path !== "/" && !devices?.includes("tv")) {
         continue;
@@ -497,6 +527,7 @@ try {
         continue;
       }
       const url = pageUrl(path, device);
+      if (failAudio) await page.route(isTrackAudio, (route) => route.abort());
       const response = await open(page, url);
       // A redirect to another host, such as a login wall, is not the site.
       if (!response?.ok() || new URL(page.url()).host !== url.host) {
@@ -532,8 +563,10 @@ try {
 
       for (const step of steps ?? []) {
         const selector = step.click ?? step.focus;
-        // A control missing from the page is logged and skipped, not an error; a step that only presses a key has none to miss.
+        // A control missing from the page is logged and skipped, and fails the run only for a required step; a step that only presses a
+        // key has none to miss.
         if (selector && (await page.locator(selector).count()) === 0) {
+          if (step.required) failures.push(`${device}-${step.shot}.png: ${selector} absent`);
           console.log(`${step.shot}: ${selector} absent`);
           continue;
         }
@@ -543,7 +576,10 @@ try {
         if (step.waitFor) {
           await page
             .waitForSelector(step.waitFor, { timeout: step.waitMs ?? 15_000 })
-            .catch(() => console.log(`${step.shot}: waitFor timed out; shooting anyway`));
+            .catch(() => {
+              console.log(`${step.shot}: waitFor timed out; shooting anyway`);
+              if (step.required) failures.push(`${device}-${step.shot}.png: never reached ${step.waitFor}`);
+            });
         }
         if (step.player) {
           // The player's state and the now-plate's sentence ("Starting…", "Reconnecting…", an error, or the position), and how the
@@ -598,6 +634,8 @@ try {
         console.log(`${file}  ${url}`);
         await logStats(page, file);
       }
+      // The next page on this device plays its audio.
+      if (failAudio) await page.unroute(isTrackAudio);
     }
 
     await context.close();
