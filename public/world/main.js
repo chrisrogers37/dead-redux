@@ -173,11 +173,15 @@ function start(gl) {
      (ground.js), with no descent, and no idle time hands the view to attract. ?pose=sweep is the same walk from the trailhead, for the
      CI shoot's draw-call sweep: a `world:pose` event (x, z, heading, pitch) puts the visitor anywhere with the camera cut, the world
      holds rung 0, and it draws at a twentieth of the frame's size, which changes no draw call: three culls against the camera, whose
-     aspect stays the frame's. */
+     aspect stays the frame's. ?pose=snout stands the walker in front of the lead bear's snout looking a little down, and ?pose=pass
+     behind the last bear, a little to its side, facing its way; both start inside the bear's reach and are taken again when the view
+     changes, so the walk's keep-out sets each view's distance. */
   const hook = main.dataset.testHooks === "1" ? new URLSearchParams(location.search).get("pose") : null;
   const testPose = hook === "stage" ? STAGE_POSE : hook === "slope" ? SLOPE_POSE : hook === "path" ? PATH_POSE : null;
   const sweep = hook === "sweep";
-  const posed = testPose !== null || sweep;
+  const bearHook = hook === "snout" || hook === "pass" ? hook : null;
+  let bearPose = bearHook;
+  const posed = testPose !== null || sweep || bearPose !== null;
   /* The test hook ?pose=landmark-K: from 30 m over song K's landmark, looking down with north up the screen, the bears standing where
      their line passes nearest it, the lead bear there, with no descent. */
   const overK = /^landmark-(\d+)$/.exec(hook ?? "");
@@ -192,10 +196,11 @@ function start(gl) {
   /* The bears walk their own line at a lively pace, five 7 m apart by distance along it, and pass the landmarks rather than walk
      through them (path.js). */
   const BEAR_GAP = 7, BEAR_SPEED = 2.5;
-  /* How near a walk comes to a bear's centre. In first person a bear's snout tip ends 2.4 m ahead of it, and the camera draws nothing
-     nearer than 0.5 m. In third person the walker is a bear too, and one bear's snout tip meets another's flank 1.5 m from its centre.
-     Neighbours stay at least 5.9 m apart on the line's tightest bend, so the wider reaches overlap there (collide.js). */
-  const BEAR_REACH = 2.9, BODY_REACH = 3.9, bearSpots = bears.map((b) => b.g.position);
+  /* How near a walk comes to a bear's centre, in either view: one bear's snout tip meets another's flank 1.5 m from its centre, and a
+     snout tip ends 2.4 m ahead of it. In first person the camera stands where the visitor's bear would, so a bear's snout tip stays 1.5 m
+     from the eye, clear of the camera's 0.5 m near plane at any pitch and through the walking bob. Neighbours stay at least 5.9 m apart
+     on the line's tightest bend, so the reaches overlap there (collide.js). */
+  const BODY_REACH = 3.9, bearSpots = bears.map((b) => b.g.position);
   /* The stage's platform is solid too: a walk stops at its edge, STAGE_REACH from the centre of its column (stage.js). */
   const stageSpot = [STAGE_COLUMN];
   /* How far the lead bear is along its line. Until the show first plays the bears stand where it is, from the world's first frame
@@ -223,7 +228,7 @@ function start(gl) {
   /* A walk starts where the visitor's bear last stood in a walk, or at the nearest spot where a walker may stand if it no longer may
      there, else in its place in the line, as the first walk after the descent does (modes.js). */
   const spot = keepSpot(walker, slot, () => ({ bound: BOUND, stage: STAGE_COLUMN, stageReach: STAGE_REACH, bears: bearSpots,
-    bearReach: third ? BODY_REACH : BEAR_REACH }));
+    bearReach: BODY_REACH }));
   /* The camera that walks with the bears, in follow and attract, its eye above their heads; it looks at the lead bear, turned by `yaw`
      and tilted by `pitch`. In third person it stands behind the visitor's bear and to its left, away from the path, along the chord from
      that bear to the lead one, and looks 2 m over the lead bear's head, so all six read: 16 m behind and 6 m to the left with the eye
@@ -289,7 +294,7 @@ function start(gl) {
     const lean = main.dataset.mode === "leanback";
     playing = main.dataset.state === "playing";
     const t = main.dataset.view !== "first";
-    if (t !== third) { third = t; cut = true; }
+    if (t !== third) { third = t; cut = true; bearPose = bearHook; }
     avatar.g.visible = third;
     measurePlate();
     if (lean && mode !== "drift") setMode("drift");
@@ -338,6 +343,34 @@ function start(gl) {
     sun.castShadow = quality.shadows;
     stage.light.visible = quality.stageLight;
   }
+  const vertex = new THREE.Vector3();
+  /* In first person, how near the view comes to a bear and how much of the frame's width one covers: the depth of the nearest bear
+     vertex in front of the camera, in the view or within half of it past an edge (the near plane, 0.5 m, cuts any face with a vertex
+     nearer than that), and the widest share of the frame's width that one bear spans. */
+  function bearsInView() {
+    camera.updateMatrixWorld();
+    const ty = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2), tx = ty * camera.aspect;
+    let near = Infinity, cover = 0;
+    for (const b of bears) {
+      b.g.updateMatrixWorld();
+      let lo = Infinity, hi = -Infinity;
+      b.g.traverse((o) => {
+        if (!o.isMesh) return;
+        const pos = o.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          vertex.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld).applyMatrix4(camera.matrixWorldInverse);
+          const d = -vertex.z;
+          if (d <= 0) continue;
+          const x = vertex.x / (d * tx), y = vertex.y / (d * ty);
+          if (Math.abs(x) <= 1.5 && Math.abs(y) <= 1.5 && d < near) near = d;
+          if (d >= camera.near) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
+        }
+      });
+      if (hi > lo) cover = Math.max(cover, (Math.min(hi, 1) - Math.max(lo, -1)) / 2);
+    }
+    const round = (v) => Math.round(v * 100) / 100;
+    return { near: near === Infinity ? null : round(near), cover: round(cover) };
+  }
   /* The stats the CI shoot script logs after every shot and every control a recording holds, and ?stats=1 shows, read live. They are
      defined on window.__hill, which the player also writes, so its fields stay. */
   const stat = (get) => ({ get, enumerable: true, configurable: true });
@@ -351,6 +384,8 @@ function start(gl) {
     avatar: stat(() => ({ view: third ? "third" : "first", shown: avatar.g.visible,
       head: avatar.head.toArray().map((v) => Math.round(v * 100) / 100),
       ...(third ? avatar.report(camera, phone ? plateTop / frameH : null) : { clear: false, screen: null }) })),
+    /* In first person, the nearest bear vertex's depth in the view and the widest share of the frame's width one bear covers. */
+    bears: stat(() => (third ? null : bearsInView())),
   });
 
   function frame(now) {
@@ -423,6 +458,18 @@ function start(gl) {
       b.legs[0].rotation.x = swing; b.legs[3].rotation.x = swing; b.legs[1].rotation.x = -swing; b.legs[2].rotation.x = -swing;
     }
 
+    /* A bear pose (the test hooks) lands once the bears stand where this frame puts them: the walker 2 m from the lead bear's centre,
+       in front of its snout and facing it, or from the last bear's, behind it and 0.35 m across, facing its way. Either is inside any
+       reach, so the keep-out below sets how near. */
+    if (bearPose) {
+      const lead = bearPose === "snout", g = bears[lead ? 0 : bears.length - 1].g, r = g.rotation.y;
+      const along = lead ? 2 : -2, across = lead ? 0 : 0.35;
+      walker.x = g.position.x + Math.sin(r) * along + Math.cos(r) * across;
+      walker.z = g.position.z + Math.cos(r) * along - Math.sin(r) * across;
+      walker.heading = lead ? r : r + Math.PI; walker.pitch = lead ? -0.25 : 0;
+      bearPose = null; cut = true;
+    }
+
     /* The camera. T and G (or a vertical drag) look up and down, up to 0.8 rad either way, while walking or with the bears. */
     const tilt = (keys.lookUp ? 1 : 0) - (keys.lookDown ? 1 : 0);
     if (tilt && (mode === "walk" || mode === "follow")) walker.pitch = Math.max(-0.8, Math.min(0.8, walker.pitch + tilt * 1.2 * dt));
@@ -438,7 +485,7 @@ function start(gl) {
       const d = Math.hypot(walker.x, walker.z);
       if (d > BOUND) { walker.x *= BOUND / d; walker.z *= BOUND / d; }
       keepOut(walker, stageSpot, STAGE_REACH);
-      keepOut(walker, bearSpots, third ? BODY_REACH : BEAR_REACH);
+      keepOut(walker, bearSpots, BODY_REACH);
       avatar.step(walker.x, walker.z, walker.heading, dt);
       spot.stand();
       if (third) aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));
