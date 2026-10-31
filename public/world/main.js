@@ -9,7 +9,8 @@ import { buildAvatar } from "./avatar.js";
 import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
 import { keepOut } from "./collide.js";
-import { keepSpot } from "./modes.js";
+import { enterMode, keepSpot, slotAt, slotDistance } from "./modes.js";
+import { postPose as poseOver } from "./pose.js";
 import { cueClock } from "./clock.js";
 import { listen, soundStats, startSound } from "./audio.js";
 import { buildStage, STAGE_COLUMN, STAGE_REACH, STAGE_SOUND } from "./stage.js";
@@ -190,11 +191,8 @@ function start(gl) {
      landmark of the song that plays. */
   let bearD = 0, bearsOff = false, bearsPlaced = false;
   /* The visitor's place in the line: a sixth bear, one gap behind the last bear shown, facing along the line. */
-  const slotD = () => bearD - bears.length * BEAR_GAP;
-  function slot() {
-    const d = slotD(), p = line.at(d), t = line.tangentAt(d);
-    return { x: p.x, z: p.z, heading: Math.atan2(-t.x, -t.z) };
-  }
+  const slotD = () => slotDistance(bearD, bears.length, BEAR_GAP);
+  const slot = () => slotAt(line, slotD());
   /* Puts the walker in its place in the line, where every camera but the walk's and follow's keeps it, and where the walk reduced motion
      opens on. */
   function toSlot() {
@@ -206,29 +204,9 @@ function start(gl) {
   const spot = keepSpot(walker, slot, () => ({ bound: BOUND, stage: STAGE_COLUMN, stageReach: STAGE_REACH, bears: bearSpots,
     bearReach: third ? BODY_REACH : BEAR_REACH }));
   /* The camera that walks with the bears, in follow and attract, its eye above their heads; it looks at the lead bear, turned by `yaw`
-     and tilted by `pitch`. In third person it stands behind the visitor's bear and to its left, away from the path, along the chord from
-     that bear to the lead one, and looks 2 m over the lead bear's head, so all six read: 16 m behind and 6 m to the left with the eye
-     10 m up on a desktop or a TV, which keeps the visitor's bear left of the plates at the lower right; 12 m and 3 m with the eye 6.5 m
-     up on a phone. Where a climb toward the lead bear would sink the visitor's bear, the view turns down first (keepInView). In first
-     person it stands on the line, 6 m behind the last bear, the eye 6.5 m up, and looks 2 m over the lead bear's feet. */
+     and tilted by `pitch` (pose.js). */
   function postPose(yaw, pitch) {
-    const lead = line.at(bearD);
-    let x, z, eye = 6.5;
-    if (third) {
-      const s = line.at(slotD()), cl = Math.hypot(lead.x - s.x, lead.z - s.z) || 1, cx = (lead.x - s.x) / cl, cz = (lead.z - s.z) / cl;
-      const back = phone ? 12 : 16, side = phone ? 3 : 6;
-      x = s.x - cx * back + cz * side; z = s.z - cz * back - cx * side;
-      if (!phone) eye = 10;
-    } else {
-      const p = line.at(bearD - ((bears.length - 1) * BEAR_GAP + 6));
-      x = p.x; z = p.z;
-    }
-    const pos = new THREE.Vector3(x, height(x, z) + eye, z);
-    const h0 = Math.atan2(-(lead.x - x), -(lead.z - z)), dist = Math.hypot(lead.x - x, lead.z - z);
-    let e0 = Math.atan2(lead.y + (third ? 5.6 : 2) - pos.y, dist);
-    if (third) e0 -= keepInView(pos, new THREE.Vector3(x - Math.sin(h0) * dist, pos.y + Math.tan(e0) * dist, z - Math.cos(h0) * dist));
-    const h = h0 + yaw, e = Math.max(-1.3, Math.min(1.3, e0 + pitch));
-    return { pos, look: new THREE.Vector3(x - Math.sin(h) * dist, pos.y + Math.tan(e) * dist, z - Math.cos(h) * dist) };
+    return poseOver({ third, phone, bearD, count: bears.length, gap: BEAR_GAP, line, height, keepInView }, yaw, pitch);
   }
   /* Where the visitor's feet stand on a phone: 24 px above the now-plate, as a share of the frame's height from -1 to 1. */
   const plateY = () => 1 - (2 * (plateTop - 24)) / frameH;
@@ -241,9 +219,10 @@ function start(gl) {
      from its place in the line the camera cuts to it, since easing there would carry the view across the island without the bear in
      it; entering follow frames the bears again, level. */
   function setMode(m) {
-    if (m === mode) return;
-    if (m === "walk" && spot.walk() !== "slot") cut = true;
-    if (m === "follow") { followBase = walker.heading; walker.pitch = 0; }
+    const entry = enterMode(mode, m, spot);
+    if (!entry.changed) return;
+    if (entry.cut) cut = true;
+    if (entry.followEntered) { followBase = walker.heading; walker.pitch = 0; }
     mode = m;
     document.dispatchEvent(new CustomEvent("world:mode", { detail: { mode } }));
   }

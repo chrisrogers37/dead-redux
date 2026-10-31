@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { listenerAt } from "../../../public/world/audio.js";
 import { STAGE, STAGE_POSE } from "../../../public/world/ground.js";
 import { fits, keepSpot, walkFrom } from "../../../public/world/modes.js";
+import { enterMode, slotAt, slotDistance } from "../../../public/world/modes.js";
 
 // What a walk's frame keeps the walker to (public/world/main.js): within 117 m of the island's centre (BOUND), 11 m from the stage's
 // centre (STAGE_REACH, public/world/stage.js), and 3.9 m from each bear's when the walker is the visitor's bear (BODY_REACH).
@@ -174,5 +175,114 @@ describe("the sound's listener", () => {
       expect(listenerAt(true, head, camera)).toBe(head);
       expect(distance(head, P)).toBe(0);
     }
+  });
+});
+
+// The bears' line (public/world/path.js) as slotAt reads it, its tangent turning with the distance.
+const curving = {
+  at: (d: number) => ({ x: 10 + d, y: 4, z: -20 + d / 2 }),
+  tangentAt: (d: number) => ({ x: Math.cos(d), y: 0, z: Math.sin(d) }),
+};
+
+describe("slotDistance", () => {
+  it("stands the visitor's bear one gap behind the last bear shown: as many gaps behind the lead as there are bears shown", () => {
+    // Five bears 7 m apart, the lead 100 m along: the last stands at 72 m and the visitor's bear at 65 m.
+    expect(slotDistance(100, 5, 7)).toBe(65);
+  });
+
+  it("moves up the line with the rest when a downgrade drops bears", () => {
+    expect(slotDistance(100, 3, 7)).toBe(79);
+    expect(slotDistance(100, 1, 7)).toBe(93);
+  });
+});
+
+describe("slotAt", () => {
+  it("is the line's point at the distance, its x and z, and a heading", () => {
+    const slot = slotAt(curving, 12.5);
+    expect(Object.keys(slot).sort()).toEqual(["heading", "x", "z"]);
+    expect(slot.x).toBe(22.5);
+    expect(slot.z).toBe(-13.75);
+  });
+
+  it("faces along the line's tangent at that same distance, at every bearing: a heading h walks along (-sin h, -cos h)", () => {
+    for (let k = 0; k < 16; k++) {
+      const d = (k * Math.PI) / 8;
+      const { heading } = slotAt(curving, d);
+      expect(-Math.sin(heading)).toBeCloseTo(Math.cos(d), 9);
+      expect(-Math.cos(heading)).toBeCloseTo(Math.sin(d), 9);
+    }
+  });
+});
+
+// The modes the camera takes (public/world/main.js).
+const EVERY_MODE = ["descent", "attract", "follow", "walk", "drift"];
+const otherThan = (mode: string) => EVERY_MODE.filter((m) => m !== mode);
+// keepSpot's walk() as setMode meets it, recording each time a walk asks where it starts: it says it starts `from`.
+const startingAt = (from: "stood" | "nearest" | "slot") => ({
+  walks: 0,
+  walk() {
+    this.walks += 1;
+    return from;
+  },
+});
+
+describe("enterMode", () => {
+  it("changes nothing where the mode is the same, and does not ask where a walk starts", () => {
+    for (const mode of EVERY_MODE) {
+      const spot = startingAt("nearest");
+      expect(enterMode(mode, mode, spot)).toEqual({ changed: false, cut: false, followEntered: false });
+      expect(spot.walks).toBe(0);
+    }
+  });
+
+  it("cuts to a walk that starts where the bear stood, or at the nearest spot a walker may stand, from every other mode", () => {
+    for (const from of otherThan("walk")) {
+      for (const start of ["stood", "nearest"] as const) {
+        const spot = startingAt(start);
+        expect(enterMode(from, "walk", spot)).toEqual({ changed: true, cut: true, followEntered: false });
+        expect(spot.walks).toBe(1);
+      }
+    }
+  });
+
+  it("does not cut to a walk that starts in the line, where the last camera already is", () => {
+    for (const from of otherThan("walk")) {
+      const spot = startingAt("slot");
+      expect(enterMode(from, "walk", spot)).toEqual({ changed: true, cut: false, followEntered: false });
+      expect(spot.walks).toBe(1);
+    }
+  });
+
+  it("never cuts to another mode, whatever a walk would have said", () => {
+    for (const to of otherThan("walk")) {
+      for (const from of otherThan(to)) {
+        const spot = startingAt("nearest");
+        expect(enterMode(from, to, spot).cut).toBe(false);
+        expect(spot.walks).toBe(0);
+      }
+    }
+  });
+
+  it("marks entering follow, which frames the bears again, level, and no other mode", () => {
+    for (const from of otherThan("follow")) {
+      const spot = startingAt("stood");
+      expect(enterMode(from, "follow", spot)).toEqual({ changed: true, cut: false, followEntered: true });
+      expect(spot.walks).toBe(0);
+    }
+    for (const to of otherThan("follow")) {
+      for (const from of otherThan(to)) expect(enterMode(from, to, startingAt("stood")).followEntered).toBe(false);
+    }
+  });
+
+  it("with keepSpot itself, cuts to a walk once the bear has stood in one, and not to the first, which starts in the line", () => {
+    const walker: Walker = { x: 0, z: 0, heading: 0, pitch: 0 };
+    const spot = keepSpot(walker, () => SLOT, () => limits());
+    // Nothing has stood in a walk yet, so the first walk starts in the line.
+    expect(enterMode("attract", "walk", spot).cut).toBe(false);
+    // The bear stands where a walker may; attract takes it back to the line, and the next walk starts where it stood.
+    Object.assign(walker, P);
+    spot.stand();
+    MODES.attract(walker, SLOT);
+    expect(enterMode("attract", "walk", spot).cut).toBe(true);
   });
 });
