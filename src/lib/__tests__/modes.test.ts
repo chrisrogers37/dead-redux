@@ -1,19 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { listenerAt } from "../../../public/world/audio.js";
-import { BOUND, STAGE, STAGE_POSE } from "../../../public/world/ground.js";
-import { fits, keepSpot, walkFrom } from "../../../public/world/modes.js";
-import { enterMode, slotAt, slotDistance } from "../../../public/world/modes.js";
+import { BODY_REACH } from "../../../public/world/collide.js";
+import { BOUND, STAGE, STAGE_COLUMN, STAGE_POSE, STAGE_REACH } from "../../../public/world/ground.js";
+import { confine, enterMode, fits, keepSpot, slotAt, slotDistance, walkFrom, walkLimits } from "../../../public/world/modes.js";
 
-// What a walk's frame keeps the walker to (public/world/main.js): within 117 m of the island's centre (BOUND, public/world/ground.js),
-// 11 m from the stage's centre (STAGE_REACH, public/world/stage.js), and 3.9 m from each bear's in either view (BODY_REACH).
-const STAGE_REACH = 11;
-const BODY_REACH = 3.9;
 const stage = { x: STAGE[0], z: STAGE[1] };
 
 type Point = { x: number; z: number };
 type Spot = Point & { heading: number };
 type Walker = Spot & { pitch: number };
-const limits = (bears: Point[] = []) => ({ bound: BOUND, stage, stageReach: STAGE_REACH, bears, bearReach: BODY_REACH });
+// The tests keep a walker to the world's own limits (walkLimits, public/world/modes.js), with the bears each one gives.
+const limits = (bears: Point[] = []) => walkLimits(bears);
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.z - b.z);
 const spotOf = (w: Spot): Spot => ({ x: w.x, z: w.z, heading: w.heading });
 
@@ -37,7 +34,7 @@ const MODES: Record<string, (walker: Walker, slot: Spot) => void> = {
 function leaveAndReturn(start: Spot, modes: string[]) {
   const walker: Walker = { ...start, pitch: 0 };
   let slot = SLOT;
-  const spot = keepSpot(walker, () => slot, () => limits());
+  const spot = keepSpot(walker, () => slot, limits());
   spot.stand();
   for (const mode of modes) {
     for (let k = 0; k < 3; k++) {
@@ -77,7 +74,7 @@ describe("keepSpot", () => {
 
   it("starts the first walk after the descent in the line: there is no walk before it to go back to", () => {
     const walker: Walker = { x: 0, z: 0, heading: 0, pitch: 0 };
-    const spot = keepSpot(walker, () => SLOT, () => limits());
+    const spot = keepSpot(walker, () => SLOT, limits());
     // The descent and attract keep the walker in its place in the line, as main.js's frame does.
     MODES.attract(walker, SLOT);
     expect(spot.walk()).toBe("slot");
@@ -86,13 +83,75 @@ describe("keepSpot", () => {
 
   it("reads the bears where they stand when the walk begins: one that walked onto the spot moves the bear out of its reach", () => {
     const walker: Walker = { ...P, pitch: 0 };
-    let bears: Point[] = [];
-    const spot = keepSpot(walker, () => SLOT, () => limits(bears));
+    const bears: Point[] = [{ x: P.x + 40, z: P.z }];
+    const spot = keepSpot(walker, () => SLOT, limits(bears));
     spot.stand();
     MODES.attract(walker, SLOT);
-    bears = [{ x: P.x + 1, z: P.z }];
+    bears[0].x = P.x + 1;
+    bears[0].z = P.z;
     expect(spot.walk()).toBe("nearest");
     expect(distance(walker, bears[0])).toBeCloseTo(BODY_REACH, 9);
+  });
+
+  it("reads the limits' bears when a walk begins, so a bear dropped from them in place no longer holds the walk off", () => {
+    const bears = [{ x: -20, z: 30 }, { x: 40, z: -10 }];
+    const lim = limits(bears);
+    const walker: Walker = { x: 40, z: -10.5, heading: 0, pitch: 0 };
+    const spot = keepSpot(walker, () => SLOT, lim);
+    spot.stand();
+    // The second bear is gone from the array the limits hold, as a downgrade drops one.
+    bears.length = 1;
+    expect(spot.walk()).toBe("stood");
+    expect(spotOf(walker)).toEqual({ x: 40, z: -10.5, heading: 0 });
+  });
+});
+
+describe("walkLimits", () => {
+  it("holds the bears it is given, not a copy, with the stage's column and the world's reaches", () => {
+    const bears = [{ x: -20, z: 30 }];
+    expect(walkLimits(bears).bears).toBe(bears);
+    expect(walkLimits(bears)).toEqual({ bound: BOUND, stages: [STAGE_COLUMN], stageReach: STAGE_REACH, bears, bearReach: BODY_REACH });
+    expect(walkLimits(bears).stages[0]).toBe(STAGE_COLUMN);
+  });
+});
+
+describe("confine", () => {
+  it("clamps a walker past the bound back onto it, on the same bearing", () => {
+    const p: Spot = { x: -50, z: 120, heading: 1 };
+    confine(p, limits());
+    expect(Math.hypot(p.x, p.z)).toBeCloseTo(BOUND, 9);
+    expect(p.x / p.z).toBeCloseTo(-50 / 120, 9);
+    expect(p.heading).toBe(1);
+  });
+
+  it("leaves a walker within the bound and clear of every reach where it stands", () => {
+    // The first stands exactly on the bound.
+    for (const p of [{ x: 0, z: BOUND, heading: 0.3 }, { x: -30, z: 20, heading: 2 }]) {
+      const before = { ...p };
+      confine(p, limits());
+      expect(p).toEqual(before);
+    }
+  });
+
+  it("gives the bears the last word: a walker the stage pushes into a bear's reach ends at the bear's", () => {
+    // On the line from the stage's centre to the island's centre: a bear 1.5 m past the stage's reach, and a walker 3 m inside it.
+    const norm = Math.hypot(stage.x, stage.z);
+    const u = { x: -stage.x / norm, z: -stage.z / norm };
+    const bear = { x: stage.x + u.x * (STAGE_REACH + 1.5), z: stage.z + u.z * (STAGE_REACH + 1.5) };
+    const p: Spot = { x: stage.x + u.x * (STAGE_REACH - 3), z: stage.z + u.z * (STAGE_REACH - 3), heading: 0 };
+    confine(p, limits([bear]));
+    // The bear moved it last, back inside the stage's reach.
+    expect(p.x).toBeCloseTo(stage.x + u.x * (STAGE_REACH + 1.5 - BODY_REACH), 9);
+    expect(p.z).toBeCloseTo(stage.z + u.z * (STAGE_REACH + 1.5 - BODY_REACH), 9);
+    expect(distance(p, stage)).toBeLessThan(STAGE_REACH);
+  });
+
+  it("steps a walker right on a bear's centre back against its heading", () => {
+    const bear = { x: -20, z: 30 };
+    const p: Spot = { ...bear, heading: 0.7 };
+    confine(p, limits([bear]));
+    expect(p.x).toBeCloseTo(bear.x + BODY_REACH * Math.sin(0.7), 9);
+    expect(p.z).toBeCloseTo(bear.z + BODY_REACH * Math.cos(0.7), 9);
   });
 });
 
@@ -140,6 +199,14 @@ describe("walkFrom", () => {
     expect(s.x / s.z).toBeCloseTo(-50 / 120, 9);
   });
 
+  it("starts where confine moves a stand a walker may no longer take", () => {
+    const stood = { x: -20, z: 30.5, heading: 0.2 };
+    const bear = { x: -20, z: 30 };
+    const at = { ...stood };
+    confine(at, limits([bear]));
+    expect(walkFrom(stood, SLOT, limits([bear]))).toEqual({ ...at, from: "nearest" });
+  });
+
   it("starts in the line where no spot near it holds a walker", () => {
     // Inside the stage's reach, with a bear just past its edge on the line out: the stage's edge lies inside the bear's reach, and the
     // edge of the bear's lies back inside the stage's.
@@ -162,7 +229,7 @@ describe("the sound's listener", () => {
   it("stays on the bear's head in every mode and after every exit, so it comes back with the bear", () => {
     for (const mode of Object.keys(MODES)) {
       const walker: Walker = { ...P, pitch: 0 };
-      const spot = keepSpot(walker, () => SLOT, () => limits());
+      const spot = keepSpot(walker, () => SLOT, limits());
       stepTo(walker);
       spot.stand();
       MODES[mode](walker, SLOT);
@@ -275,7 +342,7 @@ describe("enterMode", () => {
 
   it("with keepSpot itself, cuts to a walk once the bear has stood in one, and not to the first, which starts in the line", () => {
     const walker: Walker = { x: 0, z: 0, heading: 0, pitch: 0 };
-    const spot = keepSpot(walker, () => SLOT, () => limits());
+    const spot = keepSpot(walker, () => SLOT, limits());
     // Nothing has stood in a walk yet, so the first walk starts in the line.
     expect(enterMode("attract", "walk", spot).cut).toBe(false);
     // The bear stands where a walker may; attract takes it back to the line, and the next walk starts where it stood.

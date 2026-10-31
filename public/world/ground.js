@@ -13,6 +13,12 @@ export const STAGE = G(161, 47), SHELF_Y = 2.5;
 /* The stage faces the island's middle, so the hill rises before it as an amphitheatre's seating does, and its back looks out over the
    shore. A group's local +z points along its facing, the repo's convention (the bears face along their line so). */
 export const FACING = Math.atan2(-STAGE[0], -STAGE[1]);
+/* How near a walk comes to the stage's centre: the platform's edge stands 9.5 m out (stage.js), and a bear's belly reaches 1.3 m ahead of
+   its centre below the platform's top. */
+export const STAGE_REACH = 11;
+/* The column the third-person camera keeps out of (avatar.js): every solid of the stage stands inside it, the PA stacks' outer corners
+   10.9 m from the centre and the roof's top 8.45 m above the floor, and no walk does. */
+export const STAGE_COLUMN = { x: STAGE[0], z: STAGE[1], r: 10.95, top: SHELF_Y + 8.45 };
 /* The test hook ?pose=stage: on the slope in front of the stage, on its axis 34 m from its centre and 8 m above its floor, facing it and
    looking a little down. In third person the look down raises the boom, so the stage stands over the bear's head. */
 export const STAGE_POSE = { x: 47.5, z: -41.3, heading: -0.855, pitch: -0.2 };
