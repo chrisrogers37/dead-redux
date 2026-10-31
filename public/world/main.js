@@ -85,7 +85,11 @@ function start(gl) {
   new ResizeObserver(resize).observe(container);
 
   /* ---------- the island ---------- */
+  /* SCRATCH: each top-level child labelled with the builder that added it, for the sweep's tally. */
+  let tagFrom = scene.children.length;
+  const tag = (name) => { for (const c of scene.children.slice(tagFrom)) c.userData.tally = name; tagFrom = scene.children.length; };
   const { caves } = buildIsland(scene, budget.grid, phone);
+  tag("island");
 
   /* ---------- the path and the landmarks ---------- */
   const path = buildPath();
@@ -94,19 +98,25 @@ function start(gl) {
   const builders = makeBuilders(phone);
   const { moving } = builders;
   const landmarks = placeLandmarks(scene, path, tracks, hasShow, builders, landmarkU);
+  tag("landmarks");
   if (hasShow) buildSegues(scene, path, tracks, landmarkU);
+  tag("segues");
 
   /* ---------- the bears ---------- */
   const bears = buildBears(scene, budget.bears);
+  tag("bears");
 
   /* ---------- the visitor's bear ---------- */
   const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN] });
+  tag("avatar");
 
   /* ---------- the sky ---------- */
   const { skyMat, hemi, sun } = buildSky(scene, budget.octaves, data.seed);
+  tag("sky");
 
   /* ---------- the stage ---------- */
   const stage = buildStage(scene, sun, quality.shadows);
+  tag("stage");
   /* The desktop's one shadow map, the stage's, is drawn once: nothing that casts a shadow moves. */
   renderer.shadowMap.enabled = quality.shadows;
   renderer.shadowMap.autoUpdate = false;
@@ -118,6 +128,7 @@ function start(gl) {
     new THREE.MeshBasicMaterial({ color: 0xe8b04b, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
   beam.visible = hasShow;
   scene.add(beam);
+  tag("beam");
 
   /* ---------- the show clock ---------- */
   /* The audio element owns the clock: the world keeps the player's last report (sent on each timeupdate, on play and on pause)
@@ -482,6 +493,22 @@ function start(gl) {
   if (sweep) {
     quality = { ...quality, scale: 0.05 };
     applyQuality();
+    /* SCRATCH: the last frame's draw calls by group: builder/object:geometry, x2 where a transparent double-sided material draws twice. */
+    const tally = new Map();
+    const render = renderer.render.bind(renderer);
+    renderer.render = (s, c) => { tally.clear(); return render(s, c); };
+    const direct = renderer.renderBufferDirect.bind(renderer);
+    renderer.renderBufferDirect = (cam, sc, geometry, material, object, group) => {
+      let top = object;
+      while (top.parent && top.parent !== scene) top = top.parent;
+      const twice = material.transparent && material.side === THREE.DoubleSide && !material.forceSinglePass ? " x2" : "";
+      const key = `${top.userData.tally ?? "untagged"}/${object.type}:${geometry.type}${twice}`;
+      tally.set(key, (tally.get(key) ?? 0) + 1);
+      return direct(cam, sc, geometry, material, object, group);
+    };
+    Object.defineProperty(window.__hill, "tally", {
+      get: () => Object.fromEntries([...tally].sort((a, b) => b[1] - a[1])), enumerable: true, configurable: true,
+    });
     document.addEventListener("world:pose", ({ detail }) => { Object.assign(walker, detail); cut = true; wake(); });
   }
   placeWalker();

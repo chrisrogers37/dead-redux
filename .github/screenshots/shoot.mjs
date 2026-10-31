@@ -387,6 +387,14 @@ const sweepWalk = async (page, device, tracks) => {
     }, index);
     const calls = await page.evaluate(readWalkCalls, SWEEP_POSES);
     const { calls: peak, pose } = sweepPeak(SWEEP_POSES, calls);
+    // SCRATCH: the peak pose again, and its frame's draw calls by group.
+    const tallied = await page.evaluate(async (p) => {
+      const drawn = window.__hill.frames;
+      document.dispatchEvent(new CustomEvent("world:pose", { detail: p }));
+      for (let w = 0; window.__hill.frames === drawn && w < 60; w++) await new Promise((r) => requestAnimationFrame(r));
+      return { calls: window.__hill.calls, tally: window.__hill.tally };
+    }, pose);
+    console.log(`tally ${device} track ${index}: ${tallied.calls} calls ${JSON.stringify(tallied.tally)}`);
     const where = `x ${pose.x.toFixed(1)}, z ${pose.z.toFixed(1)}, heading ${pose.heading.toFixed(3)}`;
     const tests = Object.keys(TEST_POSES).map((name, i) => `${name} ${calls[i]}`).join(", ");
     const line =
