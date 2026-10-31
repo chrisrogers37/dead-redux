@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { FACING, height, PATH_POSE, SHELF_Y, slope, SLOPE_POSE, STAGE, STAGE_POSE } from "../../../public/world/ground.js";
+import { BOUND, FACING, height, PATH_POSE, SHELF_Y, slope, SLOPE_POSE, STAGE, STAGE_POSE } from "../../../public/world/ground.js";
 
 // How near a walk comes to the stage's centre (STAGE_REACH, public/world/stage.js).
 const REACH = 11;
 // How far the stage's solids stand from its centre: its column's radius (STAGE_COLUMN, public/world/stage.js).
 const COLUMN = 10.95;
-// How far a walk keeps from the island's centre (BOUND, public/world/main.js).
-const BOUND = 117;
 // Where the ring road starts, and where the shore beyond it starts to fall (public/world/island.js, slope()).
 const RING = 112, SHORE = 118;
 // The longest walk to the platform's edge that the desktop-stage recording's 25-s hold covers with seconds to spare

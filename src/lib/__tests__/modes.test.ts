@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { listenerAt } from "../../../public/world/audio.js";
-import { STAGE, STAGE_POSE } from "../../../public/world/ground.js";
+import { BOUND, STAGE, STAGE_POSE } from "../../../public/world/ground.js";
 import { fits, keepSpot, walkFrom } from "../../../public/world/modes.js";
 import { enterMode, slotAt, slotDistance } from "../../../public/world/modes.js";
 
-// What a walk's frame keeps the walker to (public/world/main.js): within 117 m of the island's centre (BOUND), 11 m from the stage's
-// centre (STAGE_REACH, public/world/stage.js), and 3.9 m from each bear's when the walker is the visitor's bear (BODY_REACH).
-const BOUND = 117;
+// What a walk's frame keeps the walker to (public/world/main.js): within 117 m of the island's centre (BOUND, public/world/ground.js),
+// 11 m from the stage's centre (STAGE_REACH, public/world/stage.js), and 3.9 m from each bear's when the walker is the visitor's
+// bear (BODY_REACH).
 const STAGE_REACH = 11;
 const BODY_REACH = 3.9;
 const stage = { x: STAGE[0], z: STAGE[1] };

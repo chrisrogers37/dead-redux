@@ -266,6 +266,16 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
     if (!at && from) showNote(`Resumed at ${from.index + 1} of ${tracks.length}`);
   }
 
+  /** A failed track loads again from where it stopped, with its reloads to come: Try again, and the play button after an error. */
+  function tryAgain() {
+    const g = eng.current;
+    const el = activeEl();
+    if (!el) return;
+    g.wantPlay = true;
+    g.held[g.active] = -1;
+    goTo(g.index, el.currentTime);
+  }
+
   /** The play button, Space and K: the first press starts the show, then each press pauses or plays. */
   function toggle() {
     const g = eng.current;
@@ -281,9 +291,7 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
       return;
     }
     if (state === "error") {
-      g.wantPlay = true;
-      g.held[g.active] = -1;
-      goTo(g.index, el.currentTime);
+      tryAgain();
       return;
     }
     if (el.paused) play();
@@ -600,6 +608,7 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
         onPlay={() => toggle()}
         onNext={next}
         onSeek={seekTo}
+        onRetry={tryAgain}
       >
         {children}
       </Transport>
