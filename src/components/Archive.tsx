@@ -16,7 +16,7 @@ export function Archive({ months, open }: ArchiveProps) {
 
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-8" data-month={open?.key}>
-      <nav className="flex items-baseline justify-between">
+      <nav aria-label="Site" className="flex items-baseline justify-between">
         {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the world starts once per page load */}
         <a href="/" className="t-tag text-muted hover:text-ink">Dead Redux</a>
         {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the world starts once per page load */}
