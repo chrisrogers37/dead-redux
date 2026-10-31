@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { buildIsland } from "./island.js";
 import { BOUND, height, PATH_POSE, SLOPE_POSE, STAGE_POSE } from "./ground.js";
 import { buildPath, layout, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
-import { makeBuilders } from "./landmarks.js";
+import { makeBuilders, mergeLandmarks } from "./landmarks.js";
 import { buildBears } from "./bears.js";
 import { buildAvatar } from "./avatar.js";
 import { buildSky, skyPair } from "./sky.js";
@@ -101,6 +101,8 @@ function start(gl) {
 
   /* ---------- the visitor's bear ---------- */
   const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN] });
+  /* The landmarks' still parts become one mesh across the path, once the camera's keep-out boxes are read from them. */
+  mergeLandmarks(scene, landmarks, moving.map((m) => m.obj));
 
   /* ---------- the sky ---------- */
   const { skyMat, hemi, sun } = buildSky(scene, budget.octaves, data.seed);
@@ -113,9 +115,11 @@ function start(gl) {
   renderer.shadowMap.needsUpdate = true;
 
   /* ---------- the beam ---------- */
-  /* The song that plays stands in a soft column of light, so the show's progress reads from anywhere on the island. */
+  /* The song that plays stands in a soft column of light, so the show's progress reads from anywhere on the island. Both its faces draw
+     in one pass: added light sums the same in either order, so the back-then-front passes of a transparent double-sided material
+     would only cost a second draw call. */
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 36, 16, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0xe8b04b, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    new THREE.MeshBasicMaterial({ color: 0xe8b04b, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, forceSinglePass: true }));
   beam.visible = hasShow;
   scene.add(beam);
 
