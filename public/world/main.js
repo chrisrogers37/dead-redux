@@ -1,19 +1,18 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { buildIsland } from "./island.js";
-import { BOUND, height, PATH_POSE, SLOPE_POSE, STAGE_POSE } from "./ground.js";
+import { height, PATH_POSE, SLOPE_POSE, STAGE_COLUMN, STAGE_POSE } from "./ground.js";
 import { buildPath, layout, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
 import { makeBuilders, mergeLandmarks } from "./landmarks.js";
 import { buildBears } from "./bears.js";
 import { buildAvatar } from "./avatar.js";
 import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
-import { keepOut } from "./collide.js";
-import { enterMode, keepSpot, slotAt, slotDistance } from "./modes.js";
+import { confine, enterMode, keepSpot, slotAt, slotDistance, walkLimits } from "./modes.js";
 import { postPose as poseOver } from "./pose.js";
 import { cueClock } from "./clock.js";
 import { listen, soundStats, startSound } from "./audio.js";
-import { buildStage, STAGE_COLUMN, STAGE_REACH, STAGE_SOUND } from "./stage.js";
+import { buildStage, STAGE_SOUND } from "./stage.js";
 import { budgetFor, frameSampler, pickTier, stepDown } from "./quality.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
@@ -197,13 +196,10 @@ function start(gl) {
   /* The bears walk their own line at a lively pace, five 7 m apart by distance along it, and pass the landmarks rather than walk
      through them (path.js). */
   const BEAR_GAP = 7, BEAR_SPEED = 2.5;
-  /* How near a walk comes to a bear's centre, in either view: one bear's snout tip meets another's flank 1.5 m from its centre, and a
-     snout tip ends 2.4 m ahead of it. In first person the camera stands where the visitor's bear would, so a bear's snout tip stays 1.5 m
-     from the eye, clear of the camera's 0.5 m near plane at any pitch and through the walking bob. Neighbours stay at least 5.9 m apart
-     on the line's tightest bend, so the reaches overlap there (collide.js). */
-  const BODY_REACH = 3.9, bearSpots = bears.map((b) => b.g.position);
-  /* The stage's platform is solid too: a walk stops at its edge, STAGE_REACH from the centre of its column (stage.js). */
-  const stageSpot = [STAGE_COLUMN];
+  /* What a walk keeps the walker to (modes.js): within the island's bound, out of the stage's reach, since its platform is solid too, and
+     out of each bear's, whose spots `bearSpots` holds live: the downgrade drops a bear's spot with the bear. */
+  const bearSpots = bears.map((b) => b.g.position);
+  const limits = walkLimits(bearSpots);
   /* How far the lead bear is along its line. Until the show first plays the bears stand where it is, from the world's first frame
      even if it is already playing; then they set off and keep their own pace while it plays. Under reduced motion they stand at the
      landmark of the song that plays. */
@@ -225,8 +221,7 @@ function start(gl) {
   }
   /* A walk starts where the visitor's bear last stood in a walk, or at the nearest spot where a walker may stand if it no longer may
      there, else in its place in the line, as the first walk after the descent does (modes.js). */
-  const spot = keepSpot(walker, slot, () => ({ bound: BOUND, stage: STAGE_COLUMN, stageReach: STAGE_REACH, bears: bearSpots,
-    bearReach: BODY_REACH }));
+  const spot = keepSpot(walker, slot, limits);
   /* The camera that walks with the bears, in follow and attract, its eye above their heads; it looks at the lead bear, turned by `yaw`
      and tilted by `pitch` (pose.js). */
   function postPose(yaw, pitch) {
@@ -461,10 +456,7 @@ function start(gl) {
       walker.heading += turn * 1.6 * dt;
       const fw = forward();
       walker.x += (fw.x * spd - fw.z * side) * pace; walker.z += (fw.z * spd + fw.x * side) * pace;
-      const d = Math.hypot(walker.x, walker.z);
-      if (d > BOUND) { walker.x *= BOUND / d; walker.z *= BOUND / d; }
-      keepOut(walker, stageSpot, STAGE_REACH);
-      keepOut(walker, bearSpots, BODY_REACH);
+      confine(walker, limits);
       avatar.step(walker.x, walker.z, walker.heading, dt);
       spot.stand();
       if (third) aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));

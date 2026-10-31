@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { BOUND, FACING, height, PATH_POSE, SHELF_Y, slope, SLOPE_POSE, STAGE, STAGE_POSE } from "../../../public/world/ground.js";
+import {
+  BOUND,
+  FACING,
+  height,
+  PATH_POSE,
+  SHELF_Y,
+  slope,
+  SLOPE_POSE,
+  STAGE,
+  STAGE_COLUMN,
+  STAGE_POSE,
+  STAGE_REACH,
+} from "../../../public/world/ground.js";
 
-// How near a walk comes to the stage's centre (STAGE_REACH, public/world/stage.js).
-const REACH = 11;
-// How far the stage's solids stand from its centre: its column's radius (STAGE_COLUMN, public/world/stage.js).
-const COLUMN = 10.95;
 // Where the ring road starts, and where the shore beyond it starts to fall (public/world/island.js, slope()).
 const RING = 112, SHORE = 118;
 // The longest walk to the platform's edge that the desktop-stage recording's 25-s hold covers with seconds to spare
@@ -36,7 +44,7 @@ describe("the stage's place", () => {
   it("stands at the island's edge, past the hill's foot, its solids inside the ring road and its shelf inside the shore", () => {
     const d = Math.hypot(STAGE[0], STAGE[1]);
     expect(d).toBeGreaterThan(90);
-    expect(d + COLUMN).toBeLessThan(RING);
+    expect(d + STAGE_COLUMN.r).toBeLessThan(RING);
     expect(d + 14).toBeLessThan(SHORE);
   });
 });
@@ -92,7 +100,7 @@ describe("the stage's facing", () => {
 
 describe("?pose=stage", () => {
   it("stands in front of the stage, beyond its reach and within the walk's bound, facing its centre", () => {
-    expect(fromStage(STAGE_POSE)).toBeGreaterThan(REACH);
+    expect(fromStage(STAGE_POSE)).toBeGreaterThan(STAGE_REACH);
     expect(Math.hypot(STAGE_POSE.x, STAGE_POSE.z)).toBeLessThan(BOUND);
     expect(offFront(STAGE_POSE.x, STAGE_POSE.z)).toBeLessThan(20);
     expect(offHeading(STAGE_POSE)).toBeLessThan(0.1);
@@ -104,7 +112,7 @@ describe("?pose=stage", () => {
   });
 
   it("is a walk to the platform's edge that the desktop-stage recording's hold covers", () => {
-    expect(fromStage(STAGE_POSE) - REACH).toBeLessThan(WALK);
+    expect(fromStage(STAGE_POSE) - STAGE_REACH).toBeLessThan(WALK);
   });
 });
 

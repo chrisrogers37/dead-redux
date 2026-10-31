@@ -26,6 +26,12 @@ export function keepOut(walker, spots, reach) {
   }
 }
 
+/* How near a walk comes to a bear's centre, in either view (main.js): one bear's snout tip meets another's flank 1.5 m from its centre,
+   and a snout tip ends 2.4 m ahead of it. In first person the camera stands where the visitor's bear would, so a bear's snout tip stays
+   1.5 m from the eye, clear of the camera's 0.5 m near plane at any pitch and through the walking bob. Neighbours stay at least 5.9 m
+   apart on the line's tightest bend, so the reaches overlap there. */
+export const BODY_REACH = 3.9;
+
 /* The stage is solid to the third-person camera as well: it stands for a column, a vertical cylinder `r` round (x, z) from the ground
    up to `top`. How far the line from `o` along the unit direction `d` goes before it enters one, through its side or, falling from
    above, through its top; Infinity if it never does, or if the column stands around `o`. From outside, the side's two crossings lie
