@@ -8,7 +8,7 @@ import { buildBears } from "./bears.js";
 import { buildAvatar } from "./avatar.js";
 import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
-import { confine, enterMode, keepSpot, slotAt, slotDistance, walkLimits } from "./modes.js";
+import { confine, DESCENT_S, enterMode, keepSpot, modeRules, slotAt, slotDistance, walkLimits } from "./modes.js";
 import { postPose as poseOver } from "./pose.js";
 import { cueClock } from "./clock.js";
 import { listen, soundStats, startSound } from "./audio.js";
@@ -187,10 +187,7 @@ function start(gl) {
   const overK = /^landmark-(\d+)$/.exec(hook ?? "");
   const over = overK ? landmarks[Number(overK[1])] ?? null : null;
   let mode = over ? "attract" : reduced || posed ? "walk" : "descent";
-  let idleTimer = 0, elapsed = 0;
-  /* The descent's length, in seconds of world time. A frame adds at most 50 ms to the world's time, so a slow load stretches the
-     descent rather than outrunning it. */
-  const DESCENT_S = 6;
+  let elapsed = 0;
   /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
   let followBase = 0;
   /* The bears walk their own line at a lively pace, five 7 m apart by distance along it, and pass the landmarks rather than walk
@@ -245,17 +242,12 @@ function start(gl) {
     mode = m;
     document.dispatchEvent(new CustomEvent("world:mode", { detail: { mode } }));
   }
-  /* The controls that only look around, so they keep walking with the bears. */
-  const LOOKS = new Set(["left", "right", "lookUp", "lookDown", "drag"]);
-  /* Any input resets the idle timer. B (or the button) toggles walking with the bears; in follow, turning, looking up or down and
-     dragging only look around, and any step leaves it for a walk. Lean-back ignores the controls. */
+  /* What changes the mode (modes.js): the controls, lean-back's switch and the frames. Under reduced motion and a test pose no idle
+     time hands the view to attract. */
+  const rules = modeRules(() => mode, setMode, !reduced && !posed);
+  /* A control the world takes wakes it for a frame; lean-back takes none. */
   function userInput(action) {
-    idleTimer = 0;
-    if (mode === "drift") return;
-    wake();
-    if (action === "follow") { setMode(mode === "follow" ? "walk" : "follow"); return; }
-    if (mode === "follow" && LOOKS.has(action)) return;
-    setMode("walk");
+    if (rules.input(action)) wake();
   }
   document.addEventListener("world:follow", () => userInput("follow"));
   const input = bindInput(container, walker, userInput);
@@ -271,8 +263,7 @@ function start(gl) {
     if (t !== third) { third = t; cut = true; bearPose = bearHook; }
     avatar.g.visible = third;
     measurePlate();
-    if (lean && mode !== "drift") setMode("drift");
-    if (!lean && mode === "drift") { setMode("walk"); idleTimer = 0; }
+    rules.lean(lean);
     wake();
   }
   new MutationObserver(syncMain).observe(main, { attributes: true, attributeFilter: ["data-mode", "data-state", "data-view", "data-joined"] });
@@ -464,7 +455,6 @@ function start(gl) {
         placeWalker();
         if (moving_ && !reduced) camera.position.y += 0.12 * Math.sin(elapsed * 9);
       }
-      if (!reduced && !posed) { idleTimer += dt; if (idleTimer > 15) setMode("attract"); }
     } else {
       /* Every other camera keeps the visitor's bear in its place in the line, walking with the five, and the walker with it; but
          follow's turns keep their own heading. */
@@ -477,7 +467,6 @@ function start(gl) {
         const end = postPose(0, 0);
         camera.position.set(end.pos.x * k, 140 + (end.pos.y - 140) * k, end.pos.z * k);
         aim(lookTarget.set(end.look.x * k, end.look.y * k, -3 + (end.look.z + 3) * k), true);
-        if (elapsed >= DESCENT_S) setMode("attract");
       } else if (mode === "attract" || mode === "follow") {
         /* In follow, turning adds an offset to the look. */
         if (mode === "follow") walker.heading += ((keys.left ? 1 : 0) - (keys.right ? 1 : 0)) * 1.6 * dt;
@@ -503,6 +492,8 @@ function start(gl) {
       }
       avatar.settle(camera.position, lookTarget);
     }
+    /* The mode the passing frames lead to (modes.js). */
+    rules.frame(elapsed);
     if (over) {
       const o = over.position;
       camera.position.set(o.x, o.y + 30, o.z);

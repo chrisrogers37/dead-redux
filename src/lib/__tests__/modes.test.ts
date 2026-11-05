@@ -1,8 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { listenerAt } from "../../../public/world/audio.js";
 import { BODY_REACH } from "../../../public/world/collide.js";
 import { BOUND, STAGE, STAGE_COLUMN, STAGE_POSE, STAGE_REACH } from "../../../public/world/ground.js";
-import { confine, enterMode, fits, keepSpot, slotAt, slotDistance, walkFrom, walkLimits } from "../../../public/world/modes.js";
+import { bindInput } from "../../../public/world/input.js";
+import {
+  confine,
+  DESCENT_S,
+  enterMode,
+  fits,
+  keepSpot,
+  modeRules,
+  slotAt,
+  slotDistance,
+  walkFrom,
+  walkLimits,
+} from "../../../public/world/modes.js";
 
 const stage = { x: STAGE[0], z: STAGE[1] };
 
@@ -378,5 +390,136 @@ describe("enterMode", () => {
     spot.stand();
     MODES.attract(walker, SLOT);
     expect(enterMode("attract", "walk", spot).cut).toBe(true);
+  });
+});
+
+// The frames these tests draw: each adds 50 ms of world time, the most one frame adds in public/world/main.js.
+const FRAMES_PER_S = 20;
+
+// modeRules as main.js holds them, with the mode it reads and a setMode that only enters the new one. `run` draws the frames of
+// `seconds` of world time and calls `each` after every frame.
+function rulesFrom(start: string) {
+  const world = { mode: start, frame: 0 };
+  const rules = modeRules(
+    () => world.mode,
+    (mode: string) => {
+      world.mode = mode;
+    },
+  );
+  const run = (seconds: number, each = () => {}) => {
+    for (const end = world.frame + seconds * FRAMES_PER_S; world.frame < end; ) {
+      world.frame += 1;
+      rules.frame(world.frame / FRAMES_PER_S);
+      each();
+    }
+  };
+  return { world, rules, run };
+}
+
+// The page bindInput binds the controls on (public/world/input.js), played by stand-ins, since node has no DOM: the window and the
+// document take listeners, and the document answers bindInput's two queries, <main> (none here) and the pads, each with its direction.
+// `press` sends a key's keydown to the window.
+function bindWorld(userInput: (action: string) => void) {
+  const pads = Object.fromEntries(
+    ["up", "down", "left", "right"].map((pad) => [pad, Object.assign(new EventTarget(), { dataset: { pad } })]),
+  );
+  vi.stubGlobal("window", new EventTarget());
+  vi.stubGlobal("HTMLElement", class {});
+  vi.stubGlobal(
+    "document",
+    Object.assign(new EventTarget(), {
+      querySelector: () => null,
+      querySelectorAll: (selector: string) => (selector === "[data-pad]" ? Object.values(pads) : []),
+    }),
+  );
+  const { keys } = bindInput(new EventTarget(), { heading: 0, pitch: 0 }, userInput);
+  const press = (code: string) => window.dispatchEvent(Object.assign(new Event("keydown"), { code, repeat: false }));
+  return { keys, pads, press };
+}
+
+describe("modeRules", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("leaves a walk without a control where it is past 15 seconds, and the stage's sound with it", () => {
+    const { world, rules, run } = rulesFrom("descent");
+    run(DESCENT_S);
+    expect(world.mode).toBe("attract");
+    // A step after the descent starts a walk, with the visitor's bear at P; then nothing is pressed for a minute of world time.
+    expect(rules.input("fwd")).toBe(true);
+    const walker: Walker = { ...P, pitch: 0 };
+    // In third person the listener is the bear's head (listenerAt), which stands over the walker.
+    const head = { x: P.x, y: 3.6, z: P.z };
+    const camera = { position: { x: 0, y: 60, z: 0 } };
+    // What each frame does to the bear: a walk with nothing held leaves it where it stands (main.js), and the bears' cameras walk it in
+    // its place in the line (MODES).
+    const frameDoes = { ...MODES, walk: () => {} };
+    run(60, () => {
+      frameDoes[world.mode](walker, SLOT);
+      head.x = walker.x;
+      head.z = walker.z;
+      expect(distance(listenerAt(true, head, camera), P)).toBe(0);
+      expect(world.mode).toBe("walk");
+    });
+    expect(spotOf(walker)).toEqual(P);
+  });
+
+  it("walks on while a pad direction is held past 15 seconds: the press is one control, and no frame ends the walk", () => {
+    const { world, rules, run } = rulesFrom("descent");
+    run(DESCENT_S);
+    const controls: string[] = [];
+    const { keys, pads } = bindWorld((action) => {
+      controls.push(action);
+      rules.input(action);
+    });
+    pads.up.dispatchEvent(new Event("pointerdown"));
+    expect(controls).toEqual(["fwd"]);
+    // main.js moves the walker forward in each frame of a walk while `keys.fwd` holds.
+    run(60, () => {
+      expect(world.mode).toBe("walk");
+      expect(keys.fwd).toBe(true);
+    });
+    expect(controls).toEqual(["fwd"]);
+    pads.up.dispatchEvent(new Event("pointerup"));
+    expect(keys.fwd).toBe(false);
+  });
+
+  it("still walks with the bears on B, keeps them while the visitor only looks around, and walks again on B or a step", () => {
+    const { world, rules } = rulesFrom("walk");
+    const { press } = bindWorld((action) => rules.input(action));
+    press("KeyB");
+    expect(world.mode).toBe("follow");
+    for (const look of ["left", "right", "lookUp", "lookDown", "drag"]) {
+      expect(rules.input(look)).toBe(true);
+      expect(world.mode).toBe("follow");
+    }
+    press("KeyB");
+    expect(world.mode).toBe("walk");
+    press("KeyB");
+    expect(rules.input("back")).toBe(true);
+    expect(world.mode).toBe("walk");
+  });
+
+  it("still drifts above the bears in lean-back, which takes no control, and walks once it ends", () => {
+    const { world, rules, run } = rulesFrom("walk");
+    rules.lean(true);
+    expect(world.mode).toBe("drift");
+    for (const action of ["fwd", "follow", "left", "drag"]) {
+      expect(rules.input(action)).toBe(false);
+      expect(world.mode).toBe("drift");
+    }
+    run(60);
+    expect(world.mode).toBe("drift");
+    rules.lean(false);
+    expect(world.mode).toBe("walk");
+  });
+
+  it("still ends the descent with the bears at its length, and not before", () => {
+    const { world, rules } = rulesFrom("descent");
+    rules.frame(DESCENT_S - 1 / FRAMES_PER_S);
+    expect(world.mode).toBe("descent");
+    rules.frame(DESCENT_S);
+    expect(world.mode).toBe("attract");
   });
 });

@@ -83,3 +83,41 @@ export function enterMode(from, to, spot) {
   const cut = to === "walk" && spot.walk() !== "slot";
   return { changed: true, cut, followEntered: to === "follow" };
 }
+
+/* The controls that only look around (bindInput's actions, input.js), so in follow they keep walking with the bears. */
+const LOOKS = new Set(["left", "right", "lookUp", "lookDown", "drag"]);
+
+/* The descent's length, in seconds of world time. A frame adds at most 50 ms to the world's time, so a slow load stretches the
+   descent rather than outrunning it. */
+export const DESCENT_S = 6;
+
+/* What changes the camera's mode, for main.js, which reads it with `mode()` and enters another with `setMode` (enterMode says what that
+   asks of the camera). `input(action)` takes a control, bindInput's action or "follow" for B and the button, and returns whether the
+   world took it: lean-back's drift takes none; B toggles walking with the bears (follow); in follow the controls that only look around
+   keep it; any other control walks. `lean(on)` takes lean-back's switch: its drift while it is on, and a walk once it is off.
+   `frame(elapsed)` takes each frame, `elapsed` seconds of world time in: the descent ends with the bears (attract) at DESCENT_S, and,
+   where `idles`, a walk 15 s of world time without a control hands the view to attract. */
+export function modeRules(mode, setMode, idles = true) {
+  /* The world time at the last frame, and how long the walk has gone without a control. */
+  let last = 0, idle = 0;
+  return {
+    input(action) {
+      idle = 0;
+      const m = mode();
+      if (m === "drift") return false;
+      if (action === "follow") setMode(m === "follow" ? "walk" : "follow");
+      else if (!(m === "follow" && LOOKS.has(action))) setMode("walk");
+      return true;
+    },
+    lean(on) {
+      if (on) setMode("drift");
+      else if (mode() === "drift") { setMode("walk"); idle = 0; }
+    },
+    frame(elapsed) {
+      const dt = elapsed - last;
+      last = elapsed;
+      if (mode() === "walk" && idles) { idle += dt; if (idle > 15) setMode("attract"); }
+      if (mode() === "descent" && elapsed >= DESCENT_S) setMode("attract");
+    },
+  };
+}
