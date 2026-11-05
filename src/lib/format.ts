@@ -36,12 +36,12 @@ export function formatDate(dateStr: string): string {
 const monthDayFormat = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
 
 /**
- * Format an ISO date string as its month and day, for a day the reader knows the year of.
- * "2026-10-27" → "October 27"; a partial date stays as written.
+ * Format an ISO date string as its month and day, for a day the reader knows the year of, joined by a no-break space so that a
+ * wrapped line never parts them: "2026-10-27" → "October 27"; a partial date stays as written.
  */
 export function formatMonthDay(dateStr: string): string {
   const date = new Date(dateStr + "T00:00:00Z");
-  return isNaN(date.getTime()) ? dateStr : monthDayFormat.format(date);
+  return isNaN(date.getTime()) ? dateStr : monthDayFormat.format(date).replace(" ", "\u00a0");
 }
 
 // Built once, like dateFormat.

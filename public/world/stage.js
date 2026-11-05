@@ -8,12 +8,8 @@ import { mesh, mergeStill } from "./landmarks.js";
    two posts over a back wall with a light panel in the sky's first colour; two PA stacks; a light; and six players as flat black
    silhouettes, never likenesses: two guitars, a bass, keys and two drummers. */
 
-/* How near a walk comes to the stage's centre: the platform's edge stands 9.5 m out, and a bear's belly reaches 1.3 m ahead of its centre
-   below the platform's top. */
-export const STAGE_REACH = 11;
-/* The column the third-person camera keeps out of (avatar.js): every solid of the stage stands inside it, the PA stacks' outer corners
-   10.9 m from the centre and the roof's top 8.45 m above the floor, and no walk does. */
-export const STAGE_COLUMN = { x: STAGE[0], z: STAGE[1], r: 10.95, top: SHELF_Y + 8.45 };
+/* The walk's reach round the stage and the column the third-person camera keeps out of, STAGE_REACH and STAGE_COLUMN, are ground.js's:
+   they follow the platform's edge, the PA stacks' outer corners and the roof's top built here. */
 /* Where the show sounds from: over the platform's centre, 2 m above the shelf, which puts it 0.8 m above the platform's floor (1.2 m
    up); and the way its sound faces: the stage's own. */
 export const STAGE_SOUND = { x: STAGE[0], y: SHELF_Y + 2, z: STAGE[1], facing: [Math.sin(FACING), 0, Math.cos(FACING)] };

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { median, stepDown } from "../../../public/world/quality.js";
+import { frameSampler, median, SLOW_MS, stepDown, WINDOW } from "../../../public/world/quality.js";
 
 interface Quality {
   scale: number;
@@ -18,6 +18,11 @@ function rungsBelow(from: Quality): (Quality | null)[] {
     rungs.push(q);
   }
   return rungs;
+}
+
+/* Feeds a sampler `count` frames of `ms` each, drawn while the world loads or not, and returns what each frame asked for. */
+function feed(sampler: ReturnType<typeof frameSampler>, count: number, ms: number, loading: boolean): boolean[] {
+  return Array.from({ length: count }, () => sampler.add(ms, loading));
 }
 
 describe("median", () => {
@@ -65,5 +70,42 @@ describe("stepDown", () => {
   it("steps a phone's 0.85 down to 0.68, 0.544 and the 0.5 floor", () => {
     const phone: Quality = { scale: 0.85, shadows: false, octaves: 3, bears: 3, stageLight: false };
     expect(rungsBelow(phone).slice(0, 3).map((q) => q?.scale)).toEqual([0.68, 0.544, 0.5]);
+  });
+});
+
+describe("frameSampler", () => {
+  it("asks for a rung down at the end of a window whose median is over SLOW_MS", () => {
+    const sampler = frameSampler();
+    expect(feed(sampler, WINDOW, 100, false).indexOf(true)).toBe(WINDOW - 1);
+    expect(sampler.frameMs).toBe(100);
+  });
+
+  it("keeps a window at SLOW_MS, so a display capped at 30 Hz is not taken for a slow device", () => {
+    expect(feed(frameSampler(), WINDOW, SLOW_MS, false)).not.toContain(true);
+  });
+
+  it("decides on the median, so a few slow frames in a window step nothing down", () => {
+    const sampler = frameSampler();
+    const asks = [...feed(sampler, WINDOW - 10, 16, false), ...feed(sampler, 10, 500, false)];
+    expect(asks).not.toContain(true);
+    expect(sampler.frameMs).toBe(16);
+  });
+
+  it("measures a slow window drawn while the world loads, and asks for nothing", () => {
+    const sampler = frameSampler();
+    expect(feed(sampler, WINDOW, 100, true)).not.toContain(true);
+    expect(sampler.frameMs).toBe(100);
+  });
+
+  it("lets a window that holds one frame of the load decide nothing", () => {
+    const sampler = frameSampler();
+    const asks = [...feed(sampler, 1, 100, true), ...feed(sampler, WINDOW - 1, 100, false)];
+    expect(asks).not.toContain(true);
+  });
+
+  it("asks for a rung down at the end of the first slow window after the load", () => {
+    const sampler = frameSampler();
+    feed(sampler, WINDOW, 100, true);
+    expect(feed(sampler, WINDOW, 100, false).indexOf(true)).toBe(WINDOW - 1);
   });
 });

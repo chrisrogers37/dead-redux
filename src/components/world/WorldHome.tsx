@@ -4,11 +4,12 @@ import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } 
 import type { DerivedSets, ShowSummary, Source, Track } from "@/lib/types";
 import { formatDate, formatDuration, formatRating } from "@/lib/format";
 import { flatten } from "@/lib/queue";
-import { deriveSets, segueOut } from "@/lib/sets";
+import { deriveSets } from "@/lib/sets";
 import { ShareButtons } from "@/components/ShareButtons";
 import { Player, type PlayerState, type Routing } from "@/components/player/Player";
 import { keyBelongsToControl, lettersActive, setSingleKey, singleKeyOn, subscribeSingleKey } from "@/components/player/keys";
 import { useEventListener } from "@/components/player/useEventListener";
+import { worldData } from "./data";
 import { firstPersonOn, setFirstPerson, subscribeView } from "./view";
 import { NoRecording } from "./NoRecording";
 import { soundLabel } from "@/lib/sound";
@@ -16,12 +17,6 @@ import { LeanBackCorner } from "./LeanBackCorner";
 import { NextChip, useNextShow, type PastPick } from "./NextShow";
 
 interface Props { show: ShowSummary; featuredDate: string; today: string; renderedAt: number; pastPick: PastPick | null; bestSource: Source | null; isToday: boolean; tourName: string | null; testHooks: boolean; lookupFailed: boolean; }
-
-function seedFromDate(date: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < date.length; i++) { h ^= date.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return (h >>> 0) % 1000;
-}
 
 /* A value read once, not watched. */
 function subscribe() { return () => {}; }
@@ -111,13 +106,15 @@ function DetailsPanel({ source, show, tracks, tourName, routing, world, archiveU
           First-person view: {first ? "on" : "off"}
         </button>
       )}
+      {/* The two links grow into the 12 px between the panel's rows (space-y-3), which the same negative margin gives back: each is at
+          least 44 px tall, and nothing around it moves. */}
       <p className="t-row">
-        <a href="https://archive.org/details/GratefulDead" target="_blank" rel="noopener noreferrer" className="text-muted underline hover:text-ink">
+        <a href="https://archive.org/details/GratefulDead" target="_blank" rel="noopener noreferrer" className="text-muted underline hover:text-ink inline-flex py-3 -my-3">
           Recordings stream from the Live Music Archive under the band&rsquo;s non-commercial trading policy
         </a>
       </p>
       <p className="t-row">
-        <a href={archiveUrl} target="_blank" rel="noopener noreferrer" className="text-muted underline hover:text-ink">Open on archive.org ↗</a>
+        <a href={archiveUrl} target="_blank" rel="noopener noreferrer" className="text-muted underline hover:text-ink inline-flex py-3 -my-3">Open on archive.org ↗</a>
       </p>
     </div>
   );
@@ -127,17 +124,7 @@ function DetailsPanel({ source, show, tracks, tourName, routing, world, archiveU
 export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bestSource, isToday, tourName, testHooks, lookupFailed }: Props) {
   const tracks = useMemo(() => flatten(bestSource), [bestSource]);
   const sets = useMemo(() => (bestSource ? deriveSets(bestSource) : NO_SETS), [bestSource]);
-  const data = useMemo(() => JSON.stringify({
-    featuredDate,
-    showDate: show.date,
-    identifier: bestSource?.upstreamIdentifier ?? null,
-    venue: show.venue,
-    location: show.location,
-    seed: seedFromDate(featuredDate),
-    set2Start: sets.set2Start,
-    encoreStart: sets.encoreStart,
-    tracks: tracks.map((t) => ({ title: t.title, duration: t.duration, segueOut: segueOut(t.title) })),
-  }), [featuredDate, show, bestSource, tracks, sets]);
+  const data = useMemo(() => JSON.stringify(worldData(featuredDate, show, bestSource, tracks, sets)), [featuredDate, show, bestSource, tracks, sets]);
 
   const [leanback, setLeanback] = useState(false);
   const [follow, setFollow] = useState(false);

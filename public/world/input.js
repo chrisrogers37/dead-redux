@@ -14,19 +14,23 @@ function forTheWorld(e) {
   return !(t instanceof HTMLElement && (t.isContentEditable || t.matches("input, select, textarea")));
 }
 
+/* The player's rule (lettersActive in src/components/player/keys.ts): letters act while single-key shortcuts are on (the page mirrors
+   the Details switch on <main>), or while the world has focus. */
+export function lettersActive(main, e) {
+  return main?.dataset.singleKey !== "off" || (e.target instanceof Element && e.target.closest("#world") !== null);
+}
+
 export function bindInput(container, walker, userInput) {
   const main = document.querySelector("main");
-  /* The player's rule: letters act while single-key shortcuts are on (the page mirrors the Details switch on <main>), or while the world has focus. */
-  const lettersActive = (e) => main?.dataset.singleKey !== "off" || (e.target instanceof Element && e.target.closest("#world") !== null);
   const keys = { fwd: false, back: false, left: false, right: false, strafeL: false, strafeR: false, run: false, lookUp: false, lookDown: false };
   const input = { keys };
   let drag = null;
   /* No preventDefault: the page has nothing to scroll, and a TV's D-pad keeps moving focus between the controls. */
   window.addEventListener("keydown", (e) => {
     /* B asks the player to start the show first (nothing once it has), then toggles walking with the bears. */
-    if (e.code === "KeyB" && !e.repeat && forTheWorld(e) && lettersActive(e)) { document.dispatchEvent(new Event("player:join")); userInput("follow"); return; }
+    if (e.code === "KeyB" && !e.repeat && forTheWorld(e) && lettersActive(main, e)) { document.dispatchEvent(new Event("player:join")); userInput("follow"); return; }
     const k = KEYMAP[e.code];
-    if (!k || !forTheWorld(e) || (e.code.startsWith("Key") && !lettersActive(e))) return;
+    if (!k || !forTheWorld(e) || (e.code.startsWith("Key") && !lettersActive(main, e))) return;
     keys[k] = true;
     if (k !== "run") userInput(k);
   });

@@ -6,6 +6,8 @@ import { formatDate } from "@/lib/format";
 import { corsAfterError, stateAfterError } from "@/lib/fallback";
 import { nextIndex, prevIndex, setName } from "@/lib/queue";
 import { Transport } from "./Transport";
+import { cueQueue } from "./cue";
+import { joinMoves } from "./join";
 import { keyBelongsToControl, lettersActive } from "./keys";
 import { useEventListener } from "./useEventListener";
 import { useFirstMove } from "./useFirstMove";
@@ -176,15 +178,6 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
     }
   }
 
-  /** Moves the queue to a track and tells the world. */
-  function setIndex(index: number) {
-    const g = eng.current;
-    if (index === g.index) return;
-    const from = g.index;
-    g.index = index;
-    document.dispatchEvent(new CustomEvent("player:track", { detail: { index, from } }));
-  }
-
   function showTrack(index: number, position: number) {
     setView({ index, position, duration: tracks[index].duration });
   }
@@ -232,7 +225,7 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
     g.over = false;
     setOver(false);
     cue(g.active, i, seconds);
-    setIndex(i);
+    cueQueue(g, i, seconds);
     showTrack(i, seconds);
     if (g.wantPlay) {
       setState("loading");
@@ -252,8 +245,8 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
   }
 
   /**
-   * Starts the show, synchronously inside the activating event's handler: play() first, then player:start, whose listener in the world
-   * creates and resumes the AudioContext under the same user activation. Nothing here awaits.
+   * Starts the show, synchronously inside the activating event's handler. Its first moves are joinMoves', in the order a phone's audio
+   * needs. Nothing here awaits.
    */
   function join() {
     const g = eng.current;
@@ -266,14 +259,21 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
     playbackSession();
     const at = startAt && fits(startAt, tracks.length) ? startAt : null;
     const from = at ?? readResume(featuredDate, tracks.length);
-    if (from) goTo(from.index, from.seconds);
-    else if (failed) cue(g.active, g.index, 0);
-    play();
-    document.dispatchEvent(new Event("player:start"));
+    joinMoves(from, failed, { goTo, recue: () => cue(g.active, g.index, 0), play });
     if (TWO_ELEMENTS) unlockIdle();
     setJoined(true);
     setState("loading");
     if (!at && from) showNote(`Resumed at ${from.index + 1} of ${tracks.length}`);
+  }
+
+  /** A failed track loads again from where it stopped, with its reloads to come: Try again, and the play button after an error. */
+  function tryAgain() {
+    const g = eng.current;
+    const el = activeEl();
+    if (!el) return;
+    g.wantPlay = true;
+    g.held[g.active] = -1;
+    goTo(g.index, el.currentTime);
   }
 
   /** The play button, Space and K: the first press starts the show, then each press pauses or plays. */
@@ -291,9 +291,7 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
       return;
     }
     if (state === "error") {
-      g.wantPlay = true;
-      g.held[g.active] = -1;
-      goTo(g.index, el.currentTime);
+      tryAgain();
       return;
     }
     if (el.paused) play();
@@ -358,7 +356,7 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
     if (TWO_ELEMENTS && slotEl(slot) && g.held[slot] === next) g.active = slot;
     else cue(g.active, next, 0);
     play();
-    setIndex(next);
+    cueQueue(g, next, 0);
     showTrack(next, 0);
   }
 
@@ -610,6 +608,7 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
         onPlay={() => toggle()}
         onNext={next}
         onSeek={seekTo}
+        onRetry={tryAgain}
       >
         {children}
       </Transport>

@@ -16,7 +16,7 @@ export function Archive({ months, open }: ArchiveProps) {
 
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-8" data-month={open?.key}>
-      <nav className="flex items-baseline justify-between">
+      <nav aria-label="Site" className="flex items-baseline justify-between">
         {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the world starts once per page load */}
         <a href="/" className="t-tag text-muted hover:text-ink">Dead Redux</a>
         {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the world starts once per page load */}
@@ -71,12 +71,14 @@ export function Archive({ months, open }: ArchiveProps) {
           </a>
           {" "}&middot; {count} show{count !== 1 ? "s" : ""} featured
         </p>
+        {/* The credit grows into the 8 px between the footer's paragraphs (space-y-2), which the same negative margin gives back: its
+            two or more lines make it over 44 px tall, and nothing around it moves. */}
         <p>
           <a
             href="https://archive.org/details/GratefulDead"
             target="_blank"
             rel="noopener noreferrer"
-            className="underline hover:text-ink"
+            className="underline hover:text-ink inline-flex py-2 -my-2"
           >
             Recordings stream from the Live Music Archive under the band&rsquo;s non-commercial trading policy
           </a>

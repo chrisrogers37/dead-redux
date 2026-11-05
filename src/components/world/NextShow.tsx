@@ -124,10 +124,15 @@ interface ChipProps {
   leanback: boolean;
 }
 
-/** The chip: the eyebrow for a past pick, the line, and the link that loads the next show. It blocks nothing and takes no focus. */
+/**
+ * The chip: the eyebrow for a past pick, the line, and the link that loads the next show. It blocks nothing and takes no focus.
+ * Out of lean-back it is as wide as the plate beside it: the past pick as the now-plate, and the new day's chip as the title plate,
+ * since it adds nothing to that column's width (its inline size is contained) and stretches to it, wrapping its line.
+ */
 export function NextChip({ next, leanback }: ChipProps) {
+  const width = leanback ? "" : next.kind === "past" ? "sm:w-[360px]" : "self-stretch contain-inline-size";
   return (
-    <div data-next={next.kind} role="status" className={`plate chip ${next.kind === "past" && !leanback ? "sm:w-[360px]" : ""}`}>
+    <div data-next={next.kind} role="status" className={`plate chip ${width}`}>
       {next.kind === "past" && (
         <p className={leanback ? "text-[20px] leading-7 font-mono uppercase tracking-[0.12em] text-muted" : "t-tag text-muted"}>From the archive</p>
       )}

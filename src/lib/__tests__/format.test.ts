@@ -194,9 +194,9 @@ describe("formatRating", () => {
 });
 
 describe("formatMonthDay", () => {
-  it("gives the month and day", () => {
-    expect(formatMonthDay("2026-10-27")).toBe("October 27");
-    expect(formatMonthDay("1977-05-08")).toBe("May 8");
+  it("gives the month and day, joined by a no-break space", () => {
+    expect(formatMonthDay("2026-10-27")).toBe("October\u00a027");
+    expect(formatMonthDay("1977-05-08")).toBe("May\u00a08");
   });
 
   it("leaves a partial date as written", () => {
