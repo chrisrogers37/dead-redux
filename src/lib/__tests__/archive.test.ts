@@ -5,6 +5,7 @@ import {
   getDailyPick,
   getDailyPicksRange,
   getLaunchDate,
+  monthPath,
 } from "../archive";
 import { getTodayDateStr } from "../site-day";
 
@@ -105,5 +106,23 @@ describe("archiveMonths", () => {
 
   it("has no months with no picks", () => {
     expect(archiveMonths([])).toEqual([]);
+  });
+});
+
+describe("monthPath", () => {
+  const months = archiveMonths(getArchivePicks("2026-10-20"));
+
+  it("is /archive for the newest month, which /archive shows open", () => {
+    expect(monthPath(months, "2026-10")).toBe("/archive");
+  });
+
+  it("is its own page for every other month", () => {
+    expect(monthPath(months, "2026-09")).toBe("/archive/2026-09");
+    expect(monthPath(months, "2026-02")).toBe("/archive/2026-02");
+  });
+
+  it("moves to the month's own page once the next month opens", () => {
+    expect(monthPath(archiveMonths(getArchivePicks("2026-11-01")), "2026-10")).toBe("/archive");
+    expect(monthPath(archiveMonths(getArchivePicks("2026-11-02")), "2026-10")).toBe("/archive/2026-10");
   });
 });

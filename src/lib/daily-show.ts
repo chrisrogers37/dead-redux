@@ -1,5 +1,6 @@
 import showCatalog from "../../data/shows.json";
 import pickSchedule from "../../data/pick-schedule.json";
+import { formatDate } from "./format";
 import { showDateFor, type PickSchedule } from "./pick-schedule";
 import type { ShowSummary } from "./types";
 
@@ -21,6 +22,20 @@ export function getDailyShow(dateStr: string): ShowSummary {
     throw new Error(`${showDate} is in data/pick-schedule.json but not in data/shows.json`);
   }
   return show;
+}
+
+/**
+ * How a featured day names its show, in its page's title and description and in the feed: "Rich Stadium — 1986-07-04", and
+ * "Featured on October 20, 2026: Rich Stadium, Buffalo, NY, USA, July 4, 1986".
+ *
+ * @param dateStr - The featured day, ISO date string "YYYY-MM-DD".
+ */
+export function describeDay(dateStr: string): { title: string; description: string } {
+  const show = getDailyShow(dateStr);
+  return {
+    title: `${show.venue} — ${show.date}`,
+    description: `Featured on ${formatDate(dateStr)}: ${show.venue}, ${show.location}, ${formatDate(show.date)}`,
+  };
 }
 
 /**

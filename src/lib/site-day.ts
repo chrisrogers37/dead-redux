@@ -22,6 +22,21 @@ export function getTodayDateStr(now: Date = new Date()): string {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+const offsetFormat = new Intl.DateTimeFormat("en-US", { timeZone: TIME_ZONE, timeZoneName: "longOffset" });
+
+/**
+ * The moment the site's day `day` begins: midnight in the site's time zone. The zone's clocks change at 2 a.m., so its offset at
+ * midnight UTC, the evening before there, still holds at its own midnight.
+ */
+export function dayStart(day: string): Date {
+  const midnightUtc = Date.parse(`${day}T00:00:00Z`);
+  const zone = offsetFormat.formatToParts(midnightUtc).find((part) => part.type === "timeZoneName")?.value ?? "";
+  // "GMT-04:00", or "GMT" for an offset of none.
+  const [, sign, hours, minutes] = /^GMT([+-])(\d{2}):(\d{2})$/.exec(zone) ?? ["", "+", "00", "00"];
+  const offset = (sign === "-" ? -1 : 1) * (Number(hours) * 60 + Number(minutes)) * 60 * 1000;
+  return new Date(midnightUtc - offset);
+}
+
 /** The site's day now and the moment it was read, for a page to hand its day watcher. */
 export function readSiteDay(): { day: string; at: number } {
   const now = new Date();

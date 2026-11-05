@@ -1,9 +1,10 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { randomPastPick } from "@/lib/archive";
-import { getDailyShow, isValidDateStr } from "@/lib/daily-show";
-import { formatDate } from "@/lib/format";
+import { describeDay, getDailyShow, isValidDateStr } from "@/lib/daily-show";
 import { lookUpShow, pickBestSource } from "@/lib/relisten";
+import { alternatesFor } from "@/lib/site";
 import { readSiteDay } from "@/lib/site-day";
 import { forcedLookup, testHooksEnabled } from "@/lib/test-hooks";
 import { WorldHome } from "@/components/world/WorldHome";
@@ -13,14 +14,11 @@ interface PageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-export async function generateMetadata({ params }: PageProps) {
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { date } = await params;
   if (!isValidDateStr(date)) return { title: "Dead Redux" };
-  const show = getDailyShow(date);
-  return {
-    title: `${show.venue} — ${show.date} | Dead Redux`,
-    description: `Featured on ${formatDate(date)}: ${show.venue}, ${show.location}, ${formatDate(show.date)}`,
-  };
+  const { title, description } = describeDay(date);
+  return { title: `${title} | Dead Redux`, description, alternates: alternatesFor(`/${date}`) };
 }
 
 export default async function DailyShowPage({ params, searchParams }: PageProps) {
