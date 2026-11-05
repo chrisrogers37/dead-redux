@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Bricolage_Grotesque, DM_Mono } from "next/font/google";
+import { SITE_DESCRIPTION, SITE_URL } from "@/lib/site";
 import "./globals.css";
 
 const grotesk = Bricolage_Grotesque({ subsets: ["latin"], axes: ["opsz", "wdth"], variable: "--font-grotesk", display: "swap" });
@@ -7,9 +8,9 @@ const mono = DM_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--
 
 export const metadata: Metadata = {
   title: "Dead Redux",
-  description: "A new Grateful Dead show every day",
-  metadataBase: new URL("https://dead-redux.vercel.app"),
-  openGraph: { type: "website", siteName: "Dead Redux", title: "Dead Redux", description: "A new Grateful Dead show every day" },
+  description: SITE_DESCRIPTION,
+  metadataBase: new URL(SITE_URL),
+  openGraph: { type: "website", siteName: "Dead Redux", title: "Dead Redux", description: SITE_DESCRIPTION },
   twitter: { card: "summary_large_image" },
   other: {
     "mobile-web-app-capable": "yes",
