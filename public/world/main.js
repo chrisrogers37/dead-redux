@@ -170,7 +170,7 @@ function start(gl) {
   let third = true, cut = false;
   /* The test hooks ?pose=stage, ?pose=slope and ?pose=path, on preview deployments only (the server marks <main data-test-hooks="1">):
      the walk starts with the visitor on the slope in front of the stage, higher up it, or on the path where it shows the stage
-     (ground.js), with no descent, and no idle time hands the view to attract. ?pose=sweep is the same walk from the trailhead, for the
+     (ground.js), with no descent. ?pose=sweep is the same walk from the trailhead, for the
      CI shoot's draw-call sweep: a `world:pose` event (x, z, heading, pitch) puts the visitor anywhere with the camera cut, the world
      holds rung 0, and it draws at a twentieth of the frame's size, which changes no draw call: three culls against the camera, whose
      aspect stays the frame's. ?pose=snout stands the walker in front of the lead bear's snout looking a little down, and ?pose=pass
@@ -242,9 +242,8 @@ function start(gl) {
     mode = m;
     document.dispatchEvent(new CustomEvent("world:mode", { detail: { mode } }));
   }
-  /* What changes the mode (modes.js): the controls, lean-back's switch and the frames. Under reduced motion and a test pose no idle
-     time hands the view to attract. */
-  const rules = modeRules(() => mode, setMode, !reduced && !posed);
+  /* What changes the mode (modes.js): the controls, lean-back's switch and the frames. */
+  const rules = modeRules(() => mode, setMode);
   /* A control the world takes wakes it for a frame; lean-back takes none. */
   function userInput(action) {
     if (rules.input(action)) wake();
