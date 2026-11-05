@@ -454,7 +454,7 @@ describe("modeRules", () => {
     const camera = { position: { x: 0, y: 60, z: 0 } };
     // What each frame does to the bear: a walk with nothing held leaves it where it stands (main.js), and the bears' cameras walk it in
     // its place in the line (MODES).
-    const frameDoes = { ...MODES, walk: () => {} };
+    const frameDoes: typeof MODES = { ...MODES, walk: () => {} };
     run(60, () => {
       frameDoes[world.mode](walker, SLOT);
       head.x = walker.x;
