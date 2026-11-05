@@ -153,6 +153,34 @@ describe("confine", () => {
     expect(p.x).toBeCloseTo(bear.x + BODY_REACH * Math.sin(0.7), 9);
     expect(p.z).toBeCloseTo(bear.z + BODY_REACH * Math.cos(0.7), 9);
   });
+
+  // A keep-out centred 1 m inside the bound, and a walker 20 m past the bound on the same bearing, clear of it: the clamp brings the
+  // walker 1 m from the keep-out's centre, and the keep-out moves it out to its edge, past the bound. The world's own keep-outs lie
+  // wholly inside the bound (BOUND, public/world/ground.js), where the clamp's place cannot show.
+  const atBound = { x: 0, z: BOUND - 1 };
+  const pastBound = (): Spot => ({ x: 0, z: BOUND + 20, heading: 0 });
+
+  it("clamps before the stage keeps a walker out: one the clamp brings into the stage's reach ends at its edge, past the bound", () => {
+    const p = pastBound();
+    confine(p, { ...limits(), stages: [atBound] });
+    expect(p.x).toBeCloseTo(0, 9);
+    expect(p.z).toBeCloseTo(atBound.z + STAGE_REACH, 9);
+  });
+});
+
+describe("fits", () => {
+  // The stage's column and a second one three reaches west of it. The world has one column, but a walk keeps out of each one `stages`
+  // holds.
+  const second = { ...STAGE_COLUMN, x: STAGE_COLUMN.x - 3 * STAGE_REACH };
+  const twoColumns = { ...limits(), stages: [STAGE_COLUMN, second] };
+
+  it("keeps a walker out of each column's reach, not only out of one's", () => {
+    // Half a reach from one column's centre, on the side away from the other.
+    expect(fits({ x: STAGE_COLUMN.x + STAGE_REACH / 2, z: STAGE_COLUMN.z }, twoColumns)).toBe(false);
+    expect(fits({ x: second.x - STAGE_REACH / 2, z: second.z }, twoColumns)).toBe(false);
+    // Midway between the two, a reach and a half from each.
+    expect(fits({ x: STAGE_COLUMN.x - 1.5 * STAGE_REACH, z: STAGE_COLUMN.z }, twoColumns)).toBe(true);
+  });
 });
 
 describe("walkFrom", () => {
