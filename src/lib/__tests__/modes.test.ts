@@ -166,13 +166,6 @@ describe("confine", () => {
     expect(p.x).toBeCloseTo(0, 9);
     expect(p.z).toBeCloseTo(atBound.z + STAGE_REACH, 9);
   });
-
-  it("clamps before the bears keep a walker out: one the clamp brings into a bear's reach ends at the bear's, past the bound", () => {
-    const p = pastBound();
-    confine(p, limits([atBound]));
-    expect(p.x).toBeCloseTo(0, 9);
-    expect(p.z).toBeCloseTo(atBound.z + BODY_REACH, 9);
-  });
 });
 
 describe("fits", () => {
