@@ -98,6 +98,16 @@ describe("the stage's facing", () => {
   });
 });
 
+describe("the stage's reach and column", () => {
+  it("keeps a walk 11 m from the stage's centre", () => {
+    expect(STAGE_REACH).toBe(11);
+  });
+
+  it("holds the third-person camera out of a column 10.95 m round the stage's centre, up to 8.45 m over its shelf", () => {
+    expect(STAGE_COLUMN).toEqual({ x: STAGE[0], z: STAGE[1], r: 10.95, top: SHELF_Y + 8.45 });
+  });
+});
+
 describe("?pose=stage", () => {
   it("stands in front of the stage, beyond its reach and within the walk's bound, facing its centre", () => {
     expect(fromStage(STAGE_POSE)).toBeGreaterThan(STAGE_REACH);
