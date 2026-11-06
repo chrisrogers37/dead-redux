@@ -63,7 +63,7 @@ body { background-color: var(--page); color: var(--ink); }
    and a 16-px accent thumb ringed in the page colour. The padding makes the band: it starts where the control row ends, so the two
    never share a touch, and the track lies 12 px into it (16 under lean-back's line), with the rest below. A block, so the margin
    alone takes the padding back: 7 px stays under the track, as it did. */
-.seek { appearance: none; display: block; box-sizing: content-box; height: 6px; padding: 12px 0 26px; margin: 0 0 -19px; background: none; }
+.seek { --p: 0%; appearance: none; display: block; box-sizing: content-box; height: 6px; padding: 12px 0 26px; margin: 0 0 -19px; background: none; }
 .seek::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent) var(--p), var(--line) var(--p)); }
 .seek::-moz-range-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent) var(--p), var(--line) var(--p)); }
 /* WebKit and Blink hang the thumb from the track's top, so it is pulled up by half the difference; Gecko centres its own. */
