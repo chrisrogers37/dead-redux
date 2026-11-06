@@ -373,7 +373,7 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
     // How long ago the sky's last drop fell, in seconds of world time.
     sinceDrop: () => (fake.world.sky.uniforms.uDrop.value as { z: number }).z,
     // The beam over the song's landmark, the one mesh main.js makes itself.
-    beam: () => fake.world.meshes[0].material as { opacity: number },
+    beam: () => fake.world.meshes[0].material as { opacity: number; color: number },
     // The page's clock, in ms.
     now: () => now,
   };
@@ -518,13 +518,27 @@ describe("main.js's frames with the show's map", () => {
     expect(fake.world.flame.scale.x).toBeCloseTo(1 + 1.2 * 0.65, 9);
     page.run(7);
     expect(fake.world.flame.scale.x).toBeCloseTo(2.2, 9);
-    // The beam over the song's landmark is 2.5 times as bright, at 0.4 of its colour.
-    expect(page.beam().opacity).toBeCloseTo(0.4, 9);
+    // The beam over the song's landmark is 1.2 times as bright, at 0.192 of its colour.
+    expect(page.beam().opacity).toBeCloseTo(0.192, 9);
     // Past the peak the build-up falls 0.025 a frame, so it is gone within 0.8 s.
     page.run(0.02);
     expect(fake.world.flame.scale.x).toBeCloseTo(1 + 1.2 * 0.975, 9);
     page.run(0.8);
     expect(fake.world.flame.scale.x).toBe(1);
+  });
+
+  it("keeps every channel under the clip where the beam crosses the sand rim, at the top of its build-up", async () => {
+    // The rim as the stills read it, in 8-bit sRGB. Under additive blending a ray through the beam crosses its two faces, each adding the
+    // beam's colour times its opacity.
+    const RIM = [161, 133, 111];
+    const page = await startWorld({ playing: true, routing: "plain", map: showMap({ peaks: [[300, 0.9]] }) });
+    page.seek(296);
+    page.run(4);
+    // At 300 s the build-up stands at its top.
+    expect(hill().map?.build).toBe(1);
+    const { opacity, color } = page.beam();
+    const beam = [(color >> 16) & 255, (color >> 8) & 255, color & 255];
+    RIM.forEach((channel, k) => expect(channel + 2 * opacity * beam[k], `channel ${k}`).toBeLessThan(255));
   });
 
   it("drops a ring in the sky as the music passes a peak", async () => {

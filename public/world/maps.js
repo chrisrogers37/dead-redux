@@ -259,7 +259,11 @@ export async function loadMap(data, fetchMap = (url) => fetch(url)) {
   let map;
   try {
     const res = await fetchMap(url);
-    if (!res.ok) return null;
+    /* A day without a map: its 404's body is let go, so the request ends. */
+    if (!res.ok) {
+      res.body?.cancel().catch(() => {});
+      return null;
+    }
     map = await res.json();
   } catch (err) {
     return skip(err instanceof Error ? err.message : String(err));

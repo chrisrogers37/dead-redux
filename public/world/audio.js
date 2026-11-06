@@ -254,11 +254,15 @@ const lerp = (a, b, t) => a + (b - a) * t;
 /* The panel's factor at the top of its range, where the build-up takes it at a peak: the most before the brightest of the sky's colours,
    amber's red, clips. */
 const PANEL_TOP = 1.2;
+/* The beam's factor at the top of its range, where the build-up takes it at a peak: the most before red clips where the beam crosses the
+   island's sand rim. At the beam's own opacity its two faces add 74, 56 and 24 to the rim's 161, 133 and 111, as the stills read them,
+   so red reaches 255 from about 1.27 times. */
+const BEAM_TOP = 1.2;
 /* What the music does to the world, from the last drive heard (null for none; the live sound's, or the show's map's where the analyser
    cannot hear the show) and how far the world follows it (`weight`, 0-1): factors on the sky's energy, the hemisphere light, the stage
    light, the panel's colour and the flame's light, each multiplying that one's own value; the amber mix; and the bears' leg rate (rad/s)
    and swing (rad). `build` (0-1) is the map's build-up before a peak (maps.js buildUp), which acts with the weight, so it rests when the
-   music does: it takes the panel toward PANEL_TOP, brightens the beam over the song's landmark up to 2.5 times, and swells the flame up
+   music does: it takes the panel toward PANEL_TOP and the beam over the song's landmark toward BEAM_TOP, and swells the flame up
    to 2.2 times its size, each a factor on its own value too. At weight 0 every factor is 1, the mix 0 and the legs as they were,
    exactly. */
 export function mappings(drive, weight, build = 0) {
@@ -273,7 +277,7 @@ export function mappings(drive, weight, build = 0) {
     amber: 0.3 * R * weight,
     rate: lerp(6, 6 + 6 * L, weight),
     amp: lerp(0.5, 0.35 + 0.3 * B, weight),
-    beam: 1 + 1.5 * lift,
+    beam: lerp(1, BEAM_TOP, lift),
     swell: 1 + 1.2 * lift,
   };
 }

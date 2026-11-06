@@ -149,13 +149,13 @@ describe("mappings", () => {
     expect(half.rate).toBeCloseTo(9, 9);
   });
 
-  it("takes the panel to the top of its range at a peak's full build-up, whatever the drive, brightens the beam and swells the flame", () => {
-    for (const drive of [FULL, SILENT]) expectClose(mappings(drive, 1, 1), { panel: 1.2, beam: 2.5, swell: 2.2 });
+  it("takes the panel and the beam to the tops of their ranges at a peak's full build-up, whatever the drive, and swells the flame", () => {
+    for (const drive of [FULL, SILENT]) expectClose(mappings(drive, 1, 1), { panel: 1.2, beam: 1.2, swell: 2.2 });
   });
 
   it("is halfway there at half the build-up, and at half the weight, with which the build-up acts", () => {
-    expectClose(mappings(SILENT, 1, 0.5), { panel: 0.9, beam: 1.75, swell: 1.6 });
-    expectClose(mappings(SILENT, 0.5, 1), { panel: 1, beam: 1.75, swell: 1.6 });
+    expectClose(mappings(SILENT, 1, 0.5), { panel: 0.9, beam: 1.1, swell: 1.6 });
+    expectClose(mappings(SILENT, 0.5, 1), { panel: 1, beam: 1.1, swell: 1.6 });
   });
 });
 

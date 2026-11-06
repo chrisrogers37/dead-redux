@@ -505,6 +505,15 @@ describe("loadMap", () => {
     expect(warnings).toEqual([]);
   });
 
+  it("lets go of a missing map's body, so its request ends", async () => {
+    // A body that stays open until it is read or cancelled, as a 404's does in a browser.
+    let cancelled = false;
+    const body = new ReadableStream({ pull: (controller) => controller.close(), cancel: () => void (cancelled = true) }, { highWaterMark: 0 });
+    const response = new Response(body, { status: 404 });
+    expect(await loadMap(DATA, async () => response)).toBeNull();
+    expect(cancelled || response.bodyUsed).toBe(true);
+  });
+
   it("takes a duration under half a second off", async () => {
     const map = await loadMap(withTrack(1, { duration: 30.4 }), answer(JSON.stringify(fixture)));
     expect(map).not.toBeNull();
