@@ -38,6 +38,9 @@ const fake = vi.hoisted(() => {
     lerp(v: Point3, a: number) {
       return this.set(this.x + (v.x - this.x) * a, this.y + (v.y - this.y) * a, this.z + (v.z - this.z) * a);
     }
+    multiplyScalar(s: number) {
+      return this.set(this.x * s, this.y * s, this.z * s);
+    }
   }
   type Bear = { g: { position: Vec; rotation: { y: number } }; legs: { rotation: { x: number } }[]; phase: number };
 
@@ -149,6 +152,7 @@ const fake = vi.hoisted(() => {
             uC2: { value: new Vec() },
             uPage: { value: new Vec() },
             uDrop: { value: new Vec() },
+            uAmber: { value: 0 },
           },
         },
         hemi: { color: new Vec() },
