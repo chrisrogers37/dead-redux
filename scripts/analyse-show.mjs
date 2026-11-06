@@ -93,24 +93,33 @@ async function errorOf(res) {
 /**
  * Makes requests one at a time, with a pause before each but the first. A request that fails is retried after the longer pauses
  * of RETRY_PAUSES_MS, unless the server refused it for good (a 4xx other than 429). A failure inside `read` (a cut stream, a
- * short body) counts as the request failing.
+ * short body) counts as the request failing. A request on a `domain` takes an answer only from that domain or one of its
+ * subdomains: an answer from anywhere else, whatever its status, is let go unread, and the attempt fails.
  *
  * @param io - { fetch, sleep, log }.
- * @returns `request(url, read)`: the result of `read(response)`.
+ * @returns `request(url, read, domain)`: the result of `read(response)`. `domain` may be left out; when it is given, `url` is on it.
  */
 export function politeClient(io) {
   let started = false;
   let tail = Promise.resolve();
 
-  async function attempt(url, read) {
+  async function attempt(url, read, domain) {
     const res = await io.fetch(url, { headers: { "User-Agent": USER_AGENT } });
+    // The host is checked before the status, so that neither errorOf nor read sees a body from outside the domain.
+    if (domain !== undefined) {
+      const { hostname } = new URL(res.url);
+      if (hostname !== domain && !hostname.endsWith(`.${domain}`)) {
+        await res.body?.cancel();
+        throw new Error(`redirected off ${domain}, to ${hostname}`);
+      }
+    }
     if (!res.ok) {
       throw new HttpError(url, res.status, res.headers.get("server"), res.headers.get("cf-mitigated"), await errorOf(res));
     }
     return await read(res);
   }
 
-  async function run(url, read) {
+  async function run(url, read, domain) {
     if (started) {
       io.log(`  pause ${PAUSE_MS / 1000} s`);
       await io.sleep(PAUSE_MS);
@@ -118,7 +127,7 @@ export function politeClient(io) {
     started = true;
     for (let failures = 1; ; failures++) {
       try {
-        return await attempt(url, read);
+        return await attempt(url, read, domain);
       } catch (err) {
         const refused = err instanceof HttpError && err.status !== 429 && err.status < 500;
         if (refused || failures > RETRY_PAUSES_MS.length) throw err;
@@ -131,8 +140,8 @@ export function politeClient(io) {
   }
 
   return {
-    request(url, read) {
-      const result = tail.then(() => run(url, read));
+    request(url, read, domain) {
+      const result = tail.then(() => run(url, read, domain));
       // The next request waits for this one to finish, however it ends; its caller sees the failure.
       tail = result.then(
         () => undefined,
@@ -594,13 +603,7 @@ export async function analyseShow(date, request, io, site = SITE) {
   for (const [i, track] of tracks.entries()) {
     io.log(`  ${i + 1}/${tracks.length} ${track.title}: ${track.mp3Url}`);
     let bytes = 0;
-    const analysis = await request(track.mp3Url, async (res) => {
-      // archive.org answers a download from one of its own servers. An answer from anywhere else is let go unread.
-      const { hostname } = new URL(res.url);
-      if (hostname !== "archive.org" && !hostname.endsWith(".archive.org")) {
-        await res.body?.cancel();
-        throw new Error(`redirected off archive.org, to ${hostname}`);
-      }
+    const read = async (res) => {
       bytes = 0;
       const analyser = createAnalyser();
       await io.decode(
@@ -616,7 +619,9 @@ export async function analyseShow(date, request, io, site = SITE) {
         throw new Error(`fetched ${bytes} of ${length} bytes`);
       }
       return analyser.finish();
-    });
+    };
+    // archive.org answers a download from one of its own servers. The client lets an answer from anywhere else go unread.
+    const analysis = await request(track.mp3Url, read, "archive.org");
     const decoded = analysis.duration;
     io.log(`    ${bytes} bytes fetched, ${decoded.toFixed(2)} s decoded, ${track.duration} s listed`);
     if (decoded === 0) throw new Error(`${track.title}: decoded no audio`);

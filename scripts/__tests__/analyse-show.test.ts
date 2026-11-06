@@ -587,6 +587,22 @@ const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200
 const mp3 = (length = "1000") => new Response(new Uint8Array(1000), { headers: { "content-length": length } });
 // An answer as fetch gives it: its url is where it came from, which after a redirect is not the URL that was asked for.
 const from = (url: string, res: Response) => Object.defineProperty(res, "url", { value: url });
+// An answer whose body counts its pulls: a body let go unread is never pulled, and one that is read is.
+const counting = (text: string, init: ResponseInit) => {
+  const pulls = { count: 0 };
+  const body = new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        pulls.count++;
+        controller.enqueue(new TextEncoder().encode(text));
+        controller.close();
+      },
+    },
+    // Nothing is pulled until something reads.
+    { highWaterMark: 0 }
+  );
+  return { res: new Response(body, init), pulls };
+};
 
 // A whole run's io with nothing real in it. Relisten answers the same for every date; `answers` puts responses first in line for
 // a url. An answer comes from the url asked for, unless a test made it come from elsewhere.
@@ -739,10 +755,14 @@ describe("analyseShow", () => {
     expect(missing.urls).toEqual([PLAYING_URL]);
   });
 
-  // The route's answer with its first track changed, and one with n one-second tracks named by `title`.
+  // The route's answer with its first or last track changed, and one with n one-second tracks named by `title`.
   const withFirstTrack = (change: Record<string, unknown>) => {
     const listing = playing("1986-07-04");
     return { ...listing, tracks: [{ ...listing.tracks[0], ...change }, ...listing.tracks.slice(1)] };
+  };
+  const withLastTrack = (change: Record<string, unknown>) => {
+    const listing = playing("1986-07-04");
+    return { ...listing, tracks: [...listing.tracks.slice(0, -1), { ...listing.tracks[listing.tracks.length - 1], ...change }] };
   };
   const listingOf = (n: number, title = (i: number) => `Track ${i + 1}`) => ({
     ...playing("1986-07-04"),
@@ -769,6 +789,11 @@ describe("analyseShow", () => {
     {
       name: "an MP3 path that leaves /download/",
       listing: withFirstTrack({ mp3Url: "https://archive.org/download/sbd-id/../../services/x.mp3" }),
+      problem: notAFile,
+    },
+    {
+      name: "the last track on another host",
+      listing: withLastTrack({ mp3Url: "https://example.test/t02.mp3" }),
       problem: notAFile,
     },
     { name: "a length that is not a number", listing: withFirstTrack({ duration: "4" }), problem: noLength },
@@ -871,15 +896,33 @@ describe("analyseShow", () => {
     { name: "a host that ends in archive.org", to: "https://notarchive.org/t01.mp3" },
     { name: "a host that begins with archive.org", to: "https://archive.org.example.test/t01.mp3" },
   ])("lets a download redirected to $name go unread, and fails the show after its retries", async ({ to }) => {
-    const away = Array.from({ length: 3 }, () => from(to, mp3()));
-    const f = fakeRun({ answers: { [T01]: [...away] } });
+    const away = Array.from({ length: 3 }, () => counting("\0".repeat(1000), { headers: { "content-length": "1000" } }));
+    const f = fakeRun({ answers: { [T01]: away.map(({ res }) => from(to, res)) } });
     await expect(analyseShow("1986-07-04", politeClient(f.io).request, f.io)).rejects.toThrow(
       `redirected off archive.org, to ${new URL(to).hostname}`
     );
     expect(f.urls).toEqual([PLAYING_URL, T01, T01, T01]);
     expect(f.decoded).toEqual([]);
-    expect(away.map((res) => res.bodyUsed)).toEqual([true, true, true]);
+    // Each body is let go, and none is read.
+    expect(away.map(({ res }) => res.bodyUsed)).toEqual([true, true, true]);
+    expect(away.map(({ pulls }) => pulls.count)).toEqual([0, 0, 0]);
   });
+
+  it.each([{ code: 404 }, { code: 502 }])(
+    "lets a download redirected to another host go unread when it answers $code in JSON, and fails the show after its retries",
+    async ({ code }) => {
+      const init = { status: code, headers: { "content-type": "application/json" } };
+      const away = Array.from({ length: 3 }, () => counting(JSON.stringify({ error: "no such file" }), init));
+      const f = fakeRun({ answers: { [T01]: away.map(({ res }) => from("https://example.test/t01.mp3", res)) } });
+      await expect(analyseShow("1986-07-04", politeClient(f.io).request, f.io)).rejects.toThrow(
+        "redirected off archive.org, to example.test"
+      );
+      expect(f.urls).toEqual([PLAYING_URL, T01, T01, T01]);
+      // Each body is let go, and none is read.
+      expect(away.map(({ res }) => res.bodyUsed)).toEqual([true, true, true]);
+      expect(away.map(({ pulls }) => pulls.count)).toEqual([0, 0, 0]);
+    }
+  );
 });
 
 // A directory a run that is refused must not make.
