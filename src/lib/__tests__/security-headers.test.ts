@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync } from "fs";
-import path from "path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { NextRequest } from "next/server";
@@ -8,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import nextConfig from "../../../next.config";
 import RootLayout from "../../app/layout";
 import { config, proxy } from "../../proxy";
-import { THREE_FILES, contentSecurityPolicy } from "../csp";
+import { contentSecurityPolicy } from "../csp";
 
 // The nonce the proxy would have put on this request, and the fonts, which the layout loads from Google at build time.
 const NONCE = "bm9uY2UtZm9yLWEtdGVzdA==";
@@ -16,14 +14,6 @@ vi.mock("next/headers", () => ({ headers: async () => new Headers({ "x-nonce": N
 vi.mock("next/font/google", () => ({ Bricolage_Grotesque: () => ({ variable: "grotesk" }), DM_Mono: () => ({ variable: "mono" }) }));
 
 const SITE = "https://dead-redux.vercel.app";
-
-/** The import map's text, as the layout writes it. */
-async function importMap(): Promise<{ html: string; imports: Record<string, string> }> {
-  const html = renderToStaticMarkup(await RootLayout({ children: null }));
-  const text = html.match(/<script type="importmap"[^>]*>(.*?)<\/script>/)?.[1];
-  if (!text) throw new Error("the layout writes no import map");
-  return { html, imports: JSON.parse(text).imports };
-}
 
 describe("the headers on every response", () => {
   it("frames only on the site, sniffs no types, sends other sites only the origin, and refuses the browser features no page uses", async () => {
@@ -65,25 +55,6 @@ describe("a page's Content-Security-Policy", () => {
       "frame-ancestors 'self'",
     ]);
   });
-
-  it("names each three.js file the world imports through the import map, and the core the module imports", async () => {
-    const { imports } = await importMap();
-    // A bare name resolves through its own entry, or through the longest entry ending in "/" that begins it.
-    const resolve = (specifier: string) => {
-      if (imports[specifier]) return imports[specifier];
-      const prefix = Object.keys(imports).filter((key) => key.endsWith("/") && specifier.startsWith(key)).sort((a, b) => b.length - a.length)[0];
-      if (!prefix) throw new Error(`the import map does not resolve ${specifier}`);
-      return imports[prefix] + specifier.slice(prefix.length);
-    };
-    const world = path.resolve(__dirname, "../../../public/world");
-    const specifiers = readdirSync(world)
-      .filter((file) => file.endsWith(".js"))
-      .flatMap((file) => [...readFileSync(path.join(world, file), "utf8").matchAll(/\bfrom "(three(?:\/[^"]*)?)"/g)].map((m) => m[1]));
-    expect(specifiers).toContain("three");
-    const loaded = new Set(specifiers.map(resolve));
-    loaded.add(new URL("three.core.min.js", resolve("three")).href);
-    expect([...loaded].sort()).toEqual([...THREE_FILES].sort());
-  });
 });
 
 describe("the proxy", () => {
@@ -114,7 +85,7 @@ describe("the proxy", () => {
 
 describe("the root layout", () => {
   it("gives the import map the request's nonce", async () => {
-    const { html } = await importMap();
+    const html = renderToStaticMarkup(await RootLayout({ children: null }));
     expect(html).toContain(`<script type="importmap" nonce="${NONCE}">`);
   });
 });

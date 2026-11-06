@@ -1,15 +1,9 @@
-/** The three.js files the world loads from jsDelivr, at the version the import map pins: the module the map names, the core that module
- *  imports, and the one addon the world imports. */
-export const THREE_FILES = [
-  "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.min.js",
-  "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.core.min.js",
-  "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/utils/BufferGeometryUtils.js",
-];
+import { importMap } from "@/lib/import-map";
 
 /**
  * A page's Content-Security-Policy, with the nonce made for its request. Each source is something a page loads:
  * - script-src: the build's chunks and the world's modules ('self'); the inline scripts Next.js writes (the bootstrap and the page's
- *   data) and the import map, by the nonce; and the three.js files above.
+ *   data) and the import map, by the nonce; and each three.js file the import map pins, by its full URL.
  * - style-src, font-src, img-src and manifest-src: the build's stylesheet and fonts, the icons and the manifest, all the site's own.
  * - media-src: the recordings, which stream from archive.org and redirect to its storage hosts, such as dn720304.ca.archive.org.
  * default-src 'none' refuses everything else: connections (a page makes none; its navigations are page loads), workers, frames and
@@ -18,7 +12,7 @@ export const THREE_FILES = [
 export function contentSecurityPolicy(nonce: string): string {
   return [
     "default-src 'none'",
-    `script-src 'self' 'nonce-${nonce}' ${THREE_FILES.join(" ")}`,
+    `script-src 'self' 'nonce-${nonce}' ${Object.keys(importMap.integrity).join(" ")}`,
     "style-src 'self'",
     "font-src 'self'",
     "img-src 'self'",
