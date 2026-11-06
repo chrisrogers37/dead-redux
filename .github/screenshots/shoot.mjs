@@ -240,6 +240,9 @@ const PAGES = [
     steps: [{ click: "a[href='/archive/2026-09']", waitFor: "main[data-month='2026-09']", shot: "archive-2026-09" }],
     end: "archive-2026-09-end",
   },
+  // A path no route answers, and a date that is not one: each answers 404 with the site's own page, which the policy check covers too.
+  { path: "/no/such/page", status: 404, devices: ["desktop", "phone"], shots: ["not-found"] },
+  { path: "/2026-02-30", status: 404, devices: ["desktop", "phone"], shots: ["not-found-date"] },
   // A fixed past day, so its shots compare across runs.
   { path: "/2026-03-01", shots: ["2026-03-01"] },
   // The same day, which no step plays, so no saved point stands in: L seeks 10 s before the first move, and play starts from there.
@@ -611,7 +614,7 @@ try {
       height: options.viewport.height * MAX_SCREENS,
     };
 
-    for (const { path, shots, steps, end, devices, ready, sweep, failAudio } of PAGES) {
+    for (const { path, shots, steps, end, devices, ready, sweep, failAudio, status } of PAGES) {
       // The TV device is for lean-back, so it shoots the home page and only the other pages that name it.
       if (device === "tv" && path !== "/" && !devices?.includes("tv")) {
         continue;
@@ -623,8 +626,8 @@ try {
       const url = pageUrl(path, device);
       if (failAudio) await page.route(isTrackAudio, (route) => route.abort());
       const response = await open(page, url);
-      // A redirect to another host, such as a login wall, is not the site.
-      if (!response?.ok() || new URL(page.url()).host !== url.host) {
+      // A redirect to another host, such as a login wall, is not the site. A page that names a status must answer with it.
+      if ((status ? response?.status() !== status : !response?.ok()) || new URL(page.url()).host !== url.host) {
         throw new Error(`${url} answered ${response?.status()} at ${page.url()}`);
       }
       await checkHeaders(page, response, device);
