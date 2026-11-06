@@ -154,6 +154,7 @@ jobs:
           path: site
           # Every branch, so the target branch's tip is there to add the maps to.
           fetch-depth: 0
+          persist-credentials: false
       - name: Switch to the branch
         id: branch
         working-directory: site
@@ -200,6 +201,7 @@ jobs:
         env:
           BRANCH: ${{ steps.branch.outputs.name }}
           MADE: ${{ needs.analyse.outputs.made }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           git add public/maps
           if git diff --cached --quiet; then
@@ -207,5 +209,6 @@ jobs:
             exit 0
           fi
           git commit -q -m "maps: add ${MADE% }"
-          git push origin "HEAD:refs/heads/$BRANCH"
+          # The checkouts keep no token, so the push carries it in its URL and git's config never holds it.
+          git push "https://x-access-token:${GH_TOKEN}@${GITHUB_SERVER_URL#https://}/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
           echo "Pushed $(git rev-parse HEAD) to $BRANCH."
