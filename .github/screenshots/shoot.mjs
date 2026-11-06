@@ -446,6 +446,10 @@ const policyProblem = (text, where) => policyProblems.set(text, (policyProblems.
 // How many requests the pages made to each origin, by the kind of request: what the Content-Security-Policy has to allow.
 const loaded = new Map();
 let responsesChecked = 0;
+// Vercel's preview build loads its toolbar from vercel.live on every page; production's loads it only with Vercel's opt-in cookie. The
+// policy refuses it on both, and the run counts those refusals apart from the site's own.
+const VERCEL_TOOLBAR = " refused https://vercel.live/";
+let toolbarRefusals = 0;
 
 // A page's path and query, which name it in a policy problem.
 const where = (device, page) => {
@@ -463,7 +467,9 @@ const watchPolicies = async (context, device) => {
   });
   context.on("console", (message) => {
     const text = message.text();
-    if (/^securitypolicyviolation |permissions[- ]policy/i.test(text)) {
+    if (text.startsWith("securitypolicyviolation ") && text.includes(VERCEL_TOOLBAR)) {
+      toolbarRefusals += 1;
+    } else if (/^securitypolicyviolation |permissions[- ]policy/i.test(text)) {
       policyProblem(text.replace(/^securitypolicyviolation /, "Content-Security-Policy: "), where(device, message.page()));
     }
   });
@@ -814,10 +820,11 @@ try {
   // The policies' verdict and what the pages loaded, in the log and on the run's page.
   const tally = [...loaded].sort(([a], [b]) => a.localeCompare(b)).map(([key, count]) => `${key} ×${count}`);
   for (const line of tally) console.log(`loaded ${line}`);
-  const verdict =
+  const verdict = `${
     policyProblems.size === 0
       ? `No Content-Security-Policy violation and no Permissions Policy error, and all ${responsesChecked} page responses carried the site's security headers.`
-      : `${policyProblems.size} policy problem(s); each has its own "failure" line.`;
+      : `${policyProblems.size} policy problem(s); each has its own "failure" line.`
+  } The policy refused Vercel's preview toolbar ${toolbarRefusals} time(s), which the run does not count.`;
   console.log(`policies: ${verdict}`);
   for (const [text, places] of policyProblems) {
     const list = [...places];

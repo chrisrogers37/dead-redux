@@ -12,9 +12,8 @@ export const THREE_FILES = [
  *   data) and the import map, by the nonce; and the three.js files above.
  * - style-src, font-src, img-src and manifest-src: the build's stylesheet and fonts, the icons and the manifest, all the site's own.
  * - media-src: the recordings, which stream from archive.org and redirect to its storage hosts, such as dn720304.ca.archive.org.
- * - connect-src: the site's own requests.
- * default-src 'none' refuses everything else (workers, frames, objects); no base element, no form posts, and only the site itself may
- * frame a page, as X-Frame-Options says too.
+ * default-src 'none' refuses everything else: connections (a page makes none; its navigations are page loads), workers, frames and
+ * objects. No base element, no form posts, and only the site itself may frame a page, as X-Frame-Options says too.
  */
 export function contentSecurityPolicy(nonce: string): string {
   return [
@@ -25,7 +24,6 @@ export function contentSecurityPolicy(nonce: string): string {
     "img-src 'self'",
     "manifest-src 'self'",
     "media-src https://archive.org https://*.archive.org",
-    "connect-src 'self'",
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'self'",

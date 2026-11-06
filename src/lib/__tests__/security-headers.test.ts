@@ -38,10 +38,9 @@ describe("the headers on every response", () => {
           {
             key: "Permissions-Policy",
             value:
-              "accelerometer=(), autoplay=(self), bluetooth=(), browsing-topics=(), camera=(), clipboard-read=(), clipboard-write=(self), " +
-              "display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), " +
-              "local-fonts=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), " +
-              "screen-wake-lock=(self), serial=(), usb=(), web-share=(self), window-management=(), xr-spatial-tracking=()",
+              "accelerometer=(), camera=(), clipboard-read=(), display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), " +
+              "geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), " +
+              "publickey-credentials-get=(), usb=(), xr-spatial-tracking=()",
           },
         ],
       },
@@ -61,7 +60,6 @@ describe("a page's Content-Security-Policy", () => {
       "img-src 'self'",
       "manifest-src 'self'",
       "media-src https://archive.org https://*.archive.org",
-      "connect-src 'self'",
       "base-uri 'none'",
       "form-action 'none'",
       "frame-ancestors 'self'",

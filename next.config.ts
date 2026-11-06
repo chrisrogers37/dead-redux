@@ -1,35 +1,24 @@
 import type { NextConfig } from "next";
 
-/** The browser features a page may use: the player's sound, the share sheet, copying a link and keeping the screen awake. It refuses
- *  the rest. */
+/** The browser features no page uses, which every page refuses. The four the player uses keep their default, the site's own pages:
+ *  autoplay for its sound, web-share for the share sheet, clipboard-write for copying a link, and screen-wake-lock. */
 const PERMISSIONS_POLICY = [
   "accelerometer=()",
-  "autoplay=(self)",
-  "bluetooth=()",
-  "browsing-topics=()",
   "camera=()",
   "clipboard-read=()",
-  "clipboard-write=(self)",
   "display-capture=()",
   "encrypted-media=()",
   "fullscreen=()",
   "gamepad=()",
   "geolocation=()",
   "gyroscope=()",
-  "hid=()",
-  "idle-detection=()",
-  "local-fonts=()",
   "magnetometer=()",
   "microphone=()",
   "midi=()",
   "payment=()",
   "picture-in-picture=()",
   "publickey-credentials-get=()",
-  "screen-wake-lock=(self)",
-  "serial=()",
   "usb=()",
-  "web-share=(self)",
-  "window-management=()",
   "xr-spatial-tracking=()",
 ].join(", ");
 
