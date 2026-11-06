@@ -3,6 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { chromium } from "playwright";
 import { PATH_POSE, SLOPE_POSE, STAGE_POSE } from "../../public/world/ground.js";
+import { logText } from "../../scripts/job-text.mjs";
 import {
   CALL_BUDGET,
   callsFailure,
@@ -12,6 +13,7 @@ import {
   routingFailure,
   saveAssets,
   sweepPeak,
+  sweepSummary,
   walkPoses,
 } from "./assets.mjs";
 
@@ -529,9 +531,11 @@ const sweepWalk = async (page, device, tracks) => {
     const { calls: peak, pose } = sweepPeak(SWEEP_POSES, calls);
     const where = `x ${pose.x.toFixed(1)}, z ${pose.z.toFixed(1)}, heading ${pose.heading.toFixed(3)}`;
     const tests = Object.keys(TEST_POSES).map((name, i) => `${name} ${calls[i]}`).join(", ");
-    const line =
+    // One line, in the log and in the summary, whatever the track's title holds.
+    const line = logText(
       `${device}, track index ${index} (${title}): at most ${peak} draw calls over ${calls.length} poses (the ${tier} budget is ` +
-      `${CALL_BUDGET[tier]}), at ${where}; the test poses ${tests}; ${Math.round((Date.now() - started) / 1000)} s`;
+        `${CALL_BUDGET[tier]}), at ${where}; the test poses ${tests}; ${Math.round((Date.now() - started) / 1000)} s`
+    );
     console.log(`sweep ${line}`);
     sweeps.push(line);
     const over = callsFailure({ tier, calls: peak });
@@ -552,7 +556,7 @@ const logBoxes = async (page, file) => {
   );
   for (const { name, x, y, width, height, visible } of boxes) {
     const size = `${Math.round(width)}x${Math.round(height)} at ${Math.round(x)},${Math.round(y)}`;
-    console.log(`box ${file} ${name}: ${visible ? `${size}${width < 44 || height < 44 ? " small" : ""}` : "hidden"}`);
+    console.log(logText(`box ${file} ${name}: ${visible ? `${size}${width < 44 || height < 44 ? " small" : ""}` : "hidden"}`));
   }
 };
 
@@ -579,9 +583,9 @@ const logPage = async (page, file) => {
     ];
   }, reread(file));
   console.log(`url ${file} ${page.url()}`);
-  console.log(`state ${file} ${state} · ${line}`);
+  console.log(logText(`state ${file} ${state} · ${line}`));
   console.log(`cursor ${file} ${cursor}`);
-  console.log(`next ${file} ${next}`);
+  console.log(logText(`next ${file} ${next}`));
 };
 
 const site = new URL(process.env.SITE_URL);
@@ -698,7 +702,7 @@ try {
             document.querySelector("[data-action='play']")?.closest(".plate")?.querySelector(".t-tag")?.textContent ?? null,
             document.querySelector("main")?.dataset.routing ?? null,
           ]);
-          console.log(`state ${device}-${step.shot}.png ${state} · ${line}`);
+          console.log(logText(`state ${device}-${step.shot}.png ${state} · ${line}`));
           console.log(`routing ${device}-${step.shot}.png ${routing}`);
         }
         await page.waitForTimeout(STEP_SETTLE_MS);
@@ -730,7 +734,7 @@ try {
           console.log(`lastGapMs ${laterFile} ${lastGapMs}`);
           console.log(`routing ${laterFile} ${routing}`);
           // The player's state and the now-plate's sentence at the later shot, so a stream that stalled shows here.
-          console.log(`state ${laterFile} ${state} · ${line}`);
+          console.log(logText(`state ${laterFile} ${state} · ${line}`));
           // By now a playing show sounds through the world, or in plain stereo for a reason the player names (its corsFallback stat).
           const routed = routingFailure({ state, world, routing, corsFallback });
           if (routed) failures.push(`${laterFile}: ${routed}`);
@@ -826,7 +830,7 @@ try {
 
   // The job summary shows the sweep's peaks on the run's page, so nobody has to open the log.
   if (process.env.GITHUB_STEP_SUMMARY && sweeps.length > 0) {
-    await appendFile(process.env.GITHUB_STEP_SUMMARY, `### The walk's draw calls\n\n${sweeps.map((line) => `- ${line}`).join("\n")}\n`);
+    await appendFile(process.env.GITHUB_STEP_SUMMARY, sweepSummary(sweeps));
   }
 
   // The policies' verdict and what the pages loaded, in the log and on the run's page.

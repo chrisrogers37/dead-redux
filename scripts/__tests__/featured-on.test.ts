@@ -1,4 +1,9 @@
-import { spawnSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
+import { mkdtemp, rm, writeFile } from "fs/promises";
+import { createServer } from "http";
+import type { AddressInfo } from "net";
+import { tmpdir } from "os";
+import { join } from "path";
 import { fileURLToPath } from "url";
 import { describe, expect, it } from "vitest";
 import { addDays, featuredWindow, main, showsToMap } from "../featured-on.mjs";
@@ -287,6 +292,80 @@ describe("main", () => {
     // Node may add its own warnings to stderr; the script's line is the one that matters.
     expect(run.stderr).toContain("2026-10-20 features 1986-07-04\n");
     expect(run.stdout).toBe("1986-07-04\n");
+    expect(run.status).toBe(0);
+  });
+});
+
+// A run as the maps workflow runs the script, for the day that features 1986-07-04, with a maps directory that holds a map of each
+// show in `maps` (show date: the recording it was made from) and a local site whose /api/playing/<show date> answers with
+// `answers[show date]`, as JSON. Returns the site, what the run printed and its exit code, and the lines of the job's log: what it
+// wrote to stderr, cut at each carriage return or line feed, as the runner cuts a step's output into lines.
+async function runAgainstSite(maps: Record<string, string>, answers: Record<string, { status: number; body: unknown }>) {
+  const dir = await mkdtemp(join(tmpdir(), "featured-on-"));
+  const server = createServer((req, res) => {
+    const url = req.url ?? "";
+    const answer = answers[url.slice(url.lastIndexOf("/") + 1)] ?? { status: 404, body: {} };
+    res.writeHead(answer.status, { "content-type": "application/json" }).end(JSON.stringify(answer.body));
+  });
+  try {
+    for (const [show, playing] of Object.entries(maps)) await writeFile(join(dir, `${show}.json`), mapOf(playing));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const site = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const args = ["--import", "./scripts/resolve-ts.mjs", "scripts/featured-on.mjs", "--from", "2026-10-20", "--days", "1"];
+    // Node's own warnings would be lines of the log too; the script's lines are the ones that matter.
+    const child = spawn(process.execPath, [...args, "--maps", dir, "--site", site], {
+      cwd: ROOT,
+      env: { ...process.env, NODE_NO_WARNINGS: "1" },
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
+    const status = await new Promise<number | null>((resolve) => child.on("close", resolve));
+    const log = stderr.split(/\r\n|\r|\n/);
+    if (log.at(-1) === "") log.pop();
+    return { site, stdout, status, log };
+  } finally {
+    server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+describe("main's log, as the job's log reads it", () => {
+  it("logs the recordings the map and the site name on the line that names them, a line break as a space and ##[ as ## [", async () => {
+    const run = await runAgainstSite(
+      { "1986-07-04": "gd86-07-04.sbd\n::error::x" },
+      { "1986-07-04": { status: 200, body: { identifier: "gd86-07-04.aud\n::error::x ##[error]x" } } }
+    );
+    expect(run.log).toEqual([
+      "2026-10-20 features 1986-07-04, which has a map",
+      "1986-07-04: its map was made from gd86-07-04.sbd ::error::x, and the page now plays gd86-07-04.aud ::error::x ## [error]x",
+    ]);
+    expect(run.stdout).toBe("1986-07-04\n");
+    expect(run.status).toBe(0);
+  });
+
+  it("starts the line for a failed answer with its own words, when the site's error text starts with ::error::x", async () => {
+    const run = await runAgainstSite(
+      { "1986-07-04": "gd86-07-04.sbd" },
+      { "1986-07-04": { status: 404, body: { error: "::error::x\n::error::x" } } }
+    );
+    expect(run.log).toEqual([
+      "2026-10-20 features 1986-07-04, which has a map",
+      `1986-07-04: the page plays no recording of it, so its map stands: ${run.site}/api/playing/1986-07-04 answered 404: ::error::x ::error::x`,
+    ]);
+    expect(run.status).toBe(0);
+  });
+
+  it("logs the warning it gives on purpose as one line, the site's text after its own words", async () => {
+    const run = await runAgainstSite(
+      { "1986-07-04": "gd86-07-04.sbd" },
+      { "1986-07-04": { status: 403, body: { error: "Relisten failed\n::error::x ##[error]x" } } }
+    );
+    expect(run.log).toEqual([
+      "2026-10-20 features 1986-07-04, which has a map",
+      `::warning::1986-07-04: what the page plays could not be learned, so its map and those after it stand: ${run.site}/api/playing/1986-07-04 answered 403: Relisten failed ::error::x ## [error]x`,
+    ]);
     expect(run.status).toBe(0);
   });
 });

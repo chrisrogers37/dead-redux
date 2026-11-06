@@ -2,6 +2,8 @@ import { appendFile, mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { chromium, request } from "playwright";
+import { logText } from "../../scripts/job-text.mjs";
+import { installSummary } from "./assets.mjs";
 
 // The install surface, checked on the site the shoot shot: the manifest and the page's link to it, each icon the manifest lists against
 // the PNG served at its path, and Chrome's own installability verdict over the DevTools protocol. Every check logs one line; a failed
@@ -12,9 +14,10 @@ if (site.protocol !== "https:") {
   throw new Error(`SITE_URL must be an https URL, got ${process.env.SITE_URL}`);
 }
 
-// Each check's line, and whether it passed.
+// Each check's line, and whether it passed. A line holds values the site serves, and is one line of the log whatever they hold.
 const findings = [];
-const log = (line, ok = true) => {
+const log = (text, ok = true) => {
+  const line = logText(text);
   console.log(line);
   findings.push({ line, ok });
 };
@@ -83,8 +86,7 @@ try {
 
 // The job summary shows the result on the run's page, so nobody has to open the log.
 if (process.env.GITHUB_STEP_SUMMARY) {
-  const lines = findings.map(({ line, ok }) => `- ${ok ? "" : "failed: "}\`${line}\``).join("\n");
-  await appendFile(process.env.GITHUB_STEP_SUMMARY, `### Install check\n\n${lines}\n`);
+  await appendFile(process.env.GITHUB_STEP_SUMMARY, installSummary(findings));
 }
 
 const failed = findings.filter(({ ok }) => !ok).length;

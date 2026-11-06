@@ -12,6 +12,7 @@ import { pathToFileURL } from "url";
 import { getDailyShow, isValidDateStr } from "../src/lib/daily-show";
 import { getTodayDateStr } from "../src/lib/site-day";
 import { HttpError, politeClient, SITE, siteOf } from "./analyse-show.mjs";
+import { logText } from "./job-text.mjs";
 
 const USAGE =
   "Usage: node --import ./scripts/resolve-ts.mjs scripts/featured-on.mjs [--from YYYY-MM-DD] [--days N] [--limit N] [--maps DIR] [--site URL]";
@@ -97,7 +98,8 @@ const positiveInteger = (text) => (/^[1-9]\d*$/.test(text) ? Number(text) : null
 
 const nodeIO = {
   out: (line) => console.log(line),
-  log: (line) => console.error(line),
+  // Each report is one line of the job's log, whatever text from the site it holds.
+  log: (line) => console.error(logText(line)),
   list: (dir) => readdirSync(dir),
   read: (file) => readFileSync(file, "utf8"),
   fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),

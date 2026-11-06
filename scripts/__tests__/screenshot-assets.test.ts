@@ -9,14 +9,17 @@ import {
   assetFile,
   callsFailure,
   evaluateAcrossNavigation,
+  installSummary,
   nearFailure,
   readWalkCalls,
   routingFailure,
   saveAssets,
   sweepPeak,
+  sweepSummary,
   walkPoses,
 } from "../../.github/screenshots/assets.mjs";
 import { BOUND } from "../../public/world/ground.js";
+import { codeSpanText } from "./code-span";
 
 describe("assetAction", () => {
   it("saves a 200 and skips a 404, an image whose change has not landed yet", () => {
@@ -342,5 +345,43 @@ describe("saveAssets", () => {
     // The images after the first failure are still fetched and saved.
     expect(await readdir(outDir)).toEqual(["asset-ok.png"]);
     expect(lines).toContain("/broken answered 500, which fails the run");
+  });
+});
+
+// The items of a job summary's section under its heading: the note before each item's code span, and what the span shows (null for an
+// item that is not one code span).
+function sectionItems(summary: string, heading: string) {
+  const start = `### ${heading}\n\n`;
+  expect(summary.startsWith(start) && summary.endsWith("\n")).toBe(true);
+  return summary
+    .slice(start.length, -1)
+    .split("\n")
+    .map((item) => {
+      const [, note = "", span = ""] = /^- (failed: )?(.*)$/.exec(item) ?? [];
+      return { note, shown: codeSpanText(span) };
+    });
+}
+
+// What a site can serve in a value the summary shows: a backtick, a link and an image.
+const MARKDOWN = "x`y [a link](https://example.test) ![an image](https://example.test/i.png)";
+
+describe("installSummary", () => {
+  it("shows each check's line as written, a backtick, a link and an image in it included, and a failed one after failed:", () => {
+    const passed = "manifest https://example.test/manifest.webmanifest 200 application/manifest+json";
+    const failed = `icon /${MARKDOWN}.png image/png no size declared 192x192 any: not a PNG`;
+    expect(sectionItems(installSummary([{ line: passed, ok: true }, { line: failed, ok: false }]), "Install check")).toEqual([
+      { note: "", shown: passed },
+      { note: "failed: ", shown: failed },
+    ]);
+  });
+});
+
+describe("sweepSummary", () => {
+  it("shows each sweep line as written, a track title with a backtick, a link and an image in it included", () => {
+    const lines = [
+      "desktop, track index 0 (Help on the Way): at most 52 draw calls over 2236 poses (the desktop budget is 70), at x 0.0, z 0.0, heading 0.000",
+      `phone, track index 3 (${MARKDOWN}): at most 40 draw calls over 2236 poses (the phone budget is 45), at x 1.0, z 2.0, heading 0.785`,
+    ];
+    expect(sectionItems(sweepSummary(lines), "The walk's draw calls")).toEqual(lines.map((line) => ({ note: "", shown: line })));
   });
 });
