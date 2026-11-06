@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Bricolage_Grotesque, DM_Mono } from "next/font/google";
+import { importMap } from "@/lib/import-map";
 import "./globals.css";
 
 const grotesk = Bricolage_Grotesque({ subsets: ["latin"], axes: ["opsz", "wdth"], variable: "--font-grotesk", display: "swap" });
@@ -20,12 +22,15 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  /* The nonce src/proxy.ts made for this request, which lets the import map run under the Content-Security-Policy. Reading the
+     request renders every page on each visit, as the pages' own connection() calls already do, and the 404 with them. */
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="en" className={`${grotesk.variable} ${mono.variable}`}>
       <head>
-        {/* Lets the world's modules import three.js and its addons by bare name. */}
-        <script type="importmap" dangerouslySetInnerHTML={{ __html: JSON.stringify({ imports: { three: "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.min.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/" } }) }} />
+        {/* Lets the world's modules import three.js and its addons by bare name, each file pinned to its hash. */}
+        <script type="importmap" nonce={nonce} dangerouslySetInnerHTML={{ __html: JSON.stringify(importMap) }} />
       </head>
       <body className="bg-page text-ink antialiased font-grotesk">{children}</body>
     </html>

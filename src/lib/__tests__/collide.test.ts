@@ -199,6 +199,12 @@ describe("keepOut", () => {
   });
 });
 
+describe("BODY_REACH", () => {
+  it("keeps a walk 3.9 m from a bear's centre", () => {
+    expect(BODY_REACH).toBe(3.9);
+  });
+});
+
 describe("enterColumn", () => {
   const column = { x: 0, z: 0, r: 10, top: 8 };
   const start = { x: 15, y: 2, z: 0 };

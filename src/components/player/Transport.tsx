@@ -58,6 +58,8 @@ export function Transport({
   const max = Math.max(1, Math.round(duration));
   const value = Math.min(Math.max(0, Math.floor(position)), max);
   const line = status ?? <>{set && `${set} · `}{index + 1} of {count} · <span data-mask="time">{clock(position)} / {clock(duration)}</span></>;
+  /* The fill reaches the position, --p. At 0 the stylesheet's own 0% holds, so the first render writes no style attribute, which the
+     Content-Security-Policy refuses; a later position goes through the element's style object, which it allows. */
   const seek = (
     <input
       type="range"
@@ -70,7 +72,7 @@ export function Transport({
       value={value}
       onChange={(e) => onSeek(Number(e.currentTarget.value))}
       className="seek w-full"
-      style={{ "--p": `${(value / max) * 100}%` } as CSSProperties}
+      style={value ? ({ "--p": `${(value / max) * 100}%` } as CSSProperties) : undefined}
     />
   );
   const liveTitle = (
