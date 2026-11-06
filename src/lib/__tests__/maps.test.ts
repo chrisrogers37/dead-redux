@@ -5,8 +5,11 @@ import {
   checkMap,
   envAt,
   loadMap,
+  mapDrive,
   MAX_PEAKS,
+  passesPeak,
   readMap,
+  tempoAround,
   tempoAt,
 } from "../../../public/world/maps.js";
 
@@ -407,6 +410,35 @@ describe("reading a track", () => {
     const map = atStep(1);
     map.tracks[1].peaks = [];
     expect(buildUp(readMap(map).tracks[1], 10)).toBe(0);
+  });
+
+  it("tells when the music plays past a peak: one after the first time and at or before the second", () => {
+    const b = readMap(fixture).tracks[1];
+    // The peak is at 20 s.
+    expect(passesPeak(b, 19.5, 20)).toBe(true);
+    expect(passesPeak(b, 19, 20.9)).toBe(true);
+    expect(passesPeak(b, 20, 21)).toBe(false);
+    expect(passesPeak(b, 18, 19.9)).toBe(false);
+  });
+
+  it("passes no peak on a seek: a step of 2 s or more, or one back", () => {
+    const b = readMap(fixture).tracks[1];
+    expect(passesPeak(b, 18.5, 20.4)).toBe(true);
+    expect(passesPeak(b, 18, 20)).toBe(false);
+    expect(passesPeak(b, 21, 19)).toBe(false);
+  });
+
+  it("gives the tempos of the windows around a time's own within the track, leaving out the windows with none", () => {
+    // Track 2's three windows read 96, none and 100.
+    const b = readMap(fixture).tracks[1];
+    expect(tempoAround(b, 15, 1)).toEqual([96, 100]);
+    expect(tempoAround(b, 15, 0)).toEqual([]);
+    expect(tempoAround(b, 0, 5)).toEqual([96, 100]);
+    expect(tempoAround(b, 99, 0)).toEqual([100]);
+  });
+
+  it("drives as the live sound does, from the envelope byte a time falls in, marked as the map's", () => {
+    expect(mapDrive(readMap(fixture).tracks[1], 20.8)).toEqual({ source: "map", loud: 200 / 255, bass: 30 / 255, bright: 100 / 255 });
   });
 });
 

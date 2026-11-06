@@ -50,6 +50,7 @@ describe("a page's Content-Security-Policy", () => {
       "img-src 'self'",
       "manifest-src 'self'",
       "media-src https://archive.org https://*.archive.org",
+      "connect-src 'self'",
       "base-uri 'none'",
       "form-action 'none'",
       "frame-ancestors 'self'",

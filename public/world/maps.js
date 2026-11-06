@@ -194,6 +194,16 @@ export function tempoAt(track, t) {
   return track.tempo[2 * w] === 0 ? null : { bpm: track.tempo[2 * w], confidence: track.tempo[2 * w + 1] / 255 };
 }
 
+/* The tempos (beats a minute) of the windows from `spread` before the one t seconds into the track falls in to `spread` after it, within
+   the track, leaving out the windows whose tempo is unknown. */
+export function tempoAround(track, t, spread) {
+  const last = (track.tempo.length >> 1) - 1;
+  const w = clamp(Math.floor(t / TEMPO_WINDOW), 0, last);
+  const bpms = [];
+  for (let k = Math.max(0, w - spread); k <= Math.min(last, w + spread); k++) if (track.tempo[2 * k] !== 0) bpms.push(track.tempo[2 * k]);
+  return bpms;
+}
+
 /* 0-1: the next peak at or after t seconds into the track, over the BUILD_UP seconds before it. It rises linearly to 1 at the peak and is 0 once the
    peak has passed. */
 export function buildUp(track, t) {
@@ -202,6 +212,23 @@ export function buildUp(track, t) {
     if (ahead >= 0) return ahead > BUILD_UP ? 0 : 1 - ahead / BUILD_UP;
   }
   return 0;
+}
+
+/* The longest step forward, in seconds, between two places in a track that the music plays through: a longer one, or one back, is a
+   seek. */
+const PLAYED_STEP = 2;
+
+/* Whether the music plays past one of the track's peaks going from `from` to `to`, seconds into it: a peak after the one and at or
+   before the other, on a step forward short enough to be played. A seek passes none. */
+export function passesPeak(track, from, to) {
+  return to > from && to - from < PLAYED_STEP && track.peaks.some(([second]) => second > from && second <= to);
+}
+
+/* The map's drive t seconds into the track, shaped as the live sound's (audio.js analyse): its loudness, low end and brightness. They
+   are fractions of the track's 99th percentile, the scale the live sound reads on, so they go to the same mappings unchanged. */
+export function mapDrive(track, t) {
+  const { rms, bass, bright } = envAt(track, t);
+  return { source: "map", loud: rms, bass, bright };
 }
 
 /* Why a map's tracks are not the page's, or null when they are the same tracks. Relisten can change a show's sources after its map was

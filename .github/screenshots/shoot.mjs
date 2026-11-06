@@ -175,6 +175,24 @@ const PAGES = [
     shots: ["fixed-stage"],
     steps: [playStep("fixed-stage-playing", { ms: 8000, shot: "fixed-stage-playing-8s" })],
   },
+  // The fixed day 14 s before Fire On The Mountain's peak (150 s into the track, in its map): the build-up lifts the stage panel and the
+  // beam and swells the flame, more 8 s later. The `map` line reads the build-up, the flame's scale and the panel's factor beside
+  // desktop-fixed-playing-8s's, while the analyser drives the rest of the world.
+  {
+    path: "/2026-10-20?at=8&t=136",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-fire-build", { ms: 8000, shot: "fixed-fire-build-8s" })],
+  },
+  // The same from ?pose=stage with ?drive=map on previews: the map drives the world, as where the analyser cannot hear the show, and the
+  // `analysis` line reads source "map"; the panel and the platform's light follow the map's envelopes and the build-up, from the still
+  // camera, and the figures play at the map's tempo.
+  {
+    path: "/2026-10-20?pose=stage&drive=map&at=8&t=136",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-map-stage", { ms: 8000, shot: "fixed-map-stage-8s" })],
+  },
   // The fixed day from ?pose=slope: the visitor's bear higher up the slope, looking down over it to the stage at its foot.
   { path: "/2026-10-20?pose=slope", devices: ["desktop"], shots: ["fixed-stage-slope"] },
   // The fixed day from ?pose=path: the visitor's bear on the loop at the summit's north-east shoulder, heading along it, and down the slope
@@ -717,8 +735,9 @@ try {
           await logStats(page, laterFile);
           await logPage(page, laterFile);
           // Serialised in the page, so each reading prints as one line of JSON.
-          const [analysis, lastGapMs, routing, state, world, corsFallback, line] = await page.evaluate(() => [
+          const [analysis, map, lastGapMs, routing, state, world, corsFallback, line] = await page.evaluate(() => [
             JSON.stringify(window.__hill?.analysis ?? null),
+            JSON.stringify(window.__hill?.map ?? null),
             JSON.stringify(window.__hill?.lastGapMs ?? null),
             document.querySelector("main")?.dataset.routing ?? null,
             document.querySelector("main")?.dataset.state ?? null,
@@ -727,6 +746,9 @@ try {
             document.querySelector("[data-action='play']")?.closest(".plate")?.querySelector(".t-tag")?.textContent ?? null,
           ]);
           console.log(`analysis ${laterFile} ${analysis}`);
+          // The show's map as the world reads it where the show is: its envelopes, the build-up with the flame, the panel and the beam,
+          // and the figures' tempo and the onsets that pulled their beat.
+          console.log(`map ${laterFile} ${map}`);
           console.log(`lastGapMs ${laterFile} ${lastGapMs}`);
           console.log(`routing ${laterFile} ${routing}`);
           // The player's state and the now-plate's sentence at the later shot, so a stream that stalled shows here.

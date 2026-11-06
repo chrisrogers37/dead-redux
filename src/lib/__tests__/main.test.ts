@@ -5,11 +5,12 @@ import { DESCENT_S } from "../../../public/world/modes.js";
 import { postPose } from "../../../public/world/pose.js";
 
 // public/world/main.js runs here as a page runs it, frame by frame, with the modules it imports: what keeps a walk in bounds (confine,
-// with the limits walkLimits builds from the bears' live spots) and where attract puts the camera (postPose). three, and the modules
+// with the limits walkLimits builds from the bears' live spots), where attract puts the camera (postPose), and what the show's map does
+// (maps.js, beat.js and audio.js's mappings; the analyser hears nothing here, since no AudioContext is made). three, and the modules
 // that import it (the island, the path and its landmarks, the bears, the visitor's bear, the sky and the stage), load only in a
 // browser, through the page's import map, so stand-ins play them, with what the frames here use: a desktop's, in third person. They
-// draw nothing, and keep what the tests read: where each bear stands, where the visitor's bear steps, and where the camera stands and
-// looks.
+// draw nothing, and keep what the tests read: where each bear stands, where the visitor's bear steps, where the camera stands and
+// looks, the stage light, the flame's size, the sky's drop and the figures' beat.
 
 type Point = { x: number; z: number };
 type Point3 = Point & { y: number };
@@ -41,17 +42,27 @@ const fake = vi.hoisted(() => {
     multiplyScalar(s: number) {
       return this.set(this.x * s, this.y * s, this.z * s);
     }
+    setScalar(s: number) {
+      return this.set(s, s, s);
+    }
   }
   type Bear = { g: { position: Vec; rotation: { y: number } }; legs: { rotation: { x: number } }[]; phase: number };
+  type Stage = { light: { visible: boolean; intensity: number }; panel: { material: { color: Vec } }; move: (dt: number, t: number, beats: number) => void };
+  type Sky = { uniforms: Record<string, { value: number | Vec }> };
 
   // What the world main.js built: its scene, its camera, every bear it made (a downgrade drops some from the scene), and where the
-  // visitor's bear last stepped. `line` is the bears' line each test gives it.
+  // visitor's bear last stepped; the flame of a fire landmark, the stage and the sky; and the figures' phase in beats, as the last
+  // frame gave it to the stage. `line` is the bears' line each test gives it.
   const world = {
     line: undefined as unknown as Line,
     scene: undefined as unknown as Scene,
     camera: undefined as unknown as Camera,
     bears: [] as Bear[],
     stepped: { x: NaN, z: NaN, heading: NaN },
+    flame: { scale: new Vec(1, 1, 1) },
+    stage: undefined as unknown as Stage,
+    sky: undefined as unknown as Sky,
+    beats: NaN,
   };
   class Scene {
     shown = new Set<unknown>();
@@ -82,6 +93,19 @@ const fake = vi.hoisted(() => {
     position = new Vec();
     visible = true;
   }
+  // A mesh keeps its material, and a material the values it is made with: the beam's opacity is read from them.
+  class Mesh extends Part {
+    material: unknown;
+    constructor(_geometry?: unknown, material?: unknown) {
+      super();
+      this.material = material;
+    }
+  }
+  class Material {
+    constructor(values: object = {}) {
+      Object.assign(this, values);
+    }
+  }
   // How far a third-person view turns down to keep the visitor's bear in the frame (avatar.js's turnDown).
   const TURN = 0.05;
   const three = {
@@ -96,9 +120,9 @@ const fake = vi.hoisted(() => {
     Vector3: Vec,
     Color: Vec,
     Fog: Part,
-    Mesh: Part,
+    Mesh,
     CylinderGeometry: Part,
-    MeshBasicMaterial: Part,
+    MeshBasicMaterial: Material,
     AdditiveBlending: 2,
     DoubleSide: 2,
   };
@@ -113,7 +137,14 @@ const fake = vi.hoisted(() => {
       buildSegues: () => {},
       buildWalkLine: () => world.line,
     },
-    landmarks: { makeBuilders: () => ({ moving: [] }), mergeLandmarks: () => {} },
+    landmarks: {
+      // One part that moves: a fire landmark's flame, which swells before a peak.
+      makeBuilders: () => {
+        world.flame = { scale: new Vec(1, 1, 1) };
+        return { moving: [{ obj: world.flame, kind: "swell" }] };
+      },
+      mergeLandmarks: () => {},
+    },
     bears: {
       buildBears: (scene: Scene, count: number) => {
         const bears: Bear[] = Array.from({ length: count }, (_, k) => ({
@@ -141,8 +172,8 @@ const fake = vi.hoisted(() => {
       }),
     },
     sky: {
-      buildSky: () => ({
-        skyMat: {
+      buildSky: () => {
+        world.sky = {
           uniforms: {
             uOct: { value: 0 },
             uEnergy: { value: 0 },
@@ -151,17 +182,26 @@ const fake = vi.hoisted(() => {
             uC1: { value: new Vec() },
             uC2: { value: new Vec() },
             uPage: { value: new Vec() },
+            // The drop: where it falls, and how long since it fell.
             uDrop: { value: new Vec() },
             uAmber: { value: 0 },
           },
-        },
-        hemi: { color: new Vec() },
-        sun: { castShadow: false },
-      }),
+        };
+        return { skyMat: world.sky, hemi: { color: new Vec() }, sun: { castShadow: false } };
+      },
       skyPair: () => [new Vec(), new Vec()],
     },
     stage: {
-      buildStage: () => ({ light: { visible: true }, panel: { material: { color: new Vec() } }, move: () => {} }),
+      buildStage: () => {
+        world.stage = {
+          light: { visible: true, intensity: 60 },
+          panel: { material: { color: new Vec() } },
+          move: (_dt, _t, beats) => {
+            world.beats = beats;
+          },
+        };
+        return world.stage;
+      },
       STAGE_SOUND: { x: 0, y: 0, z: 0, facing: [0, 0, 1] },
     },
   };
@@ -198,11 +238,49 @@ const along = (p: Point) => (p.x - stage.x) * toCentre.x + (p.z - stage.z) * toC
 const across = (p: Point) => (p.x - stage.x) * toCentre.z - (p.z - stage.z) * toCentre.x;
 const fromCentre = (p: Point) => Math.hypot(p.x, p.z);
 
-// The page around the world, played by stand-ins: <main>, which carries the player's state and the view; the world's element; the
-// window, which takes the keys; a desktop's screen, which quality.js reads in matchMedia, innerWidth and navigator; and the frames,
-// which `run` hands main.js, each `ms` long (a frame adds at most 50 ms of world time), calling `each` after each one. `playing`
-// starts the show playing.
-async function startWorld({ playing = false } = {}) {
+// The show the page plays: one track, from one recording.
+const SHOW = "1986-07-04";
+const RECORDING = "gd1986-07-04.sbd.test";
+const TRACK = { title: "Bertha", duration: 600 };
+
+// A map of the show as the site serves one (maps.js checks it): TRACK at one second a step, every second's loudness `rms` and low end
+// `bass` as bytes (0-255), the tempo `bpm` in every 10-s window (0 for none), and the peaks as [second, strength].
+function showMap({ rms = 0, bass = 0, bpm = 0, peaks = [] as number[][] } = {}) {
+  const bytes = (values: number[]) => Buffer.from(values).toString("base64");
+  const each = (n: number, value: number) => bytes(Array.from({ length: n }, () => value));
+  return {
+    v: 1,
+    show: SHOW,
+    analysed: RECORDING,
+    playing: RECORDING,
+    step: 1,
+    tracks: [
+      {
+        title: TRACK.title,
+        analysedDuration: TRACK.duration,
+        playingDuration: TRACK.duration,
+        env: { rms: each(TRACK.duration, rms), bass: each(TRACK.duration, bass), bright: each(TRACK.duration, 0) },
+        tempo: bytes(Array.from({ length: (2 * TRACK.duration) / 10 }, (_, i) => (i % 2 ? 255 : bpm))),
+        peaks,
+      },
+    ],
+  };
+}
+
+type Hill = {
+  mode: string;
+  analysis: { source: string | null; weight: number };
+  map: { build: number; swell: number; bpm: number | null } | null;
+};
+const hill = () => (window as unknown as { __hill: Hill }).__hill;
+
+// The page around the world, played by stand-ins: <main>, which carries the player's state, how the show sounds and the view; the
+// world's element; the window, which takes the keys; a desktop's screen, which quality.js reads in matchMedia, innerWidth and navigator;
+// the site, which serves `map` as the show's map, and no other; and the frames, which `run` hands main.js, each `ms` long (a frame adds
+// at most 50 ms of world time), calling `each` after each one. `playing` starts the show playing; `routing` is how it sounds ("webaudio"
+// through the world's graph, "plain" in plain stereo); `search` is the page's query, on a preview; `reduced` asks for reduced motion.
+// A page with a map waits until the world has read it.
+async function startWorld({ playing = false, routing = "webaudio", search = "", reduced = false, map = null as object | null } = {}) {
   let now = 0;
   let queued: FrameRequestCallback | null = null;
   const container = Object.assign(new EventTarget(), {
@@ -212,10 +290,15 @@ async function startWorld({ playing = false } = {}) {
     appendChild: () => {},
     getBoundingClientRect: () => ({ top: 0 }),
   });
-  const main = { dataset: { state: playing ? "playing" : "paused", view: "third" } };
-  const data = { tracks: [{ title: "Bertha", duration: 600 }], seed: 7 };
+  const main = { dataset: { state: playing ? "playing" : "paused", routing, view: "third", ...(search ? { testHooks: "1" } : {}) } };
+  const data = { showDate: SHOW, identifier: RECORDING, tracks: [TRACK], seed: 7 };
   const byId: Record<string, unknown> = { world: container, "world-data": { textContent: JSON.stringify(data) } };
-  const media = () => ({ matches: false });
+  const media = (query: string) => ({ matches: reduced && query === "(prefers-reduced-motion: reduce)" });
+  const asked: string[] = [];
+  vi.stubGlobal("fetch", async (url: string) => {
+    asked.push(url);
+    return map && url === `/maps/${SHOW}.json` ? new Response(JSON.stringify(map)) : new Response(null, { status: 404 });
+  });
   vi.stubGlobal(
     "document",
     Object.assign(new EventTarget(), {
@@ -230,7 +313,7 @@ async function startWorld({ playing = false } = {}) {
   vi.stubGlobal("matchMedia", media);
   vi.stubGlobal("innerWidth", 1280);
   vi.stubGlobal("navigator", { maxTouchPoints: 0, userAgent: "" });
-  vi.stubGlobal("location", { search: "" });
+  vi.stubGlobal("location", { search });
   // input.js tells a key typed into a field from one for the world by its target.
   vi.stubGlobal("HTMLElement", class {});
   vi.stubGlobal("performance", { now: () => now });
@@ -246,6 +329,7 @@ async function startWorld({ playing = false } = {}) {
   fake.world.line = LINE;
   vi.resetModules();
   await import("../../../public/world/main.js");
+  if (map && !reduced) await vi.waitFor(() => expect(hill().map).not.toBeNull());
 
   const run = (seconds: number, { ms = 20, each = () => {} } = {}) => {
     for (let k = Math.round((seconds * 1000) / ms); k > 0; k--) {
@@ -267,10 +351,17 @@ async function startWorld({ playing = false } = {}) {
   return {
     run,
     hold,
-    mode: () => (window as unknown as { __hill: { mode: string } }).__hill.mode,
+    mode: () => hill().mode,
     // The bears in the scene, lead first.
     shown: () => fake.world.bears.filter((b) => fake.world.scene.shown.has(b.g)),
     stepped: () => fake.world.stepped,
+    // The addresses the page asked the site for.
+    asked,
+    // Puts the show `position` seconds into the track, as the player's report does.
+    seek: (position: number) =>
+      document.dispatchEvent(new CustomEvent("player:now", { detail: { index: 0, position, duration: TRACK.duration, at: now } })),
+    // How long ago the sky's last drop fell, in seconds of world time.
+    sinceDrop: () => (fake.world.sky.uniforms.uDrop.value as { z: number }).z,
   };
 }
 
@@ -352,5 +443,98 @@ describe("main.js's frames", () => {
     expect(page.mode()).toBe("attract");
     // The show plays, so the bears walked on, and the camera with them.
     expect(leads.at(-1)! - leads[0]).toBeGreaterThan(0);
+  });
+});
+
+describe("main.js's frames with the show's map", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // The stage light as the music sets it: 60, its own intensity, times layer 2's factor for the low end `bass` (0-255) at full weight.
+  const stageLight = (bass: number) => 60 * (0.4 + 1.6 * (bass / 255));
+
+  it("asks for the show's map once the world is ready", async () => {
+    const page = await startWorld({ playing: true, map: showMap() });
+    expect(page.asked).toEqual([`/maps/${SHOW}.json`]);
+  });
+
+  it.each([
+    { where: "where the show plays in plain stereo", routing: "plain", search: "" },
+    { where: "through the world's graph too under ?drive=map, a preview's test hook", routing: "webaudio", search: "?drive=map" },
+  ])("drives the world with the map $where", async ({ routing, search }) => {
+    await startWorld({ playing: true, routing, search, map: showMap({ bass: 128 }) }).then((page) => page.run(2));
+    expect(hill().analysis).toMatchObject({ source: "map", weight: 1 });
+    expect(fake.world.stage.light.intensity).toBeCloseTo(stageLight(128), 9);
+  });
+
+  it.each([
+    // Here the analyser hears nothing, as in a stall or between tracks: the world rests as it does with no map.
+    { where: "while the show plays through the world's graph, where the analyser hears it", playing: true, routing: "webaudio" },
+    { where: "while the show is paused", playing: false, routing: "plain" },
+  ])("takes no drive from the map $where", async ({ playing, routing }) => {
+    await startWorld({ playing, routing, map: showMap({ bass: 128 }) }).then((page) => page.run(2));
+    expect(hill().analysis).toMatchObject({ source: null, weight: 0 });
+    expect(fake.world.stage.light.intensity).toBe(60);
+  });
+
+  it("swells the flame over the 20 s before a peak to 2.2 times its size at the peak, easing to it from a seek and from it after the peak", async () => {
+    const page = await startWorld({ playing: true, routing: "plain", map: showMap({ peaks: [[300, 0.9]] }) });
+    page.seek(270);
+    page.run(1);
+    // 29 s before the peak there is no build-up yet.
+    expect(fake.world.flame.scale.x).toBe(1);
+    // A seek to 8 s before it: one 20-ms frame takes the build-up 0.025 of the way, and in 0.8 s it has caught up with the map.
+    page.seek(292);
+    page.run(0.02);
+    expect(fake.world.flame.scale.x).toBeCloseTo(1 + 1.2 * 0.025, 9);
+    page.run(0.98);
+    expect(hill().map?.build).toBe(0.65);
+    expect(fake.world.flame.scale.x).toBeCloseTo(1 + 1.2 * 0.65, 9);
+    page.run(7);
+    expect(fake.world.flame.scale.x).toBeCloseTo(2.2, 9);
+    // Past the peak the build-up falls 0.025 a frame, so it is gone within 0.8 s.
+    page.run(0.02);
+    expect(fake.world.flame.scale.x).toBeCloseTo(1 + 1.2 * 0.975, 9);
+    page.run(0.8);
+    expect(fake.world.flame.scale.x).toBe(1);
+  });
+
+  it("drops a ring in the sky as the music passes a peak", async () => {
+    const page = await startWorld({ playing: true, routing: "plain", map: showMap({ peaks: [[300, 0.9]] }) });
+    page.seek(298);
+    page.run(1);
+    // No drop has fallen yet: the first of every 40-60 s comes later.
+    expect(page.sinceDrop()).toBeGreaterThan(99);
+    page.run(2);
+    // The peak passed at 300 s, 1 s ago.
+    expect(page.sinceDrop()).toBeCloseTo(1, 9);
+  });
+
+  it("drops nothing when a seek jumps over a peak", async () => {
+    const page = await startWorld({ playing: true, routing: "plain", map: showMap({ peaks: [[300, 0.9]] }) });
+    page.seek(290);
+    page.run(1);
+    page.seek(310);
+    page.run(1);
+    expect(page.sinceDrop()).toBeGreaterThan(99);
+  });
+
+  it("plays the figures at the map's tempo, folded into their range, and at 96 a minute on a day without a map", async () => {
+    // The map reads 60 a minute, which the figures play at 120: two beats a second.
+    const page = await startWorld({ playing: true, map: showMap({ bpm: 60 }) });
+    page.run(5);
+    expect(fake.world.beats).toBeCloseTo(10, 9);
+    expect(hill().map?.bpm).toBe(120);
+    const plain = await startWorld({ playing: true });
+    plain.run(5);
+    expect(fake.world.beats).toBeCloseTo(8, 9);
+  });
+
+  it("asks for no map under reduced motion, where none of it would run", async () => {
+    const page = await startWorld({ playing: true, routing: "plain", reduced: true, map: showMap({ bass: 128 }) });
+    await new Promise((settle) => setTimeout(settle, 50));
+    expect(page.asked).toEqual([]);
+    expect(hill().map).toBeNull();
   });
 });
