@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { Bricolage_Grotesque, DM_Mono } from "next/font/google";
+import { importMap } from "@/lib/import-map";
 import "./globals.css";
 
 const grotesk = Bricolage_Grotesque({ subsets: ["latin"], axes: ["opsz", "wdth"], variable: "--font-grotesk", display: "swap" });
@@ -28,8 +29,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" className={`${grotesk.variable} ${mono.variable}`}>
       <head>
-        {/* Lets the world's modules import three.js and its addons by bare name. */}
-        <script type="importmap" nonce={nonce} dangerouslySetInnerHTML={{ __html: JSON.stringify({ imports: { three: "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.min.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/" } }) }} />
+        {/* Lets the world's modules import three.js and its addons by bare name, each file pinned to its hash. */}
+        <script type="importmap" nonce={nonce} dangerouslySetInnerHTML={{ __html: JSON.stringify(importMap) }} />
       </head>
       <body className="bg-page text-ink antialiased font-grotesk">{children}</body>
     </html>
