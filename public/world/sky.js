@@ -1,8 +1,8 @@
 /* eslint-disable */
 import * as THREE from "three";
 
-/* The sky of liquid light, with its octave count as a uniform the downgrade can lower, and its two lights: the hemisphere light, which
-   takes its colour from the sky, and the sun, whose shadow the stage aims. */
+/* The sky of liquid light, with its octave count as a uniform the downgrade can lower and an amber mix the music's brightness drives, and its
+   two lights: the hemisphere light, which takes its colour from the sky, and the sun, whose shadow the stage aims. */
 export function buildSky(scene, octaves, seed) {
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
@@ -10,12 +10,13 @@ export function buildSky(scene, octaves, seed) {
       uTime: { value: 0 }, uSeed: { value: seed }, uEnergy: { value: 0.5 }, uOct: { value: octaves },
       uC0: { value: new THREE.Color(0xe8b04b) }, uC1: { value: new THREE.Color(0xd6508a) }, uC2: { value: new THREE.Color(0x3a2238) }, uPage: { value: new THREE.Color(0x0b0b0d) },
       uDrop: { value: new THREE.Vector3(0.5, 0.5, 99) },
+      uAmber: { value: 0 }, uAmberColor: { value: new THREE.Color(0xe8b04b) },
     },
     vertexShader: `varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `
       precision mediump float;
       varying vec3 vDir;
-      uniform float uTime, uSeed, uEnergy; uniform vec3 uC0, uC1, uC2, uPage, uDrop;
+      uniform float uTime, uSeed, uEnergy, uAmber; uniform vec3 uC0, uC1, uC2, uPage, uDrop, uAmberColor;
       uniform int uOct;
       float hash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
       float noise(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
@@ -34,6 +35,7 @@ export function buildSky(scene, octaves, seed) {
         v += 0.3 * exp(-pow(abs((dd - 0.06 * uDrop.z) * 22.0), 2.0)) * exp(-uDrop.z * 0.4);
         vec3 col = mix(uC0, uC1, clamp(v * 1.5 - 0.1, 0.0, 1.0));
         col = mix(col, uC2, clamp(length(q), 0.0, 1.0) * 0.6);
+        col = mix(col, uAmberColor, uAmber);
         float horizon = smoothstep(-0.05, 0.3, d.y);
         gl_FragColor = vec4(mix(uPage, col, horizon), 1.0);
       }`,
