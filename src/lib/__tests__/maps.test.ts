@@ -440,6 +440,15 @@ describe("reading a track", () => {
   it("drives as the live sound does, from the envelope byte a time falls in, marked as the map's", () => {
     expect(mapDrive(readMap(fixture).tracks[1], 20.8)).toEqual({ source: "map", loud: 200 / 255, bass: 30 / 255, bright: 100 / 255 });
   });
+
+  it.each([
+    // 9 s is byte 2 at 4 s a step and byte 1 at 8; read at 1 s a step it would be byte 5 of 6, or the last of 3.
+    { step: 4, at9: 20 },
+    { step: 8, at9: 10 },
+  ])("drives from the byte a time falls in at $step s a step", ({ step, at9 }) => {
+    const level = at9 / 255;
+    expect(mapDrive(readMap(atStep(step)).tracks[1], 9)).toEqual({ source: "map", loud: level, bass: level, bright: level });
+  });
 });
 
 describe("loadMap", () => {

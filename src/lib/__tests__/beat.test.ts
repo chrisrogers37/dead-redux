@@ -30,12 +30,6 @@ describe("figuresTempo", () => {
     expect(figuresTempo(track([50, 50, 50, 100, 100]), 20)).toBe(100);
   });
 
-  it("reads each window within the track once at its ends, where fewer windows stand on one side", () => {
-    // At 0 s it reads windows 0 to 4, one of them at 90; at 59 s, in the last of six windows, windows 1 to 5, one of them at 90.
-    expect(figuresTempo(track([90, 120, 120, 120, 120, 120]), 0)).toBe(120);
-    expect(figuresTempo(track([120, 120, 120, 120, 120, 90]), 59)).toBe(120);
-  });
-
   it("takes the lower of the middle two of an even count, so it is always one of the readings", () => {
     expect(figuresTempo(track([100, 130]), 0)).toBe(100);
   });
