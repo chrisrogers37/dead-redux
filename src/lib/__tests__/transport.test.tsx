@@ -33,4 +33,9 @@ describe("Transport", () => {
     expect(playing).not.toContain("Could not play this track.");
     expect(playing).not.toContain("Try again");
   });
+
+  it("writes no style attribute at the start, where the stylesheet fills the seek bar to 0%, and the position once it moves", () => {
+    expect(renderToStaticMarkup(<Transport {...props} failed={false} />)).not.toContain("style=");
+    expect(renderToStaticMarkup(<Transport {...props} position={90} failed={false} />)).toContain('style="--p:25%"');
+  });
 });
