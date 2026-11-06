@@ -175,11 +175,11 @@ const PAGES = [
     shots: ["fixed-stage"],
     steps: [playStep("fixed-stage-playing", { ms: 8000, shot: "fixed-stage-playing-8s" })],
   },
-  // The fixed day 14 s before Fire On The Mountain's peak (150 s into the track, in its map): the build-up lifts the stage panel and the
-  // beam and swells the flame, more 8 s later. The `map` line reads the build-up, the flame's scale and the panel's factor beside
-  // desktop-fixed-playing-8s's, while the analyser drives the rest of the world.
+  // The fixed day 20 s before Fire On The Mountain's peak (150 s into the track, in its map): the build-up lifts the stage panel and the
+  // beam and swells the flame, more by the later shot, which lands a few seconds before the peak. The `map` line reads the build-up,
+  // the flame's scale and the panel's factor beside desktop-fixed-playing-8s's, while the analyser drives the rest of the world.
   {
-    path: "/2026-10-20?at=8&t=136",
+    path: "/2026-10-20?at=8&t=130",
     devices: ["desktop"],
     shots: [],
     steps: [playStep("fixed-fire-build", { ms: 8000, shot: "fixed-fire-build-8s" })],
@@ -188,7 +188,7 @@ const PAGES = [
   // `analysis` line reads source "map"; the panel and the platform's light follow the map's envelopes and the build-up, from the still
   // camera, and the figures play at the map's tempo.
   {
-    path: "/2026-10-20?pose=stage&drive=map&at=8&t=136",
+    path: "/2026-10-20?pose=stage&drive=map&at=8&t=130",
     devices: ["desktop"],
     shots: [],
     steps: [playStep("fixed-map-stage", { ms: 8000, shot: "fixed-map-stage-8s" })],
