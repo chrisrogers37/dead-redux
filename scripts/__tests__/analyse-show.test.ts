@@ -430,6 +430,7 @@ exit "\${STUB_FFMPEG_EXIT:-0}"
   });
 
   it("reads ffmpeg's stderr to its end as it comes, so that ffmpeg never waits to write more than a pipe holds", async () => {
+    // 100,000 lines of 15 bytes, 1.5 MB: more than a pipe holds, which is 16 pages, 64 KiB to 1 MiB by the host's page size.
     process.env.STUB_FFMPEG_LINES = "100000";
     let count = 0;
     await ffmpegDecode(body(10), ignore, ignore, () => {
@@ -440,23 +441,19 @@ exit "\${STUB_FFMPEG_EXIT:-0}"
 
   it("logs each line ffmpeg writes to stderr as one line of the job's log, after the run's own words", async () => {
     process.env.STUB_FFMPEG_STDERR = "pipe:0: Invalid data\r::error::x ##[error]x\n::error::y\n";
-    const out = mkdtempSync(join(tmpdir(), "analyse-show-"));
-    try {
-      const run = await runOnNodeIO(fakeRun(), out);
-      expect(run.errors.slice(0, 2)).toEqual(["    ffmpeg: pipe:0: Invalid data ::error::x ## [error]x", "    ffmpeg: ::error::y"]);
-      // The stub's two samples are not the track's 4 s, so the show fails after its first track.
-      expect(run.errors.slice(2)).toEqual([expect.stringMatching(/^1986-07-04: Touch Of Grey: [\d.e-]+ s decoded, 4 s listed$/)]);
-      expect(run.code).toBe(1);
-    } finally {
-      rmSync(out, { recursive: true, force: true });
-    }
+    const run = await runOnNodeIO(fakeRun());
+    expect(run.errors.slice(0, 2)).toEqual(["    ffmpeg: pipe:0: Invalid data ::error::x ## [error]x", "    ffmpeg: ::error::y"]);
+    // The stub's two samples are not the track's 4 s, so the show fails after its first track.
+    expect(run.errors.slice(2)).toEqual([expect.stringMatching(/^1986-07-04: Touch Of Grey: [\d.e-]+ s decoded, 4 s listed$/)]);
+    expect(run.code).toBe(1);
   });
 });
 
-// A run of one show as the maps workflow makes it, through the script's own io but for the network, which answers as `fake`'s fetch
-// does. Returns its exit code and the lines of the job's log that it printed and wrote to stderr: each message cut at each carriage
-// return or line feed, as the runner cuts a step's output into lines.
-async function runOnNodeIO(fake: ReturnType<typeof fakeRun>, out: string) {
+// A run of one show as the maps workflow makes it, into a directory of its own, through the script's own io but for the network, which
+// answers as `fake`'s fetch does. Returns its exit code and the lines of the job's log that it printed and wrote to stderr: each message
+// cut at each carriage return or line feed, as the runner cuts a step's output into lines.
+async function runOnNodeIO(fake: ReturnType<typeof fakeRun>) {
+  const out = mkdtempSync(join(tmpdir(), "analyse-show-"));
   const printed: string[] = [];
   const written: string[] = [];
   vi.spyOn(console, "log").mockImplementation((message?: unknown) => {
@@ -473,6 +470,7 @@ async function runOnNodeIO(fake: ReturnType<typeof fakeRun>, out: string) {
   } finally {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    rmSync(out, { recursive: true, force: true });
   }
 }
 
@@ -1061,7 +1059,7 @@ describe("main", () => {
     const fake = fakeRun({
       answers: { [PLAYING_URL]: [json({ ...playing("1986-07-04"), tracks: [track, second] })], [track.mp3Url]: [httpStatus(404)] },
     });
-    const run = await runOnNodeIO(fake, dir);
+    const run = await runOnNodeIO(fake);
     expect(run.log).toEqual([
       "1986-07-04: the page plays sbd-id, 2 tracks, 7 s listed",
       `  1/2 Touch Of Grey ::error::x ## [error]x: ${T01}#x## [error]x`,
