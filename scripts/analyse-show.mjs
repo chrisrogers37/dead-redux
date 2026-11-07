@@ -11,6 +11,7 @@ import { pipeline } from "stream/promises";
 import { setTimeout as sleep } from "timers/promises";
 import { pathToFileURL } from "url";
 import { checkMap, isDuration, isShowDate, MAP_VERSION, MAX_MAP_BYTES, MAX_PEAKS, STEPS, TEMPO_WINDOW } from "../public/world/maps.js";
+import { logText } from "./job-text.mjs";
 
 // The site whose /api/playing route says what the page plays; a branch's preview can stand in for it.
 export const SITE = "https://dead-redux.vercel.app";
@@ -493,18 +494,20 @@ const FFMPEG_ARGS = [
 
 /**
  * Decodes an mp3 stream with ffmpeg, in memory: the body goes to ffmpeg's input as it arrives and its output comes back as mono
- * s16le PCM at SAMPLE_RATE.
+ * s16le PCM at SAMPLE_RATE. What ffmpeg writes to stderr is read as it comes, so ffmpeg never waits on it, and handed on line by line.
  *
  * @param body - The response body, a web ReadableStream.
  * @param onBytes - Called with the length of each chunk of the body.
  * @param onPcm - Called with each Buffer of PCM.
+ * @param {(line: string) => void} [onLine] - Called with each line ffmpeg writes to stderr, without its line feed, a last line with
+ *   none included. Left out, the lines are let go.
  * @throws With ffmpeg's own error when its process fails, as an ffmpeg that cannot start does, or else the first failure of the feed,
- *   the read or ffmpeg's exit.
+ *   the read, ffmpeg's stderr or its exit.
  */
-export async function ffmpegDecode(body, onBytes, onPcm) {
+export async function ffmpegDecode(body, onBytes, onPcm, onLine = () => {}) {
   // A body that cannot be read throws here, before ffmpeg is running to be left waiting for it.
   const source = Readable.fromWeb(body);
-  const ffmpeg = spawn("ffmpeg", FFMPEG_ARGS, { stdio: ["pipe", "pipe", "inherit"] });
+  const ffmpeg = spawn("ffmpeg", FFMPEG_ARGS, { stdio: ["pipe", "pipe", "pipe"] });
   // The feed and the read are joined to ffmpeg at once, in this tick, so that every failure of the body has a listener. When ffmpeg's
   // process fails ("spawn ffmpeg ENOENT" for a missing ffmpeg), the feed and the read fail after it, and its own error is the one reported.
   let processError = null;
@@ -531,6 +534,17 @@ export async function ffmpegDecode(body, onBytes, onPcm) {
       for await (const pcm of ffmpeg.stdout) onPcm(pcm);
     })()
   );
+  const said = stopOnFailure(
+    (async () => {
+      let rest = "";
+      for await (const text of ffmpeg.stderr.setEncoding("utf8")) {
+        const lines = (rest + text).split("\n");
+        rest = lines.pop();
+        for (const line of lines) onLine(line);
+      }
+      if (rest !== "") onLine(rest);
+    })()
+  );
   const exited = stopOnFailure(
     new Promise((resolve, reject) => {
       ffmpeg.once("error", (err) => {
@@ -540,7 +554,7 @@ export async function ffmpegDecode(body, onBytes, onPcm) {
       ffmpeg.once("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited with ${code}`))));
     })
   );
-  const settled = await Promise.allSettled([fed, read, exited]);
+  const settled = await Promise.allSettled([fed, read, said, exited]);
   const failed = settled.find((result) => result.status === "rejected");
   if (failed) throw processError ?? failed.reason;
 }
@@ -588,7 +602,7 @@ async function fetchPlaying(site, date, request) {
  *
  * @param date - The show date.
  * @param request - `politeClient(io).request`.
- * @param io - { decode, log }.
+ * @param io - { decode, log, error }.
  * @param site - The site whose /api/playing route names the recording.
  * @throws When the site names no recording, a track fails to download or decode, a download ends off archive.org, or a track's decoded
  *   length is not its listed length.
@@ -611,7 +625,9 @@ export async function analyseShow(date, request, io, site = SITE) {
         (k) => {
           bytes += k;
         },
-        (pcm) => analyser.push(pcm)
+        (pcm) => analyser.push(pcm),
+        // ffmpeg's own messages, each on a line that says whose it is.
+        (line) => io.error(`    ffmpeg: ${line}`)
       );
       // A body that ends early is a cut download. A compressed one is decoded on the way in, so its length says nothing.
       const length = Number(res.headers.get("content-length"));
@@ -640,8 +656,9 @@ const USAGE = "Usage: node scripts/analyse-show.mjs --out DIR [--site URL] SHOW_
 const nodeIO = {
   fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
   sleep: (ms) => sleep(ms),
-  log: (message) => console.log(message),
-  error: (message) => console.error(message),
+  // Each message is one line of the job's log, whatever text from the site, a download or ffmpeg it holds.
+  log: (message) => console.log(logText(message)),
+  error: (message) => console.error(logText(message)),
   decode: ffmpegDecode,
 };
 

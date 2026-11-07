@@ -1,6 +1,7 @@
 import { writeFile } from "fs/promises";
 import { join } from "path";
 import { BOUND } from "../../public/world/ground.js";
+import { summaryText } from "../../scripts/job-text.mjs";
 
 /**
  * What the run does with a generated image's answer: it saves a 200 and skips a 404, since an image can be missing before the change
@@ -131,3 +132,19 @@ export async function saveAssets(site, paths, outDir, log = console.log) {
   }
   return failed;
 }
+
+/**
+ * The install check's section of the job summary: each check's line in a code span, which shows it as written, after "failed: " when
+ * the check failed.
+ *
+ * @param findings - [{ line, ok }], in the order the checks ran.
+ */
+export const installSummary = (findings) =>
+  `### Install check\n\n${findings.map(({ line, ok }) => `- ${ok ? "" : "failed: "}${summaryText(line)}`).join("\n")}\n`;
+
+/**
+ * The walk sweep's section of the job summary: each page and device's line in a code span, which shows it as written.
+ *
+ * @param lines - The sweep's lines, in the order they ran.
+ */
+export const sweepSummary = (lines) => `### The walk's draw calls\n\n${lines.map((line) => `- ${summaryText(line)}`).join("\n")}\n`;
