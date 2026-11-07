@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "f
 import { tmpdir } from "os";
 import { join } from "path";
 import { fileURLToPath } from "url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkMap, MAX_MAP_BYTES, MAX_TRACKS } from "../../public/world/maps.js";
 import type { RelistenSource } from "../../src/lib/relisten";
 import {
@@ -355,9 +355,12 @@ describe("buildMap", () => {
 // ffmpegDecode runs the ffmpeg that PATH finds, so these tests put a stand-in first on it.
 describe("ffmpegDecode", () => {
   const STUB = `#!/bin/sh
-# Stands in for ffmpeg: takes all of its input, writes two samples of PCM and exits with STUB_FFMPEG_EXIT, 0 by default.
+# Stands in for ffmpeg: takes all of its input, writes two samples of PCM, writes STUB_FFMPEG_STDERR to stderr and then
+# STUB_FFMPEG_LINES lines more when it is set, and exits with STUB_FFMPEG_EXIT, 0 by default.
 cat > /dev/null
 printf '\\001\\000\\002\\000'
+printf '%s' "\${STUB_FFMPEG_STDERR:-}" >&2
+if [ -n "\${STUB_FFMPEG_LINES:-}" ]; then yes 'Header missing' | head -n "\${STUB_FFMPEG_LINES}" >&2; fi
 exit "\${STUB_FFMPEG_EXIT:-0}"
 `;
   let bin: string;
@@ -375,6 +378,8 @@ exit "\${STUB_FFMPEG_EXIT:-0}"
   afterEach(() => {
     process.env.PATH = savedPath;
     delete process.env.STUB_FFMPEG_EXIT;
+    delete process.env.STUB_FFMPEG_STDERR;
+    delete process.env.STUB_FFMPEG_LINES;
     rmSync(bin, { recursive: true, force: true });
   });
 
@@ -414,7 +419,62 @@ exit "\${STUB_FFMPEG_EXIT:-0}"
     process.env.PATH = bin;
     await expect(ffmpegDecode(body(10), ignore, ignore)).rejects.toThrow("spawn ffmpeg ENOENT");
   });
+
+  it("hands on each line ffmpeg writes to stderr, a last line with no line feed included", async () => {
+    process.env.STUB_FFMPEG_STDERR = "pipe:0: Header missing\nError in a tag\r with a carriage return\nno line feed at the end";
+    const lines: string[] = [];
+    await ffmpegDecode(body(10), ignore, ignore, (line: string) => {
+      lines.push(line);
+    });
+    expect(lines).toEqual(["pipe:0: Header missing", "Error in a tag\r with a carriage return", "no line feed at the end"]);
+  });
+
+  it("reads ffmpeg's stderr to its end as it comes, so that ffmpeg never waits to write more than a pipe holds", async () => {
+    process.env.STUB_FFMPEG_LINES = "100000";
+    let count = 0;
+    await ffmpegDecode(body(10), ignore, ignore, () => {
+      count++;
+    });
+    expect(count).toBe(100_000);
+  });
+
+  it("logs each line ffmpeg writes to stderr as one line of the job's log, after the run's own words", async () => {
+    process.env.STUB_FFMPEG_STDERR = "pipe:0: Invalid data\r::error::x ##[error]x\n::error::y\n";
+    const out = mkdtempSync(join(tmpdir(), "analyse-show-"));
+    try {
+      const run = await runOnNodeIO(fakeRun(), out);
+      expect(run.errors.slice(0, 2)).toEqual(["    ffmpeg: pipe:0: Invalid data ::error::x ## [error]x", "    ffmpeg: ::error::y"]);
+      // The stub's two samples are not the track's 4 s, so the show fails after its first track.
+      expect(run.errors.slice(2)).toEqual([expect.stringMatching(/^1986-07-04: Touch Of Grey: [\d.e-]+ s decoded, 4 s listed$/)]);
+      expect(run.code).toBe(1);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
 });
+
+// A run of one show as the maps workflow makes it, through the script's own io but for the network, which answers as `fake`'s fetch
+// does. Returns its exit code and the lines of the job's log that it printed and wrote to stderr: each message cut at each carriage
+// return or line feed, as the runner cuts a step's output into lines.
+async function runOnNodeIO(fake: ReturnType<typeof fakeRun>, out: string) {
+  const printed: string[] = [];
+  const written: string[] = [];
+  vi.spyOn(console, "log").mockImplementation((message?: unknown) => {
+    printed.push(String(message));
+  });
+  vi.spyOn(console, "error").mockImplementation((message?: unknown) => {
+    written.push(String(message));
+  });
+  vi.stubGlobal("fetch", fake.io.fetch);
+  const lines = (messages: string[]) => messages.flatMap((message) => message.split(/\r\n|\r|\n/));
+  try {
+    const code = await main(["--out", out, "1986-07-04"]);
+    return { code, log: lines(printed), errors: lines(written) };
+  } finally {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  }
+}
 
 // The answers for the fakes below.
 type Answer = Response | Error;
@@ -993,6 +1053,29 @@ describe("main", () => {
     expect(await main(["--out", dir, "1986-07-04", "1987-03-27"], f.io)).toBe(0);
     expect(readdirSync(dir)).toEqual(["1986-07-04.json", "1987-03-27.json"]);
     expect(f.sleeps).toEqual([1000, 1000, 1000, 1000, 1000]);
+  });
+
+  it("logs a track's title and URL on the track's line of the job's log, a line break as a space and ##[ as ## [", async () => {
+    const [first, second] = playing("1986-07-04").tracks;
+    const track = { ...first, title: "Touch Of Grey\n::error::x ##[error]x", mp3Url: `${T01}#x##[error]x` };
+    const fake = fakeRun({
+      answers: { [PLAYING_URL]: [json({ ...playing("1986-07-04"), tracks: [track, second] })], [track.mp3Url]: [httpStatus(404)] },
+    });
+    const run = await runOnNodeIO(fake, dir);
+    expect(run.log).toEqual([
+      "1986-07-04: the page plays sbd-id, 2 tracks, 7 s listed",
+      `  1/2 Touch Of Grey ::error::x ## [error]x: ${T01}#x## [error]x`,
+      "  pause 1 s",
+    ]);
+    expect(run.errors).toEqual([`1986-07-04: ${T01}#x## [error]x answered 404`]);
+    expect(run.code).toBe(1);
+  });
+
+  it("starts the line for a failed show with its own words, when the error's text starts with ::error::x", async () => {
+    const track = { ...playing("1986-07-04").tracks[0], title: "::error::x" };
+    const f = fakeRun({ lengths: [0], answers: { [PLAYING_URL]: [json({ ...playing("1986-07-04"), tracks: [track] })] } });
+    expect(await main(["--out", dir, "1986-07-04"], f.io)).toBe(1);
+    expect(f.errors).toEqual(["1986-07-04: ::error::x: decoded no audio"]);
   });
 
   // Loading every module it imports before it reads its arguments.
