@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { binOf, rmsOf, bassOf, brightOf, readStep, mappings } from "../../../public/world/audio.js";
+import { binOf, rmsOf, bassOf, brightOf, fluxOf, onsetStep, readStep, mappings } from "../../../public/world/audio.js";
 
 /* A spectrum of 512 bins in dB, as getFloatFrequencyData fills one, each bin's level given by its index. */
 const spectrum = (dbAt: (k: number) => number) => new Float32Array(512).map((_, k) => dbAt(k));
@@ -113,18 +113,21 @@ describe("readStep", () => {
   });
 });
 
-/* What mappings gives, and a check of each value to within a billionth. */
-type Layer2 = Record<"energy" | "hemi" | "stage" | "panel" | "flame" | "amber" | "rate" | "amp", number>;
-function expectClose(got: Layer2, want: Layer2) {
-  for (const k of Object.keys(want) as (keyof Layer2)[]) expect(got[k], k).toBeCloseTo(want[k], 9);
+/* What mappings gives, and a check of each value it names to within a billionth. */
+type Layer2 = Record<"energy" | "hemi" | "stage" | "panel" | "flame" | "amber" | "rate" | "amp" | "beam" | "swell", number>;
+function expectClose(got: Layer2, want: Partial<Layer2>) {
+  for (const k of Object.keys(want) as (keyof Layer2)[]) expect(got[k], k).toBeCloseTo(want[k] ?? NaN, 9);
 }
 const FULL = { source: "analyser", loud: 1, bass: 1, bright: 1 };
 const SILENT = { source: "analyser", loud: 0, bass: 0, bright: 0 };
 
 describe("mappings", () => {
-  it("leaves the world as it was at weight 0, whatever the drive: every factor 1, no amber, the legs at 6 rad/s and 0.5 rad", () => {
-    const own = { energy: 1, hemi: 1, stage: 1, panel: 1, flame: 1, amber: 0, rate: 6, amp: 0.5 };
-    for (const drive of [FULL, null]) expect(mappings(drive, 0)).toEqual(own);
+  it("leaves the world as it was at weight 0, whatever the drive and the build-up: every factor 1, no amber, the legs at 6 rad/s and 0.5 rad", () => {
+    const own = { energy: 1, hemi: 1, stage: 1, panel: 1, flame: 1, amber: 0, rate: 6, amp: 0.5, beam: 1, swell: 1 };
+    for (const drive of [FULL, null]) {
+      expect(mappings(drive, 0)).toEqual(own);
+      expect(mappings(drive, 0, 1)).toEqual(own);
+    }
   });
 
   it("reaches the top of each range at weight 1 with a full drive", () => {
@@ -144,5 +147,82 @@ describe("mappings", () => {
     const half = mappings(FULL, 0.5);
     expect(half.stage).toBeCloseTo(1.5, 9);
     expect(half.rate).toBeCloseTo(9, 9);
+  });
+
+  it("takes the panel and the beam to the tops of their ranges at a peak's full build-up, whatever the drive, and swells the flame", () => {
+    for (const drive of [FULL, SILENT]) expectClose(mappings(drive, 1, 1), { panel: 1.2, beam: 1.2, swell: 2.2 });
+  });
+
+  it("is halfway there at half the build-up, and at half the weight, with which the build-up acts", () => {
+    expectClose(mappings(SILENT, 1, 0.5), { panel: 0.9, beam: 1.1, swell: 1.6 });
+    expectClose(mappings(SILENT, 0.5, 1), { panel: 1, beam: 1.1, swell: 1.6 });
+  });
+});
+
+describe("fluxOf", () => {
+  // A spectrum in dB of these linear magnitudes from bin 0, and silence in every other bin.
+  const of = (m: number[]) => spectrum((k) => (k < m.length ? 20 * Math.log10(m[k]) : -Infinity));
+  // Bin 0 (the DC term) rises by 1, bin 1 by 0.4, bin 2 falls by 0.9, bin 3 rises by 0.9 and bin 4, past hi, by 1.
+  const BEFORE = [0, 0.1, 1, 0.1, 0], AFTER = [1, 0.5, 0.1, 1, 1];
+
+  it("sums each bin's rise in linear magnitude since the last read, from bin 1 to bin hi, and passes over the bins that fell", () => {
+    expect(fluxOf(of(AFTER), Float32Array.from(BEFORE), 3)).toBeCloseTo(1.3, 5);
+  });
+
+  it("keeps this read's magnitudes for the next, so a spectrum that holds still has no flux", () => {
+    const prev = Float32Array.from(BEFORE);
+    fluxOf(of(AFTER), prev, 3);
+    expect(Array.from(prev)).toEqual([0, expect.closeTo(0.5, 6), expect.closeTo(0.1, 6), expect.closeTo(1, 6), 0]);
+    expect(fluxOf(of(AFTER), prev, 3)).toBeCloseTo(0, 6);
+  });
+});
+
+describe("onsetStep", () => {
+  // An RMS over loudness's floor.
+  const LOUD = 0.1;
+  // Reads 33 ms apart with these fluxes, from no reads before: the reads that were onsets, and the onsets' state after the last.
+  function read(fluxes: number[], rms = LOUD) {
+    let s = { recent: [] as [number, number][], above: false, count: 0, at: null as number | null };
+    const found: number[] = [];
+    fluxes.forEach((flux, i) => {
+      const next = onsetStep(s, flux, rms, i * 33);
+      if (next.onset) found.push(i);
+      s = next;
+    });
+    return { found, state: s };
+  }
+  const onsetsOf = (fluxes: number[], rms = LOUD) => read(fluxes, rms).found;
+  // A beat every 15 reads, about 0.5 s, from read 15: its flux jumps to 1 for three reads over a floor of 0.1.
+  const beats = Array.from({ length: 90 }, (_, i) => (i >= 15 && i % 15 < 3 ? 1 : 0.1));
+
+  it("finds an onset at each beat, once each, however many reads its flux stays up, and counts them and keeps the last one's time", () => {
+    const { found, state } = read(beats);
+    expect(found).toEqual([15, 30, 45, 60, 75]);
+    expect(state).toMatchObject({ count: 5, at: 75 * 33 });
+  });
+
+  it("finds none in a flux that holds steady", () => {
+    expect(onsetsOf(Array.from({ length: 60 }, () => 0.5))).toEqual([]);
+  });
+
+  it("takes a read as an onset when its flux rises over one and a half times the median, and not under it", () => {
+    const quiet = Array.from({ length: 10 }, () => 0.1);
+    expect(onsetsOf([...quiet, 0.14])).toEqual([]);
+    expect(onsetsOf([...quiet, 0.16])).toEqual([10]);
+  });
+
+  it("finds none before five reads to stand out from", () => {
+    expect(onsetsOf([0.1, 0.1, 0.1, 0.1, 1, 0.1])).toEqual([]);
+    expect(onsetsOf([0.1, 0.1, 0.1, 0.1, 0.1, 1])).toEqual([5]);
+  });
+
+  it("finds none under loudness's floor, so silence has no onsets", () => {
+    expect(onsetsOf(beats, 0.009)).toEqual([]);
+  });
+
+  it("measures a read against the reads of the 1.5 s before it only", () => {
+    // 45 loud reads, then 45 quiet ones, then a loud read: by then the loud reads are more than 1.5 s back.
+    const fluxes = [...Array.from({ length: 45 }, () => 1), ...Array.from({ length: 45 }, () => 0.1), 1];
+    expect(onsetsOf(fluxes)).toEqual([90]);
   });
 });

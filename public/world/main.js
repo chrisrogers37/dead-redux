@@ -11,7 +11,9 @@ import { bindInput } from "./input.js";
 import { confine, DESCENT_S, enterMode, keepSpot, modeRules, slotAt, slotDistance, walkLimits } from "./modes.js";
 import { postPose as poseOver } from "./pose.js";
 import { cueClock } from "./clock.js";
-import { analyse, analysisStats, listen, mappings, soundStats, startSound } from "./audio.js";
+import { analyse, analysisStats, listen, mappings, onsetAt, soundStats, startSound } from "./audio.js";
+import { buildUp, loadMap, mapDrive, passesPeak } from "./maps.js";
+import { beatStep, FIGURES_BPM, figuresTempo } from "./beat.js";
 import { buildStage, STAGE_SOUND } from "./stage.js";
 import { budgetFor, frameSampler, pickTier, stepDown } from "./quality.js";
 
@@ -130,11 +132,13 @@ function start(gl) {
     new THREE.MeshBasicMaterial({ color: 0xe8b04b, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, forceSinglePass: true }));
   beam.visible = hasShow;
   scene.add(beam);
+  /* Its own opacity, which the build-up before a peak scales. */
+  const beamBase = beam.material.opacity;
 
   /* ---------- the show clock ---------- */
   /* The audio element owns the clock: the world keeps the player's last report (sent on each timeupdate, on play and on pause)
      and runs on from it while the show plays. */
-  let playing = false, showPos = 0, index = 0, frac = 0;
+  let playing = false, showPos = 0, index = 0, frac = 0, trackPos = 0;
   let clock = { index: 0, position: 0, duration: tracks[0].duration, at: performance.now() };
   document.addEventListener("player:now", (e) => { clock = e.detail; });
   /* A cue reaches the world at once, before its audio plays, so the world shows where the show is while it loads: the bears wait
@@ -147,7 +151,7 @@ function start(gl) {
     const i = Math.max(0, Math.min(N - 1, clock.index));
     const d = clock.duration > 0 ? clock.duration : tracks[i].duration;
     const pos = Math.min(d, clock.position + (playing ? (now - clock.at) / 1000 : 0));
-    index = i; frac = d > 0 ? pos / d : 0; showPos = starts[i] + pos;
+    index = i; frac = d > 0 ? pos / d : 0; showPos = starts[i] + pos; trackPos = pos;
   }
   /* The show sounds from the stage, through the graph the first move makes (audio.js). */
   startSound(STAGE_SOUND, phone);
@@ -160,13 +164,32 @@ function start(gl) {
     if (i === N - 1) return 0.8; return i < Math.floor(N * 0.37) ? 0.5 : 0.7;
   };
   let energy = 0.5;
-  /* Layer 2: this frame's drive from the music (null while nothing plays through the analyser, and always under reduced motion), the last
-     drive heard, and how far the world follows it, easing over 0.8 s each way so it never snaps to or from the music. */
+  /* Layer 2: this frame's drive from the music, the live sound's or, where the analyser cannot hear the show, its map's (null while
+     neither gives one, and always under reduced motion), the last drive heard, and how far the world follows it, easing over 0.8 s each
+     way so it never snaps to or from the music. */
   let drive = null, heard = null, weight = 0;
+  /* What the music does to the world this frame (audio.js mappings). */
+  let layer2 = mappings(null, 0);
   /* The bears' leg phase, which the music's loudness speeds; it accumulates, so a change of rate never jumps the legs. */
   let gait = 0;
+  /* Layer 3: the show's map (maps.js), null until it has loaded and on a day without one. Where the analyser cannot hear the show, the
+     map drives the world in the live sound's place; and from it come the build-up before each of a song's peaks, which follows the map's
+     at most 1.25 a second either way, so a seek or a peak's passing never snaps, and the figures' tempo (null where it gives none). */
+  let map = null, build = 0, tempo = null;
+  /* The figures' beat (beat.js), and the time of the last onset it has seen. */
+  let figures = { beats: 0, pull: 0, locks: 0 }, seenOnset = null;
+  /* The last frame's song and place in it, which tell when the music passes a peak. */
+  let lastIndex = -1, lastPos = 0;
+  /* `value` moved toward `target` by at most `step`. */
+  const toward = (value, target, step) => value + Math.max(-step, Math.min(step, target - value));
   let rnd = (() => { let s = data.seed * 9301 + 49297; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; })();
   let nextDrop = 40 + rnd() * 20, dropAt = -99;
+  /* The sky's drop: a ring that spreads from a point of the sky, from `dropAt`; the next falls 40-60 s on. */
+  function drop() {
+    dropAt = elapsed;
+    skyMat.uniforms.uDrop.value.set(0.2 + rnd() * 0.6, 0.3 + rnd() * 0.5, 0);
+    nextDrop = elapsed + 40 + rnd() * 20;
+  }
 
   /* ---------- the camera: walker, attract, descent, drift ---------- */
   /* The walker is the visitor, seen from behind as their own bear (third person, the default) or through its eyes (first person). The
@@ -183,7 +206,8 @@ function start(gl) {
      aspect stays the frame's. ?pose=snout stands the walker in front of the lead bear's snout looking a little down, and ?pose=pass
      behind the last bear, a little to its side, facing its way; both start inside the bear's reach and are taken again when the view
      changes, so the walk's keep-out sets each view's distance. */
-  const hook = main.dataset.testHooks === "1" ? new URLSearchParams(location.search).get("pose") : null;
+  const hooks = main.dataset.testHooks === "1" ? new URLSearchParams(location.search) : null;
+  const hook = hooks?.get("pose") ?? null;
   const testPose = hook === "stage" ? STAGE_POSE : hook === "slope" ? SLOPE_POSE : hook === "path" ? PATH_POSE : null;
   const sweep = hook === "sweep";
   const bearHook = hook === "snout" || hook === "pass" ? hook : null;
@@ -193,6 +217,20 @@ function start(gl) {
      their line passes nearest it, the lead bear there, with no descent. */
   const overK = /^landmark-(\d+)$/.exec(hook ?? "");
   const over = overK ? landmarks[Number(overK[1])] ?? null : null;
+  /* The test hook ?drive=map: the show's map drives the world, as where the analyser cannot hear the show, while the sound is routed
+     as ever. */
+  const mapHook = hooks?.get("drive") === "map";
+  /* This frame's drive, with `track` the map's for the song that plays (null without a map): the live sound's, else the map's while
+     the show plays where the analyser cannot hear it, in plain stereo or before its sound is routed (the page mirrors how it sounds on
+     <main>), or under ?drive=map. Never the map's where the analyser hears silence (a stall, the gap between tracks), so the two never
+     take turns within a song. */
+  function driveFor(now, track) {
+    if (!mapHook) {
+      const live = analyse(now);
+      if (live || main.dataset.routing === "webaudio") return live;
+    }
+    return track && playing ? mapDrive(track, trackPos) : null;
+  }
   let mode = over ? "attract" : reduced || posed ? "walk" : "descent";
   let elapsed = 0;
   /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
@@ -345,6 +383,7 @@ function start(gl) {
   /* The stats the CI shoot script logs after every shot and every control a recording holds, and ?stats=1 shows, read live. They are
      defined on window.__hill, which the player also writes, so its fields stay. */
   const stat = (get) => ({ get, enumerable: true, configurable: true });
+  const r3 = (v) => Math.round(v * 1000) / 1000;
   Object.defineProperties((window.__hill ??= {}), {
     tier: stat(() => tier), scale: stat(() => quality.scale), rung: stat(() => rung),
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
@@ -357,7 +396,17 @@ function start(gl) {
       ...(third ? avatar.report(camera, phone ? plateTop / frameH : null) : { clear: false, screen: null }) })),
     /* In first person, the nearest bear vertex's depth in the view and the widest share of the frame's width one bear covers. */
     bears: stat(() => (third ? null : bearsInView())),
-    analysis: stat(() => ({ source: drive?.source ?? null, weight: Math.round(weight * 1000) / 1000, ...analysisStats() })),
+    analysis: stat(() => ({ source: drive?.source ?? null, weight: r3(weight), ...analysisStats() })),
+    /* The show's map once it has loaded, else null: its show and step; its loudness, low end and brightness where the show is, which
+       drive the world where the analyser cannot hear the show; the build-up as it acts, with the music's weight, and the flame's scale
+       and the panel's and the beam's factors with it; the figures' tempo (null where the map gives none); and how many onsets have
+       pulled their beat. */
+    map: stat(() => {
+      if (!map) return null;
+      const { loud, bass, bright } = mapDrive(map.tracks[index], trackPos);
+      return { show: map.show, step: map.step, loud: r3(loud), bass: r3(bass), bright: r3(bright), build: r3(build * weight),
+        swell: r3(layer2.swell), panel: r3(layer2.panel), beam: r3(layer2.beam), bpm: tempo, locks: figures.locks };
+    }),
   });
 
   function frame(now) {
@@ -376,10 +425,14 @@ function start(gl) {
     /* State changes blend over about eight seconds; under reduced motion they land at once. */
     const blend = reduced ? 1 : Math.min(1, dt * 0.12);
     energy += (targetEnergy - energy) * blend;
-    drive = reduced ? null : analyse(now);
+    /* The map's track for the song that plays (null without a map). */
+    const track = map?.tracks[index] ?? null;
+    drive = reduced ? null : driveFor(now, track);
     if (drive) heard = drive;
-    weight = Math.max(0, Math.min(1, weight + (drive ? dt : -dt) / 0.8));
-    const layer2 = mappings(heard, weight);
+    weight = toward(weight, drive ? 1 : 0, dt / 0.8);
+    build = toward(build, track ? buildUp(track, trackPos) : 0, dt / 0.8);
+    tempo = track ? figuresTempo(track, trackPos) : null;
+    layer2 = mappings(heard, weight, build);
     const f = total > 0 ? showPos / total : 0;
     const [c0, c1] = skyPair(index, f, set2Start, encoreStart);
     skyMat.uniforms.uEnergy.value = energy * layer2.energy;
@@ -393,15 +446,25 @@ function start(gl) {
     stage.light.intensity = lightBase.stage * layer2.stage;
     if (!reduced) {
       skyMat.uniforms.uTime.value = elapsed;
-      if (elapsed >= nextDrop) { dropAt = elapsed; skyMat.uniforms.uDrop.value.set(0.2 + rnd() * 0.6, 0.3 + rnd() * 0.5, 0); nextDrop = elapsed + 40 + rnd() * 20; }
+      /* A drop falls every 40-60 s, and as the music plays past a peak of the song between one frame and the next, unless one fell in
+         the last 5 s. */
+      const peak = track && weight > 0 && index === lastIndex && passesPeak(track, lastPos, trackPos);
+      if (elapsed >= nextDrop || (peak && elapsed - dropAt > 5)) drop();
+      lastIndex = index; lastPos = trackPos;
       skyMat.uniforms.uDrop.value.z = elapsed - dropAt;
       for (const m of moving) {
         if (m.kind === "spin") m.obj.rotation.y += dt * 0.3;
         else if (m.kind === "pulse") m.obj.material.emissiveIntensity = 0.6 + 0.4 * Math.sin(elapsed * 3);
         else if (m.kind === "bob") m.obj.position.y = 4 + 0.5 * Math.sin(elapsed * 1.5);
         else if (m.kind === "flame") m.obj.intensity = m.base * layer2.flame;
+        else if (m.kind === "swell") m.obj.scale.setScalar(layer2.swell);
       }
-      stage.move(dt, elapsed, playing);
+      /* The figures' beat (beat.js): the map's tempo where it gives one, onto whose beat the live sound's onsets pull them; else
+         FIGURES_BPM, free-running. */
+      const onset = onsetAt();
+      figures = beatStep(figures, dt, tempo ?? FIGURES_BPM, tempo !== null && onset !== seenOnset ? (now - onset) / 1000 : null);
+      seenOnset = onset;
+      stage.move(dt, elapsed, figures.beats, playing);
     } else {
       skyMat.uniforms.uTime.value = data.seed;
     }
@@ -420,6 +483,7 @@ function start(gl) {
     /* The beam stands on the landmark of the song that plays. */
     const lp = landmarks[index]?.position ?? at(landmarkU[index]);
     beam.position.set(lp.x, lp.y + 18, lp.z);
+    beam.material.opacity = beamBase * layer2.beam;
 
     /* The bears. Before the show first plays they stand where it is, and a world that opens while it plays places them there in its
        first frame; in the frame it starts they walk on from where they stand, so nothing steps. */
@@ -528,6 +592,9 @@ function start(gl) {
   /* The page reads the tier beside the world's state. */
   container.dataset.tier = tier;
   container.dataset.world = "ready";
+  /* The show's map, asked for once the world is ready, since the world runs without it: a day without one, and a map that fails, leave
+     it on layers 1 and 2 (maps.js loadMap). Under reduced motion none of it would run, so it is not asked for. */
+  if (!reduced) loadMap(data).then((m) => { map = m; });
   locate(performance.now());
   if (reduced) { bearD = line.dOf(landmarkU[index]); toSlot(); }
   if (testPose) { Object.assign(walker, testPose); cut = true; }
