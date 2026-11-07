@@ -104,13 +104,14 @@ export function buildStage(scene, sun, shadows) {
     sun.shadow.normalBias = 0.02;
   }
 
-  /* The players keep a fixed 96 beats a minute while the show plays: everyone nods on the beat, the guitars and the bass rock with the
-     strum, and each drummer's arms fall on 1 and 3. Otherwise they stand, breathing on a 4-s cycle. Each change eases over 0.8 s. Under
-     reduced motion nothing calls this, so they stand still. */
+  /* The players keep the beat while the show plays: everyone nods on it, the guitars and the bass rock with the strum, and each
+     drummer's arms fall on 1 and 3. `beats` is their phase in beats, which the caller keeps (beat.js), and `t` the world's time in
+     seconds. Otherwise they stand, breathing on a 4-s cycle. Each change eases over 0.8 s. Under reduced motion nothing calls this, so
+     they stand still. */
   let level = 0;
-  function move(dt, t, playing) {
+  function move(dt, t, beats, playing) {
     level = Math.max(0, Math.min(1, level + (playing ? dt : -dt) / 0.8));
-    const beats = (t * 96) / 60, beat = Math.sin(2 * Math.PI * beats), breath = 0.02 * (1 - level) * Math.sin((2 * Math.PI * t) / 4);
+    const beat = Math.sin(2 * Math.PI * beats), breath = 0.02 * (1 - level) * Math.sin((2 * Math.PI * t) / 4);
     for (const p of players) {
       p.g.position.y = 1.2 + 0.06 * level * beat + breath;
       if (p.strums) p.g.rotation.z = 0.15 * level * beat;

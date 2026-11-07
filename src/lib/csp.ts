@@ -6,8 +6,10 @@ import { importMap } from "@/lib/import-map";
  *   data) and the import map, by the nonce; and each three.js file the import map pins, by its full URL.
  * - style-src, font-src, img-src and manifest-src: the build's stylesheet and fonts, the icons and the manifest, all the site's own.
  * - media-src: the recordings, which stream from archive.org and redirect to its storage hosts, such as dn720304.ca.archive.org.
- * default-src 'none' refuses everything else: connections (a page makes none; its navigations are page loads), workers, frames and
- * objects. No base element, no form posts, and only the site itself may frame a page, as X-Frame-Options says too.
+ * - connect-src: the show's map, /maps/<show date>.json, which the world fetches from the site itself; a page connects nowhere else (its
+ *   navigations are page loads).
+ * default-src 'none' refuses everything else: workers, frames and objects. No base element, no form posts, and only the site itself may
+ * frame a page, as X-Frame-Options says too.
  */
 export function contentSecurityPolicy(nonce: string): string {
   return [
@@ -18,6 +20,7 @@ export function contentSecurityPolicy(nonce: string): string {
     "img-src 'self'",
     "manifest-src 'self'",
     "media-src https://archive.org https://*.archive.org",
+    "connect-src 'self'",
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'self'",
