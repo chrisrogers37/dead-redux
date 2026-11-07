@@ -20,8 +20,24 @@ export function siteOf(text) {
   const site = String(text ?? "").replace(/\/+$/, "");
   return /^https?:\/\/[A-Za-z0-9.-]+(?::\d+)?$/.test(site) ? site : null;
 }
-// Every track the page plays streams from here, and the analysis fetches from nowhere else.
-const MP3_PREFIX = "https://archive.org/download/";
+
+/**
+ * The URL a track of the recording `identifier` is fetched from: its MP3 URL as the URL parser reads it, when that is an https URL of
+ * archive.org with no port and no user-info, whose path is under /download/<identifier>/ and has no encoded slash or backslash; else
+ * null. The check reads the parsed URL, which is the one fetched and logged: dot segments, encoded or not, are resolved before it, and
+ * the parser drops line breaks.
+ *
+ * @param text - A track's MP3 URL, as the site's /api/playing route lists it.
+ * @param identifier - The recording's archive.org identifier, one that checkMap accepts.
+ */
+export function trackUrlOf(text, identifier) {
+  const url = URL.parse(String(text));
+  if (url?.protocol !== "https:" || url.hostname !== "archive.org" || url.port !== "" || url.username !== "" || url.password !== "") {
+    return null;
+  }
+  return url.pathname.startsWith(`/download/${identifier}/`) && !/%2f|%5c/i.test(url.pathname) ? url.href : null;
+}
+
 export const USER_AGENT = "dead-redux-maps (+https://dead-redux.vercel.app)";
 // archive.org gets one request at a time with a pause before each, and a failed one is retried after a longer pause.
 export const PAUSE_MS = 1000;
@@ -77,24 +93,33 @@ async function errorOf(res) {
 /**
  * Makes requests one at a time, with a pause before each but the first. A request that fails is retried after the longer pauses
  * of RETRY_PAUSES_MS, unless the server refused it for good (a 4xx other than 429). A failure inside `read` (a cut stream, a
- * short body) counts as the request failing.
+ * short body) counts as the request failing. A request on a `domain` takes an answer only from that domain or one of its
+ * subdomains: an answer from anywhere else, whatever its status, is let go unread, and the attempt fails.
  *
  * @param io - { fetch, sleep, log }.
- * @returns `request(url, read)`: the result of `read(response)`.
+ * @returns `request(url, read, domain)`: the result of `read(response)`. `domain` may be left out; when it is given, `url` is on it.
  */
 export function politeClient(io) {
   let started = false;
   let tail = Promise.resolve();
 
-  async function attempt(url, read) {
+  async function attempt(url, read, domain) {
     const res = await io.fetch(url, { headers: { "User-Agent": USER_AGENT } });
+    // The host is checked before the status, so that neither errorOf nor read sees a body from outside the domain.
+    if (domain !== undefined) {
+      const { hostname } = new URL(res.url);
+      if (hostname !== domain && !hostname.endsWith(`.${domain}`)) {
+        await res.body?.cancel();
+        throw new Error(`redirected off ${domain}, to ${hostname}`);
+      }
+    }
     if (!res.ok) {
       throw new HttpError(url, res.status, res.headers.get("server"), res.headers.get("cf-mitigated"), await errorOf(res));
     }
     return await read(res);
   }
 
-  async function run(url, read) {
+  async function run(url, read, domain) {
     if (started) {
       io.log(`  pause ${PAUSE_MS / 1000} s`);
       await io.sleep(PAUSE_MS);
@@ -102,7 +127,7 @@ export function politeClient(io) {
     started = true;
     for (let failures = 1; ; failures++) {
       try {
-        return await attempt(url, read);
+        return await attempt(url, read, domain);
       } catch (err) {
         const refused = err instanceof HttpError && err.status !== 429 && err.status < 500;
         if (refused || failures > RETRY_PAUSES_MS.length) throw err;
@@ -115,8 +140,8 @@ export function politeClient(io) {
   }
 
   return {
-    request(url, read) {
-      const result = tail.then(() => run(url, read));
+    request(url, read, domain) {
+      const result = tail.then(() => run(url, read, domain));
       // The next request waits for this one to finish, however it ends; its caller sees the failure.
       tail = result.then(
         () => undefined,
@@ -524,12 +549,13 @@ export async function ffmpegDecode(body, onBytes, onPcm) {
 const silence = (duration) => ({ duration, seconds: { rms: [], bass: [], bright: [] }, flux: [] });
 
 /**
- * The recording the page plays for a show, as the site's /api/playing route answers: the page's own choice and its tracks. Before any
- * audio is fetched, the listing's map is built from silence and checked. That map has every part of the real one that the listing
- * decides, so a listing whose map would fail checkMap, or fit no step, fails here rather than after the download.
+ * The recording the page plays for a show, as the site's /api/playing route answers: the page's own choice and its tracks, each with
+ * the URL that trackUrlOf makes of its MP3. Before any audio is fetched, the listing's map is built from silence and checked. That map
+ * has every part of the real one that the listing decides, so a listing whose map would fail checkMap, or fit no step, fails here
+ * rather than after the download.
  *
- * @throws When the answer names no recording with tracks, a track is not a length and an archive.org MP3, or the listing's map would
- *   fail checkMap or fit no step.
+ * @throws When the answer names no recording with tracks, a track has no valid length, the listing's map would fail checkMap or fit no
+ *   step, or a track is not a file of the recording on archive.org.
  */
 async function fetchPlaying(site, date, request) {
   const { identifier, tracks } = (await request(`${site}/api/playing/${date}`, (res) => res.json())) ?? {};
@@ -538,8 +564,7 @@ async function fetchPlaying(site, date, request) {
   }
   // The silent map is as long as each listed length, so the lengths are checked before it is built.
   for (const track of tracks) {
-    const valid = isDuration(track?.duration) && String(track.mp3Url).startsWith(MP3_PREFIX);
-    if (!valid) throw new Error(`${date}: a track of ${identifier} is not a length and an archive.org MP3: ${JSON.stringify(track)}`);
+    if (!isDuration(track?.duration)) throw new Error(`${date}: a track of ${identifier} has no valid length: ${JSON.stringify(track)}`);
   }
   const listed = tracks.map((track) => ({ title: track.title, playingDuration: track.duration, analysis: silence(track.duration) }));
   const problems = checkMap(buildMap(date, identifier, listed).map);
@@ -547,7 +572,15 @@ async function fetchPlaying(site, date, request) {
     const more = problems.length > 1 ? `, and ${problems.length - 1} more` : "";
     throw new Error(`${date}: the listing would make an invalid map: ${problems[0]}${more}`);
   }
-  return { identifier, tracks };
+  // The URLs are checked against the identifier that checkMap has accepted, the one the map records.
+  const checked = tracks.map((track) => {
+    const mp3Url = trackUrlOf(track.mp3Url, identifier);
+    if (mp3Url === null) {
+      throw new Error(`${date}: a track of ${identifier} is not one of its files on archive.org: ${JSON.stringify(track)}`);
+    }
+    return { ...track, mp3Url };
+  });
+  return { identifier, tracks: checked };
 }
 
 /**
@@ -557,7 +590,8 @@ async function fetchPlaying(site, date, request) {
  * @param request - `politeClient(io).request`.
  * @param io - { decode, log }.
  * @param site - The site whose /api/playing route names the recording.
- * @throws When the site names no recording, a track fails to download or decode, or its decoded length is not its listed length.
+ * @throws When the site names no recording, a track fails to download or decode, a download ends off archive.org, or a track's decoded
+ *   length is not its listed length.
  */
 export async function analyseShow(date, request, io, site = SITE) {
   const { identifier, tracks } = await fetchPlaying(site, date, request);
@@ -569,7 +603,7 @@ export async function analyseShow(date, request, io, site = SITE) {
   for (const [i, track] of tracks.entries()) {
     io.log(`  ${i + 1}/${tracks.length} ${track.title}: ${track.mp3Url}`);
     let bytes = 0;
-    const analysis = await request(track.mp3Url, async (res) => {
+    const read = async (res) => {
       bytes = 0;
       const analyser = createAnalyser();
       await io.decode(
@@ -585,7 +619,9 @@ export async function analyseShow(date, request, io, site = SITE) {
         throw new Error(`fetched ${bytes} of ${length} bytes`);
       }
       return analyser.finish();
-    });
+    };
+    // archive.org answers a download from one of its own servers. The client lets an answer from anywhere else go unread.
+    const analysis = await request(track.mp3Url, read, "archive.org");
     const decoded = analysis.duration;
     io.log(`    ${bytes} bytes fetched, ${decoded.toFixed(2)} s decoded, ${track.duration} s listed`);
     if (decoded === 0) throw new Error(`${track.title}: decoded no audio`);
