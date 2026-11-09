@@ -1,12 +1,13 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { buildIsland } from "./island.js";
-import { height, PATH_POSE, SLOPE_POSE, STAGE_COLUMN, STAGE_POSE } from "./ground.js";
+import { CROWD_POSE, height, PATH_POSE, SLOPE_POSE, STAGE_COLUMN, STAGE_POSE } from "./ground.js";
 import { buildPath, layout, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
 import { makeBuilders, mergeLandmarks } from "./landmarks.js";
 import { buildBears } from "./bears.js";
 import { buildAvatar } from "./avatar.js";
-import { buildSky, skyPair } from "./sky.js";
+import { buildSky, panelMaterial, skyPair } from "./sky.js";
+import { buildCrowd, buildRig } from "./crowd.js";
 import { bindInput } from "./input.js";
 import { confine, DESCENT_S, enterMode, keepSpot, modeRules, slotAt, slotDistance, walkLimits } from "./modes.js";
 import { postPose as poseOver } from "./pose.js";
@@ -117,6 +118,13 @@ function start(gl) {
 
   /* ---------- the stage ---------- */
   const stage = buildStage(scene, sun, quality.shadows);
+  /* The panel plays the sky's liquid light on its own plane, which adds no draw call. */
+  stage.panel.material = panelMaterial(skyMat, budget.octaves);
+
+  /* ---------- the crowd and the rig ---------- */
+  /* The figures on the slope in front of the stage, one draw call, and the rig's beams over them, one more (crowd.js). */
+  const crowd = buildCrowd(scene, { count: budget.crowd, seed: data.seed, path, line, landmarks });
+  const rig = buildRig(scene, 8);
   /* The lights' own intensities, which layer 2 scales. */
   const lightBase = { hemi: hemi.intensity, stage: stage.light.intensity };
   /* The desktop's one shadow map, the stage's, is drawn once: nothing that casts a shadow moves. */
@@ -208,7 +216,7 @@ function start(gl) {
      changes, so the walk's keep-out sets each view's distance. */
   const hooks = main.dataset.testHooks === "1" ? new URLSearchParams(location.search) : null;
   const hook = hooks?.get("pose") ?? null;
-  const testPose = hook === "stage" ? STAGE_POSE : hook === "slope" ? SLOPE_POSE : hook === "path" ? PATH_POSE : null;
+  const testPose = hook === "stage" ? STAGE_POSE : hook === "slope" ? SLOPE_POSE : hook === "path" ? PATH_POSE : hook === "crowd" ? CROWD_POSE : null;
   const sweep = hook === "sweep";
   const bearHook = hook === "snout" || hook === "pass" ? hook : null;
   let bearPose = bearHook;
@@ -389,6 +397,7 @@ function start(gl) {
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
     frameMs: stat(() => Math.round(sampler.frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
     mode: stat(() => mode),
+    crowd: stat(() => ({ figures: crowd.count, beams: rig.mesh.count })),
     /* The view, whether the visitor's bear is drawn, where its head stands to the centimetre (the sound's listener in third person),
        whether its feet land in the frame (and above the now-plate on a phone), and where its head lands, as fractions from the top-left. */
     avatar: stat(() => ({ view: third ? "third" : "first", shown: avatar.g.visible,
@@ -442,7 +451,7 @@ function start(gl) {
     skyMat.uniforms.uC2.value.copy(skyMat.uniforms.uC0.value).lerp(skyMat.uniforms.uPage.value, 0.7);
     hemi.color.copy(skyMat.uniforms.uC0.value).lerp(new THREE.Color(0xffffff), 0.3);
     hemi.intensity = lightBase.hemi * layer2.hemi;
-    stage.panel.material.color.copy(skyMat.uniforms.uC0.value).multiplyScalar(layer2.panel);
+    stage.panel.material.uniforms.uGain.value = layer2.panel;
     stage.light.intensity = lightBase.stage * layer2.stage;
     if (!reduced) {
       skyMat.uniforms.uTime.value = elapsed;
@@ -465,6 +474,10 @@ function start(gl) {
       figures = beatStep(figures, dt, tempo ?? FIGURES_BPM, tempo !== null && onset !== seenOnset ? (now - onset) / 1000 : null);
       seenOnset = onset;
       stage.move(dt, elapsed, figures.beats, playing);
+      /* The crowd keeps the band's beat, rises with the build-up and sits for Space; the rig sweeps on the beat and lifts with the build. */
+      const acting = build * weight;
+      crowd.move(dt, elapsed, figures.beats, playing, acting, /space/i.test(tracks[index].title));
+      rig.aim(figures.beats, playing ? 1 : 0, acting, skyMat.uniforms.uC0.value, skyMat.uniforms.uC1.value);
     } else {
       skyMat.uniforms.uTime.value = data.seed;
     }

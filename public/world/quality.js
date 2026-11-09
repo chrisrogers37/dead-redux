@@ -4,11 +4,11 @@
    budget is rung 0, and a device that renders slowly steps down one rung at a time and never back up. The frames the world draws while
    it loads decide nothing, so a slow load alone never steps it down. */
 
-/* Rung 0 of each tier. Only the desktop draws a shadow map, the stage's. */
+/* Rung 0 of each tier. Only the desktop draws a shadow map, the stage's. `crowd` is how many figures stand on the hill (crowd.js). */
 const BUDGETS = {
-  desktop: { scale: 1.0, grid: 80, octaves: 4, bears: 5, fov: 60, shadows: true },
-  phone: { scale: 0.85, grid: 52, octaves: 3, bears: 3, fov: 75, shadows: false },
-  tv: { scale: 0.8, grid: 64, octaves: 3, bears: 5, fov: 60, shadows: false },
+  desktop: { scale: 1.0, grid: 80, octaves: 4, bears: 5, fov: 60, shadows: true, crowd: 1000 },
+  phone: { scale: 0.85, grid: 52, octaves: 3, bears: 3, fov: 75, shadows: false, crowd: 300 },
+  tv: { scale: 0.8, grid: 64, octaves: 3, bears: 5, fov: 60, shadows: false, crowd: 600 },
 };
 /* A median frame time over this many milliseconds steps the world down a rung: slower than 30 frames a second, with a margin, so a
    display capped at 30 Hz (33.3 ms a frame) is not taken for a slow device. */

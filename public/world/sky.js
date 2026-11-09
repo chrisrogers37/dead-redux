@@ -50,6 +50,41 @@ export function buildSky(scene, octaves, seed) {
   return { skyMat, hemi, sun };
 }
 
+/* The stage's light panel plays the sky's liquid light: the same field, the same uniforms (so it follows the sky's colours, energy,
+   drops and octaves), flowing across the panel's own plane, and uGain the music's factor for the panel (audio.js mappings). */
+export function panelMaterial(skyMat, octaves) {
+  const u = skyMat.uniforms;
+  return new THREE.ShaderMaterial({
+    uniforms: { uTime: u.uTime, uSeed: u.uSeed, uEnergy: u.uEnergy, uOct: u.uOct, uC0: u.uC0, uC1: u.uC1, uC2: u.uC2, uDrop: u.uDrop,
+      uAmber: u.uAmber, uAmberColor: u.uAmberColor, uGain: { value: 1 } },
+    vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `
+      varying vec2 vUv;
+      uniform float uTime, uSeed, uEnergy, uAmber, uGain; uniform vec3 uC0, uC1, uC2, uDrop, uAmberColor;
+      uniform int uOct;
+      float hash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+      float noise(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y); }
+      float fbm(vec2 p) { float v = 0.0; float a = 0.5; for (int i = 0; i < ${octaves}; i++) { if (i >= uOct) break; v += a * noise(p); p = p * 2.03 + vec2(1.7, 9.2); a *= 0.5; } return v; }
+      void main() {
+        vec2 p = (vUv - 0.5) * vec2(3.2, 1.0) * 1.6;
+        float t = uTime * 0.05 + uSeed;
+        float w = 1.2 + 1.4 * uEnergy;
+        vec2 q = vec2(fbm(p + vec2(0.0, t)), fbm(p + vec2(5.2, 1.3) - vec2(0.7 * t, 0.0)));
+        vec2 r = vec2(fbm(p + w * q + vec2(1.7, 9.2) + 0.15 * t), fbm(p + w * q + vec2(8.3, 2.8) - 0.12 * t));
+        float v = fbm(p + w * r);
+        vec2 uv = p * 0.25 + 0.5;
+        float dd = distance(uv, uDrop.xy);
+        v += 0.3 * exp(-pow(abs((dd - 0.06 * uDrop.z) * 22.0), 2.0)) * exp(-uDrop.z * 0.4);
+        vec3 col = mix(uC0, uC1, clamp(v * 1.5 - 0.1, 0.0, 1.0));
+        col = mix(col, uC2, clamp(length(q), 0.0, 1.0) * 0.6);
+        col = mix(col, uAmberColor, uAmber);
+        gl_FragColor = vec4(col * uGain, 1.0);
+        #include <colorspace_fragment>
+      }`,
+  });
+}
+
 /* The sky's colour stops: one per set where set 2 is known, else the start, middle and end of the show. */
 const C = (h) => new THREE.Color(h);
 const STOPS_A = [C(0xe8b04b), C(0xd6508a), C(0x9a80c0)], STOPS_B = [C(0xd6508a), C(0x2ea3a0), C(0xe8b04b)];
