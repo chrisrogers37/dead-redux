@@ -209,6 +209,10 @@ const fake = vi.hoisted(() => {
       },
       STAGE_SOUND: { x: 0, y: 0, z: 0, facing: [0, 0, 1] },
     },
+    crowd: {
+      // As many figures as the tier asks for, which the downgrade may halve.
+      buildCrowd: (_scene: Scene, { count }: { count: number }) => ({ mesh: { count }, count }),
+    },
   };
   return { world, three, modules, TURN };
 });
@@ -221,6 +225,7 @@ vi.mock("../../../public/world/bears.js", () => fake.modules.bears);
 vi.mock("../../../public/world/avatar.js", () => fake.modules.avatar);
 vi.mock("../../../public/world/sky.js", () => fake.modules.sky);
 vi.mock("../../../public/world/stage.js", () => fake.modules.stage);
+vi.mock("../../../public/world/crowd.js", () => fake.modules.crowd);
 // audio.js runs as it is, but for the time of the last onset, which the analyser never hears here.
 vi.mock("../../../public/world/audio.js", async (original) => ({ ...(await original<object>()), onsetAt: () => fake.world.onset }));
 
@@ -278,6 +283,7 @@ function showMap({ rms = 0, bass = 0 as number | ((byte: number) => number), bpm
 
 type Hill = {
   mode: string;
+  crowd: number;
   analysis: { source: string | null; weight: number };
   map: { step: number; bass: number; build: number; swell: number; bpm: number | null } | null;
 };
@@ -439,6 +445,14 @@ describe("main.js's frames", () => {
     expect(distance(page.stepped(), dropped[0])).toBeCloseTo(0, 9);
     page.hold("ArrowDown", 3, () => expect(across(page.stepped())).toBeCloseTo(0, 9));
     expect(along(page.stepped())).toBeLessThan(along(dropped.at(-1)!) - BODY_REACH);
+  });
+
+  it("halves the crowd at a downgrade's rung before any bear goes: its stat counts half the figures, and every bear walks on", async () => {
+    const page = await startWorld();
+    const made = hill().crowd;
+    for (let k = 0; k < 1500 && hill().crowd === made; k++) page.run(0.05, { ms: 50 });
+    expect(hill().crowd).toBe(Math.ceil(made / 2));
+    expect(page.shown()).toHaveLength(fake.world.bears.length);
   });
 
   it("walks the attract camera with the bears: it stands and looks where postPose puts it for the bears as they walk", async () => {

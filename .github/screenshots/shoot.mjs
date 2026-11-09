@@ -2,7 +2,7 @@ import { appendFile, mkdir, mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { chromium } from "playwright";
-import { PATH_POSE, SLOPE_POSE, STAGE_POSE } from "../../public/world/ground.js";
+import { TEST_POSES } from "../../public/world/ground.js";
 import { logText } from "../../scripts/job-text.mjs";
 import {
   CALL_BUDGET,
@@ -200,6 +200,11 @@ const PAGES = [
   // The fixed day from ?pose=path: the visitor's bear on the loop at the summit's north-east shoulder, heading along it, and down the slope
   // to the left of it the stage's front.
   { path: "/2026-10-20?pose=path", devices: ["desktop"], shots: ["fixed-stage-path"] },
+  // The fixed day from ?pose=crowd: the visitor's bear behind the crowd's last rows, and down the slope before it the crowd standing still
+  // to the stage. The stats line's `crowd` counts the figures the tier draws. Under reduced motion, two shots 5 s apart, which the
+  // reduced-motion compare holds to no change.
+  { path: "/2026-10-20?pose=crowd", devices: ["desktop", "phone", "phone-360"], shots: ["fixed-crowd"] },
+  { path: "/2026-10-20?pose=crowd", devices: ["desktop-reduced"], shots: ["fixed-crowd-1", "fixed-crowd-2"] },
   // The fixed day from ?pose=landmark-K: from 30 m over a landmark, north up, with the bears standing where their line passes nearest it,
   // the lead bear there. Jack Straw (1) stands by the trailhead, which the line rounds as the loop closes; Touch Of Grey (6) on the
   // summit's south-west shoulder and Cold Rain And Snow (7) on the summit, both beside the line from the left cave to the right one;
@@ -327,7 +332,6 @@ const PAGES = [
 ];
 
 // The test poses (ground.js) open each sweep, so their calls can be read beside the full-size shots taken from them.
-const TEST_POSES = { stage: STAGE_POSE, slope: SLOPE_POSE, path: PATH_POSE };
 const SWEEP_POSES = [...Object.values(TEST_POSES), ...walkPoses(15, 12)];
 
 // Generated images are saved byte for byte as the site serves them.

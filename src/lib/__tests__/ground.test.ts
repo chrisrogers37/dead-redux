@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BOUND,
+  CROWD_POSE,
   FACING,
   height,
   PATH_POSE,
@@ -12,6 +13,7 @@ import {
   STAGE_POSE,
   STAGE_REACH,
 } from "../../../public/world/ground.js";
+import { seats } from "../../../public/world/seats.js";
 
 // Where the ring road starts, and where the shore beyond it starts to fall (public/world/island.js, slope()).
 const RING = 112, SHORE = 118;
@@ -138,6 +140,16 @@ describe("?pose=slope", () => {
     const below = slope(SLOPE_POSE.x, SLOPE_POSE.z) + HEAD - SHELF_Y;
     expect((Math.atan2(below, fromStage(SLOPE_POSE)) * 180) / Math.PI).toBeGreaterThan(15);
     expect(SLOPE_POSE.pitch).toBeLessThan(0);
+  });
+});
+
+describe("?pose=crowd", () => {
+  it("stands behind the crowd's last row, within the walk's bound, facing the stage's centre and looking down", () => {
+    const lastRow = Math.max(...seats({ path: [], line: [], landmarks: [] }).map((s) => s.r));
+    expect(fromStage(CROWD_POSE)).toBeGreaterThan(lastRow);
+    expect(Math.hypot(CROWD_POSE.x, CROWD_POSE.z)).toBeLessThan(BOUND);
+    expect(offHeading(CROWD_POSE)).toBeLessThan(0.1);
+    expect(CROWD_POSE.pitch).toBeLessThan(0);
   });
 });
 

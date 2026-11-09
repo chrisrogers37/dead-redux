@@ -88,14 +88,20 @@ jobs:
             "$ffmpeg" -hide_banner -loglevel error -i "$f" \
               -c:v libx264 -pix_fmt yuv420p -crf 20 -movflags +faststart "${f%.webm}.mp4"
           done
-      # Writes its count to the job summary and its diff into the artifact; fails only when enforced.
+      # Writes each pair's count to the job summary and its diff into the artifact: the home page's, and the crowd's from ?pose=crowd. A
+      # change in either fails the step only when enforced, once both are compared.
       - name: Compare the reduced-motion stills
         id: compare
         run: |
-          node compare.mjs \
-            "$OUT_DIR/desktop-reduced-home-1.png" \
-            "$OUT_DIR/desktop-reduced-home-2.png" \
-            "$OUT_DIR/desktop-reduced-home-diff.png"
+          echo "### Reduced-motion compare" >> "$GITHUB_STEP_SUMMARY"
+          failed=0
+          for page in home fixed-crowd; do
+            node compare.mjs \
+              "$OUT_DIR/desktop-reduced-$page-1.png" \
+              "$OUT_DIR/desktop-reduced-$page-2.png" \
+              "$OUT_DIR/desktop-reduced-$page-diff.png" || failed=1
+          done
+          exit "$failed"
         env:
           OUT_DIR: ${{ runner.temp }}/screenshots
       # Fetches the manifest and each icon it lists, checks the declared sizes against the PNGs served, and asks Chrome whether the
