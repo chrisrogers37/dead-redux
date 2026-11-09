@@ -160,6 +160,7 @@ const fake = vi.hoisted(() => {
         world.bears = [...bears];
         return bears;
       },
+      drawLegs: () => {},
     },
     avatar: {
       buildAvatar: () => ({

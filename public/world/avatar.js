@@ -14,7 +14,7 @@ const WALK = 2.5, STRIDE = 12, RUN = 19.2;
 const UP = new THREE.Vector3(0, 1, 0);
 
 export function buildAvatar(scene, landmarks, { phone, reduced, columns = [] }) {
-  const { g, legs } = buildBear(scene, 0xeceae4);
+  const { g, legs, color } = buildBear(scene, 0xeceae4);
   g.rotation.order = "YXZ";
   /* The head, for the stats and the sound's listener; the top of the head and the ground point under the bear, which the cameras
      keep in the frame. */
@@ -107,5 +107,5 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [] }) 
     return { clear, screen: [round((p.x + 1) / 2), round((1 - p.y) / 2)] };
   }
 
-  return { g, head, top, feet, step, boom, settle, turnDown, tilt, report };
+  return { g, legs, color, head, top, feet, step, boom, settle, turnDown, tilt, report };
 }

@@ -4,7 +4,7 @@ import { buildIsland } from "./island.js";
 import { height, PATH_POSE, SLOPE_POSE, STAGE_COLUMN, STAGE_POSE } from "./ground.js";
 import { buildPath, layout, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
 import { makeBuilders, mergeLandmarks } from "./landmarks.js";
-import { buildBears } from "./bears.js";
+import { buildBears, drawLegs } from "./bears.js";
 import { buildAvatar } from "./avatar.js";
 import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
@@ -109,6 +109,8 @@ function start(gl) {
 
   /* ---------- the visitor's bear ---------- */
   const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN] });
+  /* Every bear's legs, the visitor's too, as one mesh (bears.js). */
+  drawLegs(scene, [...bears, avatar]);
   /* The landmarks' still parts become one mesh across the path, once the camera's keep-out boxes are read from them. */
   mergeLandmarks(scene, landmarks, moving.map((m) => m.obj));
 
