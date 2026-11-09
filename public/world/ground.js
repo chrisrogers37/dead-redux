@@ -31,6 +31,8 @@ export const CROWD_POSE = { x: 27.16, z: -23.6, heading: -0.855, pitch: -0.3 };
 /* The test hook ?pose=path: on the loop at the summit's north-east shoulder, heading along it, with the stage's front in the frame below,
    about 80 m off down the slope, and the boom its full length behind the bear. */
 export const PATH_POSE = { x: 18.6, z: -6.4, heading: -1.053, pitch: 0 };
+/* The test hooks' poses by the name ?pose= gives each (main.js); the CI shoot's sweep opens with them. */
+export const TEST_POSES = { stage: STAGE_POSE, slope: SLOPE_POSE, path: PATH_POSE, crowd: CROWD_POSE };
 /* The walk keeps within this distance of the island's centre: past the bears' line, which reaches 112.4 m out, by more than a reach,
    so stepping back from a bear never carries a walker past it. */
 export const BOUND = 117;

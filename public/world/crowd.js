@@ -36,11 +36,12 @@ function figureGeometry() {
    landmark's bounds. It reads those bounds, so it runs before the landmarks merge (landmarks.js) empties them. Each figure faces the
    stage, turned a little, and stands PERSON tall, give or take 8 %. `count` is how many it seated. */
 export function buildCrowd(scene, { count, path, line, landmarks }) {
-  const pts = (n, at) => Array.from({ length: n }, (_, i) => { const p = at(i); return [p.x, p.z]; });
+  /* A point every 2 m along `length` metres of the path or the line. */
+  const along = (length, at) => Array.from({ length: Math.ceil(length / 2) }, (_, i) => { const p = at(i * 2); return [p.x, p.z]; });
   const box = new THREE.Box3(), mid = new THREE.Vector3();
   const placed = seats({
-    path: pts(1200, (i) => path.at(i / 1200)),
-    line: pts(Math.ceil(line.length), (d) => line.at(d)),
+    path: along(path.curveLength, (d) => path.at(d / path.curveLength)),
+    line: along(line.length, (d) => line.at(d)),
     landmarks: landmarks.map((l) => {
       box.setFromObject(l).getCenter(mid);
       return [mid.x, mid.z, Math.hypot(box.max.x - box.min.x, box.max.z - box.min.z) / 2];
@@ -56,9 +57,8 @@ export function buildCrowd(scene, { count, path, line, landmarks }) {
       .replace("#include <common>", "#include <common>\nattribute float aLeg;\nattribute float aSit;")
       .replace("#include <begin_vertex>", `#include <begin_vertex>\n${SITTING}`);
   };
-  const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, n));
-  mesh.count = n;
-  const sit = new Float32Array(Math.max(1, n));
+  const mesh = new THREE.InstancedMesh(geo, mat, n);
+  const sit = new Float32Array(n);
   const dummy = new THREE.Object3D(), color = new THREE.Color();
   /* The seats come in a random order across the hill, so a figure's place in it picks its turn, its size and its colour. */
   placed.forEach((p, i) => {

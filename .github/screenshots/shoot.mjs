@@ -2,7 +2,7 @@ import { appendFile, mkdir, mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { chromium } from "playwright";
-import { CROWD_POSE, PATH_POSE, SLOPE_POSE, STAGE_POSE } from "../../public/world/ground.js";
+import { TEST_POSES } from "../../public/world/ground.js";
 import { logText } from "../../scripts/job-text.mjs";
 import {
   CALL_BUDGET,
@@ -332,7 +332,6 @@ const PAGES = [
 ];
 
 // The test poses (ground.js) open each sweep, so their calls can be read beside the full-size shots taken from them.
-const TEST_POSES = { stage: STAGE_POSE, slope: SLOPE_POSE, path: PATH_POSE, crowd: CROWD_POSE };
 const SWEEP_POSES = [...Object.values(TEST_POSES), ...walkPoses(15, 12)];
 
 // Generated images are saved byte for byte as the site serves them.

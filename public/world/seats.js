@@ -16,13 +16,12 @@ const SECTIONS = [
   { r0: 16, r1: 28, a0: 0.7, a1: 1, gap: 5.2 },
   { r0: 28, r1: 44, a0: 0.85, a1: 1, gap: 5.2 },
 ];
-/* The front row's distance from the stage's centre, and the last row's. */
-export const CROWD_NEAR = 13.5;
-export const CROWD_FAR = 55;
+/* How near the sections come to the stage's centre, and how far they reach from it. */
+const NEAR = Math.min(...SECTIONS.map((s) => s.r0)), FAR = Math.max(...SECTIONS.map((s) => s.r1));
 
 /* How far a figure's place keeps from the path, from the bears' line, from a landmark's bounds, and to either side of the stage's axis,
    which leaves an aisle up the middle of the crowd for the walk down to the stage, in metres. */
-export const KEEP = { path: 4, line: 4, landmark: 1.5, aisle: 3 };
+const KEEP = { path: 4, line: 4, landmark: 1.5, aisle: 3 };
 
 /* The seats, front first: each { x, z, r, sit }, `r` metres from the stage's centre. Rows of each section, jittered the same way every
    day, keep clear of the aisle, of the points of `path` and `line` ([x, z] each) and of `landmarks`, each a circle [x, z, radius] round
@@ -34,7 +33,7 @@ export function seats({ path, line, landmarks }) {
     ...path.map(([x, z]) => [x, z, KEEP.path]),
     ...line.map(([x, z]) => [x, z, KEEP.line]),
     ...landmarks.map(([x, z, radius]) => [x, z, radius + KEEP.landmark]),
-  ].filter(([x, z, d]) => Math.hypot(x - STAGE[0], z - STAGE[1]) < CROWD_FAR + d);
+  ].filter(([x, z, d]) => Math.hypot(x - STAGE[0], z - STAGE[1]) < FAR + d);
   const clear = (x, z) => keeps.every(([kx, kz, d]) => Math.hypot(x - kx, z - kz) >= d);
   const out = [];
   for (const { r0, r1, a0, a1, gap, sit = false } of SECTIONS) {
@@ -45,7 +44,7 @@ export function seats({ path, line, landmarks }) {
         for (let k = 0; k < n; k++) {
           const r = row + (rnd() - 0.5) * 0.7 * gap, th = lo + ((k + 0.5) * (hi - lo)) / n + ((rnd() - 0.5) * 0.7 * gap) / row;
           const x = STAGE[0] + r * Math.sin(FACING + th), z = STAGE[1] + r * Math.cos(FACING + th);
-          const key = rnd() * (0.4 + (r - CROWD_NEAR) / (CROWD_FAR - CROWD_NEAR));
+          const key = rnd() * (0.4 + (r - NEAR) / (FAR - NEAR));
           if (Math.abs(r * Math.sin(th)) >= KEEP.aisle && clear(x, z)) out.push({ x, z, r, sit, key });
         }
       }

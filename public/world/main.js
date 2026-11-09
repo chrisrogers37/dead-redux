@@ -1,7 +1,7 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { buildIsland } from "./island.js";
-import { CROWD_POSE, height, PATH_POSE, SLOPE_POSE, STAGE_COLUMN, STAGE_POSE } from "./ground.js";
+import { height, STAGE_COLUMN, TEST_POSES } from "./ground.js";
 import { buildPath, layout, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
 import { makeBuilders, mergeLandmarks } from "./landmarks.js";
 import { buildBears, drawLegs } from "./bears.js";
@@ -216,8 +216,7 @@ function start(gl) {
      changes, so the walk's keep-out sets each view's distance. */
   const hooks = main.dataset.testHooks === "1" ? new URLSearchParams(location.search) : null;
   const hook = hooks?.get("pose") ?? null;
-  const testPose =
-    hook === "stage" ? STAGE_POSE : hook === "slope" ? SLOPE_POSE : hook === "path" ? PATH_POSE : hook === "crowd" ? CROWD_POSE : null;
+  const testPose = hook && Object.hasOwn(TEST_POSES, hook) ? TEST_POSES[hook] : null;
   const sweep = hook === "sweep";
   const bearHook = hook === "snout" || hook === "pass" ? hook : null;
   let bearPose = bearHook;
