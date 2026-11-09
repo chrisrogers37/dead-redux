@@ -1,7 +1,7 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { buildIsland } from "./island.js";
-import { height, PATH_POSE, SLOPE_POSE, STAGE_COLUMN, STAGE_POSE } from "./ground.js";
+import { CROWD_POSE, height, PATH_POSE, SLOPE_POSE, STAGE_COLUMN, STAGE_POSE } from "./ground.js";
 import { buildPath, layout, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
 import { makeBuilders, mergeLandmarks } from "./landmarks.js";
 import { buildBears, drawLegs } from "./bears.js";
@@ -15,6 +15,7 @@ import { analyse, analysisStats, listen, mappings, onsetAt, soundStats, startSou
 import { buildUp, loadMap, mapDrive, passesPeak } from "./maps.js";
 import { beatStep, FIGURES_BPM, figuresTempo } from "./beat.js";
 import { buildStage, STAGE_SOUND } from "./stage.js";
+import { buildCrowd } from "./crowd.js";
 import { budgetFor, frameSampler, pickTier, stepDown } from "./quality.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
@@ -54,7 +55,9 @@ function start(gl) {
   const renderer = new THREE.WebGLRenderer({ canvas, context: gl, antialias: false, powerPreference: "low-power" });
   renderer.setPixelRatio(budget.pixelRatio);
   /* What the world renders at now: the tier's rung 0, until a slow device steps it down. */
-  let quality = { scale: budget.scale, shadows: budget.shadows, octaves: budget.octaves, bears: budget.bears, stageLight: true };
+  let quality = {
+    scale: budget.scale, shadows: budget.shadows, octaves: budget.octaves, bears: budget.bears, stageLight: true, fullCrowd: true,
+  };
   let rung = 0;
   /* The loop: each frame queues the next. Under reduced motion it runs on only while a control that acts over time is held, and
      each input or state change wakes it for a frame, always at rung 0. A hidden tab's loop sleeps until the tab shows again. */
@@ -111,7 +114,10 @@ function start(gl) {
   const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN] });
   /* Every bear's legs, the visitor's too, as one mesh (bears.js). */
   drawLegs(scene, [...bears, avatar]);
-  /* The landmarks' still parts become one mesh across the path, once the camera's keep-out boxes are read from them. */
+
+  /* ---------- the crowd ---------- */
+  const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks });
+  /* The landmarks' still parts become one mesh across the path, once the camera's keep-out boxes and the crowd's are read from them. */
   mergeLandmarks(scene, landmarks, moving.map((m) => m.obj));
 
   /* ---------- the sky ---------- */
@@ -200,9 +206,9 @@ function start(gl) {
   const walker = { x: trailhead.x, z: trailhead.z, heading: 0, pitch: 0 };
   const t0 = tangentAt(0); walker.heading = Math.atan2(-t0.x, -t0.z);
   let third = true, cut = false;
-  /* The test hooks ?pose=stage, ?pose=slope and ?pose=path, on preview deployments only (the server marks <main data-test-hooks="1">):
-     the walk starts with the visitor on the slope in front of the stage, higher up it, or on the path where it shows the stage
-     (ground.js), with no descent. ?pose=sweep is the same walk from the trailhead, for the
+  /* The test hooks ?pose=stage, ?pose=slope, ?pose=path and ?pose=crowd, on preview deployments only (the server marks
+     <main data-test-hooks="1">): the walk starts with the visitor on the slope in front of the stage, higher up it, on the path where it
+     shows the stage, or behind the crowd's last rows (ground.js), with no descent. ?pose=sweep is the same walk from the trailhead, for the
      CI shoot's draw-call sweep: a `world:pose` event (x, z, heading, pitch) puts the visitor anywhere with the camera cut, the world
      holds rung 0, and it draws at a twentieth of the frame's size, which changes no draw call: three culls against the camera, whose
      aspect stays the frame's. ?pose=snout stands the walker in front of the lead bear's snout looking a little down, and ?pose=pass
@@ -210,7 +216,8 @@ function start(gl) {
      changes, so the walk's keep-out sets each view's distance. */
   const hooks = main.dataset.testHooks === "1" ? new URLSearchParams(location.search) : null;
   const hook = hooks?.get("pose") ?? null;
-  const testPose = hook === "stage" ? STAGE_POSE : hook === "slope" ? SLOPE_POSE : hook === "path" ? PATH_POSE : null;
+  const testPose =
+    hook === "stage" ? STAGE_POSE : hook === "slope" ? SLOPE_POSE : hook === "path" ? PATH_POSE : hook === "crowd" ? CROWD_POSE : null;
   const sweep = hook === "sweep";
   const bearHook = hook === "snout" || hook === "pass" ? hook : null;
   let bearPose = bearHook;
@@ -353,6 +360,8 @@ function start(gl) {
     bearSpots.length = bears.length;
     sun.castShadow = quality.shadows;
     stage.light.visible = quality.stageLight;
+    /* The seats run front first, so half the crowd is its front half. */
+    crowd.mesh.count = quality.fullCrowd ? crowd.count : Math.ceil(crowd.count / 2);
   }
   const vertex = new THREE.Vector3();
   /* In first person, how near the view comes to a bear and how much of the frame's width one covers: the depth of the nearest bear
@@ -391,6 +400,8 @@ function start(gl) {
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
     frameMs: stat(() => Math.round(sampler.frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
     mode: stat(() => mode),
+    /* How many figures the crowd draws: the tier's, or the front half of them once the downgrade halves it. */
+    crowd: stat(() => crowd.mesh.count),
     /* The view, whether the visitor's bear is drawn, where its head stands to the centimetre (the sound's listener in third person),
        whether its feet land in the frame (and above the now-plate on a phone), and where its head lands, as fractions from the top-left. */
     avatar: stat(() => ({ view: third ? "third" : "first", shown: avatar.g.visible,

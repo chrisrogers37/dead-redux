@@ -4,11 +4,12 @@
    budget is rung 0, and a device that renders slowly steps down one rung at a time and never back up. The frames the world draws while
    it loads decide nothing, so a slow load alone never steps it down. */
 
-/* Rung 0 of each tier. Only the desktop draws a shadow map, the stage's. */
+/* Rung 0 of each tier. Only the desktop draws a shadow map, the stage's. `crowd` is the most figures that stand on the hill, front first
+   (seats.js); the desktop's is more than there are seats, so it fills them all. */
 const BUDGETS = {
-  desktop: { scale: 1.0, grid: 80, octaves: 4, bears: 5, fov: 60, shadows: true },
-  phone: { scale: 0.85, grid: 52, octaves: 3, bears: 3, fov: 75, shadows: false },
-  tv: { scale: 0.8, grid: 64, octaves: 3, bears: 5, fov: 60, shadows: false },
+  desktop: { scale: 1.0, grid: 80, octaves: 4, bears: 5, fov: 60, shadows: true, crowd: 350 },
+  phone: { scale: 0.85, grid: 52, octaves: 3, bears: 3, fov: 75, shadows: false, crowd: 150 },
+  tv: { scale: 0.8, grid: 64, octaves: 3, bears: 5, fov: 60, shadows: false, crowd: 250 },
 };
 /* A median frame time over this many milliseconds steps the world down a rung: slower than 30 frames a second, with a margin, so a
    display capped at 30 Hz (33.3 ms a frame) is not taken for a slow device. */
@@ -64,11 +65,12 @@ export function median(values) {
 }
 
 /* One rung down from a quality, or null at the bottom. In order: the render scale ×0.8, down to 0.5; shadows off; one sky octave
-   fewer, down to 2; two bears fewer, down to 1; the stage light off. A rung with nothing to change is skipped. */
+   fewer, down to 2; the crowd halved, once; two bears fewer, down to 1; the stage light off. A rung with nothing to change is skipped. */
 export function stepDown(q) {
   if (q.scale > 0.5) return { ...q, scale: Math.max(0.5, Math.round(q.scale * 0.8 * 1000) / 1000) };
   if (q.shadows) return { ...q, shadows: false };
   if (q.octaves > 2) return { ...q, octaves: q.octaves - 1 };
+  if (q.fullCrowd) return { ...q, fullCrowd: false };
   if (q.bears > 1) return { ...q, bears: Math.max(1, q.bears - 2) };
   if (q.stageLight) return { ...q, stageLight: false };
   return null;

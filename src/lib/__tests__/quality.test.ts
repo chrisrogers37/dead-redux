@@ -7,6 +7,7 @@ interface Quality {
   octaves: number;
   bears: number;
   stageLight: boolean;
+  fullCrowd: boolean;
 }
 
 /* The rungs below a quality, in order, ending with the null that says there are no more; capped, so a ladder that never ends fails. */
@@ -43,8 +44,8 @@ describe("median", () => {
 });
 
 describe("stepDown", () => {
-  it("takes the scale down to half, then sky octaves, then bears, then ends", () => {
-    const desktop: Quality = { scale: 1, shadows: false, octaves: 4, bears: 5, stageLight: false };
+  it("takes the scale down to half, then sky octaves, then halves the crowd, then bears, then ends", () => {
+    const desktop: Quality = { scale: 1, shadows: false, octaves: 4, bears: 5, stageLight: false, fullCrowd: true };
     expect(rungsBelow(desktop)).toEqual([
       { ...desktop, scale: 0.8 },
       { ...desktop, scale: 0.64 },
@@ -52,14 +53,15 @@ describe("stepDown", () => {
       { ...desktop, scale: 0.5 },
       { ...desktop, scale: 0.5, octaves: 3 },
       { ...desktop, scale: 0.5, octaves: 2 },
-      { ...desktop, scale: 0.5, octaves: 2, bears: 3 },
-      { ...desktop, scale: 0.5, octaves: 2, bears: 1 },
+      { ...desktop, scale: 0.5, octaves: 2, fullCrowd: false },
+      { ...desktop, scale: 0.5, octaves: 2, fullCrowd: false, bears: 3 },
+      { ...desktop, scale: 0.5, octaves: 2, fullCrowd: false, bears: 1 },
       null,
     ]);
   });
 
   it("turns shadows off first, then the stage light, then ends", () => {
-    const lit: Quality = { scale: 0.5, shadows: true, octaves: 2, bears: 1, stageLight: true };
+    const lit: Quality = { scale: 0.5, shadows: true, octaves: 2, bears: 1, stageLight: true, fullCrowd: false };
     expect(rungsBelow(lit)).toEqual([
       { ...lit, shadows: false },
       { ...lit, shadows: false, stageLight: false },
@@ -68,7 +70,7 @@ describe("stepDown", () => {
   });
 
   it("steps a phone's 0.85 down to 0.68, 0.544 and the 0.5 floor", () => {
-    const phone: Quality = { scale: 0.85, shadows: false, octaves: 3, bears: 3, stageLight: false };
+    const phone: Quality = { scale: 0.85, shadows: false, octaves: 3, bears: 3, stageLight: false, fullCrowd: true };
     expect(rungsBelow(phone).slice(0, 3).map((q) => q?.scale)).toEqual([0.68, 0.544, 0.5]);
   });
 });
