@@ -40,7 +40,7 @@ const starts = [];
 let total = 0;
 for (const t of tracks) { starts.push(total); total += t.duration; }
 /* What the crowd does through each track: dances, sits, or both (seats.js). */
-const crowdAt = crowdPlan(tracks.map((t) => t.title));
+const crowdAt = crowdPlan(tracks.map((t) => t.title), set2Start);
 
 const canvas = document.createElement("canvas");
 /* If the page gave up waiting for this module, the still stays and nothing starts. */
@@ -113,13 +113,13 @@ function start(gl) {
   /* ---------- the bears ---------- */
   const bears = buildBears(scene, budget.bears);
 
-  /* ---------- the visitor's bear ---------- */
-  const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN] });
-  /* Every bear's legs, the visitor's too, as one mesh (bears.js). */
-  drawLegs(scene, [...bears, avatar]);
-
   /* ---------- the crowd ---------- */
   const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks });
+
+  /* ---------- the visitor's bear ---------- */
+  const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN], over: crowd.over });
+  /* Every bear's legs, the visitor's too, as one mesh (bears.js). */
+  drawLegs(scene, [...bears, avatar]);
   /* The landmarks' still parts become one mesh across the path, once the camera's keep-out boxes and the crowd's are read from them. */
   mergeLandmarks(scene, landmarks, moving.map((m) => m.obj));
 
@@ -407,8 +407,8 @@ function start(gl) {
     frameMs: stat(() => Math.round(sampler.frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
     mode: stat(() => mode),
     /* The crowd: how many figures it draws (the tier's, or the front-weighted half of them once the downgrade halves it), how far it
-       dances, the music's factor in, and how far it sits. */
-    crowd: stat(() => ({ drawn: crowd.mesh.count, dance: r3(dancing * layer2.dance), sit: r3(sitting) })),
+       dances, the music's factor in, how far it sits, and how many figures stand off their seats for the visitor. */
+    crowd: stat(() => ({ drawn: crowd.mesh.count, dance: r3(dancing * layer2.dance), sit: r3(sitting), parted: crowd.parted })),
     /* The view, whether the visitor's bear is drawn, where its head stands to the centimetre (the sound's listener in third person),
        whether its feet land in the frame (and above the now-plate on a phone), and where its head lands, as fractions from the top-left. */
     avatar: stat(() => ({ view: third ? "third" : "first", shown: avatar.g.visible,
@@ -552,6 +552,7 @@ function start(gl) {
       walker.x += (fw.x * spd - fw.z * side) * pace; walker.z += (fw.z * spd + fw.x * side) * pace;
       confine(walker, limits);
       avatar.step(walker.x, walker.z, walker.heading, dt);
+      crowd.part(dt, avatar.feet, avatar.head, reduced);
       spot.stand();
       if (third) aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));
       else {
@@ -564,6 +565,7 @@ function start(gl) {
       const s = slot();
       if (mode !== "follow") toSlot();
       avatar.step(s.x, s.z, s.heading, dt);
+      crowd.part(dt, avatar.feet, avatar.head, reduced);
       if (mode === "descent") {
         /* From above the summit, where the island reads as the mark, north up the screen, down to the camera that walks with the bears. */
         const k = easeOut(elapsed / DESCENT_S);
@@ -605,10 +607,11 @@ function start(gl) {
     cut = false;
 
     /* The crowd dances to the figures' beat as far as the music's loudness takes it, and rises with the build-up before a peak, as far
-       as it dances; it sits; and it parts round the visitor's bear, or their eye in first person, wherever this frame stands them. */
+       as it dances; and it sits. It made room for the visitor's bear, or their eye in first person, as the bear took its place, before the
+       camera looked. */
     const sits = crowdAt[index].sit ? 1 : 0;
     sitting = reduced ? sits : toward(sitting, sits, dt / SIT_S);
-    crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting, avatar.feet);
+    crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting);
 
     renderer.render(scene, camera);
     /* The sound's listener is the visitor: their bear's head in third person, the camera in first (listenerAt); it faces where the
