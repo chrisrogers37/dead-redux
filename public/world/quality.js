@@ -65,7 +65,8 @@ export function median(values) {
 }
 
 /* One rung down from a quality, or null at the bottom. In order: the render scale ×0.8, down to 0.5; shadows off; one sky octave
-   fewer, down to 2; the crowd halved, once; two bears fewer, down to 1; the stage light off. A rung with nothing to change is skipped. */
+   fewer, down to 2, which the stage's panel takes too (sky.js); the crowd halved, once; two bears fewer, down to 1; the stage light off;
+   the rig off. A rung with nothing to change is skipped. */
 export function stepDown(q) {
   if (q.scale > 0.5) return { ...q, scale: Math.max(0.5, Math.round(q.scale * 0.8 * 1000) / 1000) };
   if (q.shadows) return { ...q, shadows: false };
@@ -73,5 +74,6 @@ export function stepDown(q) {
   if (q.fullCrowd) return { ...q, fullCrowd: false };
   if (q.bears > 1) return { ...q, bears: Math.max(1, q.bears - 2) };
   if (q.stageLight) return { ...q, stageLight: false };
+  if (q.rig) return { ...q, rig: false };
   return null;
 }

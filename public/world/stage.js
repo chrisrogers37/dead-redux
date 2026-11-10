@@ -3,10 +3,12 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { FACING, height, STAGE, SHELF_Y } from "./ground.js";
 import { mesh, mergeStill } from "./landmarks.js";
+import { buildRig } from "./rig.js";
+import { panelMaterial } from "./sky.js";
 
 /* The stage, on its shelf at the island's north-east edge: a platform whose open front faces the island's middle (ground.js); a roof on
-   two posts over a back wall with a light panel in the sky's first colour; two PA stacks; a light; and six players as flat black
-   silhouettes, never likenesses: two guitars, a bass, keys and two drummers. */
+   two posts over a back wall with a light panel that plays the sky's liquid light; two PA stacks; a light; the rig's beams under the
+   roof's front edge (rig.js); and six players as flat black silhouettes, never likenesses: two guitars, a bass, keys and two drummers. */
 
 /* The walk's reach round the stage and the column the third-person camera keeps out of, STAGE_REACH and STAGE_COLUMN, are ground.js's:
    they follow the platform's edge, the PA stacks' outer corners and the roof's top built here. */
@@ -14,9 +16,10 @@ import { mesh, mergeStill } from "./landmarks.js";
    up); and the way its sound faces: the stage's own. */
 export const STAGE_SOUND = { x: STAGE[0], y: SHELF_Y + 2, z: STAGE[1], facing: [Math.sin(FACING), 0, Math.cos(FACING)] };
 
-/* Builds the stage. With `shadows` the sun casts the desktop's one shadow map, framed on the stage alone. Returns the group, the light
-   panel (whose colour follows the sky's), the stage light (the downgrade's last rung turns it off) and `move`, which plays the players. */
-export function buildStage(scene, sun, shadows) {
+/* Builds the stage. With `shadows` the sun casts the desktop's one shadow map, framed on the stage alone. The panel and the rig take the
+   sky's uniforms from `skyMat`, its field built for `octaves` (sky.js). Returns the group, the light panel (whose material's uGain is the
+   music's factor on its light), the stage light (the downgrade turns it off), the rig (rig.js) and `move`, which plays the players. */
+export function buildStage(scene, sun, shadows, skyMat, octaves) {
   const group = new THREE.Group();
   group.position.set(STAGE[0], SHELF_Y, STAGE[1]);
   group.rotation.y = FACING;
@@ -41,8 +44,8 @@ export function buildStage(scene, sun, shadows) {
   mergeStill(still);
   for (const m of still.children) { m.castShadow = true; m.receiveShadow = true; }
 
-  /* The light panel covers the wall from the platform's floor up; unlit, it shows the sky's colour as it is. */
-  const panel = mesh(new THREE.PlaneGeometry(16, 5), new THREE.MeshBasicMaterial({ color: 0xe8b04b }), 0, 3.7, -4.08);
+  /* The light panel covers the wall from the platform's floor up and plays the sky's liquid light (sky.js panelMaterial). */
+  const panel = mesh(new THREE.PlaneGeometry(16, 5), panelMaterial(skyMat, octaves), 0, 3.7, -4.08);
   const light = new THREE.PointLight(0xe8b04b, 60, 40);
   light.position.set(0, 7, 0);
   group.add(panel, light);
@@ -89,6 +92,7 @@ export function buildStage(scene, sun, shadows) {
     kit.push(part(new THREE.CylinderGeometry(0.5, 0.5, 0.4, 12).rotateX(Math.PI / 2), x, 1.7, -1.55));
   }
   group.add(new THREE.Mesh(mergeGeometries(kit), black));
+  const rig = buildRig(group, skyMat.uniforms);
 
   if (shadows) {
     /* The sun keeps its direction but aims at the stage, so its shadow camera frames the stage alone. */
@@ -119,5 +123,5 @@ export function buildStage(scene, sun, shadows) {
     }
   }
 
-  return { group, panel, light, move };
+  return { group, panel, light, rig, move };
 }

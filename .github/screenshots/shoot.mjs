@@ -206,9 +206,10 @@ const PAGES = [
   { path: "/2026-10-20?pose=crowd", devices: ["desktop", "phone", "phone-360"], shots: ["fixed-crowd"] },
   { path: "/2026-10-20?pose=crowd", devices: ["desktop-reduced"], shots: ["fixed-crowd-1", "fixed-crowd-2"] },
   // The same while the show plays, with ?drive=map: from Jack Straw's start the crowd dances to the figures' beat, as far as the map's
-  // loudness takes it; from 20 s before Fire On The Mountain's peak the build-up lifts it, the front rows first, and the later shot
-  // lands a few seconds before the peak, with the rise rippled out toward the back; and in Space it sits, swaying where it sits. The
-  // stats line's `crowd` reads how far it dances and how far it sits.
+  // loudness takes it, and the rig's beams swing over it; from 20 s before Fire On The Mountain's peak the build-up lifts it, the front
+  // rows first, and gathers the beams, and the later shot lands a few seconds before the peak, with the rise rippled out toward the back
+  // (the light show's key screen, on a phone and phone-360 too); and in Space it sits, swaying where it sits, and the beams lift. The
+  // stats line's `crowd` reads how far it dances and how far it sits, and `rig` how far the rig is lit, gathered and lifted.
   {
     path: "/2026-10-20?pose=crowd&drive=map&at=1",
     devices: ["desktop"],
@@ -217,7 +218,7 @@ const PAGES = [
   },
   {
     path: "/2026-10-20?pose=crowd&drive=map&at=8&t=130",
-    devices: ["desktop"],
+    devices: ["desktop", "phone", "phone-360"],
     shots: [],
     steps: [playStep("fixed-crowd-rise", { ms: 8000, shot: "fixed-crowd-rise-8s" })],
   },
