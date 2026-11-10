@@ -79,10 +79,9 @@ const LATE = 1, ON_TIME = 2;
    reach. Under reduced motion, and where the visitor arrives at once, each stands at once where it would end, or as near it as a second
    of the walk takes it. Each frame visits only the groups near the visitor and those still walking back, found on a grid of the
    seats, so its work does not grow with the crowd. `offset` holds each figure's [dx, dy, dz] from its seat and how still it stands
-   (0-1); `step` moves the figures for a frame and returns whether any moved; `over` raises a camera over them and `ahead` says how
-   far it should be climbing for them along its way; `hold` stops the
-   visitor's walker against a still figure that could not get out of the way; `farthest[0]` is how far the farthest figure stands from
-   its seat. */
+   (0-1); `step` moves the figures for a frame and returns whether any moved; `over` raises a camera over them, and `ahead` says how
+   far it should climb now for them along its way and the most they will ask along it; `hold` stops the visitor's walker against a
+   still figure that could not get out of the way; `farthest[0]` is how far the farthest figure stands from its seat. */
 export function parting(placed, { keep, reach, hang, lead, step: pace, back, space, most, passes, ring, top, wide, clear, grade, keeps }) {
   const n = placed.length, CELL = 2, span = Math.ceil(space / CELL);
   const sx = new Float64Array(n), sz = new Float64Array(n), sy = new Float64Array(n), offset = new Float32Array(4 * n);
