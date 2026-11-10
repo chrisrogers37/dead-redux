@@ -387,20 +387,35 @@ export function parting(placed, { keep, reach, lead, step: pace, back, space, mo
   return { offset, step, over, farthest, get parted() { return parted; } };
 }
 
-/* What the crowd does through each of the show's tracks, by its title and where set 2 starts: it dances while a song plays, Drums and
-   Space among them, and stands still through what is not a song (tuning, crowd noise, a break); it sits in Space, still dancing, and
-   through the set break. A title names its songs between the segue marks (">", "->" or "/") and each by its whole name, so a song with
-   one of these words inside its name is still a song, and a track sits in Space only when Space is all it holds. Where `set2Start` is
-   known, the set break is what is not a song just before set 2; where it is not, a track named a break, after the first song. Before
-   the first song the crowd stands, waiting for the band, and through an encore break, calling for more. Each track gets { dance, sit }. */
+/* What the crowd does through each of the show's tracks ({ title, duration } each, in s) and where set 2 starts: it dances while a
+   song plays, Drums and Space among them, and stands still through what is not a song (tuning, crowd noise, a break); it sits in Space,
+   still dancing, and through the set break. A title names its songs between the segue marks (">", "->" or "/") and each by its whole
+   name, so a song with one of these words inside its name is still a song, and a track sits in Space only when Space is all it holds.
+   Where `set2Start` is known, the set break is what is not a song just before set 2. Where it is not, it is a track named a break after
+   the first song; else, of the runs of tracks that are not songs between the first song and the last, the one whose middle falls
+   nearest 45 % of the show's running time, between 30 and 60 %, where set 1 ends; another such run, a tuning inside a set, stands.
+   Before the first song the crowd stands, waiting for the band, and through an encore break, calling for more. Each track gets
+   { dance, sit }. */
 const BREAK = /^(set(\d|one|two|i|ii)?)?break(\d|one|two|i|ii)?$|^intermission$/, NOT_A_SONG = /^(tuning|crowd|crowdnoise|encorebreak)$/;
 const notASong = (name) => NOT_A_SONG.test(name) || BREAK.test(name);
 /* A title's songs, each as its letters and digits alone, lower case, and without what a parenthesis holds. */
 const names = (title) => title.toLowerCase().replace(/\([^)]*\)/g, "").split(/->|>|\//).map((name) => name.replace(/[^a-z0-9]/g, "")).filter(Boolean);
-export function crowdPlan(titles, set2Start) {
-  const parts = titles.map(names), song = parts.map((p) => p.some((name) => !notASong(name))), first = song.indexOf(true);
-  const brk = titles.map(() => false);
+export function crowdPlan(tracks, set2Start) {
+  const parts = tracks.map((t) => names(t.title)), song = parts.map((p) => p.some((name) => !notASong(name)));
+  const first = song.indexOf(true), last = song.lastIndexOf(true);
+  const brk = tracks.map(() => false);
   if (set2Start !== null) for (let i = set2Start - 1; i > first && first >= 0 && !song[i]; i--) brk[i] = true;
   else parts.forEach((p, i) => { brk[i] = first >= 0 && i > first && p.length > 0 && p.every((name) => BREAK.test(name)); });
-  return titles.map((_, i) => ({ dance: song[i], sit: (parts[i].length > 0 && parts[i].every((name) => name === "space")) || brk[i] }));
+  if (set2Start === null && !brk.includes(true)) {
+    const total = tracks.reduce((sum, t) => sum + t.duration, 0);
+    let from = 0, best = -1, end = -1, near = Infinity;
+    for (let i = 0, j = 0; i < tracks.length; i = j) {
+      const t0 = from;
+      for (j = i; j < tracks.length && (j === i || song[j] === song[i]); j++) from += tracks[j].duration;
+      const mid = (t0 + from) / 2 / total;
+      if (!song[i] && i > first && j - 1 < last && mid >= 0.3 && mid <= 0.6 && Math.abs(mid - 0.45) < near) { near = Math.abs(mid - 0.45); best = i; end = j; }
+    }
+    for (let i = best; i >= 0 && i < end; i++) brk[i] = true;
+  }
+  return tracks.map((_, i) => ({ dance: song[i], sit: (parts[i].length > 0 && parts[i].every((name) => name === "space")) || brk[i] }));
 }

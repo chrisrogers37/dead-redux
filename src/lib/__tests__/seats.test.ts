@@ -42,8 +42,10 @@ describe("seats", () => {
 });
 
 describe("crowdPlan", () => {
-  const plan = (titles: string[], set2Start: number | null = null) =>
-    (crowdPlan(titles, set2Start) as Plan[]).map(({ dance, sit }) => (dance ? "d" : "-") + (sit ? "s" : "-"));
+  // Each track 5 min long unless `durations` says, in s.
+  const plan = (titles: string[], set2Start: number | null = null, durations: number[] = titles.map(() => 300)) =>
+    (crowdPlan(titles.map((title, i) => ({ title, duration: durations[i] })), set2Start) as Plan[])
+      .map(({ dance, sit }) => (dance ? "d" : "-") + (sit ? "s" : "-"));
 
   it("dances to the songs, Drums and Space among them, sits in Space and through a set break, and stands through the rest", () => {
     const titles = ["Crowd", "Tuning", "Jack Straw", "Tuning", "Samson And Delilah", "Set Break", "Drums ->", "Space ->", "Crowd", "Encore Break"];
@@ -53,6 +55,17 @@ describe("crowdPlan", () => {
   it("sits where set 2 starts through what is not a song just before it, and nowhere else between songs", () => {
     const titles = ["Tuning", "Jack Straw", "Tuning", "Deal", "Tuning", "Crowd", "Samson And Delilah", "Set Break", "Drums"];
     expect(plan(titles, 6)).toEqual(["--", "d-", "--", "d-", "-s", "-s", "d-", "--", "d-"]);
+  });
+
+  it("where set 2's start is unknown and no track is named a break, sits through the run nearest 45 % of the running time, 30 to 60 %", () => {
+    // Tunings at 15 %, 47 % and 57 % of a 2,620 s show: the second sits, as it does where the notes open set 2 after it.
+    const titles = ["Tuning", "Jack Straw", "Tuning", "Deal", "Promised Land", "Tuning", "Scarlet Begonias", "Tuning", "Fire On The Mountain"];
+    const durations = [60, 300, 60, 400, 300, 240, 100, 60, 1100];
+    const sits = ["--", "d-", "--", "d-", "d-", "-s", "d-", "--", "d-"];
+    expect(plan(titles, null, durations)).toEqual(sits);
+    expect(plan(titles, 6, durations)).toEqual(sits);
+    // Nothing that is not a song falls between 30 and 60 %: nothing sits.
+    expect(plan(titles, null, [60, 300, 60, 1200, 300, 240, 100, 60, 300])).toEqual(["--", "d-", "--", "d-", "d-", "--", "d-", "--", "d-"]);
   });
 
   it("reads each song in a title by its whole name", () => {

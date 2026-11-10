@@ -40,7 +40,7 @@ const starts = [];
 let total = 0;
 for (const t of tracks) { starts.push(total); total += t.duration; }
 /* What the crowd does through each track: dances, sits, or both (seats.js). */
-const crowdAt = crowdPlan(tracks.map((t) => t.title), set2Start);
+const crowdAt = crowdPlan(tracks, set2Start);
 
 const canvas = document.createElement("canvas");
 /* If the page gave up waiting for this module, the still stays and nothing starts. */
