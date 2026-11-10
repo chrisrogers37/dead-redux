@@ -52,8 +52,9 @@ const fake = vi.hoisted(() => {
 
   // What the world main.js built: its scene, its camera, every bear it made (a downgrade drops some from the scene), and where the
   // visitor's bear last stepped; the flame of a fire landmark, the stage, the sky and the meshes main.js makes itself (the beam); and
-  // the figures' phase in beats, as the last frame gave it to the stage. `line` is the bears' line each test gives it, and `onset` the
-  // time of the last onset the analyser heard, which each test sets (null for none).
+  // the figures' phase in beats, as the last frame gave it to the stage, and the crowd's pose, as the last frame gave it to the crowd.
+  // `line` is the bears' line each test gives it, and `onset` the time of the last onset the analyser heard, which each test sets (null
+  // for none).
   const world = {
     line: undefined as unknown as Line,
     scene: undefined as unknown as Scene,
@@ -65,6 +66,7 @@ const fake = vi.hoisted(() => {
     sky: undefined as unknown as Sky,
     meshes: [] as { material: unknown }[],
     beats: NaN,
+    posed: { beats: NaN, dance: NaN, rise: NaN, sit: NaN },
     onset: null as number | null,
   };
   class Scene {
@@ -167,6 +169,7 @@ const fake = vi.hoisted(() => {
         g: { visible: true },
         head: new Vec(),
         top: new Vec(),
+        feet: new Vec(),
         step: (x: number, z: number, heading: number) => {
           world.stepped = { x, z, heading };
         },
@@ -210,8 +213,14 @@ const fake = vi.hoisted(() => {
       STAGE_SOUND: { x: 0, y: 0, z: 0, facing: [0, 0, 1] },
     },
     crowd: {
-      // As many figures as the tier asks for, which the downgrade may halve.
-      buildCrowd: (_scene: Scene, { count }: { count: number }) => ({ mesh: { count }, count }),
+      // As many figures as the tier asks for, which the downgrade may halve, and the pose each frame gives them.
+      buildCrowd: (_scene: Scene, { count }: { count: number }) => ({
+        mesh: { count },
+        count,
+        pose: (beats: number, dance: number, rise: number, sit: number) => {
+          world.posed = { beats, dance, rise, sit };
+        },
+      }),
     },
   };
   return { world, three, modules, TURN };
@@ -283,7 +292,7 @@ function showMap({ rms = 0, bass = 0 as number | ((byte: number) => number), bpm
 
 type Hill = {
   mode: string;
-  crowd: number;
+  crowd: { drawn: number; dance: number; sit: number };
   analysis: { source: string | null; weight: number };
   map: { step: number; bass: number; build: number; swell: number; bpm: number | null } | null;
 };
@@ -293,9 +302,9 @@ const hill = () => (window as unknown as { __hill: Hill }).__hill;
 // world's element; the window, which takes the keys; a desktop's screen, which quality.js reads in matchMedia, innerWidth and navigator;
 // the site, which serves `map` as the show's map, and no other; and the frames, which `run` hands main.js, each `ms` long (a frame adds
 // at most 50 ms of world time), calling `each` after each one. `playing` starts the show playing; `routing` is how it sounds ("webaudio"
-// through the world's graph, "plain" in plain stereo); `search` is the page's query, on a preview; `reduced` asks for reduced motion.
-// A page with a map waits until the world has read it.
-async function startWorld({ playing = false, routing = "webaudio", search = "", reduced = false, map = null as object | null } = {}) {
+// through the world's graph, "plain" in plain stereo); `search` is the page's query, on a preview; `reduced` asks for reduced motion;
+// `title` names the track. A page with a map waits until the world has read it.
+async function startWorld({ playing = false, routing = "webaudio", search = "", reduced = false, map = null as object | null, title = TRACK.title } = {}) {
   let now = 0;
   let queued: FrameRequestCallback | null = null;
   const container = Object.assign(new EventTarget(), {
@@ -306,7 +315,7 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
     getBoundingClientRect: () => ({ top: 0 }),
   });
   const main = { dataset: { state: playing ? "playing" : "paused", routing, view: "third", ...(search ? { testHooks: "1" } : {}) } };
-  const data = { showDate: SHOW, identifier: RECORDING, tracks: [TRACK], seed: 7 };
+  const data = { showDate: SHOW, identifier: RECORDING, tracks: [{ ...TRACK, title }], seed: 7 };
   const byId: Record<string, unknown> = { world: container, "world-data": { textContent: JSON.stringify(data) } };
   const media = (query: string) => ({ matches: reduced && query === "(prefers-reduced-motion: reduce)" });
   const asked: string[] = [];
@@ -449,10 +458,27 @@ describe("main.js's frames", () => {
 
   it("halves the crowd at a downgrade's rung before any bear goes: its stat counts half the figures, and every bear walks on", async () => {
     const page = await startWorld();
-    const made = hill().crowd;
-    for (let k = 0; k < 1500 && hill().crowd === made; k++) page.run(0.05, { ms: 50 });
-    expect(hill().crowd).toBe(Math.ceil(made / 2));
+    const made = hill().crowd.drawn;
+    for (let k = 0; k < 1500 && hill().crowd.drawn === made; k++) page.run(0.05, { ms: 50 });
+    expect(hill().crowd.drawn).toBe(Math.ceil(made / 2));
     expect(page.shown()).toHaveLength(fake.world.bears.length);
+  });
+
+  it("dances the crowd to a playing song and sits it in Space over 1.5 s, or at once and still under reduced motion", async () => {
+    const song = await startWorld({ playing: true });
+    song.run(1);
+    expect(fake.world.posed).toMatchObject({ dance: 1, sit: 0 });
+    expect(fake.world.posed.beats).toBe(fake.world.beats);
+    const space = await startWorld({ playing: true, title: "Space" });
+    space.run(0.6);
+    expect(fake.world.posed.sit).toBeCloseTo(0.4, 9);
+    space.run(1);
+    expect(fake.world.posed).toMatchObject({ dance: 1, sit: 1 });
+    // Under reduced motion the world draws a frame for each input or change, and the first one, here the only one, sits the crowd.
+    const still = await startWorld({ playing: true, title: "Space", reduced: true });
+    fake.world.posed = { beats: NaN, dance: NaN, rise: NaN, sit: NaN };
+    still.run(0.02);
+    expect(fake.world.posed).toEqual({ beats: 0, dance: 0, rise: 0, sit: 1 });
   });
 
   it("walks the attract camera with the bears: it stands and looks where postPose puts it for the bears as they walk", async () => {

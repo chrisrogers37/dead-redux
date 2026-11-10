@@ -260,11 +260,11 @@ const PANEL_TOP = 1.2;
 const BEAM_TOP = 1.2;
 /* What the music does to the world, from the last drive heard (null for none; the live sound's, or the show's map's where the analyser
    cannot hear the show) and how far the world follows it (`weight`, 0-1): factors on the sky's energy, the hemisphere light, the stage
-   light, the panel's colour and the flame's light, each multiplying that one's own value; the amber mix; and the bears' leg rate (rad/s)
-   and swing (rad). `build` (0-1) is the map's build-up before a peak (maps.js buildUp), which acts with the weight, so it rests when the
-   music does: it takes the panel toward PANEL_TOP and the beam over the song's landmark toward BEAM_TOP, and swells the flame up
-   to 2.2 times its size, each a factor on its own value too. At weight 0 every factor is 1, the mix 0 and the legs as they were,
-   exactly. */
+   light, the panel's colour and the flame's light, each multiplying that one's own value; the amber mix; the bears' leg rate (rad/s)
+   and swing (rad); and the crowd's dance, a factor on its own. `build` (0-1) is the map's build-up before a peak (maps.js buildUp), which
+   acts with the weight, so it rests when the music does: it takes the panel toward PANEL_TOP and the beam over the song's landmark toward
+   BEAM_TOP, and swells the flame up to 2.2 times its size, each a factor on its own value too; and the crowd rises with it as it acts
+   (`rise`, 0-1). At weight 0 every factor is 1, the mix 0, the legs as they were and the crowd unrisen, exactly. */
 export function mappings(drive, weight, build = 0) {
   const L = drive?.loud ?? 0, B = drive?.bass ?? 0, R = drive?.bright ?? 0;
   const lift = build * weight;
@@ -279,5 +279,7 @@ export function mappings(drive, weight, build = 0) {
     amp: lerp(0.5, 0.35 + 0.3 * B, weight),
     beam: lerp(1, BEAM_TOP, lift),
     swell: 1 + 1.2 * lift,
+    dance: lerp(1, 0.4 + 1.2 * L, weight),
+    rise: lift,
   };
 }

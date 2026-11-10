@@ -16,6 +16,7 @@ import { buildUp, loadMap, mapDrive, passesPeak } from "./maps.js";
 import { beatStep, FIGURES_BPM, figuresTempo } from "./beat.js";
 import { buildStage, STAGE_SOUND } from "./stage.js";
 import { buildCrowd } from "./crowd.js";
+import { crowdPlan } from "./seats.js";
 import { budgetFor, frameSampler, pickTier, stepDown } from "./quality.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
@@ -38,6 +39,8 @@ const set2Start = hasShow ? data.set2Start ?? null : null, encoreStart = hasShow
 const starts = [];
 let total = 0;
 for (const t of tracks) { starts.push(total); total += t.duration; }
+/* What the crowd does through each track: dances, sits, or both (seats.js). */
+const crowdAt = crowdPlan(tracks.map((t) => t.title));
 
 const canvas = document.createElement("canvas");
 /* If the page gave up waiting for this module, the still stays and nothing starts. */
@@ -186,6 +189,10 @@ function start(gl) {
   let map = null, build = 0, tempo = null;
   /* The figures' beat (beat.js), and the time of the last onset it has seen. */
   let figures = { beats: 0, pull: 0, locks: 0 }, seenOnset = null;
+  /* How far the crowd dances and how far it sits, each 0-1, following the track that plays (crowdAt): the dance eases over 0.8 s as the
+     players' does, and only while the show plays; the sit over SIT_S, at once under reduced motion, where the crowd never dances. */
+  let dancing = 0, sitting = 0;
+  const SIT_S = 1.5;
   /* The last frame's song and place in it, which tell when the music passes a peak. */
   let lastIndex = -1, lastPos = 0;
   /* `value` moved toward `target` by at most `step`. */
@@ -206,9 +213,9 @@ function start(gl) {
   const walker = { x: trailhead.x, z: trailhead.z, heading: 0, pitch: 0 };
   const t0 = tangentAt(0); walker.heading = Math.atan2(-t0.x, -t0.z);
   let third = true, cut = false;
-  /* The test hooks ?pose=stage, ?pose=slope, ?pose=path and ?pose=crowd, on preview deployments only (the server marks
+  /* The test hooks ?pose=stage, ?pose=slope, ?pose=path, ?pose=crowd and ?pose=among, on preview deployments only (the server marks
      <main data-test-hooks="1">): the walk starts with the visitor on the slope in front of the stage, higher up it, on the path where it
-     shows the stage, or behind the crowd's last rows (ground.js), with no descent. ?pose=sweep is the same walk from the trailhead, for the
+     shows the stage, or behind the crowd or among it (ground.js), with no descent. ?pose=sweep is the same walk from the trailhead, for the
      CI shoot's draw-call sweep: a `world:pose` event (x, z, heading, pitch) puts the visitor anywhere with the camera cut, the world
      holds rung 0, and it draws at a twentieth of the frame's size, which changes no draw call: three culls against the camera, whose
      aspect stays the frame's. ?pose=snout stands the walker in front of the lead bear's snout looking a little down, and ?pose=pass
@@ -399,8 +406,9 @@ function start(gl) {
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
     frameMs: stat(() => Math.round(sampler.frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
     mode: stat(() => mode),
-    /* How many figures the crowd draws: the tier's, or the front half of them once the downgrade halves it. */
-    crowd: stat(() => crowd.mesh.count),
+    /* The crowd: how many figures it draws (the tier's, or the front-weighted half of them once the downgrade halves it), how far it
+       dances, the music's factor in, and how far it sits. */
+    crowd: stat(() => ({ drawn: crowd.mesh.count, dance: r3(dancing * layer2.dance), sit: r3(sitting) })),
     /* The view, whether the visitor's bear is drawn, where its head stands to the centimetre (the sound's listener in third person),
        whether its feet land in the frame (and above the now-plate on a phone), and where its head lands, as fractions from the top-left. */
     avatar: stat(() => ({ view: third ? "third" : "first", shown: avatar.g.visible,
@@ -477,6 +485,7 @@ function start(gl) {
       figures = beatStep(figures, dt, tempo ?? FIGURES_BPM, tempo !== null && onset !== seenOnset ? (now - onset) / 1000 : null);
       seenOnset = onset;
       stage.move(dt, elapsed, figures.beats, playing);
+      dancing = toward(dancing, playing && crowdAt[index].dance ? 1 : 0, dt / 0.8);
     } else {
       skyMat.uniforms.uTime.value = data.seed;
     }
@@ -594,6 +603,12 @@ function start(gl) {
       camera.lookAt(o.x, o.y, o.z - 1);
     }
     cut = false;
+
+    /* The crowd dances to the figures' beat as far as the music's loudness takes it, and rises with the build-up before a peak, as far
+       as it dances; it sits; and it parts round the visitor's bear, or their eye in first person, wherever this frame stands them. */
+    const sits = crowdAt[index].sit ? 1 : 0;
+    sitting = reduced ? sits : toward(sitting, sits, dt / SIT_S);
+    crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting, avatar.feet);
 
     renderer.render(scene, camera);
     /* The sound's listener is the visitor: their bear's head in third person, the camera in first (listenerAt); it faces where the

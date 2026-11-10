@@ -201,10 +201,35 @@ const PAGES = [
   // to the left of it the stage's front.
   { path: "/2026-10-20?pose=path", devices: ["desktop"], shots: ["fixed-stage-path"] },
   // The fixed day from ?pose=crowd: the visitor's bear behind the crowd's last rows, and down the slope before it the crowd standing still
-  // to the stage. The stats line's `crowd` counts the figures the tier draws. Under reduced motion, two shots 5 s apart, which the
+  // to the stage. The stats line's `crowd.drawn` counts the figures the tier draws. Under reduced motion, two shots 5 s apart, which the
   // reduced-motion compare holds to no change.
   { path: "/2026-10-20?pose=crowd", devices: ["desktop", "phone", "phone-360"], shots: ["fixed-crowd"] },
   { path: "/2026-10-20?pose=crowd", devices: ["desktop-reduced"], shots: ["fixed-crowd-1", "fixed-crowd-2"] },
+  // The same while the show plays, with ?drive=map: from Jack Straw's start the crowd dances to the figures' beat, as far as the map's
+  // loudness takes it; from 20 s before Fire On The Mountain's peak the build-up lifts it, the front rows first, and the later shot
+  // lands a few seconds before the peak, with the rise rippled out toward the back; and in Space it sits, swaying where it sits. The
+  // stats line's `crowd` reads how far it dances and how far it sits.
+  {
+    path: "/2026-10-20?pose=crowd&drive=map&at=1",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-crowd-dance", { ms: 8000, shot: "fixed-crowd-dance-8s" })],
+  },
+  {
+    path: "/2026-10-20?pose=crowd&drive=map&at=8&t=130",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-crowd-rise", { ms: 8000, shot: "fixed-crowd-rise-8s" })],
+  },
+  {
+    path: "/2026-10-20?pose=crowd&drive=map&at=14",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-crowd-space", { ms: 8000, shot: "fixed-crowd-space-8s" })],
+  },
+  // The fixed day from ?pose=among: the visitor's bear among the crowd's middle rows, off the aisle, and the figures round it stepped
+  // aside.
+  { path: "/2026-10-20?pose=among", devices: ["desktop"], shots: ["fixed-crowd-among"] },
   // The fixed day from ?pose=landmark-K: from 30 m over a landmark, north up, with the bears standing where their line passes nearest it,
   // the lead bear there. Jack Straw (1) stands by the trailhead, which the line rounds as the loop closes; Touch Of Grey (6) on the
   // summit's south-west shoulder and Cold Rain And Snow (7) on the summit, both beside the line from the left cave to the right one;
