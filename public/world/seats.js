@@ -68,10 +68,10 @@ export function seats(around) {
    from its seat. Figures whose seats stand nearer than `space` m move as one group, so they keep to each other as they stood, and a
    group keeps `space` m from every other figure. A figure stands still once it has stepped 0.25 m aside, and so does any within `ring`
    m of it, so no dancer's arms reach it. Under reduced motion, and where the visitor arrives at once, each stands at once where it would
-   end. Each frame visits only the groups near the visitor and those still walking back, found on a grid of the seats, so its work does
-   not grow with the crowd. `offset` holds each figure's [dx, dy, dz] from its seat and how still it stands (0-1); `step` moves the
-   figures for a frame and returns whether any moved; `over` raises a camera over them; `farthest[0]` is how far the farthest figure
-   stands from its seat. */
+   end, or as near it as a second of the walk takes it. Each frame visits only the groups near the visitor and those still walking back,
+   found on a grid of the seats, so its work does not grow with the crowd. `offset` holds each figure's [dx, dy, dz] from its seat and
+   how still it stands (0-1); `step` moves the figures for a frame and returns whether any moved; `over` raises a camera over them;
+   `farthest[0]` is how far the farthest figure stands from its seat. */
 export function parting(placed, { keep, reach, lead, step: pace, back, space, most, passes, ring, top, wide, clear, keeps }) {
   const n = placed.length, CELL = 2, span = Math.ceil(space / CELL);
   const sx = new Float64Array(n), sz = new Float64Array(n), sy = new Float64Array(n), offset = new Float32Array(4 * n);
@@ -319,11 +319,11 @@ export function parting(placed, { keep, reach, lead, step: pace, back, space, mo
     if (speed > 0.5) { at[4] = at[2] / speed; at[5] = at[3] / speed; }
     else { const fx = head.x - feet.x, fz = head.z - feet.z, l = Math.sqrt(fx * fx + fz * fz) || 1; at[4] = fx / l; at[5] = fz / l; }
     changed = false; steps += 1; movedCount = 0;
-    /* At once, the figures walk on in 1/30 s steps, the visitor standing, until none moves a millimetre: where the walk would leave them;
-       then they space themselves out where they stand. */
+    /* At once, the figures walk on in 1/30 s steps, the visitor standing, until none moves a millimetre or a second has passed: where the
+       walk would leave them; then they space themselves out where they stand. */
     if (now) {
       at[6] = 1 / 30; at[7] = keep;
-      for (let k = 0; k < 150; k++) { walk(false); if (at[8] <= 1e-3) break; }
+      for (let k = 0; k < 30; k++) { walk(false); if (at[8] <= 1e-3) break; }
       at[6] = 0; walk(true);
       moved = false;
     } else {
