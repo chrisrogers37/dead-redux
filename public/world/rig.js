@@ -9,7 +9,7 @@ import * as THREE from "three";
 /* The lamps, in the stage's own frame (stage.js: +z toward the crowd): BEAMS of them along the roof's front edge, from -SPAN to SPAN m,
    just under it. */
 const BEAMS = 8, SPAN = 7.5, LAMP_Y = 7.9, LAMP_Z = 4.3;
-/* A beam: a cone LENGTH m long, R0 m across at its lamp and R1 at its end, which fades to nothing along it. */
+/* A beam: a cone LENGTH m long, R0 m in radius at its lamp and R1 at its end, which fades to nothing along it. */
 const LENGTH = 44, R0 = 0.2, R1 = 3, SIDES = 12;
 /* The fan at rest: the beams spread from -SPREAD to SPREAD rad across, every other one lower (EL_LOW) or higher (EL_HIGH), in rad above
    level. At those angles a beam's lower edge stays more than 3.5 m over the reach of a figure's raised hands everywhere along it, over
