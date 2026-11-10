@@ -73,7 +73,7 @@ export function seats(around) {
    figures for a frame and returns whether any moved; `over` raises a camera over them; `farthest[0]` is how far the farthest figure
    stands from its seat. */
 export function parting(placed, { keep, reach, lead, step: pace, back, space, most, passes, ring, top, wide, clear, keeps }) {
-  const n = placed.length, CELL = 2;
+  const n = placed.length, CELL = 2, span = Math.ceil(space / CELL);
   const sx = new Float64Array(n), sz = new Float64Array(n), sy = new Float64Array(n), offset = new Float32Array(4 * n);
   let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
   for (let i = 0; i < n; i++) {
@@ -241,9 +241,10 @@ export function parting(placed, { keep, reach, lead, step: pace, back, space, mo
       for (let k = 0; k < acted; k++) {
         const g = act[k];
         for (let m = start[g]; m < start[g + 1]; m++) {
-          /* `space` is less than a cell, so a neighbour within it stands in the 3 x 3 cells round the figure's own. */
+          /* A neighbour within `space` stands in the cells within `span` of the figure's own. */
           const i = members[m], r0 = Math.floor((sz[i] + gz[g] - z0) / CELL), c0 = Math.floor((sx[i] + gx[g] - x0) / CELL);
-          for (let r = Math.max(0, r0 - 1); r <= Math.min(rows - 1, r0 + 1); r++) for (let c = Math.max(0, c0 - 1); c <= Math.min(cols - 1, c0 + 1); c++) {
+          for (let r = Math.max(0, r0 - span); r <= Math.min(rows - 1, r0 + span); r++)
+          for (let c = Math.max(0, c0 - span); c <= Math.min(cols - 1, c0 + span); c++) {
             for (let q = first[r * cols + c]; q < first[r * cols + c + 1]; q++) {
               const h = groupOf[items[q]];
               if (h === g || acting[h] === stamp) continue;
