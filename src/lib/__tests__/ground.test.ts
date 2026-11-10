@@ -13,6 +13,7 @@ import {
   STAGE_COLUMN,
   STAGE_POSE,
   STAGE_REACH,
+  TEST_POSES,
 } from "../../../public/world/ground.js";
 import { seats } from "../../../public/world/seats.js";
 
@@ -162,6 +163,7 @@ describe("?pose=among", () => {
     expect(Math.hypot(AMONG_POSE.x, AMONG_POSE.z)).toBeLessThan(BOUND);
     expect(offHeading(AMONG_POSE)).toBeLessThan(0.1);
     expect(AMONG_POSE.pitch).toBeLessThan(0);
+    expect(TEST_POSES.among).toBe(AMONG_POSE);
   });
 });
 

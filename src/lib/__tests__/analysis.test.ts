@@ -140,7 +140,7 @@ describe("mappings", () => {
 
   it("reads each line from its own value, with a drive whose three values differ", () => {
     const drive = { source: "analyser", loud: 0.2, bass: 0.5, bright: 0.8 };
-    expectClose(mappings(drive, 1), { energy: 0.76, hemi: 0.94, stage: 1.2, panel: 0.72, flame: 1.25, amber: 0.24, rate: 7.2, amp: 0.5 });
+    expectClose(mappings(drive, 1), { energy: 0.76, hemi: 0.94, stage: 1.2, panel: 0.72, flame: 1.25, amber: 0.24, rate: 7.2, amp: 0.5, dance: 0.64 });
   });
 
   it("is halfway at weight 0.5", () => {

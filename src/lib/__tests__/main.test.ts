@@ -52,7 +52,8 @@ const fake = vi.hoisted(() => {
 
   // What the world main.js built: its scene, its camera, every bear it made (a downgrade drops some from the scene), and where the
   // visitor's bear last stepped; the flame of a fire landmark, the stage, the sky and the meshes main.js makes itself (the beam); and
-  // the figures' phase in beats, as the last frame gave it to the stage, and the crowd's pose, as the last frame gave it to the crowd.
+  // the figures' phase in beats, as the last frame gave it to the stage, and the crowd's pose, as the last frame gave it to the crowd,
+  // and whether its last parting stood the figures at once.
   // `line` is the bears' line each test gives it, and `onset` the time of the last onset the analyser heard, which each test sets (null
   // for none).
   const world = {
@@ -67,6 +68,7 @@ const fake = vi.hoisted(() => {
     meshes: [] as { material: unknown }[],
     beats: NaN,
     posed: { beats: NaN, dance: NaN, rise: NaN, sit: NaN },
+    partedAtOnce: null as boolean | null,
     onset: null as number | null,
   };
   class Scene {
@@ -213,13 +215,18 @@ const fake = vi.hoisted(() => {
       STAGE_SOUND: { x: 0, y: 0, z: 0, facing: [0, 0, 1] },
     },
     crowd: {
-      // As many figures as the tier asks for, which the downgrade may halve, and the pose each frame gives them.
+      // As many figures as the tier asks for, which the downgrade may halve, the pose each frame gives them, and its parting.
       buildCrowd: (_scene: Scene, { count }: { count: number }) => ({
         mesh: { count },
         count,
         pose: (beats: number, dance: number, rise: number, sit: number) => {
           world.posed = { beats, dance, rise, sit };
         },
+        part: (_dt: number, _feet: Vec, _head: Vec, reduced: boolean) => {
+          world.partedAtOnce = reduced;
+        },
+        over: () => -Infinity,
+        parts: { parted: 0 },
       }),
     },
   };
@@ -292,7 +299,7 @@ function showMap({ rms = 0, bass = 0 as number | ((byte: number) => number), bpm
 
 type Hill = {
   mode: string;
-  crowd: { drawn: number; dance: number; sit: number };
+  crowd: { drawn: number; dance: number; sit: number; parted: number };
   analysis: { source: string | null; weight: number };
   map: { step: number; bass: number; build: number; swell: number; bpm: number | null } | null;
 };
@@ -464,10 +471,13 @@ describe("main.js's frames", () => {
     expect(page.shown()).toHaveLength(fake.world.bears.length);
   });
 
-  it("dances the crowd to a playing song and sits it in Space over 1.5 s, or at once and still under reduced motion", async () => {
+  it("dances the crowd to a playing song over 0.8 s and sits it in Space over 1.5 s, or at once and still under reduced motion", async () => {
     const song = await startWorld({ playing: true });
-    song.run(1);
+    song.run(0.4);
+    expect(fake.world.posed.dance).toBeCloseTo(0.5, 9);
+    song.run(0.6);
     expect(fake.world.posed).toMatchObject({ dance: 1, sit: 0 });
+    expect(fake.world.partedAtOnce).toBe(false);
     expect(fake.world.posed.beats).toBe(fake.world.beats);
     const space = await startWorld({ playing: true, title: "Space" });
     space.run(0.6);
@@ -479,6 +489,7 @@ describe("main.js's frames", () => {
     fake.world.posed = { beats: NaN, dance: NaN, rise: NaN, sit: NaN };
     still.run(0.02);
     expect(fake.world.posed).toEqual({ beats: 0, dance: 0, rise: 0, sit: 1 });
+    expect(fake.world.partedAtOnce).toBe(true);
   });
 
   it("walks the attract camera with the bears: it stands and looks where postPose puts it for the bears as they walk", async () => {
