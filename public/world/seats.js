@@ -92,7 +92,8 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
     sx[i] = x; sz[i] = z; sy[i] = height(x, z);
     x0 = Math.min(x0, x); z0 = Math.min(z0, z); x1 = Math.max(x1, x); z1 = Math.max(z1, z);
   }
-  /* The grid, over the seats and `most` round them: a point's column and row, or those of the nearest cell off the grid. */
+  /* The grid, over the seats and `most` round them: a point's column and row, or those of the nearest cell off the grid. Where a large
+     function cannot inline them (walk, kept), the same sums are written out, so that no number is boxed. */
   x0 -= most; z0 -= most; x1 += most; z1 += most;
   const cols = Math.floor((x1 - x0) / CELL) + 1, rows = Math.floor((z1 - z0) / CELL) + 1;
   const colAt = (x) => Math.min(cols - 1, Math.max(0, Math.floor((x - x0) / CELL)));
@@ -507,31 +508,33 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
     point.y = y;
   }
 
-  /* How much higher than a camera at `point` (x, y and z), moving at way[0-2] m/s, the figures will ask it to stand (over) along that way,
-     read at way[4] times (at most LOOKS) out to way[3] s, less what climbing at way[5] m/s covers by each: raised that far now and
-     climbing from there, it stands as high as they ask when it gets there (way[6]); and the most they will ask along it (way[7]). Along
-     its way the camera stands the lower of where its own climb takes it and as high over the ground as now (base, read from `ground`);
-     a parted figure is read where it stands and at its seat, which it goes back to. In `way`, so that no number is boxed; one pass over
-     the figures near the way reads each at every look. */
-  const LOOKS = 64, base = new Float64Array(LOOKS + 1);
-  /* The ground's height every CELL m over the grid and AWAY m round it, for the camera's way, read between the four nearest. */
+  /* Room for the camera's height at each look along its way (ahead); and the ground's height every CELL m over the grid and AWAY m
+     round it, as far as a running camera's way reaches past the crowd, read between the four nearest. */
+  const MAX_LOOKS = 64, base = new Float64Array(MAX_LOOKS + 1);
   const AWAY = 40, gcols = cols + (2 * AWAY) / CELL + 1, grows = rows + (2 * AWAY) / CELL + 1, gx0 = x0 - AWAY, gz0 = z0 - AWAY;
   const ground = new Float64Array(gcols * grows);
   for (let r = 0; r < grows; r++) for (let c = 0; c < gcols; c++) ground[r * gcols + c] = height(gx0 + c * CELL, gz0 + r * CELL);
+
+  /* How much higher than a camera at `point` (x, y and z), moving at way[0-2] m/s, the figures will ask it to stand (over) along that way,
+     read at way[4] times (at most MAX_LOOKS) out to way[3] s, less what climbing at way[5] m/s covers by each: raised that far now and
+     climbing from there, it stands as high as they ask when it gets there (way[6]); and the most they will ask along it (way[7]). Along
+     its way the camera stands the lower of where its own climb takes it and as high over the ground as now (base); a parted figure is
+     read where it stands and at its seat, which it goes back to. In `way`, so that no number is boxed; one pass over the figures near
+     the way reads each at every look. */
   function ahead(point, way) {
-    const vx = way[0], vy = way[1], vz = way[2], span = way[3], looks = Math.min(LOOKS, way[4]), climb = way[5];
+    const vx = way[0], vy = way[1], vz = way[2], span = way[3], looks = Math.min(MAX_LOOKS, way[4]), climb = way[5];
     const r = wide + clear, x = point.x, z = point.z, y = point.y, ex = x + vx * span, ez = z + vz * span;
+    let above = 0, low = y;
     for (let k = 0; k <= looks; k++) {
       const t = (k * span) / looks, u = (x + vx * t - gx0) / CELL, w = (z + vz * t - gz0) / CELL;
       const c = Math.min(gcols - 2, Math.max(0, Math.floor(u))), rw = Math.min(grows - 2, Math.max(0, Math.floor(w)));
       const fu = Math.min(1, Math.max(0, u - c)), fw = Math.min(1, Math.max(0, w - rw)), q = rw * gcols + c;
-      base[k] = (ground[q] + (ground[q + 1] - ground[q]) * fu) * (1 - fw) + (ground[q + gcols] + (ground[q + gcols + 1] - ground[q + gcols]) * fu) * fw;
-    }
-    const above = y - base[0];
-    let low = y;
-    for (let k = 1; k <= looks; k++) {
-      base[k] = Math.min(y + (vy * k * span) / looks, base[k] + above);
-      if (base[k] < low) low = base[k];
+      const under = (ground[q] + (ground[q + 1] - ground[q]) * fu) * (1 - fw) + (ground[q + gcols] + (ground[q + gcols + 1] - ground[q + gcols]) * fu) * fw;
+      if (k === 0) above = y - under;
+      else {
+        base[k] = Math.min(y + vy * t, under + above);
+        if (base[k] < low) low = base[k];
+      }
     }
     const out = r + Math.max(0, topAll + top + clear - low) / grade;
     let most = 0, hold = 0;
@@ -542,25 +545,26 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
         for (let q = first[cell]; q < first[cell + 1]; q++) {
           const i = items[q], g = groupOf[i];
           if (gx[g] !== 0 || gz[g] !== 0) continue;
+          const px = sx[i] - x, pz = sz[i] - z, py = sy[i] + top + clear;
           for (let k = 1; k <= looks; k++) {
-            const t = (k * span) / looks, ax = sx[i] - x - vx * t, az = sz[i] - z - vz * t;
-            const ask = sy[i] + top + clear - grade * Math.max(0, Math.sqrt(ax * ax + az * az) - r) - base[k];
+            const t = (k * span) / looks, ax = px - vx * t, az = pz - vz * t;
+            const ask = py - grade * Math.max(0, Math.sqrt(ax * ax + az * az) - r) - base[k];
             if (ask > hold) hold = ask;
             if (ask - climb * t > most) most = ask - climb * t;
           }
         }
       }
+    /* A parted figure where it stands (s at 1) and at its seat (s at 0). */
     for (let j = 0; j < offCount; j++) for (let m = start[list[j]]; m < start[list[j] + 1]; m++) {
       const i = members[m];
-      for (let k = 1; k <= looks; k++) {
-        const t = (k * span) / looks, ax = sx[i] + offset[4 * i] - x - vx * t, az = sz[i] + offset[4 * i + 2] - z - vz * t;
-        const ask = sy[i] + offset[4 * i + 1] + top + clear - grade * Math.max(0, Math.sqrt(ax * ax + az * az) - r) - base[k];
-        if (ask > hold) hold = ask;
-        if (ask - climb * t > most) most = ask - climb * t;
-        const bx = sx[i] - x - vx * t, bz = sz[i] - z - vz * t;
-        const back = sy[i] + top + clear - grade * Math.max(0, Math.sqrt(bx * bx + bz * bz) - r) - base[k];
-        if (back > hold) hold = back;
-        if (back - climb * t > most) most = back - climb * t;
+      for (let s = 1; s >= 0; s--) {
+        const px = sx[i] + s * offset[4 * i] - x, pz = sz[i] + s * offset[4 * i + 2] - z, py = sy[i] + s * offset[4 * i + 1] + top + clear;
+        for (let k = 1; k <= looks; k++) {
+          const t = (k * span) / looks, ax = px - vx * t, az = pz - vz * t;
+          const ask = py - grade * Math.max(0, Math.sqrt(ax * ax + az * az) - r) - base[k];
+          if (ask > hold) hold = ask;
+          if (ask - climb * t > most) most = ask - climb * t;
+        }
       }
     }
     way[6] = most; way[7] = hold;
