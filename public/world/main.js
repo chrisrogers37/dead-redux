@@ -626,11 +626,14 @@ function start(gl) {
     crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting);
     /* The rig's five numbers (rig.js): the figures' phase in eight beats; how far it is lit, as far as the crowd dances, so while a song
        plays, and under reduced motion at once while one plays, its beams still; how far its beams swing, as far as the crowd dances; the
-       build-up, which gathers them; and how far the crowd sits, which in Space lifts them. A dark rig is not drawn. */
+       build-up, which gathers them; and how far the crowd sits, which in Space lifts them. A dark rig is not drawn.
+       The swing eases toward the crowd's dance with a 0.8 s time constant, kept in the rig's own array so a frame boxes no number. So the
+       music's loudness, which widens the dance, reaches the beams slowly: a step of it 63 % of the way in 0.8 s, and a rise and fall at
+       the beat's rate at a seventh of its size at the figures' slowest tempo (80 a minute) and a thirteenth at their fastest. */
     const rig = stage.rig.show;
     rig[0] = figures.beats % 8;
     rig[1] = quality.rig ? (reduced ? dances : dancing) : 0;
-    rig[2] = dancing * layer2.dance;
+    rig[2] += (dancing * layer2.dance - rig[2]) * (reduced ? 1 : 1 - Math.exp(-dt / 0.8));
     rig[3] = layer2.rise;
     rig[4] = sitting;
     stage.rig.mesh.visible = rig[1] > 0;

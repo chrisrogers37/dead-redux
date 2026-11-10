@@ -289,7 +289,7 @@ const TRACK = { title: "Bertha", duration: 600 };
 // A map of the show as the site serves one (maps.js checks it): TRACK at `step` seconds an envelope byte, with each byte's loudness
 // `rms` and low end `bass` (0-255, or a byte's value from its index), the tempo `bpm` in every 10-s window (0 for none), and the peaks
 // as [second, strength].
-function showMap({ rms = 0, bass = 0 as number | ((byte: number) => number), bpm = 0, peaks = [] as number[][], step = 1 } = {}) {
+function showMap({ rms = 0 as number | ((byte: number) => number), bass = 0 as number | ((byte: number) => number), bpm = 0, peaks = [] as number[][], step = 1 } = {}) {
   const bytes = (values: number[]) => Buffer.from(values).toString("base64");
   const series = (value: number | ((byte: number) => number)) =>
     bytes(Array.from({ length: Math.ceil(TRACK.duration / step) }, (_, i) => (typeof value === "function" ? value(i) : value)));
@@ -517,8 +517,12 @@ describe("main.js's frames", () => {
     song.run(0.4);
     expect(rig().lit).toBeCloseTo(0.5, 6);
     song.run(0.6);
-    expect(rig()).toMatchObject({ lit: 1, swing: 1, lift: 0, drawn: true });
+    expect(rig()).toMatchObject({ lit: 1, lift: 0, drawn: true });
     expect(rig().beats).toBeCloseTo(fake.world.beats % 8, 5);
+    // The swing eases toward the dance, 1 with no drive, with a 0.8 s time constant: half way at 1 s, there within 6 s.
+    expect(rig().swing).toBeCloseTo(0.514, 3);
+    song.run(5);
+    expect(rig().swing).toBeCloseTo(1, 2);
     const tuning = await startWorld({ playing: true, title: "Tuning" });
     tuning.run(1);
     expect(rig()).toMatchObject({ lit: 0, drawn: false });
@@ -624,6 +628,21 @@ describe("main.js's frames with the show's map", () => {
     expect(fake.world.flame.scale.x).toBeCloseTo(1 + 1.2 * 0.975, 9);
     page.run(0.8);
     expect(fake.world.flame.scale.x).toBe(1);
+  });
+
+  it("eases the rig's swing toward the crowd's dance with a 0.8 s time constant, so a step of the music's loudness reaches the beams slowly", async () => {
+    // The map's loudness steps from nothing to its top at 10 s, which takes the crowd's dance from 0.4 to 1.6 at once.
+    const page = await startWorld({ playing: true, routing: "plain", map: showMap({ rms: (byte) => (byte < 10 ? 0 : 255) }) });
+    const swing = () => fake.world.stage.rig.show[2];
+    page.run(9.5);
+    expect(hill().crowd.dance).toBe(0.4);
+    expect(swing()).toBeCloseTo(0.4, 3);
+    // 0.8 s past the step the dance stands at 1.6, and the swing has come 63 % of the way.
+    page.run(1.3);
+    expect(hill().crowd.dance).toBe(1.6);
+    expect(swing()).toBeCloseTo(0.4 + 1.2 * (1 - Math.exp(-1)), 1);
+    page.run(6);
+    expect(swing()).toBeCloseTo(1.6, 2);
   });
 
   it("keeps every channel under the clip where the beam crosses the sand rim, at the top of its build-up", async () => {

@@ -18,7 +18,7 @@ const SPREAD = 0.7, EL_LOW = 0.45, EL_HIGH = 0.7;
 /* On the figures' beat each beam swings out SWAY rad to either side and back once every eight beats, and tilts TILT rad up and down two
    beats behind its swing, so it draws a loop; each is at its widest on a beat, the next beam along the rig a beat after it, so a ripple
    runs along the rig once every eight beats. Nothing in the rig goes faster: at the top of the figures' range (160 a minute, beat.js) a
-   beam swings past any point at most twice in 3 s. */
+   beam swings past any point at most twice in 3 s, and what widens the swing, gathers, lifts or lights the fan eases (main.js). */
 const SWAY = 0.12, TILT = 0.05;
 /* The build-up before a peak gathers the fan: at the peak its spread and its swing have closed by GATHER, its beams risen RISE rad, and
    its light grown by BRIGHT. In Space the beams lift toward SPACE_EL rad, nearly upright, the fan closing by SPACE_CLOSE, the swing by
@@ -29,6 +29,10 @@ const GATHER = 0.5, RISE = 0.3, BRIGHT = 0.6, SPACE_EL = 1.25, SPACE_CLOSE = 0.4
 const LIGHT = 0.22, SOFT = 0.06;
 /* A beam seen end-on is thicker to the eye than one seen across, up to THICK times. */
 const THICK = 2.5;
+/* A beam's light fades to nothing at the eye from CLEAR m away, so a camera standing in a beam or beside one is not veiled by its near
+   wall. It reaches less far than any beam comes to the camera at the five test poses (?pose=among's comes nearest, 2.6 m away), so it
+   changes none of them. */
+const CLEAR = 2;
 
 const f = (v) => v.toFixed(4);
 
@@ -62,7 +66,7 @@ void main() {
 }`;
 /* A beam's light at a point of its surface: the sky's first colour on the lower beams and its second on the higher, as thick as the beam
    is to the eye there (the length of the line of sight through the cone, against its width; nothing at its edges), rising from its lamp
-   and fading along it, and through the fog as what is behind it does. */
+   and fading along it, fading within CLEAR of the eye, and through the fog as what is behind it does. */
 const FRAGMENT = `
 uniform vec3 uC0, uC1;
 varying vec3 vNormal, vView, vAxis;
@@ -72,7 +76,7 @@ void main() {
   vec3 v = normalize(vView);
   float along = dot(vAxis, v);
   float thick = min(abs(dot(normalize(vNormal), v)) / max(1.0 - along * along, 1e-3), ${f(THICK)});
-  float a = vLight * thick * smoothstep(0.0, ${f(SOFT)}, vAlong) * pow(1.0 - vAlong, 1.6);
+  float a = vLight * thick * smoothstep(0.0, ${f(SOFT)}, vAlong) * pow(1.0 - vAlong, 1.6) * smoothstep(0.0, ${f(CLEAR)}, length(vView));
   #ifdef USE_FOG
   a *= 1.0 - smoothstep(fogNear, fogFar, vFogDepth);
   #endif
