@@ -55,7 +55,8 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
   /* The walk's camera. Its place and its aim ease after the bear (at once under reduced motion or on a cut), keep 1.2 m above the
      ground at the camera and halfway along the boom, and keep clear of the landmarks: 0.5 m in front of one between the camera and
      the head, never nearer the head than 2.5 m, the boom rising for one that starts within 3 m of the head (boom.js). Over the crowd it
-     keeps as high as `over` says, out of the figures (crowd.js), where it hangs and where a landmark draws it in. Returns the aim. */
+     keeps as high as `over` says, out of the figures (crowd.js): where it hangs, so the landmarks' test takes the boom's line from there,
+     and again where a landmark draws it in along that line. Returns the aim. */
   function boom(camera, walker, dt, cut) {
     const k = reduced || cut ? 1 : 1 - Math.exp(-dt / 0.2);
     const fx = -Math.sin(walker.heading), fz = -Math.cos(walker.heading), e = 0.35 - walker.pitch;

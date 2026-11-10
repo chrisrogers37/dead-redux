@@ -408,7 +408,7 @@ function start(gl) {
     mode: stat(() => mode),
     /* The crowd: how many figures it draws (the tier's, or the front-weighted half of them once the downgrade halves it), how far it
        dances, the music's factor in, how far it sits, and how many figures stand off their seats for the visitor. */
-    crowd: stat(() => ({ drawn: crowd.mesh.count, dance: r3(dancing * layer2.dance), sit: r3(sitting), parted: crowd.parts.parted })),
+    crowd: stat(() => ({ drawn: crowd.mesh.count, dance: r3(dancing * layer2.dance), sit: r3(sitting), parted: crowd.parted })),
     /* The view, whether the visitor's bear is drawn, where its head stands to the centimetre (the sound's listener in third person),
        whether its feet land in the frame (and above the now-plate on a phone), and where its head lands, as fractions from the top-left. */
     avatar: stat(() => ({ view: third ? "third" : "first", shown: avatar.g.visible,

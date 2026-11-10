@@ -1,8 +1,8 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { height, STAGE } from "./ground.js";
-import { parting, PERSON, seats } from "./seats.js";
+import { height, STAGE, STAGE_COLUMN } from "./ground.js";
+import { keepOuts, parting, PERSON, seats } from "./seats.js";
 
 /* The crowd on the hill: faceless figures at the band's height, dark like the band's silhouettes, on the slope in front of the stage
    (seats.js). One instanced mesh on a Lambert material, so the crowd keeps the island's light and fog and costs one draw call; it dances
@@ -91,14 +91,15 @@ export function buildCrowd(scene, { count, path, line, landmarks }) {
   /* A point every 2 m along `length` metres of the path or the line. */
   const along = (length, at) => Array.from({ length: Math.ceil(length / 2) }, (_, i) => { const p = at(i * 2); return [p.x, p.z]; });
   const box = new THREE.Box3(), mid = new THREE.Vector3();
-  const placed = seats({
+  const around = {
     path: along(path.curveLength, (d) => path.at(d / path.curveLength)),
     line: along(line.length, (d) => line.at(d)),
     landmarks: landmarks.map((l) => {
       box.setFromObject(l).getCenter(mid);
       return [mid.x, mid.z, Math.hypot(box.max.x - box.min.x, box.max.z - box.min.z) / 2];
     }),
-  }).slice(0, count);
+  };
+  const placed = seats(around).slice(0, count);
   const n = placed.length;
   const geo = figureGeometry();
   geo.computeBoundingBox();
@@ -128,13 +129,14 @@ export function buildCrowd(scene, { count, path, line, landmarks }) {
   });
   geo.setAttribute("aFig", new THREE.InstancedBufferAttribute(fig, 3));
   /* The parting, for figures up to the largest's size. A figure never comes nearer the visitor's middle than their bear's reach and its
-     own, and steps 0.15 m past that where it has room. It sees them coming 0.9 s ahead, steps aside at 5.5 m/s at most and walks back at
+     own, and steps 0.15 m past that where it has room. It sees them coming 1.1 s ahead, steps aside at 5.5 m/s at most and walks back at
      3; it keeps 1.4 m from the figures round it, past where two of the largest's hanging hands meet (0.35 units out, 1.32 m), and any
      within 2.3 m of one that has stepped aside stand still, out of reach of a dancer's hands (0.88 units out, 1.66 m) and its torso.
-     The walk's camera keeps 0.8 m out of them (avatar.js), past the near plane's corners (0.77 m away on a desktop). */
-  const big = scale * 1.08, reach = BEAR + HAND * big;
-  const parts = parting(placed, { keep: reach + 0.15, reach, lead: 0.9, step: 5.5, back: 3, space: 1.4, most: reach + 5, passes: 4,
-    ring: 2.3, top: TOP * big, wide: HAND * big, clear: 0.8 });
+     It keeps clear of what the seats keep clear of, and its hands of the stage's solids (STAGE_COLUMN). The walk's camera keeps 0.8 m
+     out of them (avatar.js), past the near plane's corners (0.77 m away on a desktop). */
+  const big = scale * 1.08, hand = HAND * big, reach = BEAR + hand;
+  const parts = parting(placed, { keep: reach + 0.15, reach, lead: 1.1, step: 5.5, back: 3, space: 1.4, most: reach + 6, passes: 4,
+    ring: 2.3, top: TOP * big, wide: hand, clear: 0.8, keeps: [...keepOuts(around), [STAGE[0], STAGE[1], STAGE_COLUMN.r + hand]] });
   const aPart = new THREE.InstancedBufferAttribute(parts.offset, 4).setUsage(THREE.DynamicDrawUsage);
   geo.setAttribute("aPart", aPart);
   mesh.computeBoundingSphere();
@@ -162,5 +164,5 @@ export function buildCrowd(scene, { count, path, line, landmarks }) {
     mesh.boundingSphere.radius = rest + parts.farthest;
   }
 
-  return { mesh, count: n, pose, part, over: parts.over, parts };
+  return { mesh, count: n, pose, part, over: parts.over, get parted() { return parts.parted; } };
 }

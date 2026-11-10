@@ -65,8 +65,8 @@ describe("crowdPlan", () => {
 describe("parting", () => {
   // The seats with nothing kept clear, the options crowd.js gives for its largest figures, and a visitor's bear facing (fx, fz).
   const placed = seats(none) as Seat[], n = placed.length;
-  const OPTS = { keep: 4.2, reach: 4.07, lead: 0.9, step: 5.5, back: 3, space: 1.4, most: 9.1, passes: 4, ring: 2.3, top: 3.9, wide: 2.09,
-    clear: 0.8 };
+  const OPTS = { keep: 4.2, reach: 4.07, lead: 1.1, step: 5.5, back: 3, space: 1.4, most: 9.1, passes: 4, ring: 2.3, top: 3.9, wide: 2.09,
+    clear: 0.8, keeps: [] };
   const bear = (x: number, z: number, fx: number, fz: number) => ({ feet: { x, z }, head: { x: x + 0.8 * fx, z: z + 0.8 * fz } });
   const where = (p: { offset: Float32Array }, i: number) => [placed[i].x + p.offset[4 * i], placed[i].z + p.offset[4 * i + 2]];
 

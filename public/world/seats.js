@@ -24,17 +24,23 @@ const NEAR = Math.min(...SECTIONS.map((s) => s.r0)), FAR = Math.max(...SECTIONS.
    which leaves an aisle up the middle of the crowd for the walk down to the stage, in metres. */
 const KEEP = { path: 4, line: 4, landmark: 1.5, aisle: 3 };
 
-/* The seats, front first: each { x, z, r, sit }, `r` metres from the stage's centre. Rows of each section, jittered the same way every
-   day, keep clear of the aisle, of the points of `path` and `line` ([x, z] each) and of `landmarks`, each a circle [x, z, radius] round
-   one. Front first with a random spread, so any count of the first seats keeps the crowd's shape and thins the back of the hill first. */
-export function seats({ path, line, landmarks }) {
-  let s = 49297;
-  const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
-  const keeps = [
+/* What a figure keeps clear of, each [x, z, distance]: the points of `path` and `line` ([x, z] each) and `landmarks`, each a circle
+   [x, z, radius] round one, those near the crowd. */
+export function keepOuts({ path, line, landmarks }) {
+  return [
     ...path.map(([x, z]) => [x, z, KEEP.path]),
     ...line.map(([x, z]) => [x, z, KEEP.line]),
     ...landmarks.map(([x, z, radius]) => [x, z, radius + KEEP.landmark]),
   ].filter(([x, z, d]) => Math.hypot(x - STAGE[0], z - STAGE[1]) < FAR + d);
+}
+
+/* The seats, front first: each { x, z, r, sit }, `r` metres from the stage's centre. Rows of each section, jittered the same way every
+   day, keep clear of the aisle and of what keepOuts names. Front first with a random spread, so any count of the first seats keeps the
+   crowd's shape and thins the back of the hill first. */
+export function seats(around) {
+  let s = 49297;
+  const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+  const keeps = keepOuts(around);
   const clear = (x, z) => keeps.every(([kx, kz, d]) => Math.hypot(x - kx, z - kz) >= d);
   const out = [];
   for (const { r0, r1, a0, a1, gap, sit = false } of SECTIONS) {
@@ -57,44 +63,61 @@ export function seats({ path, line, landmarks }) {
 /* The parting: the figures make room for the visitor. Each keeps `keep` m from the visitor's middle, halfway between their bear's feet
    and its head, and never comes nearer than `reach`. Ahead of the visitor, as far as they walk in `lead` s, a figure steps across their
    way, and beside or behind them straight back from them, each time to the side it already stands on, so it never crosses their path.
-   It steps aside at `step` m/s at most and walks back to its seat at `back` m/s once they have passed, and it stands on the ground
-   wherever it goes, never more than `most` m from its seat. Figures whose seats stand nearer than `space` m move as one group, so they
-   keep to each other as they stood, and a group keeps `space` m from every other figure. Under reduced motion, and where the visitor
-   arrives at once, each stands at once where it would end. Each frame visits only the groups near the visitor and those still walking
-   back, found on a grid of the seats, so its work does not grow with the crowd. `offset` holds each figure's [dx, dy, dz, aside] from
-   its seat, `aside` 0 at its seat and 1 once it has stepped 0.5 m from it; `step` moves the figures for a frame and returns whether any
-   moved. */
-export function parting(placed, { keep, reach, lead, step: pace, back, space, most, passes, ring, top, wide, clear }) {
-  const n = placed.length, CELL = 2;
+   It steps aside at `step` m/s at most and walks back to its seat at `back` m/s once they have passed; it stands on the ground wherever
+   it goes, keeps clear of what the seats keep clear of (`keeps`, keepOuts, each [x, z, distance]) and strays no more than `most` m
+   from its seat. Figures whose seats stand nearer than `space` m move as one group, so they keep to each other as they stood, and a
+   group keeps `space` m from every other figure. A figure stands still once it has stepped 0.25 m aside, and so does any within `ring`
+   m of it, so no dancer's arms reach it. Under reduced motion, and where the visitor arrives at once, each stands at once where it would
+   end. Each frame visits only the groups near the visitor and those still walking back, found on a grid of the seats, so its work does
+   not grow with the crowd. `offset` holds each figure's [dx, dy, dz] from its seat and how still it stands (0-1); `step` moves the
+   figures for a frame and returns whether any moved; `over` is how high a camera must keep over them. */
+export function parting(placed, { keep, reach, lead, step: pace, back, space, most, passes, ring, top, wide, clear, keeps }) {
+  const n = placed.length, CELL = 2, len = (x, z) => Math.sqrt(x * x + z * z);
   const sx = new Float64Array(n), sz = new Float64Array(n), sy = new Float64Array(n), offset = new Float32Array(4 * n);
   let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
-  placed.forEach(({ x, z }, i) => {
+  for (let i = 0; i < n; i++) {
+    const { x, z } = placed[i];
     sx[i] = x; sz[i] = z; sy[i] = height(x, z);
     x0 = Math.min(x0, x); z0 = Math.min(z0, z); x1 = Math.max(x1, x); z1 = Math.max(z1, z);
-  });
-  /* The grid: a point's column and row, those of the nearest cell off the grid, and the seats by cell (cell c holds items[first[c]] to
-     items[first[c + 1] - 1]). */
+  }
+  /* The grid, over the seats and `most` round them: a point's column and row, or those of the nearest cell off the grid. */
+  x0 -= most; z0 -= most; x1 += most; z1 += most;
   const cols = Math.floor((x1 - x0) / CELL) + 1, rows = Math.floor((z1 - z0) / CELL) + 1;
   const colAt = (x) => Math.min(cols - 1, Math.max(0, Math.floor((x - x0) / CELL)));
   const rowAt = (z) => Math.min(rows - 1, Math.max(0, Math.floor((z - z0) / CELL)));
-  const first = new Int32Array(cols * rows + 1), items = new Int32Array(n);
-  for (let i = 0; i < n; i++) first[rowAt(sz[i]) * cols + colAt(sx[i]) + 1] += 1;
-  for (let c = 0; c < cols * rows; c++) first[c + 1] += first[c];
-  const fill = first.slice(0, cols * rows);
-  for (let i = 0; i < n; i++) items[fill[rowAt(sz[i]) * cols + colAt(sx[i])]++] = i;
-  /* The groups: seats nearer than `space` joined, each figure's group, and the members of group g, members[start[g]] onwards. */
+  /* An index of the grid: `each(use)` calls use(cell, item) for each cell an item falls in, and cell c holds items[first[c]] to
+     items[first[c + 1] - 1]. */
+  function index(each) {
+    const first = new Int32Array(cols * rows + 1);
+    each((c) => { first[c + 1] += 1; });
+    for (let c = 0; c < cols * rows; c++) first[c + 1] += first[c];
+    const items = new Int32Array(first[cols * rows]), fill = first.slice(0, cols * rows);
+    each((c, i) => { items[fill[c]++] = i; });
+    return { first, items };
+  }
+  /* The seats by cell, and what a figure the parting moves keeps clear of by the cells each reaches into. */
+  const { first, items } = index((use) => { for (let i = 0; i < n; i++) use(rowAt(sz[i]) * cols + colAt(sx[i]), i); });
+  const kx = Float64Array.from(keeps, (k) => k[0]), kz = Float64Array.from(keeps, (k) => k[1]), kd = Float64Array.from(keeps, (k) => k[2]);
+  const { first: kFirst, items: kItems } = index((use) => {
+    for (let j = 0; j < keeps.length; j++) for (let r = rowAt(kz[j] - kd[j]); r <= rowAt(kz[j] + kd[j]); r++)
+      for (let c = colAt(kx[j] - kd[j]); c <= colAt(kx[j] + kd[j]); c++) use(r * cols + c, j);
+  });
+  /* The groups: seats nearer than `space` joined, each figure's group, the members of group g (members[start[g]] onwards) and its
+     middle, the mean of its seats. */
   const up = Int32Array.from({ length: n }, (_, i) => i), root = (i) => (up[i] === i ? i : (up[i] = root(up[i])));
   for (let i = 0; i < n; i++) for (let r = rowAt(sz[i] - space); r <= rowAt(sz[i] + space); r++)
     for (let c = colAt(sx[i] - space); c <= colAt(sx[i] + space); c++) for (let k = first[r * cols + c]; k < first[r * cols + c + 1]; k++) {
       const j = items[k];
-      if (j > i && Math.hypot(sx[i] - sx[j], sz[i] - sz[j]) < space) up[root(i)] = root(j);
+      if (j > i && len(sx[i] - sx[j], sz[i] - sz[j]) < space) up[root(i)] = root(j);
     }
-  const groupOf = new Int32Array(n), start = new Int32Array(n + 1), members = new Int32Array(n), index = new Int32Array(n).fill(-1);
+  const groupOf = new Int32Array(n), start = new Int32Array(n + 1), members = new Int32Array(n), slot = new Int32Array(n).fill(-1);
   let groups = 0;
-  for (let i = 0; i < n; i++) { if (index[root(i)] < 0) index[root(i)] = groups++; groupOf[i] = index[root(i)]; start[groupOf[i] + 1] += 1; }
+  for (let i = 0; i < n; i++) { if (slot[root(i)] < 0) slot[root(i)] = groups++; groupOf[i] = slot[root(i)]; start[groupOf[i] + 1] += 1; }
   for (let g = 0; g < groups; g++) start[g + 1] += start[g];
   const put = start.slice(0, groups);
   for (let i = 0; i < n; i++) members[put[groupOf[i]]++] = i;
+  const cx0 = new Float64Array(groups), cz0 = new Float64Array(groups);
+  for (let i = 0; i < n; i++) { const g = groupOf[i], k = start[g + 1] - start[g]; cx0[g] += sx[i] / k; cz0[g] += sz[i] / k; }
 
   /* Each group's offset now and as this frame began; this frame's groups (`near`, `count` of them, marked with the frame's stamp) and
      the groups off their seats (`list`). */
@@ -109,47 +132,54 @@ export function parting(placed, { keep, reach, lead, step: pace, back, space, mo
   /* This frame's figures by the cell they stand in now: a list from head1 through next1, and the cells used. */
   const head1 = new Int32Array(cols * rows).fill(-1), next1 = new Int32Array(n), usedCells = new Int32Array(n);
   let used = 0;
-
   /* The figures standing still, this frame's and the last's, and how still each stands now. */
   const stillNow = new Int32Array(n), stillWas = new Int32Array(n), stillAt = new Uint32Array(n), still = new Float64Array(n);
   let stillCount = 0, wasCount = 0, round = 0;
+  /* How far the farthest figure stands from its seat, and how many stand off theirs. */
+  let farthest = 0, parted = 0;
 
   /* The visitor's middle, its velocity eased over 0.2 s, and its way; whether the last frame moved anyone. */
   let mx = NaN, mz = NaN, vx = 0, vz = 0, wx = 0, wz = 1, moved = false;
   /* How far a point stands out of the visitor's way: from the line of it ahead of their middle, from their middle behind it. */
   const outOfWay = (x, z) => {
     const a = (x - mx) * wx + (z - mz) * wz, b = (z - mz) * wx - (x - mx) * wz;
-    return a >= 0 ? Math.abs(b) : Math.hypot(a, b);
+    return a >= 0 ? Math.abs(b) : len(a, b);
   };
   /* Keeps figure i and figure j, of another group, `space` m apart where they stand nearer. The group farther out of the visitor's way
      gives way, so the room is never pressed back into it; two as far out share it. */
   function apart(i, j) {
     const g = groupOf[i], h = groupOf[j];
     const xi = sx[i] + gx[g], zi = sz[i] + gz[g], xj = sx[j] + gx[h], zj = sz[j] + gz[h];
-    const ax = xi - xj, az = zi - zj, d = Math.hypot(ax, az);
+    const ax = xi - xj, az = zi - zj, d = len(ax, az);
     if (d >= space - 1e-6) return false;
     const ux = d > 1e-9 ? ax / d : 1, uz = d > 1e-9 ? az / d : 0, gap = space - d;
     const t = Math.min(1, Math.max(0, 0.5 + (outOfWay(xj, zj) - outOfWay(xi, zi)) / 0.2));
     gx[g] += ux * gap * (1 - t); gz[g] += uz * gap * (1 - t); gx[h] -= ux * gap * t; gz[h] -= uz * gap * t;
     return true;
   }
-  /* No figure of this frame's groups stands nearer the visitor's middle than `reach`: its group steps out. */
-  function stepOut() {
+  /* Steps group g out to `limit` m from (px, pz) where its figure at (x, z) stands nearer. */
+  function pushOut(g, x, z, px, pz, limit) {
+    const ax = x - px, az = z - pz, d = len(ax, az);
+    if (d < limit && d > 1e-9) { gx[g] += (ax / d) * (limit - d); gz[g] += (az / d) * (limit - d); }
+  }
+  /* Each of this frame's groups steps out of whatever its figures keep clear of, then out of the visitor's reach. */
+  function constrain() {
     for (let k = 0; k < actCount; k++) {
       const g = act[k];
       for (let m = start[g]; m < start[g + 1]; m++) {
-        const i = members[m], ax = sx[i] + gx[g] - mx, az = sz[i] + gz[g] - mz, d = Math.hypot(ax, az);
-        if (d < reach && d > 1e-9) { gx[g] += (ax / d) * (reach - d); gz[g] += (az / d) * (reach - d); }
+        const i = members[m], x = sx[i] + gx[g], z = sz[i] + gz[g], c = rowAt(z) * cols + colAt(x);
+        for (let q = kFirst[c]; q < kFirst[c + 1]; q++) pushOut(g, x, z, kx[kItems[q]], kz[kItems[q]], kd[kItems[q]]);
       }
+      for (let m = start[g]; m < start[g + 1]; m++) pushOut(g, sx[members[m]] + gx[g], sz[members[m]] + gz[g], mx, mz, reach);
     }
   }
 
   /* One frame of the figures' walk, `dt` s long, with the room reaching `ahead` m ahead of the visitor's middle: each of this frame's
-     groups toward where it would stand, then apart from the figures round it, no faster than `pace`, within `most` of its seats and
-     out of the visitor's reach; then the figures' offsets. Returns how far the farthest group moved; `changed` says whether an offset
-     did. */
+     groups toward where it would stand, no faster than `pace`, then apart from the figures round it, within `most` of its seats, clear of
+     what it keeps clear of and out of the visitor's reach; then the figures' offsets. `relax` holds the groups where they stand and
+     spaces them out at length, for a settle. Returns how far the farthest group moved; `changed` says whether an offset did. */
   let changed = false;
-  function walk(dt, ahead) {
+  function walk(dt, ahead, relax) {
     stamp += 1; count = 0; actCount = 0;
     for (let k = 0; k < offCount; k++) visit(list[k]);
     /* The seats from `keep` behind the middle to `ahead` in front of it and `keep` to either side, and `space` round that. */
@@ -160,11 +190,10 @@ export function parting(placed, { keep, reach, lead, step: pace, back, space, mo
         for (let k = first[r * cols + c]; k < first[r * cols + c + 1]; k++) visit(groupOf[items[k]]);
 
     /* Each group walks toward where it would stand: its seats, or as little off them as takes every member out of the room the visitor
-       needs, on the group's own side. */
+       needs, on the side its middle stands on. */
     const visited = count;
     for (let k = 0; k < visited; k++) {
-      const g = near[k], lead0 = members[start[g]];
-      const side = ((sz[lead0] + gz[g] - mz) * wx - (sx[lead0] + gx[g] - mx) * wz) >= 0 ? 1 : -1;
+      const g = near[k], side = ((cz0[g] + gz[g] - mz) * wx - (cx0[g] + gx[g] - mx) * wz) >= 0 ? 1 : -1;
       let tx = 0, tz = 0, need = 0;
       for (let m = start[g]; m < start[g + 1]; m++) {
         const i = members[m], ax = sx[i] - mx, az = sz[i] - mz, along = ax * wx + az * wz, across = az * wx - ax * wz;
@@ -172,22 +201,23 @@ export function parting(placed, { keep, reach, lead, step: pace, back, space, mo
         if (along >= 0 && along <= ahead && Math.abs(across) < keep) {
           const s = side * keep - across;
           ux = -wz * s; uz = wx * s;
-        } else if (along < 0 && Math.hypot(ax, az) < keep) {
-          const bx2 = wx * along - wz * side * Math.abs(across), bz2 = wz * along + wx * side * Math.abs(across), l = Math.hypot(bx2, bz2);
-          ux = mx + (l > 1e-9 ? (bx2 / l) * keep : -wz * side * keep) - sx[i]; uz = mz + (l > 1e-9 ? (bz2 / l) * keep : wx * side * keep) - sz[i];
+        } else if (along < 0 && len(ax, az) < keep) {
+          const rx = wx * along - wz * side * Math.abs(across), rz = wz * along + wx * side * Math.abs(across), l = len(rx, rz);
+          ux = mx + (l > 1e-9 ? rx / l : -wz * side) * keep - sx[i]; uz = mz + (l > 1e-9 ? rz / l : wx * side) * keep - sz[i];
         } else continue;
-        const u = Math.hypot(ux, uz);
+        const u = len(ux, uz);
         if (u > need) { need = u; tx = ux; tz = uz; }
       }
       if (need === 0 && gx[g] === 0 && gz[g] === 0) continue;
       join(g);
-      const ax = tx - gx[g], az = tz - gz[g], w = Math.hypot(ax, az), cap = (need > 0 ? pace : back) * dt;
+      if (relax) continue;
+      const ax = tx - gx[g], az = tz - gz[g], w = len(ax, az), cap = (need > 0 ? pace : back) * dt;
       const t = w > cap ? cap / w : 1;
       gx[g] += ax * t; gz[g] += az * t;
     }
     /* Then each group keeps its distance from the figures round it: one at its seat, from the seats' grid, and one of this frame's,
-       from a grid of where they stand now, each pair once. */
-    for (let pass = 0; pass < passes; pass++) {
+       from a grid of where they stand now, each pair once. Settling, they also keep clear and out of reach at each pass. */
+    for (let pass = 0; pass < (relax ? 32 : passes); pass++) {
       for (let t = 0; t < used; t++) head1[usedCells[t]] = -1;
       used = 0;
       for (let k = 0; k < actCount; k++) for (let m = start[act[k]]; m < start[act[k] + 1]; m++) {
@@ -204,8 +234,10 @@ export function parting(placed, { keep, reach, lead, step: pace, back, space, mo
           const i = members[m], xi = sx[i] + gx[g], zi = sz[i] + gz[g];
           for (let r = rowAt(zi - space); r <= rowAt(zi + space); r++) for (let c = colAt(xi - space); c <= colAt(xi + space); c++) {
             for (let q = first[r * cols + c]; q < first[r * cols + c + 1]; q++) {
-              const j = items[q], h = groupOf[j];
-              if (h !== g && acting[h] !== stamp && apart(i, j)) { pushed = true; join(h); }
+              const h = groupOf[items[q]];
+              if (h === g || acting[h] === stamp) continue;
+              visit(h);
+              if (apart(i, items[q])) { pushed = true; join(h); }
             }
             for (let j = head1[r * cols + c]; j >= 0; j = next1[j]) {
               const h = groupOf[j];
@@ -214,26 +246,28 @@ export function parting(placed, { keep, reach, lead, step: pace, back, space, mo
           }
         }
       }
+      if (relax) constrain();
       if (!pushed) break;
     }
-    /* No group moves faster than it steps aside or strays past `most` from its seats, and none stays within the visitor's reach. */
-    let far = 0;
+    /* No group moves faster than it steps aside or strays past `most` from its seats; then each keeps clear and out of reach. */
     for (let k = 0; k < actCount; k++) {
-      const g = act[k], ax = gx[g] - qx[g], az = gz[g] - qz[g], w = Math.hypot(ax, az), cap = pace * dt;
+      const g = act[k], ax = gx[g] - qx[g], az = gz[g] - qz[g], w = len(ax, az), cap = relax ? Infinity : pace * dt;
       if (w > cap) { gx[g] = qx[g] + (ax * cap) / w; gz[g] = qz[g] + (az * cap) / w; }
-      const o = Math.hypot(gx[g], gz[g]);
+      const o = len(gx[g], gz[g]);
       if (o > most) { gx[g] *= most / o; gz[g] *= most / o; }
     }
-    stepOut();
-    offCount = 0;
+    constrain();
+    let far = 0;
+    offCount = 0; farthest = 0; parted = 0;
     for (let k = 0; k < actCount; k++) {
       const g = act[k];
-      far = Math.max(far, Math.hypot(gx[g] - qx[g], gz[g] - qz[g]));
-      let o = Math.hypot(gx[g], gz[g]);
-      if (o < 1e-4) { gx[g] = 0; gz[g] = 0; o = 0; } else list[offCount++] = g;
+      far = Math.max(far, len(gx[g] - qx[g], gz[g] - qz[g]));
+      const o = len(gx[g], gz[g]);
+      if (o < 1e-4) { gx[g] = 0; gz[g] = 0; } else { list[offCount++] = g; parted += start[g + 1] - start[g]; }
       for (let m = start[g]; m < start[g + 1]; m++) {
         const i = members[m], ox = Math.fround(gx[g]), oz = Math.fround(gz[g]);
-        const oy = Math.fround(o > 0 ? height(sx[i] + gx[g], sz[i] + gz[g]) - sy[i] : 0);
+        const oy = Math.fround(o >= 1e-4 ? height(sx[i] + gx[g], sz[i] + gz[g]) - sy[i] : 0);
+        farthest = Math.max(farthest, Math.sqrt(ox * ox + oy * oy + oz * oz));
         if (offset[4 * i] === ox && offset[4 * i + 1] === oy && offset[4 * i + 2] === oz) continue;
         offset[4 * i] = ox; offset[4 * i + 1] = oy; offset[4 * i + 2] = oz;
         changed = true;
@@ -245,37 +279,29 @@ export function parting(placed, { keep, reach, lead, step: pace, back, space, mo
   function step(dt, feet, head, settle) {
     const cx = (feet.x + head.x) / 2, cz = (feet.z + head.z) / 2;
     /* At once under reduced motion, on the first frame, and where the visitor moved more than 3 m since the last. */
-    const now = settle || !(Math.hypot(cx - mx, cz - mz) <= 3);
+    const now = settle || !(len(cx - mx, cz - mz) <= 3);
     if (now) { vx = 0; vz = 0; }
     else if (dt > 0) {
       const k = 1 - Math.exp(-dt / 0.2);
       vx += ((cx - mx) / dt - vx) * k; vz += ((cz - mz) / dt - vz) * k;
-      if (Math.hypot(vx, vz) < 0.01) { vx = 0; vz = 0; }
+      if (len(vx, vz) < 0.01) { vx = 0; vz = 0; }
     }
     if (cx === mx && cz === mz && vx === 0 && vz === 0 && !moved) return false;
     mx = cx; mz = cz;
     /* The way: where the visitor moves, or where their bear faces below 0.5 m/s. */
-    const speed = Math.hypot(vx, vz);
+    const speed = len(vx, vz);
     if (speed > 0.5) { wx = vx / speed; wz = vz / speed; }
-    else { wx = head.x - feet.x; wz = head.z - feet.z; const l = Math.hypot(wx, wz) || 1; wx /= l; wz /= l; }
+    else { wx = head.x - feet.x; wz = head.z - feet.z; const l = len(wx, wz) || 1; wx /= l; wz /= l; }
     changed = false;
-    /* At once, the figures walk on in 1/30 s steps, the visitor standing, until none moves: where the walk would leave them. */
-    if (now) { for (let k = 0; k < 150 && walk(1 / 30, keep) > 1e-5; k++); moved = false; }
-    else moved = walk(dt, keep + (speed > 0.5 ? speed * lead : 0)) > 0;
-    stand();
-    /* How far the farthest figure stands from its seat, and how many stand off theirs. */
-    let farthest = 0, parted = 0;
-    for (let k = 0; k < offCount; k++) for (let m = start[list[k]]; m < start[list[k] + 1]; m++) {
-      const i = members[m];
-      farthest = Math.max(farthest, Math.hypot(offset[4 * i], offset[4 * i + 1], offset[4 * i + 2]));
-      parted += 1;
-    }
-    api.farthest = farthest; api.parted = parted;
+    /* At once, the figures walk on in 1/30 s steps, the visitor standing, until none moves a millimetre: where the walk would leave them;
+       then they space themselves out where they stand. */
+    if (now) { for (let k = 0; k < 150 && walk(1 / 30, keep, false) > 1e-3; k++); walk(0, keep, true); moved = false; }
+    else moved = walk(dt, keep + (speed > 0.5 ? speed * lead : 0), false) > 0;
+    if (changed) stand();
     return changed;
   }
 
-  /* How still each figure stands: one off its seat by 0.25 m or more, and any within `ring` m of it, fading over the last 0.5 m, so
-     no dancer's arms reach a figure that has stepped near it. */
+  /* How still each figure stands: still, one off its seat by 0.25 m or more, and any within `ring` m of it, fading over the last 0.5 m. */
   function mark(j, v) {
     if (stillAt[j] !== round) { stillAt[j] = round; still[j] = 0; stillNow[stillCount++] = j; }
     if (v > still[j]) still[j] = v;
@@ -285,14 +311,14 @@ export function parting(placed, { keep, reach, lead, step: pace, back, space, mo
     for (let k = 0; k < stillCount; k++) stillWas[k] = stillNow[k];
     wasCount = stillCount; stillCount = 0;
     for (let k = 0; k < offCount; k++) {
-      const g = list[k], own = Math.min(1, Math.hypot(gx[g], gz[g]) / 0.25);
+      const g = list[k], own = Math.min(1, len(gx[g], gz[g]) / 0.25);
       for (let m = start[g]; m < start[g + 1]; m++) {
         const i = members[m], xi = sx[i] + gx[g], zi = sz[i] + gz[g];
         mark(i, own);
         for (let r = rowAt(zi - ring); r <= rowAt(zi + ring); r++) for (let c = colAt(xi - ring); c <= colAt(xi + ring); c++)
           for (let q = first[r * cols + c]; q < first[r * cols + c + 1]; q++) {
-            const j = items[q], h = groupOf[j], d = Math.hypot(sx[j] + gx[h] - xi, sz[j] + gz[h] - zi);
-            if (j !== i && d < ring) mark(j, own * Math.min(1, (ring - d) / 0.5));
+            const j = items[q], h = groupOf[j], ax = sx[j] + gx[h] - xi, az = sz[j] + gz[h] - zi, d2 = ax * ax + az * az;
+            if (j !== i && d2 < ring * ring) mark(j, own * Math.min(1, (ring - Math.sqrt(d2)) / 0.5));
           }
       }
     }
@@ -314,20 +340,17 @@ export function parting(placed, { keep, reach, lead, step: pace, back, space, mo
     let y = -Infinity;
     for (let rr = rowAt(z - far); rr <= rowAt(z + far); rr++) for (let c = colAt(x - far); c <= colAt(x + far); c++)
       for (let q = first[rr * cols + c]; q < first[rr * cols + c + 1]; q++) {
-        const i = items[q], g = groupOf[i], d = Math.hypot(sx[i] - x, sz[i] - z);
+        const i = items[q], g = groupOf[i], d = len(sx[i] - x, sz[i] - z);
         if (gx[g] === 0 && gz[g] === 0 && d < far) y = Math.max(y, sy[i] + top + clear - 1.5 * Math.max(0, d - r));
       }
     for (let k = 0; k < offCount; k++) for (let m = start[list[k]]; m < start[list[k] + 1]; m++) {
-      const i = members[m], d = Math.hypot(sx[i] + offset[4 * i] - x, sz[i] + offset[4 * i + 2] - z);
+      const i = members[m], d = len(sx[i] + offset[4 * i] - x, sz[i] + offset[4 * i + 2] - z);
       if (d < far) y = Math.max(y, sy[i] + offset[4 * i + 1] + top + clear - 1.5 * Math.max(0, d - r));
     }
     return y;
   }
 
-  function reset() { gx.fill(0); gz.fill(0); offset.fill(0); offCount = 0; stillCount = 0; mx = NaN; mz = NaN; vx = 0; vz = 0; moved = false; }
-
-  const api = { offset, step, reset, over, farthest: 0, parted: 0 };
-  return api;
+  return { offset, step, over, get farthest() { return farthest; }, get parted() { return parted; } };
 }
 
 /* What the crowd does through each of the show's tracks, by its title and where set 2 starts: it dances while a song plays, Drums and

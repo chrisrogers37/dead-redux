@@ -226,7 +226,7 @@ const fake = vi.hoisted(() => {
           world.partedAtOnce = reduced;
         },
         over: () => -Infinity,
-        parts: { parted: 0 },
+        parted: 0,
       }),
     },
   };
