@@ -49,7 +49,6 @@ const fake = vi.hoisted(() => {
   type Bear = { g: { position: Vec; rotation: { y: number } }; legs: { rotation: { x: number } }[]; phase: number };
   type Stage = {
     light: { visible: boolean; intensity: number };
-    panel: { material: { uniforms: { uGain: { value: Float32Array } } } };
     rig: { show: Float32Array; mesh: { visible: boolean } };
     move: (dt: number, t: number, beats: number) => void;
   };
@@ -202,7 +201,13 @@ const fake = vi.hoisted(() => {
             uAmber: { value: 0 },
           },
         };
-        return { skyMat: world.sky, hemi: { color: new Vec() }, sun: { castShadow: false } };
+        return {
+          skyMat: world.sky,
+          hemi: { color: new Vec() },
+          sun: { castShadow: false },
+          // The stage panel's material, whose gain each frame writes.
+          panelMat: { uniforms: { uGain: { value: Float32Array.of(1) } } },
+        };
       },
       skyPair: () => [new Vec(), new Vec()],
     },
@@ -210,7 +215,6 @@ const fake = vi.hoisted(() => {
       buildStage: () => {
         world.stage = {
           light: { visible: true, intensity: 60 },
-          panel: { material: { uniforms: { uGain: { value: Float32Array.of(1) } } } },
           // The rig's five numbers, as the last frame wrote them, and whether it is drawn.
           rig: { show: new Float32Array(5), mesh: { visible: false } },
           move: (_dt, _t, beats) => {

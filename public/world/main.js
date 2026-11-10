@@ -124,10 +124,10 @@ function start(gl) {
   mergeLandmarks(scene, landmarks, moving.map((m) => m.obj));
 
   /* ---------- the sky ---------- */
-  const { skyMat, hemi, sun } = buildSky(scene, budget.octaves, data.seed);
+  const { skyMat, hemi, sun, panelMat } = buildSky(scene, budget.octaves, data.seed);
 
   /* ---------- the stage ---------- */
-  const stage = buildStage(scene, sun, quality.shadows, skyMat, budget.octaves);
+  const stage = buildStage(scene, sun, quality.shadows, panelMat, skyMat.uniforms);
   /* The lights' own intensities, which layer 2 scales. */
   const lightBase = { hemi: hemi.intensity, stage: stage.light.intensity };
   /* The desktop's one shadow map, the stage's, is drawn once: nothing that casts a shadow moves. */
@@ -465,8 +465,10 @@ function start(gl) {
     skyMat.uniforms.uC2.value.copy(skyMat.uniforms.uC0.value).lerp(skyMat.uniforms.uPage.value, 0.7);
     hemi.color.copy(skyMat.uniforms.uC0.value).lerp(new THREE.Color(0xffffff), 0.3);
     hemi.intensity = lightBase.hemi * layer2.hemi;
-    stage.panel.material.uniforms.uGain.value[0] = layer2.panel;
+    panelMat.uniforms.uGain.value[0] = layer2.panel;
     stage.light.intensity = lightBase.stage * layer2.stage;
+    /* Whether a song plays: the crowd dances and the rig lights for one. */
+    const dances = playing && crowdAt[index].dance ? 1 : 0;
     if (!reduced) {
       skyMat.uniforms.uTime.value = elapsed;
       /* A drop falls every 40-60 s, and as the music plays past a peak of the song between one frame and the next, unless one fell in
@@ -488,7 +490,7 @@ function start(gl) {
       figures = beatStep(figures, dt, tempo ?? FIGURES_BPM, tempo !== null && onset !== seenOnset ? (now - onset) / 1000 : null);
       seenOnset = onset;
       stage.move(dt, elapsed, figures.beats, playing);
-      dancing = toward(dancing, playing && crowdAt[index].dance ? 1 : 0, dt / 0.8);
+      dancing = toward(dancing, dances, dt / 0.8);
     } else {
       skyMat.uniforms.uTime.value = data.seed;
     }
@@ -617,12 +619,12 @@ function start(gl) {
     const sits = crowdAt[index].sit ? 1 : 0;
     sitting = reduced ? sits : toward(sitting, sits, dt / SIT_S);
     crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting);
-    /* The rig lights as the crowd dances, so while a song plays, and swings its beams on the figures' beat as far as the crowd dances;
-       the build-up gathers them, and in Space, where the crowd sits, they lift. Under reduced motion it lights at once while a song plays,
-       its beams still. A dark rig is not drawn. */
+    /* The rig's five numbers (rig.js): the figures' phase in four beats; how far it is lit, as far as the crowd dances, so while a song
+       plays, and under reduced motion at once while one plays, its beams still; how far its beams swing, as far as the crowd dances; the
+       build-up, which gathers them; and how far the crowd sits, which in Space lifts them. A dark rig is not drawn. */
     const rig = stage.rig.show;
     rig[0] = figures.beats % 4;
-    rig[1] = !quality.rig ? 0 : reduced ? (playing && crowdAt[index].dance ? 1 : 0) : dancing;
+    rig[1] = quality.rig ? (reduced ? dances : dancing) : 0;
     rig[2] = dancing * layer2.dance;
     rig[3] = layer2.rise;
     rig[4] = sitting;

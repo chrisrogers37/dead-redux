@@ -26,8 +26,8 @@ const liquid = (octaves) => `
         return mix(col, uAmberColor, uAmber);
       }`;
 
-/* The sky of liquid light, fading into the page's colour below the horizon, and its two lights: the hemisphere light, which takes its
-   colour from the sky, and the sun, whose shadow the stage aims. */
+/* The sky of liquid light, fading into the page's colour below the horizon; its two lights: the hemisphere light, which takes its colour
+   from the sky, and the sun, whose shadow the stage aims; and the stage panel's material, which plays the same light (panelMaterial). */
 export function buildSky(scene, octaves, seed) {
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
@@ -56,7 +56,7 @@ export function buildSky(scene, octaves, seed) {
   const sun = new THREE.DirectionalLight(0xfff2dc, 0.5 * Math.PI);
   sun.position.set(60, 100, 40);
   scene.add(sun);
-  return { skyMat, hemi, sun };
+  return { skyMat, hemi, sun, panelMat: panelMaterial(skyMat, octaves) };
 }
 
 /* The stage's light panel plays the sky's liquid light on its own plane: the same field and the same uniforms, shared, so it follows the
@@ -64,7 +64,7 @@ export function buildSky(scene, octaves, seed) {
    is a screen. `uGain` holds the music's factor on its light (audio.js mappings), which the frame writes into it, so no number is boxed.
    It takes the fog, as the panel's plain colour did. */
 const PANEL_ZOOM = 1.6;
-export function panelMaterial(skyMat, octaves) {
+function panelMaterial(skyMat, octaves) {
   const { uPage, ...shared } = skyMat.uniforms;
   return new THREE.ShaderMaterial({
     uniforms: { ...shared, ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uGain: { value: Float32Array.of(1) } },
