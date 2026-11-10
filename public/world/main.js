@@ -619,11 +619,11 @@ function start(gl) {
     const sits = crowdAt[index].sit ? 1 : 0;
     sitting = reduced ? sits : toward(sitting, sits, dt / SIT_S);
     crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting);
-    /* The rig's five numbers (rig.js): the figures' phase in four beats; how far it is lit, as far as the crowd dances, so while a song
+    /* The rig's five numbers (rig.js): the figures' phase in eight beats; how far it is lit, as far as the crowd dances, so while a song
        plays, and under reduced motion at once while one plays, its beams still; how far its beams swing, as far as the crowd dances; the
        build-up, which gathers them; and how far the crowd sits, which in Space lifts them. A dark rig is not drawn. */
     const rig = stage.rig.show;
-    rig[0] = figures.beats % 4;
+    rig[0] = figures.beats % 8;
     rig[1] = quality.rig ? (reduced ? dances : dancing) : 0;
     rig[2] = dancing * layer2.dance;
     rig[3] = layer2.rise;

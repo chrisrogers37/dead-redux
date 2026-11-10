@@ -506,7 +506,7 @@ describe("main.js's frames", () => {
   });
 
   it("lights the rig as the crowd dances and lifts its beams in Space, keeps it dark through what is not a song, and lights it still under reduced motion", async () => {
-    // The rig's numbers: the figures' phase in four beats, how far it is lit, its swing, the build-up and the lift.
+    // The rig's numbers: the figures' phase in eight beats, how far it is lit, its swing, the build-up and the lift.
     const rig = () => {
       const [beats, lit, swing, gather, lift] = fake.world.stage.rig.show;
       return { beats, lit, swing, gather, lift, drawn: fake.world.stage.rig.mesh.visible };
@@ -516,7 +516,7 @@ describe("main.js's frames", () => {
     expect(rig().lit).toBeCloseTo(0.5, 6);
     song.run(0.6);
     expect(rig()).toMatchObject({ lit: 1, swing: 1, lift: 0, drawn: true });
-    expect(rig().beats).toBeCloseTo(fake.world.beats % 4, 5);
+    expect(rig().beats).toBeCloseTo(fake.world.beats % 8, 5);
     const tuning = await startWorld({ playing: true, title: "Tuning" });
     tuning.run(1);
     expect(rig()).toMatchObject({ lit: 0, drawn: false });
