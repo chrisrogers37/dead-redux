@@ -117,7 +117,7 @@ function start(gl) {
   const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks });
 
   /* ---------- the visitor's bear ---------- */
-  const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN], over: crowd.over });
+  const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN], over: crowd.over, grade: crowd.grade });
   /* Every bear's legs, the visitor's too, as one mesh (bears.js). */
   drawLegs(scene, [...bears, avatar]);
   /* The landmarks' still parts become one mesh across the path, once the camera's keep-out boxes and the crowd's are read from them. */
@@ -551,6 +551,8 @@ function start(gl) {
       const fw = forward();
       walker.x += (fw.x * spd - fw.z * side) * pace; walker.z += (fw.z * spd + fw.x * side) * pace;
       confine(walker, limits);
+      /* A figure that could not get out of the way stops the visitor's bear (crowd.js); the limits still have the last word. */
+      if (!cut) { crowd.hold(walker); confine(walker, limits); }
       avatar.step(walker.x, walker.z, walker.heading, dt);
       crowd.part(dt, avatar.feet, avatar.head, reduced);
       spot.stand();

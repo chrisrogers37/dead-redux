@@ -44,8 +44,10 @@ const BOB = 0.12, ARM_SWING = 0.5, SWAY = 0.08, JITTER = 0.12;
 const ARM_UP = 2.7, RISE_FROM = 0.3, RISE_SPAN = 0.6, RISE_W = 0.1;
 /* How far a figure reaches in its own units, over every pose: its farthest vertex HAND from its axis (its arms level partway up the
    rise, swaying at the dance's widest), its highest TOP over its feet (its hands up at the rise's peak), and PAST beyond the bounds it
-   stands in. A figure that has stepped aside stands still (aPart.w, seats.js), so its arms stay down. */
-const HAND = 1.11, TOP = 2.08, PAST = 0.4;
+   stands in; and HANG with its arms hanging, as one standing fully still (aPart.w, seats.js) holds them. */
+const HAND = 1.11, TOP = 2.08, PAST = 0.4, HANG = 0.354;
+/* How steeply the walk's camera rises over the figures and comes down again: GRADE m a metre (seats.js over, avatar.js). */
+const GRADE = 0.4;
 /* The visitor's bear reaches 1.98 m from its middle, halfway between its feet and its head (bears.js, avatar.js). */
 const BEAR = 1.98;
 
@@ -61,11 +63,11 @@ uniform float uDance;
 uniform float uRise;
 uniform float uSit;
 vec2 rot(vec2 v, float a) { float c = cos(a), s = sin(a); return vec2(c * v.x - s * v.y, s * v.x + c * v.y); }`;
-/* In the figure's own units, after begin_vertex: the rise, the sit, the arms, the knees and the sway, as far as the figure dances and
-   rises where it stands (aPart.w: still 1, at its seat 0). */
+/* In the figure's own units, after begin_vertex: the rise, the sit, the arms, the knees and the sway, as far as the figure dances where
+   it stands (aPart.w: still 1, at its seat 0). Every figure rises with the build-up but one standing fully still, whose arms hang. */
 const DANCE = `
 float moves = 1.0 - aPart.w, dance = uDance * moves;
-float rise = clamp((uRise - ${f(RISE_FROM)} - ${f(RISE_SPAN)} * aFig.z) / ${f(RISE_W)}, 0.0, 1.0) * moves;
+float rise = clamp((uRise - ${f(RISE_FROM)} - ${f(RISE_SPAN)} * aFig.z) / ${f(RISE_W)}, 0.0, 1.0) * (1.0 - step(1.0, aPart.w));
 float sit = max(aFig.x, clamp(uSit * ${f(1 + STAGGER)} - aFig.y * ${f(STAGGER)}, 0.0, 1.0)) * (1.0 - rise);
 float bounce = 0.5 + 0.5 * cos(6.2832 * (uBeat + ${f(JITTER)} * aFig.y));
 if (aArm != 0.0) {
@@ -128,15 +130,18 @@ export function buildCrowd(scene, { count, path, line, landmarks }) {
     fig.set([p.sit ? 1 : 0, (i * 0.618034) % 1, far > near ? (p.r - near) / (far - near) : 0], 3 * i);
   });
   geo.setAttribute("aFig", new THREE.InstancedBufferAttribute(fig, 3));
-  /* The parting, for figures up to the largest's size. A figure never comes nearer the visitor's middle than their bear's reach and its
-     own, and steps 0.15 m past that where it has room. It sees them coming 1.1 s ahead, steps aside at 5.5 m/s at most and walks back at
-     3; it keeps 1.4 m from the figures round it, past where two of the largest's hanging hands meet (0.35 units out, 1.32 m), and any
-     within 2.3 m of one that has stepped aside stand still, out of reach of a dancer's hands (0.88 units out, 1.66 m) and its torso.
-     It keeps clear of what the seats keep clear of, and its hands of the stage's solids (STAGE_COLUMN). The walk's camera keeps 0.8 m
-     out of them (avatar.js), past the near plane's corners (0.77 m away on a desktop). */
+  /* The parting, for figures up to the largest's size. A figure keeps 0.15 m past their bear's reach and its own from the visitor's
+     middle where it has room, and never comes nearer than those two reaches, or nearer than the bear's reach and its hanging arms
+     (HANG) while it stands still. It sees them coming 1.1 s ahead, steps aside at 5.5 m/s and walks back at 3; groups push apart
+     within 1.4 m, past where two of the largest's hanging hands meet (0.35 units out, 1.32 m), and any within 2.85 m of one that has
+     stepped aside stand still, fading over the last 0.5 m, out of reach of a dancer's hands (0.88 units out, 1.66 m). A figure standing
+     fully still does not rise; one at the fading edge rises with the rest. It keeps clear of what the seats keep clear of, and its
+     hands of the stage's solids (STAGE_COLUMN). The walk's camera keeps 1.1 m out of them (avatar.js), past the near plane's corners
+     in the widest view (1.04 m away on a phone held across, 19.5:9), and rises over them no faster than GRADE m a metre. */
   const big = scale * 1.08, hand = HAND * big, reach = BEAR + hand;
-  const parts = parting(placed, { keep: reach + 0.15, reach, lead: 1.1, step: 5.5, back: 3, space: 1.4, most: reach + 6, passes: 4,
-    ring: 2.3, top: TOP * big, wide: hand, clear: 0.8, keeps: [...keepOuts(around), [STAGE[0], STAGE[1], STAGE_COLUMN.r + hand]] });
+  const parts = parting(placed, { keep: reach + 0.15, reach, hang: BEAR + HANG * big, lead: 1.1, step: 5.5, back: 3, space: 1.4,
+    most: reach + 6, passes: 4, ring: 2.85, top: TOP * big, wide: hand, clear: 1.1, grade: GRADE,
+    keeps: [...keepOuts(around), [STAGE[0], STAGE[1], STAGE_COLUMN.r + hand]] });
   const aPart = new THREE.InstancedBufferAttribute(parts.offset, 4).setUsage(THREE.DynamicDrawUsage);
   geo.setAttribute("aPart", aPart);
   mesh.computeBoundingSphere();
@@ -164,5 +169,5 @@ export function buildCrowd(scene, { count, path, line, landmarks }) {
     mesh.boundingSphere.radius = rest + parts.farthest[0];
   }
 
-  return { mesh, count: n, pose, part, over: parts.over, get parted() { return parts.parted; } };
+  return { mesh, count: n, pose, part, over: parts.over, grade: GRADE, hold: parts.hold, get parted() { return parts.parted; } };
 }
