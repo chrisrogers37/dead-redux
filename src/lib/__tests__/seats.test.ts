@@ -201,15 +201,17 @@ describe("parting", () => {
     expect(raised(s.x, s.z, top + 1)).toBe(top + 1);
   });
 
-  it("says how far a camera should climb now to stand as high as a figure asks when its way reaches it, climbing on from there", () => {
+  it("says how far a camera should climb now to stand as high as a figure asks when its way reaches it, and the most it asks on the way", () => {
     // 1.2 m off the ground, 10 m short of the figure and closing at 10 m/s, read 20 times over 2 s and climbing at 3 m/s: 0.7 s on it is
     // 3 m out, within the figure's reach and 1.1 m, where the figure asks 5 m over its feet, 3.8 m above it, of which 2.1 m is climbed.
     const s = { x: 70, z: -60 }, h = height(s.x, s.z), p = parting([s], OPTS), camera = { x: s.x - 10, y: h + 1.2, z: s.z };
-    const way = Float64Array.of(10, 0, 0, 2, 20, 3, 0);
+    const way = Float64Array.of(10, 0, 0, 2, 20, 3, 0, 0);
     p.ahead(camera, way);
     expect(way[6]).toBeCloseTo(1.7, 9);
+    expect(way[7]).toBeCloseTo(3.8, 9);
     way[0] = -10;
     p.ahead(camera, way);
     expect(way[6]).toBe(0);
+    expect(way[7]).toBe(0);
   });
 });

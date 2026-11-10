@@ -509,13 +509,13 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
 
   /* How much higher than a camera at `point` (x, y and z), moving at way[0-2] m/s, the figures will ask it to stand (over) along that way,
      read at way[4] times out to way[3] s, less what climbing at way[5] m/s covers by each: raised that far now and climbing from there,
-     it stands as high as they ask when it gets there. Left in way[6], so that no number is boxed; one pass over the figures near the
-     way reads each at every look. */
+     it stands as high as they ask when it gets there (way[6]); and the most they will ask along it (way[7]). In `way`, so that no
+     number is boxed; one pass over the figures near the way reads each at every look. */
   function ahead(point, way) {
     const vx = way[0], vy = way[1], vz = way[2], span = way[3], looks = way[4], climb = way[5];
     const r = wide + clear, x = point.x, z = point.z, y = point.y, ex = x + vx * span, ez = z + vz * span;
     const out = r + Math.max(0, topAll + top + clear - Math.min(y, y + vy * span)) / grade;
-    let most = 0;
+    let most = 0, hold = 0;
     for (let rr = rowAt(Math.min(z, ez) - out); rr <= rowAt(Math.max(z, ez) + out); rr++)
       for (let c = colAt(Math.min(x, ex) - out); c <= colAt(Math.max(x, ex) + out); c++) {
         const cell = rr * cols + c;
@@ -525,8 +525,9 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
           if (gx[g] !== 0 || gz[g] !== 0) continue;
           for (let k = 1; k <= looks; k++) {
             const t = (k * span) / looks, ax = sx[i] - x - vx * t, az = sz[i] - z - vz * t;
-            const need = sy[i] + top + clear - grade * Math.max(0, Math.sqrt(ax * ax + az * az) - r) - y - (vy + climb) * t;
-            if (need > most) most = need;
+            const ask = sy[i] + top + clear - grade * Math.max(0, Math.sqrt(ax * ax + az * az) - r) - y - vy * t;
+            if (ask > hold) hold = ask;
+            if (ask - climb * t > most) most = ask - climb * t;
           }
         }
       }
@@ -534,11 +535,12 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
       const i = members[m];
       for (let k = 1; k <= looks; k++) {
         const t = (k * span) / looks, ax = sx[i] + offset[4 * i] - x - vx * t, az = sz[i] + offset[4 * i + 2] - z - vz * t;
-        const need = sy[i] + offset[4 * i + 1] + top + clear - grade * Math.max(0, Math.sqrt(ax * ax + az * az) - r) - y - (vy + climb) * t;
-        if (need > most) most = need;
+        const ask = sy[i] + offset[4 * i + 1] + top + clear - grade * Math.max(0, Math.sqrt(ax * ax + az * az) - r) - y - vy * t;
+        if (ask > hold) hold = ask;
+        if (ask - climb * t > most) most = ask - climb * t;
       }
     }
-    way[6] = most;
+    way[6] = most; way[7] = hold;
   }
 
   /* Holds the walker (x, z and heading, as main.js keeps it) back from any figure that has stepped aside and stands still within `hang`

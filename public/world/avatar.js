@@ -15,7 +15,7 @@ const WALK = 2.5, STRIDE = 12, RUN = 19.2;
 const CLIMB = 3, AHEAD = 2.2, LOOKS = 22;
 const UP = new THREE.Vector3(0, 1, 0);
 
-export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], over = () => {}, ahead = (point, way) => { way[6] = 0; } }) {
+export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], over = () => {}, ahead = (point, way) => { way[6] = 0; way[7] = 0; } }) {
   const { g, legs, color } = buildBear(scene, 0xeceae4);
   g.rotation.order = "YXZ";
   /* The head, for the stats and the sound's listener; the top of the head and the ground point under the bear, which the cameras
@@ -54,14 +54,15 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
      come in front of raises the boom, in rad: raised at once, let down at the ease. How far the crowd raises the camera over its
      figures, in m (raise[0]), and the camera's way for `ahead`, in arrays so that a frame boxes no number. */
   let reach = 1, lift = 0;
-  const raise = new Float64Array(1), way = Float64Array.of(0, 0, 0, AHEAD, LOOKS, CLIMB, 0);
+  const raise = new Float64Array(1), way = Float64Array.of(0, 0, 0, AHEAD, LOOKS, CLIMB, 0, 0);
   const hung = new THREE.Vector3(), was = new THREE.Vector3();
 
   /* The walk's camera. Its place and its aim ease after the bear (at once under reduced motion or on a cut), keep 1.2 m above the
      ground at the camera and halfway along the boom, and keep clear of the landmarks: 0.5 m in front of one between the camera and
      the head, never nearer the head than 2.5 m, the boom rising for one that starts within 3 m of the head (boom.js). Over the crowd it
      stands as high as `over` asks, out of the figures (crowd.js): it climbs toward the height it will need along its way, at CLIMB, so
-     it is there before it reaches them, and comes down at CLIMB; and where it would stand lower than `over` asks, it rises at once.
+     it is there before it reaches them, and comes down at CLIMB only as far as the most it will need along that way, so it holds its
+     height over the crowd; and where it would stand lower than `over` asks, it rises at once.
      That is where it hangs, so the landmarks' test takes the boom's line from there, and `over` holds again where a landmark draws it
      in along that line. Returns the aim. */
   function boom(camera, walker, dt, cut) {
@@ -78,11 +79,12 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     const need = hung.y - cam.y;
     if (reduced || cut || !(dt > 0)) raise[0] = need;
     else {
-      /* The most it will need along its way, at its pace out to AHEAD s, less what CLIMB covers by then (crowd.js). */
+      /* It climbs toward the most it will need along its way, at its pace out to AHEAD s, less what CLIMB covers by then, and comes
+         down toward the most it will need along that way (crowd.js); between the two it holds. */
       way[0] = (cam.x - was.x) / dt; way[1] = (cam.y - was.y) / dt; way[2] = (cam.z - was.z) / dt;
       ahead(cam, way);
-      const most = Math.max(need, way[6]);
-      raise[0] = Math.max(need, Math.min(raise[0] + CLIMB * dt, Math.max(raise[0] - CLIMB * dt, most)));
+      const up = Math.max(need, way[6]), hold = Math.max(up, way[7]), to = raise[0] < up ? up : Math.min(raise[0], hold);
+      raise[0] = Math.max(need, Math.min(raise[0] + CLIMB * dt, Math.max(raise[0] - CLIMB * dt, to)));
     }
     hung.y = cam.y + raise[0];
     dir.subVectors(hung, pivot);
