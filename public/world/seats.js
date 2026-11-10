@@ -168,10 +168,10 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
   let stillCount = 0, wasCount = 0, round = 0;
   /* How many figures stand off their seats, and whether the last frame moved anyone. In arrays, so that a frame boxes no number: how far
      the farthest figure stands from its seat; and the visitor's middle (x, z), its velocity eased over 0.2 s (x, z) and its way (x, z),
-     then a walk's length in s, how far ahead of the middle its room reaches, how far its farthest group moved, and how far the middle
-     moved this frame. */
+     then a walk's length in s, how far ahead of the middle its room reaches, how far its farthest group moved, how far the middle
+     moved this frame, and the cap a group slides within (slide); and a point for `kept` (probe). */
   let parted = 0, moved = false;
-  const farthest = new Float64Array(1), at = Float64Array.of(NaN, NaN, 0, 0, 0, 1, 0, 0, 0, 0);
+  const farthest = new Float64Array(1), at = Float64Array.of(NaN, NaN, 0, 0, 0, 1, 0, 0, 0, 0, 0), probe = new Float64Array(2);
   /* Keeps figure i and figure j, of another group, `space` m apart where they stand nearer. The group farther out of the visitor's way
      gives way, so the room is never pressed back into it; two as far out share it. How far out of the way a figure stands: from the line
      of it ahead of the visitor's middle (along it, `a`, and across it, `b`), from their middle behind it. */
@@ -189,14 +189,26 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
     if (pushedAt[g] === stamp) pushedAt[h] = stamp; else if (pushedAt[h] === stamp) pushedAt[g] = stamp;
     return true;
   }
-  /* Whether a point stands inside what the figures keep clear of. */
-  function kept(x, z) {
-    const c = rowAt(z) * cols + colAt(x);
+  /* Whether the point in `probe` (x, z) stands inside what the figures keep clear of; its cell worked out here, as in `walk`. */
+  function kept() {
+    const x = probe[0], z = probe[1];
+    const c = Math.min(rows - 1, Math.max(0, Math.floor((z - z0) / CELL))) * cols + Math.min(cols - 1, Math.max(0, Math.floor((x - x0) / CELL)));
     for (let q = kFirst[c]; q < kFirst[c + 1]; q++) {
       const j = kItems[q], ax = x - kx[j], az = z - kz[j];
       if (ax * ax + az * az < kd[j] * kd[j]) return true;
     }
     return false;
+  }
+  /* The side of the visitor's way group g steps to, `own` (1 or -1) being the one its middle stands on: that one, unless what it keeps
+     clear of leaves it no room there and the other side has room, when it crosses ahead of the visitor, and keeps crossing while it
+     needs room (sideOf). Apart from `walk`, with whole numbers in and out, so that no number is boxed. */
+  function sideFor(g, own) {
+    if (sideOf[g] !== 0) return sideOf[g];
+    const mx = at[0], mz = at[1], wx = at[4], wz = at[5], cx = cx0[g] + gx[g], cz = cz0[g] + gz[g], across = (cz - mz) * wx - (cx - mx) * wz;
+    probe[0] = cx - wz * (own * keep - across); probe[1] = cz + wx * (own * keep - across);
+    if (!kept()) return own;
+    probe[0] = cx + wz * (own * keep + across); probe[1] = cz - wx * (own * keep + across);
+    return kept() ? own : -own;
   }
   /* Each of this frame's groups steps out of whatever its figures keep clear of, then, with `reaching`, out of the visitor's reach:
      wherever one of its figures stands nearer than a circle's distance from its centre, the group steps straight out from it to that
@@ -222,7 +234,8 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
   /* No group moves farther in the frame than it steps aside, or than the visitor's middle moved where their reach pushed it or a group it
      pushed. Its own step gives way first, as much of it as the cap leaves room for beside the pushes, then the pushes; and one the cap
      leaves inside the reach slides round its edge. */
-  function capAll(cap, pushCap) {
+  function capAll() {
+    const cap = pace * at[6], pushCap = Math.max(cap, at[9]);
     for (let k = 0; k < actCount; k++) {
       const g = act[k], ax = gx[g] - qx[g], az = gz[g] - qz[g], w = Math.sqrt(ax * ax + az * az);
       const lim = pushedAt[g] === stamp || late[g] === LATE ? pushCap : cap;
@@ -237,12 +250,14 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
         const p = Math.sqrt(pp);
         ownX[g] = 0; ownZ[g] = 0; gx[g] = qx[g] + (px * lim) / p; gz[g] = qz[g] + (pz * lim) / p;
       }
-      slide(g, lim);
+      at[10] = lim;
+      slide(g);
     }
   }
-  /* Holds group g within `lim` of where it stood as the frame began and, where that leaves a member inside the visitor's reach, slides
+  /* Holds group g within at[10] of where it stood as the frame began and, where that leaves a member inside the visitor's reach, slides
      the group round the reach's edge instead: to the nearest point on it that the cap allows. */
-  function slide(g, lim) {
+  function slide(g) {
+    const lim = at[10];
     for (let t = 0; t < 2; t++) for (let m = start[g]; m < start[g + 1]; m++) {
       const i = members[m], cx = at[0] - sx[i], cz = at[1] - sz[i], ax = gx[g] - cx, az = gz[g] - cz, d = Math.sqrt(ax * ax + az * az);
       const r = offset[4 * i + 3] >= 1 ? hang : reach;
@@ -273,23 +288,20 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
     /* The seats from `keep` behind the middle to `ahead` in front of it and `keep` to either side, and `space` round that. */
     const ex = Math.abs(wz) * keep + space, ez = Math.abs(wx) * keep + space;
     const fx = mx + wx * ahead, fz = mz + wz * ahead, bx = mx - wx * keep, bz = mz - wz * keep;
-    for (let r = rowAt(Math.min(fz, bz) - ez); r <= rowAt(Math.max(fz, bz) + ez); r++)
-      for (let c = colAt(Math.min(fx, bx) - ex); c <= colAt(Math.max(fx, bx) + ex); c++)
+    /* Its cells, worked out here: a number passed to a call `walk` does not inline is boxed. */
+    const ra = Math.min(rows - 1, Math.max(0, Math.floor((Math.min(fz, bz) - ez - z0) / CELL)));
+    const rb = Math.min(rows - 1, Math.max(0, Math.floor((Math.max(fz, bz) + ez - z0) / CELL)));
+    const ca = Math.min(cols - 1, Math.max(0, Math.floor((Math.min(fx, bx) - ex - x0) / CELL)));
+    const cb = Math.min(cols - 1, Math.max(0, Math.floor((Math.max(fx, bx) + ex - x0) / CELL)));
+    for (let r = ra; r <= rb; r++)
+      for (let c = ca; c <= cb; c++)
         for (let k = first[r * cols + c]; k < first[r * cols + c + 1]; k++) visit(groupOf[items[k]]);
 
     /* Each group walks toward where it would stand: its seats, or as little off them as takes every member out of the room the visitor
        needs, on the side its middle stands on. */
     const visited = count, speed = Math.max(0.5, Math.sqrt(at[2] * at[2] + at[3] * at[3]));
     for (let k = 0; k < visited; k++) {
-      /* Its side: the one its middle stands on, unless what it keeps clear of leaves it no room there and the other side does, when it
-         crosses ahead of the visitor and keeps crossing while it needs room. */
-      const g = near[k], cx = cx0[g] + gx[g], cz = cz0[g] + gz[g], across0 = (cz - mz) * wx - (cx - mx) * wz, own = across0 >= 0 ? 1 : -1;
-      let side = sideOf[g];
-      if (side === 0) {
-        side = own;
-        if (kept(cx - wz * (side * keep - across0), cz + wx * (side * keep - across0))
-          && !kept(cx + wz * (side * keep + across0), cz - wx * (side * keep + across0))) side = -side;
-      }
+      const g = near[k], own = ((cz0[g] + gz[g] - mz) * wx - (cx0[g] + gx[g] - mx) * wz) >= 0 ? 1 : -1, side = sideFor(g, own);
       let tx = 0, tz = 0, need = 0, soon = Infinity;
       for (let m = start[g]; m < start[g + 1]; m++) {
         const i = members[m], ax = sx[i] - mx, az = sz[i] - mz, along = ax * wx + az * wz, across = az * wx - ax * wz;
@@ -358,7 +370,7 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
         }
       }
       constrain(true);
-      if (!relax) capAll(pace * dt, Math.max(pace * dt, at[9]));
+      if (!relax) capAll();
       if (!pushed) break;
     }
     /* What the cap held back can leave a group a little inside what it keeps clear of: it steps out of that last. */
