@@ -79,7 +79,7 @@ describe("parting", () => {
   // The seats with nothing kept clear, the options crowd.js gives for its largest figures, and a visitor's bear facing (fx, fz).
   const placed = seats(none) as Seat[], n = placed.length;
   const OPTS = { keep: 4.2, reach: 4.07, hang: 2.65, lead: 1.1, step: 5.5, back: 3, space: 1.4, most: 9.1, passes: 4, ring: 2.85, top: 3.9,
-    wide: 2.09, clear: 1.1, grade: 0.4, keeps: [] as number[][] };
+    wide: 2.09, clear: 1.1, grade: 1.5, keeps: [] as number[][] };
   const bear = (x: number, z: number, fx: number, fz: number) => ({ feet: { x, z }, head: { x: x + 0.8 * fx, z: z + 0.8 * fz } });
   const where = (p: { offset: Float32Array }, i: number) => [placed[i].x + p.offset[4 * i], placed[i].z + p.offset[4 * i + 2]];
 
@@ -189,13 +189,27 @@ describe("parting", () => {
     expect([p.offset[4], p.offset[6], p.offset[7]]).toEqual([0, 0, 1]);
   });
 
-  it("raises a camera 1.1 m over the highest a figure reaches, out to its reach and 1.1 m, then 0.4 m lower each metre down to its feet", () => {
-    const s = { x: 70, z: -60 }, p = parting([s], OPTS), top = height(s.x, s.z) + 3.9 + 1.1;
-    const raised = (x: number, z: number, y = -100) => { const point = { x, y, z }; p.over(point); return point.y; };
-    expect(raised(s.x + 3.19, s.z)).toBeCloseTo(top, 9);
-    expect(raised(s.x, s.z + 4.19)).toBeCloseTo(top - 0.4, 9);
-    expect(raised(s.x - 13.19, s.z)).toBeCloseTo(top - 4, 9);
-    expect(raised(s.x + 15.7, s.z)).toBe(-100);
+  it("raises a camera 1.1 m over the highest a figure reaches, out to its reach and 1.1 m, then 1.5 m lower each metre, however far", () => {
+    const s = { x: 70, z: -60 }, h = height(s.x, s.z), p = parting([s], OPTS), top = h + 3.9 + 1.1;
+    const raised = (x: number, z: number, y = h + 1.2) => { const point = { x, y, z }; p.over(point); return point.y; };
+    expect(raised(s.x + 3.18, s.z)).toBe(top);
+    expect(raised(s.x, s.z + 4.19)).toBeCloseTo(top - 1.5, 9);
+    expect(raised(s.x + 5.8, s.z)).toBe(h + 1.2);
+    // A camera far below the figure: the slope reaches it 10 m out, with nothing cut off.
+    expect(raised(s.x - 10, s.z, h - 10)).toBeCloseTo(top - 1.5 * (10 - 3.19), 9);
+    expect(raised(s.x - 20, s.z, h - 10)).toBe(h - 10);
     expect(raised(s.x, s.z, top + 1)).toBe(top + 1);
+  });
+
+  it("says how far a camera should climb now to stand as high as a figure asks when its way reaches it, climbing on from there", () => {
+    // 1.2 m off the ground, 10 m short of the figure and closing at 10 m/s, read 20 times over 2 s and climbing at 3 m/s: 0.7 s on it is
+    // 3 m out, within the figure's reach and 1.1 m, where the figure asks 5 m over its feet, 3.8 m above it, of which 2.1 m is climbed.
+    const s = { x: 70, z: -60 }, h = height(s.x, s.z), p = parting([s], OPTS), camera = { x: s.x - 10, y: h + 1.2, z: s.z };
+    const way = Float64Array.of(10, 0, 0, 2, 20, 3, 0);
+    p.ahead(camera, way);
+    expect(way[6]).toBeCloseTo(1.7, 9);
+    way[0] = -10;
+    p.ahead(camera, way);
+    expect(way[6]).toBe(0);
   });
 });

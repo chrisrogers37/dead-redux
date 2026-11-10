@@ -79,7 +79,8 @@ const LATE = 1, ON_TIME = 2;
    reach. Under reduced motion, and where the visitor arrives at once, each stands at once where it would end, or as near it as a second
    of the walk takes it. Each frame visits only the groups near the visitor and those still walking back, found on a grid of the
    seats, so its work does not grow with the crowd. `offset` holds each figure's [dx, dy, dz] from its seat and how still it stands
-   (0-1); `step` moves the figures for a frame and returns whether any moved; `over` raises a camera over them; `hold` stops the
+   (0-1); `step` moves the figures for a frame and returns whether any moved; `over` raises a camera over them and `ahead` says how
+   far it should be climbing for them along its way; `hold` stops the
    visitor's walker against a still figure that could not get out of the way; `farthest[0]` is how far the farthest figure stands from
    its seat. */
 export function parting(placed, { keep, reach, hang, lead, step: pace, back, space, most, passes, ring, top, wide, clear, grade, keeps }) {
@@ -108,6 +109,13 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
   }
   /* The seats by cell, and what a figure the parting moves keeps clear of by the cells each reaches into. */
   const { first, items } = index((use) => { for (let i = 0; i < n; i++) use(rowAt(sz[i]) * cols + colAt(sx[i]), i); });
+  /* The highest seat's ground in each cell, and in all of them, for the camera's floor (over); 3 m on for figures off their seats. */
+  const cellTop = new Float64Array(cols * rows).fill(-Infinity);
+  let topAll = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const c = rowAt(sz[i]) * cols + colAt(sx[i]);
+    cellTop[c] = Math.max(cellTop[c], sy[i]); topAll = Math.max(topAll, sy[i] + 3);
+  }
   const kx = Float64Array.from(keeps, (k) => k[0]), kz = Float64Array.from(keeps, (k) => k[1]), kd = Float64Array.from(keeps, (k) => k[2]);
   const { first: kFirst, items: kItems } = index((use) => {
     for (let j = 0; j < keeps.length; j++) for (let r = rowAt(kz[j] - kd[j]); r <= rowAt(kz[j] + kd[j]); r++)
@@ -466,21 +474,59 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
 
   /* Raises a camera at `point` (anything with x, y and z) as high as it must stand to keep `clear` m out of every figure: `clear` over a
      figure's highest point, `top` m over its feet, within `wide` + `clear` m of where it stands, `wide` being its farthest reach, and
-     `grade` m lower for each metre past that, down to its feet. A camera that passes figures, or that figures pass, rises and falls
-     with this no faster than `grade` m a metre. */
+     `grade` m lower for each metre past that, out to wherever that falls below the camera, so the height it asks for changes no faster
+     than `grade` m a metre the camera or a figure moves. A cell of the grid whose highest seat could not reach the camera is passed
+     over (cellTop). */
   function over(point) {
-    const x = point.x, z = point.z, r = wide + clear, far = r + (top + clear) / grade;
-    let y = point.y;
-    for (let rr = rowAt(z - far); rr <= rowAt(z + far); rr++) for (let c = colAt(x - far); c <= colAt(x + far); c++)
-      for (let q = first[rr * cols + c]; q < first[rr * cols + c + 1]; q++) {
-        const i = items[q], g = groupOf[i], ax = sx[i] - x, az = sz[i] - z, d = Math.sqrt(ax * ax + az * az);
-        if (gx[g] === 0 && gz[g] === 0 && d < far) y = Math.max(y, sy[i] + top + clear - grade * Math.max(0, d - r));
+    const x = point.x, z = point.z, r = wide + clear, y0 = point.y, far = r + Math.max(0, topAll + top + clear - y0) / grade;
+    let y = y0;
+    for (let rr = rowAt(z - far); rr <= rowAt(z + far); rr++) for (let c = colAt(x - far); c <= colAt(x + far); c++) {
+      const cell = rr * cols + c, ex = Math.max(0, x0 + c * CELL - x, x - x0 - (c + 1) * CELL), ez = Math.max(0, z0 + rr * CELL - z, z - z0 - (rr + 1) * CELL);
+      if (cellTop[cell] + top + clear - grade * Math.max(0, Math.sqrt(ex * ex + ez * ez) - r) <= y) continue;
+      for (let q = first[cell]; q < first[cell + 1]; q++) {
+        const i = items[q], g = groupOf[i], ax = sx[i] - x, az = sz[i] - z;
+        if (gx[g] === 0 && gz[g] === 0) y = Math.max(y, sy[i] + top + clear - grade * Math.max(0, Math.sqrt(ax * ax + az * az) - r));
       }
+    }
     for (let k = 0; k < offCount; k++) for (let m = start[list[k]]; m < start[list[k] + 1]; m++) {
-      const i = members[m], ax = sx[i] + offset[4 * i] - x, az = sz[i] + offset[4 * i + 2] - z, d = Math.sqrt(ax * ax + az * az);
-      if (d < far) y = Math.max(y, sy[i] + offset[4 * i + 1] + top + clear - grade * Math.max(0, d - r));
+      const i = members[m], ax = sx[i] + offset[4 * i] - x, az = sz[i] + offset[4 * i + 2] - z;
+      y = Math.max(y, sy[i] + offset[4 * i + 1] + top + clear - grade * Math.max(0, Math.sqrt(ax * ax + az * az) - r));
     }
     point.y = y;
+  }
+
+  /* How much higher than a camera at `point` (x, y and z), moving at way[0-2] m/s, the figures will ask it to stand (over) along that way,
+     read at way[4] times out to way[3] s, less what climbing at way[5] m/s covers by each: raised that far now and climbing from there,
+     it stands as high as they ask when it gets there. Left in way[6], so that no number is boxed; one pass over the figures near the
+     way reads each at every look. */
+  function ahead(point, way) {
+    const vx = way[0], vy = way[1], vz = way[2], span = way[3], looks = way[4], climb = way[5];
+    const r = wide + clear, x = point.x, z = point.z, y = point.y, ex = x + vx * span, ez = z + vz * span;
+    const out = r + Math.max(0, topAll + top + clear - Math.min(y, y + vy * span)) / grade;
+    let most = 0;
+    for (let rr = rowAt(Math.min(z, ez) - out); rr <= rowAt(Math.max(z, ez) + out); rr++)
+      for (let c = colAt(Math.min(x, ex) - out); c <= colAt(Math.max(x, ex) + out); c++) {
+        const cell = rr * cols + c;
+        if (cellTop[cell] === -Infinity) continue;
+        for (let q = first[cell]; q < first[cell + 1]; q++) {
+          const i = items[q], g = groupOf[i];
+          if (gx[g] !== 0 || gz[g] !== 0) continue;
+          for (let k = 1; k <= looks; k++) {
+            const t = (k * span) / looks, ax = sx[i] - x - vx * t, az = sz[i] - z - vz * t;
+            const need = sy[i] + top + clear - grade * Math.max(0, Math.sqrt(ax * ax + az * az) - r) - y - (vy + climb) * t;
+            if (need > most) most = need;
+          }
+        }
+      }
+    for (let j = 0; j < offCount; j++) for (let m = start[list[j]]; m < start[list[j] + 1]; m++) {
+      const i = members[m];
+      for (let k = 1; k <= looks; k++) {
+        const t = (k * span) / looks, ax = sx[i] + offset[4 * i] - x - vx * t, az = sz[i] + offset[4 * i + 2] - z - vz * t;
+        const need = sy[i] + offset[4 * i + 1] + top + clear - grade * Math.max(0, Math.sqrt(ax * ax + az * az) - r) - y - (vy + climb) * t;
+        if (need > most) most = need;
+      }
+    }
+    way[6] = most;
   }
 
   /* Holds the walker (x, z and heading, as main.js keeps it) back from any figure that has stepped aside and stands still within `hang`
@@ -498,7 +544,7 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
     }
   }
 
-  return { offset, step, over, hold, farthest, get parted() { return parted; } };
+  return { offset, step, over, ahead, hold, farthest, get parted() { return parted; } };
 }
 
 /* What the crowd does through each of the show's tracks ({ title, duration } each, in s) and where set 2 starts: it dances while a

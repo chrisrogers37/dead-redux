@@ -11,9 +11,11 @@ import { rise } from "./boom.js";
 
 /* The five walk at 2.5 m/s, their legs at 6 rad/s; the walk is 12 m/s and the run 1.6 times that. */
 const WALK = 2.5, STRIDE = 12, RUN = 19.2;
+/* The walk's camera climbs over the crowd, and comes down after it, at CLIMB m/s at most, looking AHEAD s along its way, LOOKS times. */
+const CLIMB = 3, AHEAD = 2.2, LOOKS = 22;
 const UP = new THREE.Vector3(0, 1, 0);
 
-export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], over = () => {}, grade = 1 }) {
+export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], over = () => {}, ahead = (point, way) => { way[6] = 0; } }) {
   const { g, legs, color } = buildBear(scene, 0xeceae4);
   g.rotation.order = "YXZ";
   /* The head, for the stats and the sound's listener; the top of the head and the ground point under the bear, which the cameras
@@ -50,16 +52,18 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
   const dir = new THREE.Vector3();
   /* How much of the boom a landmark leaves the camera: drawn in at once, let out at the ease. How far a landmark too near the head to
      come in front of raises the boom, in rad: raised at once, let down at the ease. How far the crowd raises the camera over its
-     figures, in m (raise[0], in an array so that a frame boxes no number): as far as `over` asks at once, which climbs at most `grade`
-     m a metre the camera moves (crowd.js), and let down no faster than that, or 1 m a second. */
+     figures, in m (raise[0]), and the camera's way for `ahead`, in arrays so that a frame boxes no number. */
   let reach = 1, lift = 0;
-  const raise = new Float64Array(1), hung = new THREE.Vector3(), was = new THREE.Vector3();
+  const raise = new Float64Array(1), way = Float64Array.of(0, 0, 0, AHEAD, LOOKS, CLIMB, 0);
+  const hung = new THREE.Vector3(), was = new THREE.Vector3();
 
   /* The walk's camera. Its place and its aim ease after the bear (at once under reduced motion or on a cut), keep 1.2 m above the
      ground at the camera and halfway along the boom, and keep clear of the landmarks: 0.5 m in front of one between the camera and
      the head, never nearer the head than 2.5 m, the boom rising for one that starts within 3 m of the head (boom.js). Over the crowd it
-     stands as high as `over` asks, out of the figures (crowd.js), coming down from that no faster than `raise` lets it: where it hangs,
-     so the landmarks' test takes the boom's line from there, and again where a landmark draws it in along that line. Returns the aim. */
+     stands as high as `over` asks, out of the figures (crowd.js): it climbs toward the height it will need along its way, at CLIMB, so
+     it is there before it reaches them, and comes down at CLIMB; and where it would stand lower than `over` asks, it rises at once.
+     That is where it hangs, so the landmarks' test takes the boom's line from there, and `over` holds again where a landmark draws it
+     in along that line. Returns the aim. */
   function boom(camera, walker, dt, cut) {
     const k = reduced || cut ? 1 : 1 - Math.exp(-dt / 0.2);
     const fx = -Math.sin(walker.heading), fz = -Math.cos(walker.heading), e = 0.35 - walker.pitch;
@@ -71,8 +75,15 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     cam.y = Math.max(cam.y, height(cam.x, cam.z) + 1.2, 2 * (height(mx, mz) + 1.2) - pivot.y);
     hung.copy(cam);
     over(hung);
-    const need = hung.y - cam.y, ax = cam.x - was.x, az = cam.z - was.z;
-    raise[0] = reduced || cut || need >= raise[0] ? need : Math.max(need, raise[0] - Math.max(dt, grade * Math.sqrt(ax * ax + az * az)));
+    const need = hung.y - cam.y;
+    if (reduced || cut || !(dt > 0)) raise[0] = need;
+    else {
+      /* The most it will need along its way, at its pace out to AHEAD s, less what CLIMB covers by then (crowd.js). */
+      way[0] = (cam.x - was.x) / dt; way[1] = (cam.y - was.y) / dt; way[2] = (cam.z - was.z) / dt;
+      ahead(cam, way);
+      const most = Math.max(need, way[6]);
+      raise[0] = Math.max(need, Math.min(raise[0] + CLIMB * dt, Math.max(raise[0] - CLIMB * dt, most)));
+    }
     hung.y = cam.y + raise[0];
     dir.subVectors(hung, pivot);
     const len = dir.length();
