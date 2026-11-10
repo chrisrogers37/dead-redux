@@ -61,12 +61,13 @@ export function buildSky(scene, octaves, seed) {
 
 /* The stage's light panel plays the sky's liquid light on its own plane: the same field and the same uniforms, shared, so it follows the
    sky's colours, energy, drops and octaves and holds still when the sky does, PANEL_ZOOM times closer and seen flat, since a light panel
-   is a screen. `uGain` is the music's factor on its light (audio.js mappings). It takes the fog, as the panel's plain colour did. */
+   is a screen. `uGain` holds the music's factor on its light (audio.js mappings), which the frame writes into it, so no number is boxed.
+   It takes the fog, as the panel's plain colour did. */
 const PANEL_ZOOM = 1.6;
 export function panelMaterial(skyMat, octaves) {
   const { uPage, ...shared } = skyMat.uniforms;
   return new THREE.ShaderMaterial({
-    uniforms: { ...shared, ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uGain: { value: 1 } },
+    uniforms: { ...shared, ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uGain: { value: Float32Array.of(1) } },
     fog: true,
     vertexShader: `
       varying vec2 vUv;
@@ -80,11 +81,11 @@ export function panelMaterial(skyMat, octaves) {
     fragmentShader: `
       precision mediump float;
       varying vec2 vUv;
-      uniform float uGain;
+      uniform float uGain[1];
       ${liquid(octaves)}
       #include <fog_pars_fragment>
       void main() {
-        gl_FragColor = vec4(liquid((vUv - 0.5) * vec2(3.2, 1.0) * ${PANEL_ZOOM.toFixed(2)}) * uGain, 1.0);
+        gl_FragColor = vec4(liquid((vUv - 0.5) * vec2(3.2, 1.0) * ${PANEL_ZOOM.toFixed(2)}) * uGain[0], 1.0);
         #include <colorspace_fragment>
         #include <fog_fragment>
       }`,

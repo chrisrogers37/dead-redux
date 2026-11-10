@@ -465,7 +465,7 @@ function start(gl) {
     skyMat.uniforms.uC2.value.copy(skyMat.uniforms.uC0.value).lerp(skyMat.uniforms.uPage.value, 0.7);
     hemi.color.copy(skyMat.uniforms.uC0.value).lerp(new THREE.Color(0xffffff), 0.3);
     hemi.intensity = lightBase.hemi * layer2.hemi;
-    stage.panel.material.uniforms.uGain.value = layer2.panel;
+    stage.panel.material.uniforms.uGain.value[0] = layer2.panel;
     stage.light.intensity = lightBase.stage * layer2.stage;
     if (!reduced) {
       skyMat.uniforms.uTime.value = elapsed;
@@ -619,14 +619,14 @@ function start(gl) {
     crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting);
     /* The rig lights as the crowd dances, so while a song plays, and swings its beams on the figures' beat as far as the crowd dances;
        the build-up gathers them, and in Space, where the crowd sits, they lift. Under reduced motion it lights at once while a song plays,
-       its beams still. */
+       its beams still. A dark rig is not drawn. */
     const rig = stage.rig.show;
-    rig[0] = figures.beats;
+    rig[0] = figures.beats % 4;
     rig[1] = !quality.rig ? 0 : reduced ? (playing && crowdAt[index].dance ? 1 : 0) : dancing;
     rig[2] = dancing * layer2.dance;
     rig[3] = layer2.rise;
     rig[4] = sitting;
-    stage.rig.aim();
+    stage.rig.mesh.visible = rig[1] > 0;
 
     renderer.render(scene, camera);
     /* The sound's listener is the visitor: their bear's head in third person, the camera in first (listenerAt); it faces where the

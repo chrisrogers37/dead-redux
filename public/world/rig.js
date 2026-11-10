@@ -3,7 +3,7 @@ import * as THREE from "three";
 
 /* The stage's rig: BEAMS lamps under the front edge of the roof, each throwing a beam of light out over the crowd and up into the air
    above it. One instanced mesh of additive cones, so the rig costs one draw call while it is lit and none while it is dark. Each beam is
-   aimed in the vertex shader, from its place in the fan and a few uniforms that `aim` sets each frame, so the CPU's cost does not grow
+   aimed in the vertex shader, from its place in the fan and the five numbers the frame writes to `show`, so the CPU's cost does not grow
    with the beams. It lights no figure: the beams add to what is behind them and cast no light. */
 
 /* The lamps, in the stage's own frame (stage.js: +z toward the crowd): BEAMS of them along the roof's front edge, from -SPAN to SPAN m,
@@ -28,18 +28,21 @@ const LIGHT = 0.22;
 /* A beam seen end-on is thicker to the eye than one seen across, up to THICK times. */
 const THICK = 2.5;
 
-/* The beam's place in the fan: its angles at rest and its place along the rig, in beats behind the first. */
+/* The beam's place in the fan (aBeam: its angles at rest and its place along the rig, in beats behind the first) and the frame's five
+   numbers (uRig, the rig's `show`: the figures' phase in four beats, how far the rig is lit, how far its beams swing, the build-up as it
+   acts, and how far the crowd sits). */
 const VERTEX = `
 attribute vec3 aBeam;
-uniform float uBeat, uSwing, uGather, uLift;
+uniform float uRig[5];
 varying vec3 vNormal, vView, vAxis;
-varying float vAlong, vSide;
+varying float vAlong, vSide, vLight;
 #include <fog_pars_vertex>
 void main() {
-  float sway = uSwing * (1.0 - ${GATHER.toFixed(4)} * uGather) * (1.0 - ${SPACE_CALM.toFixed(4)} * uLift);
-  float a = 1.5708 * (uBeat - aBeam.z);
-  float az = aBeam.x * (1.0 - ${GATHER.toFixed(4)} * uGather) * (1.0 - ${SPACE_CLOSE.toFixed(4)} * uLift) + ${SWAY.toFixed(4)} * sway * cos(a);
-  float el = mix(aBeam.y + ${RISE.toFixed(4)} * uGather, ${SPACE_EL.toFixed(4)}, uLift) + ${TILT.toFixed(4)} * sway * sin(a);
+  float beat = uRig[0], lit = uRig[1], swing = uRig[2], gather = uRig[3], lift = uRig[4];
+  float sway = swing * (1.0 - ${GATHER.toFixed(4)} * gather) * (1.0 - ${SPACE_CALM.toFixed(4)} * lift);
+  float a = 1.5708 * (beat - aBeam.z);
+  float az = aBeam.x * (1.0 - ${GATHER.toFixed(4)} * gather) * (1.0 - ${SPACE_CLOSE.toFixed(4)} * lift) + ${SWAY.toFixed(4)} * sway * cos(a);
+  float el = mix(aBeam.y + ${RISE.toFixed(4)} * gather, ${SPACE_EL.toFixed(4)}, lift) + ${TILT.toFixed(4)} * sway * sin(a);
   vec3 d = vec3(sin(az) * cos(el), sin(el), cos(az) * cos(el));
   vec3 across = vec3(cos(az), 0.0, -sin(az));
   mat3 aim = mat3(across, cross(d, across), d);
@@ -50,6 +53,7 @@ void main() {
   vView = -mvPosition.xyz;
   vAlong = position.z / ${LENGTH.toFixed(1)};
   vSide = mod(aBeam.z, 2.0);
+  vLight = ${LIGHT.toFixed(4)} * lit * (1.0 + ${BRIGHT.toFixed(4)} * gather) * (1.0 - ${SPACE_DIM.toFixed(4)} * lift);
   #include <fog_vertex>
 }`;
 /* A beam's light at a point of its surface: the sky's first colour on the lower beams and its second on the higher, as thick as the beam
@@ -57,15 +61,14 @@ void main() {
    and through the fog as what is behind it does. */
 const FRAGMENT = `
 uniform vec3 uC0, uC1;
-uniform float uLight;
 varying vec3 vNormal, vView, vAxis;
-varying float vAlong, vSide;
+varying float vAlong, vSide, vLight;
 #include <fog_pars_fragment>
 void main() {
   vec3 v = normalize(vView);
   float along = dot(normalize(vAxis), v);
   float thick = min(abs(dot(normalize(vNormal), v)) / max(1.0 - along * along, 1e-3), ${THICK.toFixed(4)});
-  float a = uLight * thick * pow(1.0 - vAlong, 1.6);
+  float a = vLight * thick * pow(1.0 - vAlong, 1.6);
   #ifdef USE_FOG
   a *= 1.0 - smoothstep(fogNear, fogFar, vFogDepth);
   #endif
@@ -79,10 +82,12 @@ export function buildRig(group, colors) {
   const beam = new Float32Array(3 * BEAMS);
   for (let i = 0; i < BEAMS; i++) beam.set([SPREAD * ((2 * i) / (BEAMS - 1) - 1), i % 2 ? EL_HIGH : EL_LOW, i], 3 * i);
   geo.setAttribute("aBeam", new THREE.InstancedBufferAttribute(beam, 3));
-  const uniforms = {
-    ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uC0: colors.uC0, uC1: colors.uC1,
-    uBeat: { value: 0 }, uSwing: { value: 0 }, uGather: { value: 0 }, uLift: { value: 0 }, uLight: { value: 0 },
-  };
+  /* What aims and lights the beams, which the frame writes here: the figures' phase (beat.js), kept to four beats, the swing's cycle, for
+     the shader's precision; how far the rig is lit, 0 dark to 1 lit; how far the beams swing; the build-up before a peak as it acts
+     (audio.js mappings' rise); and how far the crowd sits, which in Space, where the rig is lit, lifts the beams. It is the shader's own
+     uniform, so writing it boxes no number. A dark rig is not drawn: the frame hides the mesh while `show[1]` is 0. */
+  const show = new Float32Array(5);
+  const uniforms = { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uC0: colors.uC0, uC1: colors.uC1, uRig: { value: show } };
   const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERTEX, fragmentShader: FRAGMENT, fog: true, transparent: true,
     depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, forceSinglePass: true });
   const mesh = new THREE.InstancedMesh(geo, mat, BEAMS);
@@ -104,20 +109,5 @@ export function buildRig(group, colors) {
   mesh.visible = false;
   group.add(mesh);
 
-  /* What aims the beams, which the frame writes here before it calls `aim`, so no number is boxed on the way: the figures' phase in
-     beats (beat.js); how far the rig is lit, 0 dark to 1 lit; how far the beams swing; the build-up before a peak as it acts (audio.js
-     mappings' rise); and how far the crowd sits, which in Space, where the rig is lit, lifts the beams. */
-  const show = new Float64Array(5);
-  /* Aims the beams for a frame. The phase is kept to four beats, the swing's cycle, for the shader's precision. A dark rig is not drawn. */
-  function aim() {
-    const lit = show[1], gather = show[3], lift = show[4];
-    uniforms.uBeat.value = show[0] % 4;
-    uniforms.uSwing.value = show[2];
-    uniforms.uGather.value = gather;
-    uniforms.uLift.value = lift;
-    uniforms.uLight.value = LIGHT * lit * (1 + BRIGHT * gather) * (1 - SPACE_DIM * lift);
-    mesh.visible = lit > 0;
-  }
-
-  return { mesh, show, aim };
+  return { mesh, show };
 }

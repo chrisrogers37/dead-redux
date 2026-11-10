@@ -49,8 +49,8 @@ const fake = vi.hoisted(() => {
   type Bear = { g: { position: Vec; rotation: { y: number } }; legs: { rotation: { x: number } }[]; phase: number };
   type Stage = {
     light: { visible: boolean; intensity: number };
-    panel: { material: { uniforms: { uGain: { value: number } } } };
-    rig: { show: Float64Array; aim: () => void };
+    panel: { material: { uniforms: { uGain: { value: Float32Array } } } };
+    rig: { show: Float32Array; mesh: { visible: boolean } };
     move: (dt: number, t: number, beats: number) => void;
   };
   type Sky = { uniforms: Record<string, { value: number | Vec }> };
@@ -58,7 +58,7 @@ const fake = vi.hoisted(() => {
   // What the world main.js built: its scene, its camera, every bear it made (a downgrade drops some from the scene), and where the
   // visitor's bear last stepped; the flame of a fire landmark, the stage, the sky and the meshes main.js makes itself (the beam); and
   // the figures' phase in beats, as the last frame gave it to the stage, the crowd's pose, as the last frame gave it to the crowd, and
-  // whether its last parting stood the figures at once; and the rig's aim, as the last frame gave it.
+  // whether its last parting stood the figures at once.
   // `line` is the bears' line each test gives it, and `onset` the time of the last onset the analyser heard, which each test sets (null
   // for none).
   const world = {
@@ -74,7 +74,6 @@ const fake = vi.hoisted(() => {
     beats: NaN,
     posed: { beats: NaN, dance: NaN, rise: NaN, sit: NaN },
     partedAtOnce: null as boolean | null,
-    aimed: { beats: NaN, lit: NaN, swing: NaN, gather: NaN, lift: NaN },
     onset: null as number | null,
   };
   class Scene {
@@ -211,14 +210,9 @@ const fake = vi.hoisted(() => {
       buildStage: () => {
         world.stage = {
           light: { visible: true, intensity: 60 },
-          panel: { material: { uniforms: { uGain: { value: 1 } } } },
-          rig: {
-            show: new Float64Array(5),
-            aim() {
-              const [beats, lit, swing, gather, lift] = this.show;
-              world.aimed = { beats, lit, swing, gather, lift };
-            },
-          },
+          panel: { material: { uniforms: { uGain: { value: Float32Array.of(1) } } } },
+          // The rig's five numbers, as the last frame wrote them, and whether it is drawn.
+          rig: { show: new Float32Array(5), mesh: { visible: false } },
           move: (_dt, _t, beats) => {
             world.beats = beats;
           },
@@ -508,22 +502,27 @@ describe("main.js's frames", () => {
   });
 
   it("lights the rig as the crowd dances and lifts its beams in Space, keeps it dark through what is not a song, and lights it still under reduced motion", async () => {
+    // The rig's numbers: the figures' phase in four beats, how far it is lit, its swing, the build-up and the lift.
+    const rig = () => {
+      const [beats, lit, swing, gather, lift] = fake.world.stage.rig.show;
+      return { beats, lit, swing, gather, lift, drawn: fake.world.stage.rig.mesh.visible };
+    };
     const song = await startWorld({ playing: true });
     song.run(0.4);
-    expect(fake.world.aimed.lit).toBeCloseTo(0.5, 9);
+    expect(rig().lit).toBeCloseTo(0.5, 6);
     song.run(0.6);
-    expect(fake.world.aimed).toMatchObject({ lit: 1, swing: 1, lift: 0 });
-    expect(fake.world.aimed.beats).toBe(fake.world.beats);
+    expect(rig()).toMatchObject({ lit: 1, swing: 1, lift: 0, drawn: true });
+    expect(rig().beats).toBeCloseTo(fake.world.beats % 4, 5);
     const tuning = await startWorld({ playing: true, title: "Tuning" });
     tuning.run(1);
-    expect(fake.world.aimed.lit).toBe(0);
+    expect(rig()).toMatchObject({ lit: 0, drawn: false });
     const space = await startWorld({ playing: true, title: "Space" });
     space.run(2);
-    expect(fake.world.aimed).toMatchObject({ lit: 1, lift: 1 });
+    expect(rig()).toMatchObject({ lit: 1, lift: 1 });
     // Under reduced motion the first frame lights it at once, its beams at rest and lifted for Space.
     const still = await startWorld({ playing: true, title: "Space", reduced: true });
     still.run(0.02);
-    expect(fake.world.aimed).toEqual({ beats: 0, lit: 1, swing: 0, gather: 0, lift: 1 });
+    expect(rig()).toEqual({ beats: 0, lit: 1, swing: 0, gather: 0, lift: 1, drawn: true });
   });
 
   it("walks the attract camera with the bears: it stands and looks where postPose puts it for the bears as they walk", async () => {
