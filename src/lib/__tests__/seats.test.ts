@@ -85,7 +85,7 @@ describe("parting", () => {
 
   it("makes room for a walk through the crowd at 12 m/s: steps aside at 5.5 m/s at most, keeps out of reach, stands on the ground, goes back", () => {
     const p = parting(placed, OPTS);
-    // Out of the bear's reach and its own, or, standing still with its arms hanging, out of the bear's reach and theirs.
+    // Out of the bear's reach and its own, or, standing still with its arms all the way down, out of the bear's reach and theirs.
     let nearestStill = Infinity;
     // Down the hill toward the stage, 9 m off its axis, at 60 frames a second, then 5 s standing past the crowd.
     const ux = -STAGE[0] / Math.hypot(...STAGE), uz = -STAGE[1] / Math.hypot(...STAGE);
@@ -99,7 +99,7 @@ describe("parting", () => {
       for (let i = 0; i < n; i++) {
         const [x, z] = where(p, i);
         fastest = Math.max(fastest, Math.hypot(p.offset[4 * i] - last[4 * i], p.offset[4 * i + 2] - last[4 * i + 2]) * 60);
-        if (p.offset[4 * i + 3] >= 1) nearestStill = Math.min(nearestStill, Math.hypot(x - mx, z - mz));
+        if (p.offset[4 * i + 3] >= 1 && p.rising[i] === 0) nearestStill = Math.min(nearestStill, Math.hypot(x - mx, z - mz));
         else nearest = Math.min(nearest, Math.hypot(x - mx, z - mz));
         ground = Math.max(ground, Math.abs(height(placed[i].x, placed[i].z) + p.offset[4 * i + 1] - height(x, z)));
         if (p.offset[4 * i] !== 0 || p.offset[4 * i + 2] !== 0) moved += 1;
@@ -114,6 +114,36 @@ describe("parting", () => {
     expect(ground).toBeLessThan(1e-4);
     for (let k = 0; k < 300; k++) p.step(1 / 60, at(0).feet, at(0).head, false);
     expect([...p.offset].every((v) => v === 0)).toBe(true);
+    expect([...p.rising].every((v) => v === 1)).toBe(true);
+  });
+
+  it("brings a still figure's arms down over a quarter second and up as slowly, turning them at most once each half second, and keeps them down through a dip", () => {
+    const p = parting(placed, OPTS);
+    const ux = -STAGE[0] / Math.hypot(...STAGE), uz = -STAGE[1] / Math.hypot(...STAGE);
+    const at = (a: number) => bear(STAGE[0] + a * ux - 9 * uz, STAGE[1] + a * uz + 9 * ux, -ux, -uz);
+    p.step(0, at(62).feet, at(62).head, false);
+    // Each figure's arms: which way they last moved and when they turned; and, with them all the way down, frames whose stillness dips
+    // under 1 but stays at a half or more.
+    const way = new Int8Array(n), turned = new Float64Array(n).fill(-Infinity);
+    let rose = Float32Array.from(p.rising), steepest = 0, down = 0, closest = Infinity, dips = 0, raisedInDip = 0, t = 0;
+    for (let a = 62; a >= 0; a -= 0.2) {
+      const v = at(a);
+      p.step(1 / 60, v.feet, v.head, false);
+      t += 1 / 60;
+      for (let i = 0; i < n; i++) {
+        const d = p.rising[i] - rose[i], w = p.offset[4 * i + 3];
+        steepest = Math.max(steepest, Math.abs(d));
+        if (d !== 0 && Math.sign(d) !== way[i]) { if (way[i] !== 0) closest = Math.min(closest, t - turned[i]); way[i] = Math.sign(d); turned[i] = t; }
+        if (rose[i] === 0 && w >= 0.5 && w < 1) { dips += 1; if (p.rising[i] > 0) raisedInDip += 1; }
+        if (p.rising[i] === 0) down += 1;
+      }
+      rose = Float32Array.from(p.rising);
+    }
+    expect(down).toBeGreaterThan(0);
+    expect(steepest).toBeLessThanOrEqual(1 / 60 / 0.25 + 1e-6);
+    expect(closest).toBeGreaterThanOrEqual(0.5 - 1e-6);
+    expect(dips).toBeGreaterThan(0);
+    expect(raisedInDip).toBe(0);
   });
 
   it("stands each figure at once where it would end under reduced motion, still while the visitor stands, its neighbours still too", () => {
@@ -159,7 +189,7 @@ describe("parting", () => {
         if (p.offset[4 * i] === 0 && p.offset[4 * i + 2] === 0) continue;
         moved += 1;
         inside = Math.max(inside, 13.04 - Math.hypot(x - STAGE[0], z - STAGE[1]));
-        if (p.offset[4 * i + 3] >= 1) nearestStill = Math.min(nearestStill, d); else nearest = Math.min(nearest, d);
+        if (p.offset[4 * i + 3] >= 1 && p.rising[i] === 0) nearestStill = Math.min(nearestStill, d); else nearest = Math.min(nearest, d);
       }
       last = Float32Array.from(p.offset); [lx, lz] = [mx, mz];
     }

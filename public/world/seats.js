@@ -62,26 +62,31 @@ export function seats(around) {
 
 /* Whether the room reached a group late or in time (parting). */
 const LATE = 1, ON_TIME = 2;
+/* A figure's arms come down over RISE_EASE s once it stands fully still, and go up again over as long once its stillness falls below
+   RISE_HOLD; either way they keep to it for RISE_KEEP s at least (parting, `rising`). */
+const RISE_EASE = 0.25, RISE_HOLD = 0.5, RISE_KEEP = 0.5;
 
 /* The parting: the figures make room for the visitor. Each keeps `keep` m from the visitor's middle, halfway between their bear's feet
    and its head. Ahead of the visitor, as far as they walk in `lead` s, a figure steps across their way, and beside or behind them
    straight back from them, to the side it already stands on; where what it keeps clear of leaves it no room on that side and the other
    has room, it crosses ahead of them to the other, and keeps on while it needs room. It steps aside at `step` m/s, or, where the room
-   reaches it already within half its lead, as a turn brings it, as fast as it must to be out of the way before the visitor's reach
-   gets there, up to the visitor's own pace; and it walks back to its seat at `back` m/s once they have passed. It never comes nearer
-   the visitor's middle than `reach`, or `hang` while it stands fully still with its arms hanging. No figure moves farther in a frame
-   than it steps aside, or than the visitor's middle moved where their reach pushed it, or pushed a figure that pushed it; its own step
-   gives way first, and one the reach would push past that slides round the reach's edge. Figures whose seats stand nearer than `space`
-   m move as one group; groups nearer each other than that push apart, `passes` neighbours out a frame. A figure walks no farther than
-   `most` m from its seat; only a push takes one past that, while the visitor walks into it. It stands on the ground wherever it goes
-   and keeps clear of what the seats keep clear of (`keeps`, keepOuts, each [x, z, distance]). A figure stands still once it has
-   stepped 0.25 m aside, and so does any within `ring` m of it, fading over the last 0.5 m, and any within a metre past the visitor's
-   reach. Under reduced motion, and where the visitor arrives at once, each stands at once where it would end, or as near it as a second
-   of the walk takes it. Each frame visits only the groups near the visitor and those still walking back, found on a grid of the
-   seats, so its work does not grow with the crowd. `offset` holds each figure's [dx, dy, dz] from its seat and how still it stands
-   (0-1); `step` moves the figures for a frame and returns whether any moved; `over` raises a camera over them, and `ahead` says how
-   far it should climb now for them along its way and the most they will ask along it; `hold` stops the visitor's walker against a
-   still figure that could not get out of the way; `farthest[0]` is how far the farthest figure stands from its seat. */
+   reaches it already within half its lead, as a turn brings it, as fast as it must to be out of the way before the visitor's reach gets
+   there, up to the visitor's own pace; and it walks back to its seat at `back` m/s once they have passed. It never comes nearer the
+   visitor's middle than `reach`, or `hang` while it stands fully still with its arms all the way down. No figure moves farther in a
+   frame than it steps aside, or than the visitor's middle moved where their reach pushed it, or pushed a figure that pushed it; its own
+   step gives way first, and one the reach would push past that slides round the reach's edge. Figures whose seats stand nearer than
+   `space` m move as one group; groups nearer each other than that push apart, `passes` neighbours out a frame. A figure walks no
+   farther than `most` m from its seat; only a push takes one past that, while the visitor walks into it. It stands on the ground
+   wherever it goes and keeps clear of what the seats keep clear of (`keeps`, keepOuts, each [x, z, distance]). A figure stands still
+   once it has stepped 0.25 m aside, and so does any within `ring` m of it, fading over the last 0.5 m, and any within a metre past the
+   visitor's reach; its arms come down over RISE_EASE s, and go up again over as long once its stillness falls below RISE_HOLD, keeping
+   to either for RISE_KEEP s at least. Under reduced motion, and where the visitor arrives at once, each stands at once where it would
+   end, or as near it as a second of the walk takes it. Each frame visits only the groups near the visitor and those still walking back,
+   found on a grid of the seats, so its work does not grow with the crowd. `offset` holds each figure's [dx, dy, dz] from its seat and
+   how still it stands (0-1), and `rising` how far each one's arms rise with the build-up (0-1); `step` moves the figures for a frame
+   and returns whether any moved or eased its arms; `over` raises a camera over them, and `ahead` says how far it should climb now for
+   them along its way and the most they will ask along it; `hold` stops the visitor's walker against a still figure that could not get
+   out of the way; `farthest[0]` is how far the farthest figure stands from its seat. */
 export function parting(placed, { keep, reach, hang, lead, step: pace, back, space, most, passes, ring, top, wide, clear, grade, keeps }) {
   const n = placed.length, CELL = 2, span = Math.ceil(space / CELL);
   const sx = new Float64Array(n), sz = new Float64Array(n), sy = new Float64Array(n), offset = new Float32Array(4 * n);
@@ -166,12 +171,19 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
   /* The figures standing still, this frame's and the last's, and how still each stands now. */
   const stillNow = new Int32Array(n), stillWas = new Int32Array(n), stillAt = new Uint32Array(n), still = new Float64Array(n);
   let stillCount = 0, wasCount = 0, round = 0;
+  /* How far each figure's arms rise with the build-up (the shader's aRise): 1, eased to 0 once it stands fully still, and held there
+     until its stillness falls below RISE_HOLD, so that a stillness that dips under 1 for a frame or a few moves no arms; when its hold
+     last changed (`since`, s); and the figures easing or waiting to (`easing`, `easeCount` of them). */
+  const rising = new Float32Array(n).fill(1), held = new Uint8Array(n), inEase = new Uint8Array(n), easing = new Int32Array(n);
+  const since = new Float64Array(n).fill(-Infinity);
+  let easeCount = 0;
   /* How many figures stand off their seats, and whether the last frame moved anyone. In arrays, so that a frame boxes no number: how far
      the farthest figure stands from its seat; and the visitor's middle (x, z), its velocity eased over 0.2 s (x, z) and its way (x, z),
      then a walk's length in s, how far ahead of the middle its room reaches, how far its farthest group moved, how far the middle
-     moved this frame, and the cap a group slides within (slide); and a point for `kept` (probe). */
+     moved this frame, the cap a group slides within (slide), how far a frame eases the arms (ease) and the time walked, in s; and a
+     point for `kept` (probe). */
   let parted = 0, moved = false;
-  const farthest = new Float64Array(1), at = Float64Array.of(NaN, NaN, 0, 0, 0, 1, 0, 0, 0, 0, 0), probe = new Float64Array(2);
+  const farthest = new Float64Array(1), at = Float64Array.of(NaN, NaN, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0), probe = new Float64Array(2);
   /* Keeps figure i and figure j, of another group, `space` m apart where they stand nearer. The group farther out of the visitor's way
      gives way, so the room is never pressed back into it; two as far out share it. How far out of the way a figure stands: from the line
      of it ahead of the visitor's middle (along it, `a`, and across it, `b`), from their middle behind it. */
@@ -226,7 +238,7 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
       }
       if (reaching) for (let m = start[g]; m < start[g + 1]; m++) {
         const i = members[m], ax = sx[i] + gx[g] - at[0], az = sz[i] + gz[g] - at[1], d = Math.sqrt(ax * ax + az * az);
-        const r = offset[4 * i + 3] >= 1 ? hang : reach;
+        const r = offset[4 * i + 3] >= 1 && rising[i] === 0 ? hang : reach;
         if (d < r && d > 1e-9) { gx[g] += (ax / d) * (r - d); gz[g] += (az / d) * (r - d); pushedAt[g] = stamp; }
       }
     }
@@ -260,7 +272,7 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
     const lim = at[10];
     for (let t = 0; t < 2; t++) for (let m = start[g]; m < start[g + 1]; m++) {
       const i = members[m], cx = at[0] - sx[i], cz = at[1] - sz[i], ax = gx[g] - cx, az = gz[g] - cz, d = Math.sqrt(ax * ax + az * az);
-      const r = offset[4 * i + 3] >= 1 ? hang : reach;
+      const r = offset[4 * i + 3] >= 1 && rising[i] === 0 ? hang : reach;
       if (d >= r || d < 1e-9) continue;
       let px = cx + (ax / d) * r, pz = cz + (az / d) * r;
       const bx = qx[g] - cx, bz = qz[g] - cz, e = Math.sqrt(bx * bx + bz * bz);
@@ -417,7 +429,8 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
       at[2] += ((cx - at[0]) / dt - at[2]) * k; at[3] += ((cz - at[1]) / dt - at[3]) * k;
       if (Math.sqrt(at[2] * at[2] + at[3] * at[3]) < 0.01) { at[2] = 0; at[3] = 0; }
     }
-    if (cx === at[0] && cz === at[1] && at[2] === 0 && at[3] === 0 && !moved) return false;
+    if (dt > 0) at[12] += dt;
+    if (cx === at[0] && cz === at[1] && at[2] === 0 && at[3] === 0 && !moved) { at[11] = settle ? 1 : dt / RISE_EASE; return ease(); }
     at[9] = now ? 0 : Math.sqrt(dx * dx + dz * dz);
     at[0] = cx; at[1] = cz;
     /* The way: where the visitor moves, or where their bear faces below 0.5 m/s. */
@@ -437,8 +450,10 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
       walk(false);
       moved = at[8] > 0;
     }
-    if (changed) { place(); stand(); }
-    return changed;
+    if (changed) { place(); stand(); follow(); }
+    at[11] = now ? 1 : dt / RISE_EASE;
+    const eased = ease();
+    return changed || eased;
   }
 
   /* How still each figure stands: still, one off its seat by 0.25 m or more, and any within `ring` m of it, fading over the last 0.5 m. */
@@ -463,7 +478,7 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
       }
     }
     /* And so does any figure within a metre past the reach of the visitor's middle, at its seat or off it, so that none near their bear
-       raises its arms and the reach it keeps from them does not change while it is near. */
+       raises its arms, and the reach it keeps from them changes only once while it is near, when its arms are down. */
     const mx = at[0], mz = at[1], nr = reach + 1;
     for (let r = rowAt(mz - nr); r <= rowAt(mz + nr); r++) for (let c = colAt(mx - nr); c <= colAt(mx + nr); c++)
       for (let q = first[r * cols + c]; q < first[r * cols + c + 1]; q++) {
@@ -482,6 +497,35 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
       const j = stillWas[k];
       if (stillAt[j] !== round && offset[4 * j + 3] !== 0) { offset[4 * j + 3] = 0; changed = true; }
     }
+  }
+  /* Sets easing each figure whose stillness this frame may change its hold or its arms: the frame's still figures and those that just
+     left them. Apart from `stand`, which then inlines `mark`, so that its numbers are not boxed. */
+  function follow() {
+    for (let k = 0; k < stillCount; k++) track(stillNow[k]);
+    for (let k = 0; k < wasCount; k++) if (stillAt[stillWas[k]] !== round) track(stillWas[k]);
+  }
+  /* Whether figure j would be held still: from the frame it stands fully still until its stillness falls below RISE_HOLD. */
+  function wants(j) {
+    const w = offset[4 * j + 3];
+    return w >= 1 ? 1 : w < RISE_HOLD ? 0 : held[j];
+  }
+  /* Sets figure j easing where its hold or its arms do not yet match its stillness. */
+  function track(j) {
+    if (inEase[j] === 0 && (wants(j) !== held[j] || rising[j] !== 1 - held[j])) { inEase[j] = 1; easing[easeCount++] = j; }
+  }
+  /* For each figure in `easing`: changes its hold where its stillness asks, once RISE_KEEP s have passed since the last change (at once
+     with at[11] at 1), and eases its arms toward 0 while it is held and 1 otherwise, by at[11] a frame. Returns whether any moved. */
+  function ease() {
+    const by = at[11], t = at[12];
+    let any = false;
+    for (let k = 0; k < easeCount; ) {
+      const j = easing[k], want = wants(j);
+      if (want !== held[j] && (by >= 1 || t - since[j] >= RISE_KEEP)) { held[j] = want; since[j] = t; }
+      const to = 1 - held[j], r = rising[j];
+      if (r !== to) { rising[j] = to > r ? Math.min(to, r + by) : Math.max(to, r - by); any = true; }
+      if (rising[j] === to && want === held[j]) { inEase[j] = 0; easing[k] = easing[--easeCount]; } else k++;
+    }
+    return any;
   }
 
   /* Raises a camera at `point` (anything with x, y and z) as high as it must stand to keep `clear` m out of every figure: `clear` over a
@@ -569,22 +613,22 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
     way[6] = most; way[7] = hold;
   }
 
-  /* Holds the walker (x, z and heading, as main.js keeps it) back from any figure that has stepped aside and stands still within `hang`
-     of their bear's middle, 0.4 m ahead of the walker (avatar.js): one the walk could not get out of the way, which their bear stops
-     against, as against anyone who cannot give way, and slides round. */
+  /* Holds the walker (x, z and heading, as main.js keeps it) back from any figure that has stepped aside and stands still, its arms all
+     the way down, within `hang` of their bear's middle, 0.4 m ahead of the walker (avatar.js): one the walk could not get out of the
+     way, which their bear stops against, as against anyone who cannot give way, and slides round. */
   function hold(walker) {
     for (let t = 0; t < 2; t++) {
       const mx = walker.x - 0.4 * Math.sin(walker.heading), mz = walker.z - 0.4 * Math.cos(walker.heading);
       for (let k = 0; k < offCount; k++) for (let m = start[list[k]]; m < start[list[k] + 1]; m++) {
         const i = members[m];
-        if (offset[4 * i + 3] < 1) continue;
+        if (offset[4 * i + 3] < 1 || rising[i] !== 0) continue;
         const ax = mx - sx[i] - offset[4 * i], az = mz - sz[i] - offset[4 * i + 2], d = Math.sqrt(ax * ax + az * az);
         if (d < hang && d > 1e-9) { walker.x += (ax / d) * (hang - d); walker.z += (az / d) * (hang - d); }
       }
     }
   }
 
-  return { offset, step, over, ahead, hold, farthest, get parted() { return parted; } };
+  return { offset, rising, step, over, ahead, hold, farthest, get parted() { return parted; } };
 }
 
 /* What the crowd does through each of the show's tracks ({ title, duration } each, in s) and where set 2 starts: it dances while a

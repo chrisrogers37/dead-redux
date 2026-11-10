@@ -56,16 +56,18 @@ attribute float aLeg;
 attribute float aArm;
 attribute vec3 aFig;
 attribute vec4 aPart;
+attribute float aRise;
 uniform float uBeat;
 uniform float uDance;
 uniform float uRise;
 uniform float uSit;
 vec2 rot(vec2 v, float a) { float c = cos(a), s = sin(a); return vec2(c * v.x - s * v.y, s * v.x + c * v.y); }`;
 /* In the figure's own units, after begin_vertex: the rise, the sit, the arms, the knees and the sway, as far as the figure dances where
-   it stands (aPart.w: still 1, at its seat 0). Every figure rises with the build-up but one standing fully still, whose arms hang. */
+   it stands (aPart.w: still 1, at its seat 0). Every figure rises with the build-up as far as aRise lets it: all the way, but with its
+   arms brought down while it stands fully still (seats.js). */
 const DANCE = `
 float moves = 1.0 - aPart.w, dance = uDance * moves;
-float rise = clamp((uRise - ${f(RISE_FROM)} - ${f(RISE_SPAN)} * aFig.z) / ${f(RISE_W)}, 0.0, 1.0) * (1.0 - step(1.0, aPart.w));
+float rise = clamp((uRise - ${f(RISE_FROM)} - ${f(RISE_SPAN)} * aFig.z) / ${f(RISE_W)}, 0.0, 1.0) * aRise;
 float sit = max(aFig.x, clamp(uSit * ${f(1 + STAGGER)} - aFig.y * ${f(STAGGER)}, 0.0, 1.0)) * (1.0 - rise);
 float bounce = 0.5 + 0.5 * cos(6.2832 * (uBeat + ${f(JITTER)} * aFig.y));
 if (aArm != 0.0) {
@@ -133,7 +135,8 @@ export function buildCrowd(scene, { count, path, line, landmarks }) {
      (HANG) while it stands still. It sees them coming 1.1 s ahead, steps aside at 5.5 m/s and walks back at 3; groups push apart
      within 1.4 m, past where two of the largest's hanging hands meet (0.35 units out, 1.32 m), and any within 2.85 m of one that has
      stepped aside stand still, fading over the last 0.5 m, out of reach of a dancer's hands (0.88 units out, 1.66 m). A figure standing
-     fully still does not rise; one at the fading edge rises with the rest. It keeps clear of what the seats keep clear of, and its
+     fully still brings its arms down over a quarter second and raises them again once its stillness falls below a half, keeping to
+     either for half a second at least; one at the fading edge rises with the rest. It keeps clear of what the seats keep clear of, and its
      hands of the stage's solids (STAGE_COLUMN). The walk's camera keeps 1.1 m out of them (avatar.js), past the near plane's corners
      in the widest view (1.04 m away on a phone held across, 19.5:9), rising over them ahead of reaching them. */
   const big = scale * 1.08, hand = HAND * big, reach = BEAR + hand;
@@ -141,7 +144,9 @@ export function buildCrowd(scene, { count, path, line, landmarks }) {
     most: reach + 6, passes: 4, ring: 2.85, top: TOP * big, wide: hand, clear: 1.1, grade: 1.5,
     keeps: [...keepOuts(around), [STAGE[0], STAGE[1], STAGE_COLUMN.r + hand]] });
   const aPart = new THREE.InstancedBufferAttribute(parts.offset, 4).setUsage(THREE.DynamicDrawUsage);
+  const aRise = new THREE.InstancedBufferAttribute(parts.rising, 1).setUsage(THREE.DynamicDrawUsage);
   geo.setAttribute("aPart", aPart);
+  geo.setAttribute("aRise", aRise);
   mesh.computeBoundingSphere();
   /* The culling sphere takes in the figures' arms past their standing bounds and, as `part` moves them, the farthest of them from
      its seat. */
@@ -160,10 +165,11 @@ export function buildCrowd(scene, { count, path, line, landmarks }) {
   }
 
   /* Moves the figures round the visitor for a frame `dt` s long, the visitor's bear standing with its feet and head at `feet` and `head`
-     (avatar.js), at once under reduced motion; the attribute goes up only in a frame where a figure moved. */
+     (avatar.js), at once under reduced motion; the attributes go up only in a frame where a figure moved or eased its arms. */
   function part(dt, feet, head, reduced) {
     if (!parts.step(dt, feet, head, reduced)) return;
     aPart.needsUpdate = true;
+    aRise.needsUpdate = true;
     mesh.boundingSphere.radius = rest + parts.farthest[0];
   }
 
