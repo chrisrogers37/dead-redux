@@ -117,10 +117,12 @@ describe("parting", () => {
     for (const i of all) if (off(i) === 0 && from(i, moved) >= 2.3) expect(still(i)).toBe(0);
   });
 
-  it("holds a camera 0.8 m over the highest a figure reaches, out to its reach and 0.8 m, then 1.5 m lower each metre to 3 m past", () => {
+  it("raises a camera 0.8 m over the highest a figure reaches, out to its reach and 0.8 m, then 1.5 m lower each metre to 3 m past", () => {
     const s = { x: 70, z: -60 }, p = parting([s], OPTS), top = height(s.x, s.z) + 3.9 + 0.8;
-    expect(p.over(s.x + 2.89, s.z)).toBeCloseTo(top, 9);
-    expect(p.over(s.x, s.z + 3.89)).toBeCloseTo(top - 1.5, 9);
-    expect(p.over(s.x + 5.9, s.z)).toBe(-Infinity);
+    const raised = (x: number, z: number, y = -100) => { const point = { x, y, z }; p.over(point); return point.y; };
+    expect(raised(s.x + 2.89, s.z)).toBeCloseTo(top, 9);
+    expect(raised(s.x, s.z + 3.89)).toBeCloseTo(top - 1.5, 9);
+    expect(raised(s.x + 5.9, s.z)).toBe(-100);
+    expect(raised(s.x, s.z, top + 1)).toBe(top + 1);
   });
 });

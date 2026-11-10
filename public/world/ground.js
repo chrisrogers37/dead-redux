@@ -40,17 +40,18 @@ export const TEST_POSES = { stage: STAGE_POSE, slope: SLOPE_POSE, path: PATH_POS
    so stepping back from a bear never carries a walker past it. */
 export const BOUND = 117;
 
-/* The island's own height, before the stage's shelf. */
+/* The island's own height, before the stage's shelf. Its distances are square roots rather than Math.hypot, which allocates on every
+   call, as height is read for each figure the crowd moves in a frame (seats.js). */
 export function slope(x, z) {
-  const d = Math.hypot(x, z);
+  const d = Math.sqrt(x * x + z * z);
   let h = 2.5 + 0.6 * Math.sin(x * 0.3) * Math.cos(z * 0.27);
   const t = Math.max(0, 1 - (d / 84) * (d / 84));
   h += 28 * t * Math.sqrt(t);
-  for (const [cx, cz] of CAVES) {
-    const dc = Math.hypot(x - cx, z - cz);
+  for (let k = 0; k < CAVES.length; k++) {
+    const cx = x - CAVES[k][0], cz = z - CAVES[k][1], dc = Math.sqrt(cx * cx + cz * cz);
     if (dc < 13) h -= 6 * (1 - (dc / 13) * (dc / 13));
   }
-  const nose = Math.hypot(x, z - 26);
+  const nz = z - 26, nose = Math.sqrt(x * x + nz * nz);
   if (nose < 9) h -= 2.5 * (1 - nose / 9);
   if (d > 118) h -= ((d - 118) / 10) * 5.5;
   return h;
@@ -59,7 +60,7 @@ export function slope(x, z) {
 /* The ground's height: the island's own, with the stage's shelf. */
 export function height(x, z) {
   let h = slope(x, z);
-  const ds = Math.hypot(x - STAGE[0], z - STAGE[1]);
+  const sx = x - STAGE[0], sz = z - STAGE[1], ds = Math.sqrt(sx * sx + sz * sz);
   if (ds < 14) {
     const s = Math.min(1, (14 - ds) / 6);
     h += (SHELF_Y - h) * s * s * (3 - 2 * s);

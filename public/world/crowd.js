@@ -161,7 +161,7 @@ export function buildCrowd(scene, { count, path, line, landmarks }) {
   function part(dt, feet, head, reduced) {
     if (!parts.step(dt, feet, head, reduced)) return;
     aPart.needsUpdate = true;
-    mesh.boundingSphere.radius = rest + parts.farthest;
+    mesh.boundingSphere.radius = rest + parts.farthest[0];
   }
 
   return { mesh, count: n, pose, part, over: parts.over, get parted() { return parts.parted; } };

@@ -225,7 +225,7 @@ const fake = vi.hoisted(() => {
         part: (_dt: number, _feet: Vec, _head: Vec, reduced: boolean) => {
           world.partedAtOnce = reduced;
         },
-        over: () => -Infinity,
+        over: () => {},
         parted: 0,
       }),
     },

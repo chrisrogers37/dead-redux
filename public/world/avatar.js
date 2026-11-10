@@ -13,7 +13,7 @@ import { rise } from "./boom.js";
 const WALK = 2.5, STRIDE = 12, RUN = 19.2;
 const UP = new THREE.Vector3(0, 1, 0);
 
-export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], over = () => -Infinity }) {
+export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], over = () => {} }) {
   const { g, legs, color } = buildBear(scene, 0xeceae4);
   g.rotation.order = "YXZ";
   /* The head, for the stats and the sound's listener; the top of the head and the ground point under the bear, which the cameras
@@ -55,7 +55,7 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
   /* The walk's camera. Its place and its aim ease after the bear (at once under reduced motion or on a cut), keep 1.2 m above the
      ground at the camera and halfway along the boom, and keep clear of the landmarks: 0.5 m in front of one between the camera and
      the head, never nearer the head than 2.5 m, the boom rising for one that starts within 3 m of the head (boom.js). Over the crowd it
-     keeps as high as `over` says, out of the figures (crowd.js): where it hangs, so the landmarks' test takes the boom's line from there,
+     keeps as high as `over` raises it, out of the figures (crowd.js): where it hangs, so the landmarks' test takes the boom's line from there,
      and again where a landmark draws it in along that line. Returns the aim. */
   function boom(camera, walker, dt, cut) {
     const k = reduced || cut ? 1 : 1 - Math.exp(-dt / 0.2);
@@ -64,7 +64,8 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     cam.lerp(want.set(pivot.x - fx * R * Math.cos(e), pivot.y + R * Math.sin(e), pivot.z - fz * R * Math.cos(e)), k);
     look.lerp(want.set(pivot.x + fx * 6, pivot.y, pivot.z + fz * 6), k);
     const mx = (pivot.x + cam.x) / 2, mz = (pivot.z + cam.z) / 2;
-    cam.y = Math.max(cam.y, height(cam.x, cam.z) + 1.2, 2 * (height(mx, mz) + 1.2) - pivot.y, over(cam.x, cam.z));
+    cam.y = Math.max(cam.y, height(cam.x, cam.z) + 1.2, 2 * (height(mx, mz) + 1.2) - pivot.y);
+    over(cam);
     dir.subVectors(cam, pivot);
     const len = dir.length();
     dir.divideScalar(len || 1);
@@ -72,7 +73,7 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     lift = r.lift;
     reach = r.room < reach ? r.room : reach + (r.room - reach) * k;
     camera.position.copy(pivot).addScaledVector(dir, len * reach);
-    camera.position.y = Math.max(camera.position.y, over(camera.position.x, camera.position.z));
+    over(camera.position);
     return look;
   }
 
