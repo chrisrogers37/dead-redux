@@ -35,7 +35,8 @@ function figureGeometry() {
    the rest of the crowd sits as `sit` rises, each figure in its turn, the last STAGGER behind the first. */
 const FOLD = 0.18, STAGGER = 0.5;
 /* The dance, on the figures' beat: the knees bend on each beat by BOB of a sit, and the arms swing out ARM_SWING rad between beats;
-   the body sways SWAY rad to each side over two beats. Each figure keeps its own phase (aFig.y), within JITTER of a beat of the rest. */
+   the body sways SWAY rad to each side over two beats. Each figure keeps its own phase (aFig.y, 0-1): its knees bend within JITTER of
+   a beat of the rest, and its sway starts up to a beat from theirs. */
 const BOB = 0.12, ARM_SWING = 0.5, SWAY = 0.08, JITTER = 0.12;
 /* The rise before a peak: a figure stands, its arms go up to ARM_UP rad and its knees bend twice as deep, as `rise` passes from
    RISE_FROM to RISE_FROM + RISE_W at the front rows and RISE_SPAN later at the back (aFig.z, 0 at the front and 1 at the back), so the
