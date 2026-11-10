@@ -128,6 +128,11 @@ function start(gl) {
 
   /* ---------- the stage ---------- */
   const stage = buildStage(scene, sun, quality.shadows, panelMat, skyMat.uniforms);
+  /* The rig's beams draw after the rest of the world's solid things, adding their light to what lies behind them, and the crowd draws
+     after the beams, so a figure covers whatever light they added where it stands: seen from anywhere, a beam in front of the figures
+     leaves them dark. */
+  stage.rig.mesh.renderOrder = 1;
+  crowd.mesh.renderOrder = 2;
   /* The lights' own intensities, which layer 2 scales. */
   const lightBase = { hemi: hemi.intensity, stage: stage.light.intensity };
   /* The desktop's one shadow map, the stage's, is drawn once: nothing that casts a shadow moves. */

@@ -4,7 +4,7 @@ import * as THREE from "three";
 /* The stage's rig: BEAMS lamps under the front edge of the roof, each throwing a beam of light out over the crowd and up into the air
    above it. One instanced mesh of additive cones, so the rig costs one draw call while it is lit and none while it is dark. Each beam is
    aimed in the vertex shader, from its place in the fan and the five numbers the frame writes to `show`, so the CPU's cost does not grow
-   with the beams. It lights no figure: the beams add to what is behind them and cast no light. */
+   with the beams. It lights no figure: the beams add to what is behind them and cast no light, and the crowd draws after them (main.js). */
 
 /* The lamps, in the stage's own frame (stage.js: +z toward the crowd): BEAMS of them along the roof's front edge, from -SPAN to SPAN m,
    just under it. */
@@ -92,8 +92,10 @@ export function buildRig(group, { uC0, uC1 }) {
      uniform, so writing it boxes no number. A dark rig is not drawn: the frame hides the mesh while `show[1]` is 0. */
   const show = new Float32Array(5);
   const uniforms = { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uC0, uC1, uRig: { value: show } };
-  const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERTEX, fragmentShader: FRAGMENT, fog: true, transparent: true,
-    depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, forceSinglePass: true });
+  /* Its light adds to what is drawn before it, and it writes no depth. It is not a transparent material, which three draws after every
+     solid thing: drawn with the solid things, it takes its place among them by its render order (main.js), before the crowd. */
+  const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERTEX, fragmentShader: FRAGMENT, fog: true, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
   const mesh = new THREE.InstancedMesh(geo, mat, BEAMS);
   const m = new THREE.Matrix4();
   for (let i = 0; i < BEAMS; i++) mesh.setMatrixAt(i, m.makeTranslation(-SPAN + (2 * SPAN * i) / (BEAMS - 1), LAMP_Y, LAMP_Z));

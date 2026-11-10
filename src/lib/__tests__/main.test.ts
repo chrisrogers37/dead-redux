@@ -49,15 +49,16 @@ const fake = vi.hoisted(() => {
   type Bear = { g: { position: Vec; rotation: { y: number } }; legs: { rotation: { x: number } }[]; phase: number };
   type Stage = {
     light: { visible: boolean; intensity: number };
-    rig: { show: Float32Array; mesh: { visible: boolean } };
+    rig: { show: Float32Array; mesh: { visible: boolean; renderOrder?: number } };
     move: (dt: number, t: number, beats: number) => void;
   };
+  type CrowdMesh = { count: number; renderOrder?: number };
   type Sky = { uniforms: Record<string, { value: number | Vec }> };
 
   // What the world main.js built: its scene, its camera, every bear it made (a downgrade drops some from the scene), and where the
-  // visitor's bear last stepped; the flame of a fire landmark, the stage, the sky and the meshes main.js makes itself (the beam); and
-  // the figures' phase in beats, as the last frame gave it to the stage, the crowd's pose, as the last frame gave it to the crowd, and
-  // whether its last parting stood the figures at once.
+  // visitor's bear last stepped; the flame of a fire landmark, the stage, the crowd's mesh, the sky and the meshes main.js makes itself
+  // (the beam); and the figures' phase in beats, as the last frame gave it to the stage, the crowd's pose, as the last frame gave it to
+  // the crowd, and whether its last parting stood the figures at once.
   // `line` is the bears' line each test gives it, and `onset` the time of the last onset the analyser heard, which each test sets (null
   // for none).
   const world = {
@@ -68,6 +69,7 @@ const fake = vi.hoisted(() => {
     stepped: { x: NaN, z: NaN, heading: NaN },
     flame: { scale: new Vec(1, 1, 1) },
     stage: undefined as unknown as Stage,
+    crowd: undefined as unknown as CrowdMesh,
     sky: undefined as unknown as Sky,
     meshes: [] as { material: unknown }[],
     beats: NaN,
@@ -228,7 +230,7 @@ const fake = vi.hoisted(() => {
     crowd: {
       // As many figures as the tier asks for, which the downgrade may halve, the pose each frame gives them, and its parting.
       buildCrowd: (_scene: Scene, { count }: { count: number }) => ({
-        mesh: { count },
+        mesh: (world.crowd = { count }),
         count,
         pose: (beats: number, dance: number, rise: number, sit: number) => {
           world.posed = { beats, dance, rise, sit };
@@ -527,6 +529,14 @@ describe("main.js's frames", () => {
     const still = await startWorld({ playing: true, title: "Space", reduced: true });
     still.run(0.02);
     expect(rig()).toEqual({ beats: 0, lit: 1, swing: 0, gather: 0, lift: 1, drawn: true });
+  });
+
+  it("draws the rig's beams after the world's other solid things, and the crowd after the beams", async () => {
+    await startWorld();
+    // three draws the solid things in their render order, 0 unless one is given.
+    const rigOrder = fake.world.stage.rig.mesh.renderOrder ?? 0;
+    expect(rigOrder).toBeGreaterThan(0);
+    expect(fake.world.crowd.renderOrder ?? 0).toBeGreaterThan(rigOrder);
   });
 
   it("walks the attract camera with the bears: it stands and looks where postPose puts it for the bears as they walk", async () => {
