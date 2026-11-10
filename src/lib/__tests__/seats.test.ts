@@ -202,9 +202,10 @@ describe("parting", () => {
   });
 
   it("says how far a camera should climb now to stand as high as a figure asks when its way reaches it, and the most it asks on the way", () => {
-    // 1.2 m off the ground, 10 m short of the figure and closing at 10 m/s, read 20 times over 2 s and climbing at 3 m/s: 0.7 s on it is
-    // 3 m out, within the figure's reach and 1.1 m, where the figure asks 5 m over its feet, 3.8 m above it, of which 2.1 m is climbed.
-    const s = { x: 70, z: -60 }, h = height(s.x, s.z), p = parting([s], OPTS), camera = { x: s.x - 10, y: h + 1.2, z: s.z };
+    // On level ground 1.2 m off it, 10 m short of the figure and closing at 10 m/s, read 20 times over 2 s and climbing at 3 m/s: 0.7 s on
+    // it is 3 m out, within the figure's reach and 1.1 m, where the figure asks 5 m over its feet, 3.8 m above it, of which 2.1 m is climbed.
+    const s = { x: 78, z: -60 }, h = height(s.x, s.z), p = parting([s], OPTS), camera = { x: s.x - 10, y: h + 1.2, z: s.z };
+    expect(height(camera.x, camera.z)).toBe(h);
     const way = Float64Array.of(10, 0, 0, 2, 20, 3, 0, 0);
     p.ahead(camera, way);
     expect(way[6]).toBeCloseTo(1.7, 9);
@@ -213,5 +214,30 @@ describe("parting", () => {
     p.ahead(camera, way);
     expect(way[6]).toBe(0);
     expect(way[7]).toBe(0);
+  });
+
+  it("reads the camera along its way as high over the ground as it stands, where the ground falls away under it", () => {
+    // Walking level toward a figure on the terrace below: by the time it passes the figure it stands 1.2 m over the terrace, as now.
+    const s = { x: 66, z: -60 }, p = parting([s], OPTS), from = { x: 56, z: -60 }, below = height(from.x, from.z) - height(s.x, s.z);
+    expect(below).toBeGreaterThan(0.5);
+    const camera = { x: from.x, y: height(from.x, from.z) + 1.2, z: from.z }, way = Float64Array.of(10, 0, 0, 2, 20, 3, 0, 0);
+    p.ahead(camera, way);
+    const there = { x: s.x, y: height(s.x, s.z) + 1.2, z: s.z }, asked = there.y;
+    p.over(there);
+    // As the camera will stand there, to the few centimetres the ground's table reads between its points.
+    expect(way[7]).toBeGreaterThan(there.y - asked - 0.05);
+  });
+
+  it("reads a figure that stepped aside at its seat as well, which it goes back to", () => {
+    const s = { x: 78, z: -60 }, h = height(s.x, s.z), camera = { x: s.x - 10, y: h + 1.2, z: s.z };
+    // The visitor faces across the camera's way, so the figure steps off the way.
+    const parted = parting([s], OPTS), v = bear(s.x, s.z, 0, 1);
+    parted.step(0.05, v.feet, v.head, true);
+    expect(Math.abs(parted.offset[2])).toBeGreaterThan(2);
+    const atSeat = Float64Array.of(10, 0, 0, 2, 20, 3, 0, 0), aside = Float64Array.from(atSeat);
+    parting([s], OPTS).ahead(camera, atSeat);
+    parted.ahead(camera, aside);
+    expect(aside[6]).toBeGreaterThanOrEqual(atSeat[6] - 1e-9);
+    expect(aside[7]).toBeGreaterThanOrEqual(atSeat[7] - 1e-9);
   });
 });
