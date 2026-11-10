@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AMONG_POSE,
   BOUND,
   CROWD_POSE,
   FACING,
@@ -150,6 +151,17 @@ describe("?pose=crowd", () => {
     expect(Math.hypot(CROWD_POSE.x, CROWD_POSE.z)).toBeLessThan(BOUND);
     expect(offHeading(CROWD_POSE)).toBeLessThan(0.1);
     expect(CROWD_POSE.pitch).toBeLessThan(0);
+  });
+});
+
+describe("?pose=among", () => {
+  it("stands among the crowd, off its aisle, with figures within 3 m, within the walk's bound, facing the stage and looking down", () => {
+    const near = seats({ path: [], line: [], landmarks: [] }).filter((s) => Math.hypot(s.x - AMONG_POSE.x, s.z - AMONG_POSE.z) < 3);
+    expect(near.length).toBeGreaterThan(0);
+    expect(fromStage(AMONG_POSE) * Math.sin((offFront(AMONG_POSE.x, AMONG_POSE.z) * Math.PI) / 180)).toBeGreaterThan(3);
+    expect(Math.hypot(AMONG_POSE.x, AMONG_POSE.z)).toBeLessThan(BOUND);
+    expect(offHeading(AMONG_POSE)).toBeLessThan(0.1);
+    expect(AMONG_POSE.pitch).toBeLessThan(0);
   });
 });
 

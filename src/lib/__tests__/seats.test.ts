@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FACING, STAGE } from "../../../public/world/ground.js";
-import { seats } from "../../../public/world/seats.js";
+import { crowdPlan, seats } from "../../../public/world/seats.js";
 
 type Seat = { x: number; z: number; r: number; sit: boolean };
 type Point = [number, number];
@@ -37,5 +37,14 @@ describe("seats", () => {
     const front = share((s) => s.r < 28), middle = share((s) => s.r >= 28 && !s.sit), sitters = share((s) => s.sit);
     expect(front).toBeGreaterThan(middle);
     expect(middle).toBeGreaterThan(sitters);
+  });
+});
+
+describe("crowdPlan", () => {
+  it("dances to the songs, Drums and Space among them, sits in Space and through a set break, and stands through the rest", () => {
+    const titles = ["Tuning", "Jack Straw", "Tuning", "Samson And Delilah", "Set Break", "Drums ->", "Space ->", "Crowd", "Encore Break"];
+    expect(crowdPlan(titles).map(({ dance, sit }) => (dance ? "d" : "-") + (sit ? "s" : "-"))).toEqual(
+      ["--", "d-", "-s", "d-", "-s", "d-", "ds", "--", "--"],
+    );
   });
 });

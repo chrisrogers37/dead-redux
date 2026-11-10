@@ -114,7 +114,10 @@ describe("readStep", () => {
 });
 
 /* What mappings gives, and a check of each value it names to within a billionth. */
-type Layer2 = Record<"energy" | "hemi" | "stage" | "panel" | "flame" | "amber" | "rate" | "amp" | "beam" | "swell", number>;
+type Layer2 = Record<
+  "energy" | "hemi" | "stage" | "panel" | "flame" | "amber" | "rate" | "amp" | "beam" | "swell" | "dance" | "rise",
+  number
+>;
 function expectClose(got: Layer2, want: Partial<Layer2>) {
   for (const k of Object.keys(want) as (keyof Layer2)[]) expect(got[k], k).toBeCloseTo(want[k] ?? NaN, 9);
 }
@@ -123,7 +126,7 @@ const SILENT = { source: "analyser", loud: 0, bass: 0, bright: 0 };
 
 describe("mappings", () => {
   it("leaves the world as it was at weight 0, whatever the drive and the build-up: every factor 1, no amber, the legs at 6 rad/s and 0.5 rad", () => {
-    const own = { energy: 1, hemi: 1, stage: 1, panel: 1, flame: 1, amber: 0, rate: 6, amp: 0.5, beam: 1, swell: 1 };
+    const own = { energy: 1, hemi: 1, stage: 1, panel: 1, flame: 1, amber: 0, rate: 6, amp: 0.5, beam: 1, swell: 1, dance: 1, rise: 0 };
     for (const drive of [FULL, null]) {
       expect(mappings(drive, 0)).toEqual(own);
       expect(mappings(drive, 0, 1)).toEqual(own);
@@ -131,11 +134,12 @@ describe("mappings", () => {
   });
 
   it("reaches the top of each range at weight 1 with a full drive", () => {
-    expectClose(mappings(FULL, 1), { energy: 1.4, hemi: 1.1, stage: 2, panel: 1.2, flame: 2, amber: 0.3, rate: 12, amp: 0.65 });
+    expectClose(mappings(FULL, 1), { energy: 1.4, hemi: 1.1, stage: 2, panel: 1.2, flame: 2, amber: 0.3, rate: 12, amp: 0.65, dance: 1.6 });
   });
 
   it("reaches the bottom of each range at weight 1 with a silent drive", () => {
-    expectClose(mappings(SILENT, 1), { energy: 0.6, hemi: 0.9, stage: 0.4, panel: 0.6, flame: 0.5, amber: 0, rate: 6, amp: 0.35 });
+    const bottom = { energy: 0.6, hemi: 0.9, stage: 0.4, panel: 0.6, flame: 0.5, amber: 0, rate: 6, amp: 0.35, dance: 0.4 };
+    expectClose(mappings(SILENT, 1), bottom);
   });
 
   it("reads each line from its own value, with a drive whose three values differ", () => {
@@ -150,12 +154,12 @@ describe("mappings", () => {
   });
 
   it("takes the panel and the beam to the tops of their ranges at a peak's full build-up, whatever the drive, and swells the flame", () => {
-    for (const drive of [FULL, SILENT]) expectClose(mappings(drive, 1, 1), { panel: 1.2, beam: 1.2, swell: 2.2 });
+    for (const drive of [FULL, SILENT]) expectClose(mappings(drive, 1, 1), { panel: 1.2, beam: 1.2, swell: 2.2, rise: 1 });
   });
 
   it("is halfway there at half the build-up, and at half the weight, with which the build-up acts", () => {
-    expectClose(mappings(SILENT, 1, 0.5), { panel: 0.9, beam: 1.1, swell: 1.6 });
-    expectClose(mappings(SILENT, 0.5, 1), { panel: 1, beam: 1.1, swell: 1.6 });
+    expectClose(mappings(SILENT, 1, 0.5), { panel: 0.9, beam: 1.1, swell: 1.6, rise: 0.5 });
+    expectClose(mappings(SILENT, 0.5, 1), { panel: 1, beam: 1.1, swell: 1.6, rise: 0.5 });
   });
 });
 

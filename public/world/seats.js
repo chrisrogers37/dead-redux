@@ -1,7 +1,8 @@
 /* eslint-disable */
 import { FACING, STAGE } from "./ground.js";
 
-/* Where the crowd on the hill stands (crowd.js draws it), as plain numbers: no three import, so the unit tests load it. */
+/* Where the crowd on the hill stands (crowd.js draws it), and what it does through the show, as plain numbers: no three import, so the
+   unit tests load it. */
 
 /* A figure stands this tall: the band's height on the stage (stage.js), so the bears' 4.85 m is about one and a half people. */
 export const PERSON = 3.15;
@@ -51,4 +52,14 @@ export function seats({ path, line, landmarks }) {
     }
   }
   return out.sort((a, b) => a.key - b.key).map(({ key, ...seat }) => seat);
+}
+
+/* What the crowd does through each of the show's tracks, by its title: it dances while a song plays, Drums and Space among them, and
+   stands still through what is not a song (tuning, crowd noise, a break); it sits in Space, still dancing, and through a set break, a
+   Tuning or Set Break after the first song. Before the first song it stands, waiting for the band, and through an encore break, calling
+   for more. Each track gets { dance, sit }. */
+const NOT_A_SONG = /tuning|crowd|break/i, SET_BREAK = /tuning|set break/i, SPACE = /space/i;
+export function crowdPlan(titles) {
+  const first = titles.findIndex((t) => !NOT_A_SONG.test(t));
+  return titles.map((t, i) => ({ dance: !NOT_A_SONG.test(t), sit: SPACE.test(t) || (first >= 0 && i > first && SET_BREAK.test(t)) }));
 }
