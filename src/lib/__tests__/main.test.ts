@@ -304,14 +304,7 @@ const hill = () => (window as unknown as { __hill: Hill }).__hill;
 // at most 50 ms of world time), calling `each` after each one. `playing` starts the show playing; `routing` is how it sounds ("webaudio"
 // through the world's graph, "plain" in plain stereo); `search` is the page's query, on a preview; `reduced` asks for reduced motion;
 // `title` names the track. A page with a map waits until the world has read it.
-async function startWorld({
-  playing = false,
-  routing = "webaudio",
-  search = "",
-  reduced = false,
-  map = null as object | null,
-  title = TRACK.title,
-} = {}) {
+async function startWorld({ playing = false, routing = "webaudio", search = "", reduced = false, map = null as object | null, title = TRACK.title } = {}) {
   let now = 0;
   let queued: FrameRequestCallback | null = null;
   const container = Object.assign(new EventTarget(), {

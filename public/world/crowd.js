@@ -47,7 +47,8 @@ const ARM_UP = 2.7, RISE_FROM = 0.3, RISE_SPAN = 0.6, RISE_W = 0.1;
 const PART = 3.5, PART_R = 3 * PART;
 
 const f = (v) => v.toFixed(4);
-const ATTRIBUTES = `
+/* After common: the crowd's attributes and uniforms, and `rot`, which turns a point in its plane by `a` rad. */
+const DECLARE = `
 attribute float aLeg;
 attribute float aArm;
 attribute vec3 aFig;
@@ -56,25 +57,27 @@ uniform float uBeat;
 uniform float uDance;
 uniform float uRise;
 uniform float uSit;
-uniform vec2 uVisitor;`;
+uniform vec2 uVisitor;
+vec2 rot(vec2 v, float a) { float c = cos(a), s = sin(a); return vec2(c * v.x - s * v.y, s * v.x + c * v.y); }`;
 /* In the figure's own units, after begin_vertex: the rise, the sit, the arms, the knees and the sway. */
 const DANCE = `
 float rise = clamp((uRise - ${f(RISE_FROM)} - ${f(RISE_SPAN)} * aFig.z) / ${f(RISE_W)}, 0.0, 1.0);
 float sit = max(aFig.x, clamp(uSit * ${f(1 + STAGGER)} - aFig.y * ${f(STAGGER)}, 0.0, 1.0)) * (1.0 - rise);
 float bounce = 0.5 + 0.5 * cos(6.2832 * (uBeat + ${f(JITTER)} * aFig.y));
-float arm = aArm * (rise * ${f(ARM_UP)} + (1.0 - rise) * uDance * ${f(ARM_SWING)} * (1.0 - bounce));
-vec2 shoulder = vec2(aArm * ${f(SHOULDER_X)}, ${f(SHOULDER_Y)}), hang = transformed.xy - shoulder;
-transformed.xy = shoulder + vec2(cos(arm) * hang.x - sin(arm) * hang.y, sin(arm) * hang.x + cos(arm) * hang.y);
+if (aArm != 0.0) {
+  float swing = rise * ${f(ARM_UP)} + (1.0 - rise) * uDance * ${f(ARM_SWING)} * (1.0 - bounce);
+  vec2 shoulder = vec2(aArm * ${f(SHOULDER_X)}, ${f(SHOULDER_Y)});
+  transformed.xy = shoulder + rot(transformed.xy - shoulder, aArm * swing);
+}
 float fold = sit + (1.0 - sit) * uDance * (1.0 + rise) * ${f(BOB)} * bounce;
 transformed.y = aLeg > 0.5 ? transformed.y * (1.0 - ${f(1 - FOLD)} * fold) : transformed.y - ${f(LEG * (1 - FOLD))} * fold;
-float lean = uDance * ${f(SWAY)} * sin(3.1416 * (uBeat + aFig.y));
-transformed.xy = vec2(cos(lean) * transformed.x - sin(lean) * transformed.y, sin(lean) * transformed.x + cos(lean) * transformed.y);`;
+transformed.xy = rot(transformed.xy, uDance * ${f(SWAY)} * sin(3.1416 * (uBeat + aFig.y)));`;
 /* project_vertex for the crowd, which is instanced and never batched: the figure's place on the hill, then the parting, in metres. */
 const PROJECT = `
 vec4 mvPosition = instanceMatrix * vec4(transformed, 1.0);
 vec2 away = instanceMatrix[3].xz - uVisitor;
-float near = max(0.0, 1.0 - length(away) / ${f(PART_R)});
-vec2 aside = ${f(PART)} * near * near * normalize(away + vec2(0.0, 1e-4));
+float apart = length(away), near = max(0.0, 1.0 - apart / ${f(PART_R)});
+vec2 aside = ${f(PART)} * near * near * away / max(apart, 1e-4);
 mvPosition.xz += aside;
 mvPosition.y += dot(aSlope, aside);
 mvPosition = modelViewMatrix * mvPosition;
@@ -99,12 +102,14 @@ export function buildCrowd(scene, { count, path, line, landmarks }) {
   const geo = figureGeometry();
   geo.computeBoundingBox();
   const scale = PERSON / geo.boundingBox.max.y;
-  const uniforms = { uBeat: { value: 0 }, uDance: { value: 0 }, uRise: { value: 0 }, uSit: { value: 0 }, uVisitor: { value: new THREE.Vector2() } };
+  const uniforms = {
+    uBeat: { value: 0 }, uDance: { value: 0 }, uRise: { value: 0 }, uSit: { value: 0 }, uVisitor: { value: new THREE.Vector2() },
+  };
   const mat = new THREE.MeshLambertMaterial({ flatShading: true });
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", `#include <common>${ATTRIBUTES}`)
+      .replace("#include <common>", `#include <common>${DECLARE}`)
       .replace("#include <begin_vertex>", `#include <begin_vertex>${DANCE}`)
       .replace("#include <project_vertex>", PROJECT);
   };

@@ -606,7 +606,8 @@ function start(gl) {
 
     /* The crowd dances to the figures' beat as far as the music's loudness takes it, and rises with the build-up before a peak, as far
        as it dances; it sits; and it parts round the visitor's bear, or their eye in first person, wherever this frame stands them. */
-    sitting = reduced ? (crowdAt[index].sit ? 1 : 0) : toward(sitting, crowdAt[index].sit ? 1 : 0, dt / SIT_S);
+    const sits = crowdAt[index].sit ? 1 : 0;
+    sitting = reduced ? sits : toward(sitting, sits, dt / SIT_S);
     crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting, avatar.feet);
 
     renderer.render(scene, camera);

@@ -114,10 +114,7 @@ describe("readStep", () => {
 });
 
 /* What mappings gives, and a check of each value it names to within a billionth. */
-type Layer2 = Record<
-  "energy" | "hemi" | "stage" | "panel" | "flame" | "amber" | "rate" | "amp" | "beam" | "swell" | "dance" | "rise",
-  number
->;
+type Layer2 = Record<"energy" | "hemi" | "stage" | "panel" | "flame" | "amber" | "rate" | "amp" | "beam" | "swell" | "dance" | "rise", number>;
 function expectClose(got: Layer2, want: Partial<Layer2>) {
   for (const k of Object.keys(want) as (keyof Layer2)[]) expect(got[k], k).toBeCloseTo(want[k] ?? NaN, 9);
 }
@@ -138,8 +135,7 @@ describe("mappings", () => {
   });
 
   it("reaches the bottom of each range at weight 1 with a silent drive", () => {
-    const bottom = { energy: 0.6, hemi: 0.9, stage: 0.4, panel: 0.6, flame: 0.5, amber: 0, rate: 6, amp: 0.35, dance: 0.4 };
-    expectClose(mappings(SILENT, 1), bottom);
+    expectClose(mappings(SILENT, 1), { energy: 0.6, hemi: 0.9, stage: 0.4, panel: 0.6, flame: 0.5, amber: 0, rate: 6, amp: 0.35, dance: 0.4 });
   });
 
   it("reads each line from its own value, with a drive whose three values differ", () => {
