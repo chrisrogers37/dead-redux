@@ -3,6 +3,7 @@ import { FACING, STAGE } from "../../../public/world/ground.js";
 import { crowdPlan, seats } from "../../../public/world/seats.js";
 
 type Seat = { x: number; z: number; r: number; sit: boolean };
+type Plan = { dance: boolean; sit: boolean };
 type Point = [number, number];
 
 const none = { path: [], line: [], landmarks: [] };
@@ -43,7 +44,7 @@ describe("seats", () => {
 describe("crowdPlan", () => {
   it("dances to the songs, Drums and Space among them, sits in Space and through a set break, and stands through the rest", () => {
     const titles = ["Tuning", "Jack Straw", "Tuning", "Samson And Delilah", "Set Break", "Drums ->", "Space ->", "Crowd", "Encore Break"];
-    expect(crowdPlan(titles).map(({ dance, sit }) => (dance ? "d" : "-") + (sit ? "s" : "-"))).toEqual(
+    expect((crowdPlan(titles) as Plan[]).map(({ dance, sit }) => (dance ? "d" : "-") + (sit ? "s" : "-"))).toEqual(
       ["--", "d-", "-s", "d-", "-s", "d-", "ds", "--", "--"],
     );
   });
