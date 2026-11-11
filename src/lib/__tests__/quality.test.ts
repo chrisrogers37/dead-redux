@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { frameSampler, median, SLOW_MS, stepDown, WINDOW } from "../../../public/world/quality.js";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { budgetFor, frameSampler, median, pickTier, SLOW_MS, stepDown, WINDOW } from "../../../public/world/quality.js";
 
 interface Quality {
   scale: number;
@@ -25,6 +25,18 @@ function rungsBelow(from: Quality): (Quality | null)[] {
 /* Feeds a sampler `count` frames of `ms` each, drawn while the world loads or not, and returns what each frame asked for. */
 function feed(sampler: ReturnType<typeof frameSampler>, count: number, ms: number, loading: boolean): boolean[] {
   return Array.from({ length: count }, () => sampler.add(ms, loading));
+}
+
+/* The page pickTier reads, as a browser gives it: the query, the window's width, which a `(max-width: Npx)` query reads too, its touch
+   points, whether its pointer is fine, and the browser's name. A desktop's by default. */
+function screen({ search = "", width = 1280, touch = 0, fine = true, agent = "" } = {}) {
+  vi.stubGlobal("location", { search });
+  vi.stubGlobal("innerWidth", width);
+  vi.stubGlobal("navigator", { maxTouchPoints: touch, userAgent: agent });
+  vi.stubGlobal("matchMedia", (query: string) => {
+    const max = /^\(max-width: (\d+)px\)$/.exec(query);
+    return { matches: max ? width <= Number(max[1]) : query === "(pointer: fine)" && fine };
+  });
 }
 
 describe("median", () => {
@@ -130,5 +142,68 @@ describe("frameSampler", () => {
     const sampler = frameSampler();
     feed(sampler, WINDOW, 100, true);
     expect(feed(sampler, WINDOW, 100, false).indexOf(true)).toBe(WINDOW - 1);
+  });
+});
+
+describe("pickTier", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("is a desktop by default, and the tier ?tier= names", () => {
+    screen();
+    expect(pickTier()).toBe("desktop");
+    screen({ search: "?tier=tv" });
+    expect(pickTier()).toBe("tv");
+  });
+
+  it("is a phone on a screen up to 639 px wide", () => {
+    screen({ width: 639 });
+    expect(pickTier()).toBe("phone");
+    screen({ width: 640 });
+    expect(pickTier()).toBe("desktop");
+  });
+
+  it("is a phone by touch on a screen under 900 px wide", () => {
+    screen({ width: 899, touch: 5, fine: false });
+    expect(pickTier()).toBe("phone");
+    screen({ width: 900, touch: 5, fine: false });
+    expect(pickTier()).toBe("desktop");
+  });
+
+  it("is a TV on a screen 1600 px wide or more without a fine pointer", () => {
+    screen({ width: 1600, fine: false });
+    expect(pickTier()).toBe("tv");
+    screen({ width: 1599, fine: false });
+    expect(pickTier()).toBe("desktop");
+    screen({ width: 1600 });
+    expect(pickTier()).toBe("desktop");
+  });
+
+  it("is a TV by its browser's name: a smart TV's, or a Fire TV's, which names its device AFT", () => {
+    screen({ agent: "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0)" });
+    expect(pickTier()).toBe("tv");
+    screen({ agent: "Mozilla/5.0 (Linux; Android 9; AFTMM Build/PS7633)" });
+    expect(pickTier()).toBe("tv");
+  });
+});
+
+describe("budgetFor", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("gives each tier its own rung 0", () => {
+    vi.stubGlobal("window", { devicePixelRatio: 1 });
+    expect(budgetFor("desktop")).toEqual({ scale: 1, grid: 80, octaves: 4, bears: 5, fov: 60, shadows: true, crowd: 350, pixelRatio: 1 });
+    expect(budgetFor("phone")).toEqual({ scale: 0.85, grid: 52, octaves: 3, bears: 3, fov: 75, shadows: false, crowd: 150, pixelRatio: 1 });
+    expect(budgetFor("tv")).toEqual({ scale: 0.8, grid: 64, octaves: 3, bears: 5, fov: 60, shadows: false, crowd: 250, pixelRatio: 1 });
+  });
+
+  it("caps the desktop's pixel ratio at 1.5, and draws a phone and a TV at 1", () => {
+    vi.stubGlobal("window", { devicePixelRatio: 3 });
+    expect(budgetFor("desktop").pixelRatio).toBe(1.5);
+    expect(budgetFor("phone").pixelRatio).toBe(1);
+    expect(budgetFor("tv").pixelRatio).toBe(1);
   });
 });
