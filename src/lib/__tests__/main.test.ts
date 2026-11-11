@@ -3,14 +3,15 @@ import { BODY_REACH } from "../../../public/world/collide.js";
 import { BOUND, height, STAGE, STAGE_REACH } from "../../../public/world/ground.js";
 import { DESCENT_S } from "../../../public/world/modes.js";
 import { postPose } from "../../../public/world/pose.js";
+import { WINDOW } from "../../../public/world/quality.js";
 
 // public/world/main.js runs here as a page runs it, frame by frame, with the modules it imports: what keeps a walk in bounds (confine,
 // with the limits walkLimits builds from the bears' live spots), where attract puts the camera (postPose), and what the show's map does
 // (maps.js, beat.js and audio.js's mappings; the analyser hears nothing here, since no AudioContext is made). three, and the modules
 // that import it (the island, the path and its landmarks, the bears, the visitor's bear, the sky and the stage), load only in a
-// browser, through the page's import map, so stand-ins play them, with what the frames here use: a desktop's, in third person. They
+// browser, through the page's import map, so stand-ins play them, with what the frames here use: a desktop's, in either view. They
 // draw nothing, and keep what the tests read: where each bear stands, where the visitor's bear steps, where the camera stands and
-// looks, the stage light, the flame's size, the sky's drop, the figures' beat and the rig's aim.
+// looks and its near plane, the sun's shadow, the stage light, the flame's size, the sky's drop, the figures' beat and the rig's aim.
 
 type Point = { x: number; z: number };
 type Point3 = Point & { y: number };
@@ -56,9 +57,9 @@ const fake = vi.hoisted(() => {
   type Sky = { uniforms: Record<string, { value: number | Vec }> };
 
   // What the world main.js built: its scene, its camera, every bear it made (a downgrade drops some from the scene), and where the
-  // visitor's bear last stepped; the flame of a fire landmark, the stage, the crowd's mesh, the sky and the meshes main.js makes itself
-  // (the beam); and the figures' phase in beats, as the last frame gave it to the stage, the crowd's pose, as the last frame gave it to
-  // the crowd, and whether its last parting stood the figures at once.
+  // visitor's bear last stepped; the flame of a fire landmark, the stage, the crowd's mesh, the sky, its sun and the meshes main.js makes
+  // itself (the beam); and the figures' phase in beats, as the last frame gave it to the stage, the crowd's pose, as the last frame gave
+  // it to the crowd, and whether its last parting stood the figures at once.
   // `line` is the bears' line each test gives it, and `onset` the time of the last onset the analyser heard, which each test sets (null
   // for none).
   const world = {
@@ -71,7 +72,8 @@ const fake = vi.hoisted(() => {
     stage: undefined as unknown as Stage,
     crowd: undefined as unknown as CrowdMesh,
     sky: undefined as unknown as Sky,
-    meshes: [] as { material: unknown }[],
+    sun: undefined as unknown as { castShadow: boolean },
+    meshes: [] as { material: unknown; position: Vec; visible: boolean }[],
     beats: NaN,
     posed: { beats: NaN, dance: NaN, rise: NaN, sit: NaN },
     partedAtOnce: null as boolean | null,
@@ -93,7 +95,10 @@ const fake = vi.hoisted(() => {
     position = new Vec();
     // Where it last looked.
     target = new Vec();
-    constructor() {
+    // Its near plane, from the arguments it is made with: field of view, aspect, near and far.
+    near: number;
+    constructor(_fov?: number, _aspect?: number, near = NaN) {
+      this.near = near;
       world.camera = this;
     }
     lookAt(x: number | Point3, y = 0, z = 0) {
@@ -203,10 +208,11 @@ const fake = vi.hoisted(() => {
             uAmber: { value: 0 },
           },
         };
+        world.sun = { castShadow: false };
         return {
           skyMat: world.sky,
           hemi: { color: new Vec() },
-          sun: { castShadow: false },
+          sun: world.sun,
           // The stage panel's material, whose gain each frame writes.
           panelMat: { uniforms: { uGain: { value: Float32Array.of(1) } } },
         };
@@ -214,7 +220,9 @@ const fake = vi.hoisted(() => {
       skyPair: () => [new Vec(), new Vec()],
     },
     stage: {
-      buildStage: () => {
+      // With shadows, the desktop's, the stage has the sun cast its shadow, as stage.js does.
+      buildStage: (_scene: Scene, sun: { castShadow: boolean }, shadows: boolean) => {
+        if (shadows) sun.castShadow = true;
         world.stage = {
           light: { visible: true, intensity: 60 },
           // The rig's five numbers, as the last frame wrote them, and whether it is drawn.
@@ -314,6 +322,7 @@ function showMap({ rms = 0 as number | ((byte: number) => number), bass = 0 as n
 
 type Hill = {
   mode: string;
+  rung: number;
   crowd: { drawn: number; dance: number; sit: number; parted: number };
   analysis: { source: string | null; weight: number };
   map: { step: number; bass: number; build: number; swell: number; bpm: number | null } | null;
@@ -325,8 +334,9 @@ const hill = () => (window as unknown as { __hill: Hill }).__hill;
 // the site, which serves `map` as the show's map, and no other; and the frames, which `run` hands main.js, each `ms` long (a frame adds
 // at most 50 ms of world time), calling `each` after each one. `playing` starts the show playing; `routing` is how it sounds ("webaudio"
 // through the world's graph, "plain" in plain stereo); `search` is the page's query, on a preview; `reduced` asks for reduced motion;
-// `title` names the track. A page with a map waits until the world has read it.
-async function startWorld({ playing = false, routing = "webaudio", search = "", reduced = false, map = null as object | null, title = TRACK.title } = {}) {
+// `title` names the track; `view` is "third" or "first" person; and a day with no `recording` has no tracks. A page with a map waits
+// until the world has read it.
+async function startWorld({ playing = false, routing = "webaudio", search = "", reduced = false, map = null as object | null, title = TRACK.title, view = "third", recording = true } = {}) {
   let now = 0;
   let queued: FrameRequestCallback | null = null;
   const container = Object.assign(new EventTarget(), {
@@ -336,8 +346,8 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
     appendChild: () => {},
     getBoundingClientRect: () => ({ top: 0 }),
   });
-  const main = { dataset: { state: playing ? "playing" : "paused", routing, view: "third", ...(search ? { testHooks: "1" } : {}) } };
-  const data = { showDate: SHOW, identifier: RECORDING, tracks: [{ ...TRACK, title }], seed: 7 };
+  const main = { dataset: { state: playing ? "playing" : "paused", routing, view, ...(search ? { testHooks: "1" } : {}) } };
+  const data = { showDate: SHOW, identifier: recording ? RECORDING : null, tracks: recording ? [{ ...TRACK, title }] : [], seed: 7 };
   const byId: Record<string, unknown> = { world: container, "world-data": { textContent: JSON.stringify(data) } };
   const media = (query: string) => ({ matches: reduced && query === "(prefers-reduced-motion: reduce)" });
   const asked: string[] = [];
@@ -486,6 +496,27 @@ describe("main.js's frames", () => {
     expect(page.shown()).toHaveLength(fake.world.bears.length);
   });
 
+  it("turns off the sun's shadow and the stage light on the way down the downgrade's ladder: at its foot neither is left", async () => {
+    const page = await startWorld();
+    // The desktop's stage has the sun cast its shadow, and its light is on.
+    expect(fake.world.sun.castShadow).toBe(true);
+    expect(fake.world.stage.light.visible).toBe(true);
+    // Once the load is over, each window of 50-ms frames steps the world down a rung, until a window finds no rung left.
+    page.run(DESCENT_S, { ms: 50 });
+    for (let k = 0, rung = -1; k < 30 && hill().rung !== rung; k++) {
+      rung = hill().rung;
+      page.run((WINDOW * 50) / 1000, { ms: 50 });
+    }
+    expect(fake.world.sun.castShadow).toBe(false);
+    expect(fake.world.stage.light.visible).toBe(false);
+  });
+
+  it("steps nothing down while the world loads: 50-ms frames to just short of DESCENT_S leave it at rung 0", async () => {
+    const page = await startWorld();
+    page.run(DESCENT_S - 0.05, { ms: 50 });
+    expect(hill().rung).toBe(0);
+  });
+
   it("dances the crowd to a playing song over 0.8 s and sits it in Space over 1.5 s, or at once and still under reduced motion", async () => {
     const song = await startWorld({ playing: true });
     song.run(0.4);
@@ -535,6 +566,20 @@ describe("main.js's frames", () => {
     expect(rig()).toEqual({ beats: 0, lit: 1, swing: 0, gather: 0, lift: 1, drawn: true });
   });
 
+  it("opens on a walk under reduced motion, and holds still as the visitor walks: the eye 3.2 m over the ground, the bears' legs at rest", async () => {
+    const page = await startWorld({ reduced: true, playing: true, view: "first" });
+    // The first frame stands the camera where the walk opens, not 140 m up, where the descent starts.
+    page.run(0.02);
+    expect(page.mode()).toBe("walk");
+    expect(fake.world.camera.position.y).toBeLessThan(40);
+    // While a key is held the world draws on: the eye never bobs, and though the show plays no bear swings a leg.
+    page.hold("ArrowUp", 1, () => {
+      const eye = fake.world.camera.position;
+      expect(eye.y).toBeCloseTo(height(eye.x, eye.z) + 3.2, 9);
+      expect(page.shown().flatMap((b) => b.legs.map((leg) => leg.rotation.x)).filter((x) => x !== 0)).toEqual([]);
+    });
+  });
+
   it("draws the rig's beams after the world's other solid things, and the crowd after the beams", async () => {
     await startWorld();
     // three draws the solid things in their render order, 0 unless one is given.
@@ -560,6 +605,41 @@ describe("main.js's frames", () => {
     expect(page.mode()).toBe("attract");
     // The show plays, so the bears walked on, and the camera with them.
     expect(leads.at(-1)! - leads[0]).toBeGreaterThan(0);
+  });
+
+  it("draws the beam as added light in one pass that writes no depth, stands it on the song's landmark, and hides it without a recording", async () => {
+    const page = await startWorld();
+    page.run(0.02);
+    const [beam] = fake.world.meshes;
+    // Both its faces in one pass, adding its colour to what lies behind it, which still draws through it.
+    expect(beam.material).toMatchObject({
+      transparent: true,
+      depthWrite: false,
+      blending: fake.three.AdditiveBlending,
+      side: fake.three.DoubleSide,
+      forceSinglePass: true,
+    });
+    // The stand-ins place no landmark, so the beam stands over the song's point on their path, at height 0: its 36 m column, 18 m up,
+    // stands on it.
+    expect(beam.visible).toBe(true);
+    expect(beam.position.y).toBe(18);
+    await startWorld({ recording: false });
+    expect(fake.world.meshes[0].visible).toBe(false);
+  });
+
+  it("tilts the look up to 0.8 rad either way: holding T, then G, for 3 s stops it there", async () => {
+    const page = await startWorld({ view: "first" });
+    // In first person the camera looks from the visitor's eye along their heading, tilted by their pitch.
+    const pitch = () => Math.asin(fake.world.camera.target.y - fake.world.camera.position.y);
+    page.hold("KeyT", 3);
+    expect(pitch()).toBeCloseTo(0.8, 9);
+    page.hold("KeyG", 3);
+    expect(pitch()).toBeCloseTo(-0.8, 9);
+  });
+
+  it("makes the camera's near plane 0.5 m, which a bear's snout stays clear of in first person (collide.js)", async () => {
+    await startWorld();
+    expect(fake.world.camera.near).toBe(0.5);
   });
 });
 

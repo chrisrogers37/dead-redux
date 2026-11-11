@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { frameSampler, median, SLOW_MS, stepDown, WINDOW } from "../../../public/world/quality.js";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { budgetFor, frameSampler, median, pickTier, SLOW_MS, stepDown, WINDOW } from "../../../public/world/quality.js";
 
 interface Quality {
   scale: number;
@@ -27,6 +27,18 @@ function feed(sampler: ReturnType<typeof frameSampler>, count: number, ms: numbe
   return Array.from({ length: count }, () => sampler.add(ms, loading));
 }
 
+/* The page pickTier reads, as a browser gives it: the query, the window's width, which a `(max-width: Npx)` query reads too, its touch
+   points, whether its pointer is fine, and the browser's name. A desktop's by default. */
+function screen({ search = "", width = 1280, touch = 0, fine = true, agent = "" } = {}) {
+  vi.stubGlobal("location", { search });
+  vi.stubGlobal("innerWidth", width);
+  vi.stubGlobal("navigator", { maxTouchPoints: touch, userAgent: agent });
+  vi.stubGlobal("matchMedia", (query: string) => {
+    const max = /^\(max-width: (\d+)px\)$/.exec(query);
+    return { matches: max ? width <= Number(max[1]) : query === "(pointer: fine)" && fine };
+  });
+}
+
 describe("median", () => {
   it("is the middle of an odd count", () => {
     expect(median([5, 1, 3])).toBe(3);
@@ -45,6 +57,25 @@ describe("median", () => {
 });
 
 describe("stepDown", () => {
+  it("takes every rung in order, the scale first: the scale to half, shadows, sky octaves, the crowd, bears, the stage light, the rig", () => {
+    const all: Quality = { scale: 1, shadows: true, octaves: 4, bears: 5, stageLight: true, fullCrowd: true, rig: true };
+    expect(rungsBelow(all)).toEqual([
+      { ...all, scale: 0.8 },
+      { ...all, scale: 0.64 },
+      { ...all, scale: 0.512 },
+      { ...all, scale: 0.5 },
+      { ...all, scale: 0.5, shadows: false },
+      { ...all, scale: 0.5, shadows: false, octaves: 3 },
+      { ...all, scale: 0.5, shadows: false, octaves: 2 },
+      { ...all, scale: 0.5, shadows: false, octaves: 2, fullCrowd: false },
+      { ...all, scale: 0.5, shadows: false, octaves: 2, fullCrowd: false, bears: 3 },
+      { ...all, scale: 0.5, shadows: false, octaves: 2, fullCrowd: false, bears: 1 },
+      { ...all, scale: 0.5, shadows: false, octaves: 2, fullCrowd: false, bears: 1, stageLight: false },
+      { ...all, scale: 0.5, shadows: false, octaves: 2, fullCrowd: false, bears: 1, stageLight: false, rig: false },
+      null,
+    ]);
+  });
+
   it("takes the scale down to half, then sky octaves, then halves the crowd, then bears, then ends", () => {
     const desktop: Quality = { scale: 1, shadows: false, octaves: 4, bears: 5, stageLight: false, fullCrowd: true, rig: false };
     expect(rungsBelow(desktop)).toEqual([
@@ -61,7 +92,7 @@ describe("stepDown", () => {
     ]);
   });
 
-  it("turns shadows off first, then the stage light, then the rig, then ends", () => {
+  it("with the scale, the sky, the crowd and the bears at their floors, turns shadows off, then the stage light, then the rig, then ends", () => {
     const lit: Quality = { scale: 0.5, shadows: true, octaves: 2, bears: 1, stageLight: true, fullCrowd: false, rig: true };
     expect(rungsBelow(lit)).toEqual([
       { ...lit, shadows: false },
@@ -111,5 +142,68 @@ describe("frameSampler", () => {
     const sampler = frameSampler();
     feed(sampler, WINDOW, 100, true);
     expect(feed(sampler, WINDOW, 100, false).indexOf(true)).toBe(WINDOW - 1);
+  });
+});
+
+describe("pickTier", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("is a desktop by default, and the tier ?tier= names", () => {
+    screen();
+    expect(pickTier()).toBe("desktop");
+    screen({ search: "?tier=tv" });
+    expect(pickTier()).toBe("tv");
+  });
+
+  it("is a phone on a screen up to 639 px wide", () => {
+    screen({ width: 639 });
+    expect(pickTier()).toBe("phone");
+    screen({ width: 640 });
+    expect(pickTier()).toBe("desktop");
+  });
+
+  it("is a phone by touch on a screen under 900 px wide", () => {
+    screen({ width: 899, touch: 5, fine: false });
+    expect(pickTier()).toBe("phone");
+    screen({ width: 900, touch: 5, fine: false });
+    expect(pickTier()).toBe("desktop");
+  });
+
+  it("is a TV on a screen 1600 px wide or more without a fine pointer", () => {
+    screen({ width: 1600, fine: false });
+    expect(pickTier()).toBe("tv");
+    screen({ width: 1599, fine: false });
+    expect(pickTier()).toBe("desktop");
+    screen({ width: 1600 });
+    expect(pickTier()).toBe("desktop");
+  });
+
+  it("is a TV by its browser's name: a smart TV's, or a Fire TV's, which names its device AFT", () => {
+    screen({ agent: "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0)" });
+    expect(pickTier()).toBe("tv");
+    screen({ agent: "Mozilla/5.0 (Linux; Android 9; AFTMM Build/PS7633)" });
+    expect(pickTier()).toBe("tv");
+  });
+});
+
+describe("budgetFor", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("gives each tier its own rung 0", () => {
+    vi.stubGlobal("window", { devicePixelRatio: 1 });
+    expect(budgetFor("desktop")).toEqual({ scale: 1, grid: 80, octaves: 4, bears: 5, fov: 60, shadows: true, crowd: 350, pixelRatio: 1 });
+    expect(budgetFor("phone")).toEqual({ scale: 0.85, grid: 52, octaves: 3, bears: 3, fov: 75, shadows: false, crowd: 150, pixelRatio: 1 });
+    expect(budgetFor("tv")).toEqual({ scale: 0.8, grid: 64, octaves: 3, bears: 5, fov: 60, shadows: false, crowd: 250, pixelRatio: 1 });
+  });
+
+  it("caps the desktop's pixel ratio at 1.5, and draws a phone and a TV at 1", () => {
+    vi.stubGlobal("window", { devicePixelRatio: 3 });
+    expect(budgetFor("desktop").pixelRatio).toBe(1.5);
+    expect(budgetFor("phone").pixelRatio).toBe(1);
+    expect(budgetFor("tv").pixelRatio).toBe(1);
   });
 });
