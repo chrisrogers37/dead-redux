@@ -1,0 +1,143 @@
+{
+ "rows_planned": 48,
+ "rows_done": 15,
+ "tempos": {
+  "159": {
+   "rows": 15,
+   "most": 7,
+   "flashes": 3.5,
+   "per_grey": {
+    "grey11": 5,
+    "grey64": 6,
+    "grey96": 6,
+    "grey128": 6,
+    "grey160": 7,
+    "grey192": 6,
+    "grey208": 6,
+    "grey224": 6
+   },
+   "before_release": 3,
+   "after_release": 5,
+   "per_row": {
+    "159-wide-p0": 6,
+    "159-wide-p1": 6,
+    "159-wide-p2": 6,
+    "159-wide-p3": 5,
+    "159-wide-p4": 5,
+    "159-wide-p5": 6,
+    "159-wide-p6": 6,
+    "159-wide-p7": 6,
+    "159-change-p0": 5,
+    "159-change-p1": 5,
+    "159-change-p2": 5,
+    "159-change-p3": 4,
+    "159-change-p4": 5,
+    "159-change-p5": 6,
+    "159-change-p6": 7
+   },
+   "peaks": [
+    "change: 1973-11-11 #10 I Know You Rider at 183 s",
+    "wide: 1979-08-05 #6 It's All Over Now at 522 s"
+   ],
+   "release_frames": [
+    [
+     1,
+     24
+    ]
+   ],
+   "hits": [
+    {
+     "row": "159-change-p6",
+     "grey": "grey160",
+     "x": 150,
+     "y": 84,
+     "px": [
+      300,
+      168
+     ],
+     "window_s": [
+      0.0,
+      0.967
+     ],
+     "transitions_s": [
+      [
+       0.0,
+       "-"
+      ],
+      [
+       0.033,
+       "+"
+      ],
+      [
+       0.2,
+       "-"
+      ],
+      [
+       0.4,
+       "+"
+      ],
+      [
+       0.633,
+       "-"
+      ],
+      [
+       0.8,
+       "+"
+      ],
+      [
+       0.967,
+       "-"
+      ]
+     ],
+     "blocks_at_most": 2
+    },
+    {
+     "row": "159-change-p6",
+     "grey": "grey160",
+     "x": 149,
+     "y": 83,
+     "px": [
+      298,
+      166
+     ],
+     "window_s": [
+      0.0,
+      0.967
+     ],
+     "transitions_s": [
+      [
+       0.0,
+       "-"
+      ],
+      [
+       0.067,
+       "+"
+      ],
+      [
+       0.2,
+       "-"
+      ],
+      [
+       0.367,
+       "+"
+      ],
+      [
+       0.633,
+       "-"
+      ],
+      [
+       0.8,
+       "+"
+      ],
+      [
+       0.967,
+       "-"
+      ]
+     ],
+     "blocks_at_most": 2
+    }
+   ],
+   "hits_total": 2
+  }
+ }
+}
