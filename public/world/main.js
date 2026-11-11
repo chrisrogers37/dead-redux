@@ -41,7 +41,7 @@ let total = 0;
 for (const t of tracks) { starts.push(total); total += t.duration; }
 /* What the crowd does through each track: dances, sits, or both (seats.js). */
 const crowdAt = crowdPlan(tracks, set2Start);
-/* What each track's title says it holds (seats.js): Drums, Space, or only tuning or the crowd's noise between songs. */
+/* What each track's title says it holds (seats.js): Drums, Space, or the band tuning or the crowd's noise between songs. */
 const heldAt = tracks.map(({ title }) => ({ drums: isDrums(title), space: isSpace(title), between: isBetweenSongs(title) }));
 
 const canvas = document.createElement("canvas");

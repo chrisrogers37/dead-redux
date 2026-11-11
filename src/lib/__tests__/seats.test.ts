@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FACING, height, STAGE } from "../../../public/world/ground.js";
-import { crowdPlan, isBetweenSongs, isDrums, isNotASong, isSpace, parting, seats, songsOf } from "../../../public/world/seats.js";
+import { crowdPlan, isBetweenSongs, isDrums, isNotASong, isSpace, isTuning, parting, seats, songsOf } from "../../../public/world/seats.js";
 
 type Seat = { x: number; z: number; r: number; sit: boolean };
 type Plan = { dance: boolean; sit: boolean };
@@ -84,6 +84,41 @@ describe("the title rule", () => {
       expect([isNotASong(title), isBetweenSongs(title)]).toEqual([true, false]);
     }
   });
+
+  it("reads a title by what its parenthesis holds when it names nothing outside one", () => {
+    expect(songsOf("(Tuning)")).toEqual(["tuning"]);
+    expect([isNotASong("(Tuning)"), isBetweenSongs("(Tuning)"), isTuning("(Tuning)")]).toEqual([true, true, true]);
+    expect(songsOf("(fade in ) >")).toEqual(["fadein"]);
+  });
+
+  it("reads a title that names nothing as a song", () => {
+    for (const title of ["./-", ""]) {
+      expect(songsOf(title)).toEqual([]);
+      expect([isNotASong(title), isBetweenSongs(title), isTuning(title), isDrums(title), isSpace(title)]).toEqual([false, false, false, false, false]);
+    }
+  });
+
+  it("reads a track as the band tuning when it names the tuning and no song", () => {
+    for (const title of ["Tuning", "Tuning >", "tuning", "Crowd > Tuning", "Tuning > Set Break"]) expect(isTuning(title)).toBe(true);
+    for (const title of ["Crowd", "Set Break", "Tuning > Drums", "Jack Straw > Tuning"]) expect(isTuning(title)).toBe(false);
+    expect([isDrums("Tuning > Drums"), isNotASong("Tuning > Drums"), isBetweenSongs("Tuning > Drums")]).toEqual([true, false, false]);
+  });
+
+  it("reads a track of tuning or crowd noise as between songs, with a break or without", () => {
+    for (const title of ["Tuning > Set Break", "Crowd > Encore Break"]) {
+      expect([isNotASong(title), isBetweenSongs(title)]).toEqual([true, true]);
+    }
+  });
+
+  it("parts a title's names at a spaced hyphen, ampersand or \"and\", as at a segue mark", () => {
+    for (const title of ["crowd - tuning", "crowd & tuning", "crowd and tuning", "[crowd - tuning]"]) {
+      expect(songsOf(title)).toEqual(["crowd", "tuning"]);
+      expect([isNotASong(title), isBetweenSongs(title), isTuning(title)]).toEqual([true, true, true]);
+    }
+    expect([isDrums("Drums & Space"), isSpace("Drums & Space")]).toEqual([true, false]);
+    for (const title of ["Me & My Uncle", "Samson and Delilah", "Mississippi Half-Step Uptown Toodeloo"]) expect(isNotASong(title)).toBe(false);
+    expect(songsOf("Mississippi Half-Step Uptown Toodeloo")).toEqual(["mississippihalfstepuptowntoodeloo"]);
+  });
 });
 
 describe("crowdPlan", () => {
@@ -122,6 +157,10 @@ describe("crowdPlan", () => {
     const titles = ["Jack Straw", "Heartbreak Hotel", "Breakdown Palace", "Spaceman", "The Other One Space >", "Drums > Space", "Drums/Space",
       "Space (12:01) ->", "Setbreak", "Set 1 Break", "Break", "Set Break 2"];
     expect(plan(titles)).toEqual(["d-", "d-", "d-", "d-", "d-", "d-", "d-", "ds", "-s", "-s", "-s", "-s"]);
+  });
+
+  it("dances through a track whose title names nothing, as through a song, and never sits through it as the set break", () => {
+    expect(plan(["Jack Straw", "./-", "Deal"])).toEqual(["d-", "d-", "d-"]);
   });
 });
 
