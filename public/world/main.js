@@ -16,7 +16,7 @@ import { buildUp, loadMap, mapDrive, passesPeak } from "./maps.js";
 import { beatStep, FIGURES_BPM, figuresTempo } from "./beat.js";
 import { buildStage, STAGE_SOUND } from "./stage.js";
 import { buildCrowd } from "./crowd.js";
-import { crowdPlan } from "./seats.js";
+import { crowdPlan, isBetweenSongs, isDrums, isSpace } from "./seats.js";
 import { budgetFor, frameSampler, pickTier, stepDown } from "./quality.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
@@ -41,6 +41,8 @@ let total = 0;
 for (const t of tracks) { starts.push(total); total += t.duration; }
 /* What the crowd does through each track: dances, sits, or both (seats.js). */
 const crowdAt = crowdPlan(tracks, set2Start);
+/* What each track's title says it holds (seats.js): Drums, Space, or only tuning or the crowd's noise between songs. */
+const heldAt = tracks.map(({ title }) => ({ drums: isDrums(title), space: isSpace(title), between: isBetweenSongs(title) }));
 
 const canvas = document.createElement("canvas");
 /* If the page gave up waiting for this module, the still stays and nothing starts. */
@@ -172,8 +174,8 @@ function start(gl) {
   /* The show sounds from the stage, through the graph the first move makes (audio.js). */
   startSound(STAGE_SOUND, phone);
   const energyOf = (i) => {
-    const t = tracks[i].title.toLowerCase();
-    if (t.includes("tuning") || t.includes("crowd")) return 0.2; if (t.includes("drums")) return 0.9; if (t.includes("space")) return 0.3;
+    const held = heldAt[i];
+    if (held.between) return 0.2; if (held.drums) return 0.9; if (held.space) return 0.3;
     if (encoreStart !== null && i >= encoreStart) return 0.8;
     if (set2Start !== null) return i >= set2Start ? 0.7 : 0.5;
     /* One list: the last song as the encore and the break at about a third. */
@@ -504,9 +506,8 @@ function start(gl) {
     }
 
     /* Drums lights the left cave and Space the right, over eight seconds; under reduced motion at once. */
-    const title = tracks[index].title;
     for (const [k, c] of caves.entries()) {
-      const target = hasShow && (k === 0 ? /drums/i : /space/i).test(title) ? 1 : 0;
+      const target = hasShow && (k === 0 ? heldAt[index].drums : heldAt[index].space) ? 1 : 0;
       c.level = reduced ? target : target > c.level ? Math.min(target, c.level + dt / 8) : Math.max(target, c.level - dt / 8);
       c.disc.visible = c.level > 0;
       c.disc.material.opacity = 0.9 * c.level;
