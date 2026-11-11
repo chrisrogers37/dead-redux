@@ -631,20 +631,24 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
   return { offset, rising, step, over, ahead, hold, farthest, get parted() { return parted; } };
 }
 
-/* How the world reads a track's title: one rule for every part of it that asks whether a track is Drums, Space or a song. A title
-   names its songs between the segue marks (">", "->" or "/"), each by its whole name: its letters and digits alone, lower case, and
-   without what a parenthesis holds. A track is Drums when one of its songs is Drums. It is Space only when Space is all it holds, as
-   the crowd sits through Space: a track that Space shares with Drums or a song counts as that, so "Space > The Wheel" is a song. It
-   is not a song when none of its names is a song: the band tuning or the crowd's noise between songs, or a break, between the sets or
-   before the encore. So a song with one of these words inside its name is still that song, and "The Other One Space >", one name with
-   no segue mark, is a song, not Space. */
+/* How the world reads a track's title: one rule for every part of it that asks whether a track is Drums, Space, the band tuning or a
+   song. A title names its songs between the segue marks (">", "->" or "/"), each by its whole name: its letters and digits alone,
+   lower case, and without what a parenthesis holds, unless the title names nothing outside one, as "(Tuning)" does. A track is Drums
+   when one of its songs is Drums. It is Space only when Space is all it holds, as the crowd sits through Space: a track that Space
+   shares with Drums or a song counts as that, so "Space > The Wheel" is a song. It is not a song when it names something and none of
+   what it names is a song: the band tuning or the crowd's noise between songs, or a break, between the sets or before the encore. It
+   is the band tuning when the tuning is among those names, so "Tuning > Drums" is Drums. So a song with one of these words inside its
+   name is still that song, and "The Other One Space >", one name with no segue mark, is a song, not Space. A track is a song unless
+   its title says otherwise, so a title that names nothing, such as "./-", is a song. */
 const BREAK = /^(set(\d|one|two|i|ii)?)?break(\d|one|two|i|ii)?$|^intermission$/, BETWEEN = /^(tuning|crowd|crowdnoise)$/;
 const notASong = (name) => BETWEEN.test(name) || name === "encorebreak" || BREAK.test(name);
-export const songsOf = (title) => title.toLowerCase().replace(/\([^)]*\)/g, "").split(/->|>|\//).map((name) => name.replace(/[^a-z0-9]/g, "")).filter(Boolean);
+const namesIn = (text) => text.split(/->|>|\//).map((name) => name.replace(/[^a-z0-9]/g, "")).filter(Boolean);
+export const songsOf = (title) => { const t = title.toLowerCase(), names = namesIn(t.replace(/\([^)]*\)/g, "")); return names.length > 0 ? names : namesIn(t); };
 export const isDrums = (title) => songsOf(title).includes("drums");
 export const isSpace = (title) => { const names = songsOf(title); return names.length > 0 && names.every((name) => name === "space"); };
-export const isNotASong = (title) => songsOf(title).every(notASong);
-/* Only the band tuning or the crowd's noise between songs: not a song, and not a break. */
+export const isNotASong = (title) => { const names = songsOf(title); return names.length > 0 && names.every(notASong); };
+export const isTuning = (title) => { const names = songsOf(title); return names.includes("tuning") && names.every(notASong); };
+/* The band tuning or the crowd's noise between songs, with a break or without, and no song. A break alone is not between songs. */
 export const isBetweenSongs = (title) => { const names = songsOf(title); return names.some((name) => BETWEEN.test(name)) && names.every(notASong); };
 
 /* What the crowd does through each of the show's tracks ({ title, duration } each, in s) and where set 2 starts: it dances while a
