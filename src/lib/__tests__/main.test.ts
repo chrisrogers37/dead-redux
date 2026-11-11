@@ -8,7 +8,7 @@ import { postPose } from "../../../public/world/pose.js";
 // with the limits walkLimits builds from the bears' live spots), where attract puts the camera (postPose), and what the show's map does
 // (maps.js, beat.js and audio.js's mappings; the analyser hears nothing here, since no AudioContext is made). three, and the modules
 // that import it (the island, the path and its landmarks, the bears, the visitor's bear, the sky and the stage), load only in a
-// browser, through the page's import map, so stand-ins play them, with what the frames here use: a desktop's, in third person. They
+// browser, through the page's import map, so stand-ins play them, with what the frames here use: a desktop's, in either view. They
 // draw nothing, and keep what the tests read: where each bear stands, where the visitor's bear steps, where the camera stands and
 // looks, the stage light, the flame's size, the sky's drop, the figures' beat and the rig's aim.
 
@@ -325,8 +325,8 @@ const hill = () => (window as unknown as { __hill: Hill }).__hill;
 // the site, which serves `map` as the show's map, and no other; and the frames, which `run` hands main.js, each `ms` long (a frame adds
 // at most 50 ms of world time), calling `each` after each one. `playing` starts the show playing; `routing` is how it sounds ("webaudio"
 // through the world's graph, "plain" in plain stereo); `search` is the page's query, on a preview; `reduced` asks for reduced motion;
-// `title` names the track. A page with a map waits until the world has read it.
-async function startWorld({ playing = false, routing = "webaudio", search = "", reduced = false, map = null as object | null, title = TRACK.title } = {}) {
+// `title` names the track; `view` is "third" or "first" person. A page with a map waits until the world has read it.
+async function startWorld({ playing = false, routing = "webaudio", search = "", reduced = false, map = null as object | null, title = TRACK.title, view = "third" } = {}) {
   let now = 0;
   let queued: FrameRequestCallback | null = null;
   const container = Object.assign(new EventTarget(), {
@@ -336,7 +336,7 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
     appendChild: () => {},
     getBoundingClientRect: () => ({ top: 0 }),
   });
-  const main = { dataset: { state: playing ? "playing" : "paused", routing, view: "third", ...(search ? { testHooks: "1" } : {}) } };
+  const main = { dataset: { state: playing ? "playing" : "paused", routing, view, ...(search ? { testHooks: "1" } : {}) } };
   const data = { showDate: SHOW, identifier: RECORDING, tracks: [{ ...TRACK, title }], seed: 7 };
   const byId: Record<string, unknown> = { world: container, "world-data": { textContent: JSON.stringify(data) } };
   const media = (query: string) => ({ matches: reduced && query === "(prefers-reduced-motion: reduce)" });
@@ -533,6 +533,20 @@ describe("main.js's frames", () => {
     const still = await startWorld({ playing: true, title: "Space", reduced: true });
     still.run(0.02);
     expect(rig()).toEqual({ beats: 0, lit: 1, swing: 0, gather: 0, lift: 1, drawn: true });
+  });
+
+  it("opens on a walk under reduced motion, and holds still as the visitor walks: the eye 3.2 m over the ground, the bears' legs at rest", async () => {
+    const page = await startWorld({ reduced: true, playing: true, view: "first" });
+    // The first frame stands the camera where the walk opens, not 140 m up, where the descent starts.
+    page.run(0.02);
+    expect(page.mode()).toBe("walk");
+    expect(fake.world.camera.position.y).toBeLessThan(40);
+    // While a key is held the world draws on: the eye never bobs, and though the show plays no bear swings a leg.
+    page.hold("ArrowUp", 1, () => {
+      const eye = fake.world.camera.position;
+      expect(eye.y).toBeCloseTo(height(eye.x, eye.z) + 3.2, 9);
+      expect(page.shown().flatMap((b) => b.legs.map((leg) => leg.rotation.x)).filter((x) => x !== 0)).toEqual([]);
+    });
   });
 
   it("draws the rig's beams after the world's other solid things, and the crowd after the beams", async () => {
