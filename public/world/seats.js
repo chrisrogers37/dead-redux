@@ -632,17 +632,18 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
 }
 
 /* How the world reads a track's title: one rule for every part of it that asks whether a track is Drums, Space, the band tuning or a
-   song. A title names its songs between the segue marks (">", "->" or "/"), each by its whole name: its letters and digits alone,
-   lower case, and without what a parenthesis holds, unless the title names nothing outside one, as "(Tuning)" does. A track is Drums
-   when one of its songs is Drums. It is Space only when Space is all it holds, as the crowd sits through Space: a track that Space
-   shares with Drums or a song counts as that, so "Space > The Wheel" is a song. It is not a song when it names something and none of
-   what it names is a song: the band tuning or the crowd's noise between songs, or a break, between the sets or before the encore. It
-   is the band tuning when the tuning is among those names, so "Tuning > Drums" is Drums. So a song with one of these words inside its
-   name is still that song, and "The Other One Space >", one name with no segue mark, is a song, not Space. A track is a song unless
-   its title says otherwise, so a title that names nothing, such as "./-", is a song. */
+   song. A title names its songs between the marks that join them, the segue marks (">", "->" or "/") and a spaced " - ", " & " or
+   " and ", each by its whole name: its letters and digits alone, lower case, and without what a parenthesis holds, unless the title
+   names nothing outside one, as "(Tuning)" does. A track is Drums when one of its songs is Drums. It is Space only when Space is all
+   it holds, as the crowd sits through Space: a track that Space shares with Drums or a song counts as that, so "Space > The Wheel" is
+   a song. It is not a song when it names something and none of what it names is a song: the band tuning or the crowd's noise between
+   songs, or a break, between the sets or before the encore. It is the band tuning when the tuning is among those names, so
+   "crowd - tuning" is the tuning and "Tuning > Drums" is Drums. So a song with one of these words inside its name is still that song,
+   as is a song whose name holds a join ("Me & My Uncle"), and "The Other One Space >", one name with no segue mark, is a song, not
+   Space. A track is a song unless its title says otherwise, so a title that names nothing, such as "./-", is a song. */
 const BREAK = /^(set(\d|one|two|i|ii)?)?break(\d|one|two|i|ii)?$|^intermission$/, BETWEEN = /^(tuning|crowd|crowdnoise)$/;
 const notASong = (name) => BETWEEN.test(name) || name === "encorebreak" || BREAK.test(name);
-const namesIn = (text) => text.split(/->|>|\//).map((name) => name.replace(/[^a-z0-9]/g, "")).filter(Boolean);
+const namesIn = (text) => text.split(/->|>|\/|\s+[-&]\s+|\s+and\s+/).map((name) => name.replace(/[^a-z0-9]/g, "")).filter(Boolean);
 export const songsOf = (title) => { const t = title.toLowerCase(), names = namesIn(t.replace(/\([^)]*\)/g, "")); return names.length > 0 ? names : namesIn(t); };
 export const isDrums = (title) => songsOf(title).includes("drums");
 export const isSpace = (title) => { const names = songsOf(title); return names.length > 0 && names.every((name) => name === "space"); };

@@ -109,6 +109,16 @@ describe("the title rule", () => {
       expect([isNotASong(title), isBetweenSongs(title)]).toEqual([true, true]);
     }
   });
+
+  it("parts a title's names at a spaced hyphen, ampersand or \"and\", as at a segue mark", () => {
+    for (const title of ["crowd - tuning", "crowd & tuning", "crowd and tuning", "[crowd - tuning]"]) {
+      expect(songsOf(title)).toEqual(["crowd", "tuning"]);
+      expect([isNotASong(title), isBetweenSongs(title), isTuning(title)]).toEqual([true, true, true]);
+    }
+    expect([isDrums("Drums & Space"), isSpace("Drums & Space")]).toEqual([true, false]);
+    for (const title of ["Me & My Uncle", "Samson and Delilah", "Mississippi Half-Step Uptown Toodeloo"]) expect(isNotASong(title)).toBe(false);
+    expect(songsOf("Mississippi Half-Step Uptown Toodeloo")).toEqual(["mississippihalfstepuptowntoodeloo"]);
+  });
 });
 
 describe("crowdPlan", () => {
