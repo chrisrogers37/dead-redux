@@ -631,21 +631,31 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
   return { offset, rising, step, over, ahead, hold, farthest, get parted() { return parted; } };
 }
 
+/* How the world reads a track's title: one rule for every part of it that asks whether a track is Drums, Space or a song. A title
+   names its songs between the segue marks (">", "->" or "/"), each by its whole name: its letters and digits alone, lower case, and
+   without what a parenthesis holds. A track is Drums when one of its songs is Drums. It is Space only when Space is all it holds, as
+   the crowd sits through Space: a track that Space shares with Drums or a song counts as that, so "Space > The Wheel" is a song. It
+   is not a song when none of its names is a song: the band tuning or the crowd's noise between songs, or a break, between the sets or
+   before the encore. So a song with one of these words inside its name is still that song, and "The Other One Space >", one name with
+   no segue mark, is a song, not Space. */
+const BREAK = /^(set(\d|one|two|i|ii)?)?break(\d|one|two|i|ii)?$|^intermission$/, BETWEEN = /^(tuning|crowd|crowdnoise)$/;
+const notASong = (name) => BETWEEN.test(name) || name === "encorebreak" || BREAK.test(name);
+export const songsOf = (title) => title.toLowerCase().replace(/\([^)]*\)/g, "").split(/->|>|\//).map((name) => name.replace(/[^a-z0-9]/g, "")).filter(Boolean);
+export const isDrums = (title) => songsOf(title).includes("drums");
+export const isSpace = (title) => { const names = songsOf(title); return names.length > 0 && names.every((name) => name === "space"); };
+export const isNotASong = (title) => songsOf(title).every(notASong);
+/* Only the band tuning or the crowd's noise between songs: not a song, and not a break. */
+export const isBetweenSongs = (title) => { const names = songsOf(title); return names.some((name) => BETWEEN.test(name)) && names.every(notASong); };
+
 /* What the crowd does through each of the show's tracks ({ title, duration } each, in s) and where set 2 starts: it dances while a
    song plays, Drums and Space among them, and stands still through what is not a song (tuning, crowd noise, a break); it sits in Space,
-   still dancing, and through the set break. A title names its songs between the segue marks (">", "->" or "/") and each by its whole
-   name, so a song with one of these words inside its name is still a song, and a track sits in Space only when Space is all it holds.
-   Where `set2Start` is known, the set break is what is not a song just before set 2. Where it is not, it is a track named a break after
-   the first song; else, of the runs of tracks that are not songs between the first song and the last, the one whose middle falls
-   nearest 45 % of the show's running time, between 30 and 60 %, where set 1 ends; another such run, a tuning inside a set, stands.
-   Before the first song the crowd stands, waiting for the band, and through an encore break, calling for more. Each track gets
-   { dance, sit }. */
-const BREAK = /^(set(\d|one|two|i|ii)?)?break(\d|one|two|i|ii)?$|^intermission$/, NOT_A_SONG = /^(tuning|crowd|crowdnoise|encorebreak)$/;
-const notASong = (name) => NOT_A_SONG.test(name) || BREAK.test(name);
-/* A title's songs, each as its letters and digits alone, lower case, and without what a parenthesis holds. */
-const names = (title) => title.toLowerCase().replace(/\([^)]*\)/g, "").split(/->|>|\//).map((name) => name.replace(/[^a-z0-9]/g, "")).filter(Boolean);
+   still dancing, and through the set break. Where `set2Start` is known, the set break is what is not a song just before set 2. Where
+   it is not, it is a track named a break after the first song; else, of the runs of tracks that are not songs between the first song
+   and the last, the one whose middle falls nearest 45 % of the show's running time, between 30 and 60 %, where set 1 ends; another
+   such run, a tuning inside a set, stands. Before the first song the crowd stands, waiting for the band, and through an encore break,
+   calling for more. Each track gets { dance, sit }. */
 export function crowdPlan(tracks, set2Start) {
-  const parts = tracks.map((t) => names(t.title)), song = parts.map((p) => p.some((name) => !notASong(name)));
+  const parts = tracks.map((t) => songsOf(t.title)), song = tracks.map((t) => !isNotASong(t.title));
   const first = song.indexOf(true), last = song.lastIndexOf(true);
   const brk = tracks.map(() => false);
   if (set2Start !== null) for (let i = set2Start - 1; i > first && first >= 0 && !song[i]; i--) brk[i] = true;
@@ -661,5 +671,5 @@ export function crowdPlan(tracks, set2Start) {
     }
     for (let i = best; i >= 0 && i < end; i++) brk[i] = true;
   }
-  return tracks.map((_, i) => ({ dance: song[i], sit: (parts[i].length > 0 && parts[i].every((name) => name === "space")) || brk[i] }));
+  return tracks.map((t, i) => ({ dance: song[i], sit: isSpace(t.title) || brk[i] }));
 }

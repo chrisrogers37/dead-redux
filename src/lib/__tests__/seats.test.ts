@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FACING, height, STAGE } from "../../../public/world/ground.js";
-import { crowdPlan, parting, seats } from "../../../public/world/seats.js";
+import { crowdPlan, isBetweenSongs, isDrums, isNotASong, isSpace, parting, seats, songsOf } from "../../../public/world/seats.js";
 
 type Seat = { x: number; z: number; r: number; sit: boolean };
 type Plan = { dance: boolean; sit: boolean };
@@ -41,6 +41,51 @@ describe("seats", () => {
   });
 });
 
+describe("the title rule", () => {
+  it("reads Drums and Space with or without a segue mark", () => {
+    for (const title of ["Drums", "Drums ->", "Drums >", "Drums>"]) {
+      expect([isDrums(title), isSpace(title), isNotASong(title)]).toEqual([true, false, false]);
+    }
+    for (const title of ["Space", "Space ->", "Space >", "Space>"]) {
+      expect([isSpace(title), isDrums(title), isNotASong(title)]).toEqual([true, false, false]);
+    }
+  });
+
+  it("drops what a parenthesis holds", () => {
+    expect(songsOf("Space (incomplete)")).toEqual(["space"]);
+    expect(isSpace("Space (incomplete)")).toBe(true);
+    expect(songsOf("Man Smart (Woman Smarter) ->")).toEqual(["mansmart"]);
+  });
+
+  it("counts a track that Drums shares as Drums, and as Space only when Space is all it holds", () => {
+    for (const title of ["Drums > Space", "Drums/Space"]) {
+      expect([isDrums(title), isSpace(title)]).toEqual([true, false]);
+    }
+    expect(isDrums("Jam > Drums")).toBe(true);
+  });
+
+  it("counts a track that a song shares as that song", () => {
+    expect(songsOf("The Other One Space >")).toEqual(["theotheronespace"]);
+    expect([isSpace("The Other One Space >"), isDrums("The Other One Space >"), isNotASong("The Other One Space >")]).toEqual([false, false, false]);
+    expect([isSpace("Space > The Wheel"), isNotASong("Space > The Wheel")]).toEqual([false, false]);
+  });
+
+  it("keeps a song with one of the words inside its name a song", () => {
+    expect(isDrums("Drumstick")).toBe(false);
+    expect([isSpace("Spaceman"), isNotASong("Spaceman")]).toEqual([false, false]);
+    expect([isNotASong("Crowd Pleaser"), isBetweenSongs("Crowd Pleaser")]).toEqual([false, false]);
+  });
+
+  it("reads tuning, crowd noise and the breaks as not songs, and only tuning and crowd noise as between songs", () => {
+    for (const title of ["Tuning", "Tuning >", "tuning", "Crowd", "Crowd Noise"]) {
+      expect([isNotASong(title), isBetweenSongs(title)]).toEqual([true, true]);
+    }
+    for (const title of ["Encore Break", "Set Break", "Intermission"]) {
+      expect([isNotASong(title), isBetweenSongs(title)]).toEqual([true, false]);
+    }
+  });
+});
+
 describe("crowdPlan", () => {
   // Each track 5 min long unless `durations` says, in s.
   const plan = (titles: string[], set2Start: number | null = null, durations: number[] = titles.map(() => 300)) =>
@@ -66,6 +111,11 @@ describe("crowdPlan", () => {
     expect(plan(titles, 6, durations)).toEqual(sits);
     // Nothing that is not a song falls between 30 and 60 %: nothing sits.
     expect(plan(titles, null, [60, 300, 60, 1200, 300, 240, 100, 60, 300])).toEqual(["--", "d-", "--", "d-", "d-", "--", "d-", "--", "d-"]);
+  });
+
+  it("sits through Space alone, and dances through the transition after it", () => {
+    const titles = ["Truckin' >", "Drums >", "Space >", "The Other One Space >", "The Other One >"];
+    expect(plan(titles, 0)).toEqual(["d-", "d-", "ds", "d-", "d-"]);
   });
 
   it("reads each song in a title by its whole name", () => {
