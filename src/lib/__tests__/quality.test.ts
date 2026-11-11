@@ -45,6 +45,25 @@ describe("median", () => {
 });
 
 describe("stepDown", () => {
+  it("takes every rung in order, the scale first: the scale to half, shadows, sky octaves, the crowd, bears, the stage light, the rig", () => {
+    const all: Quality = { scale: 1, shadows: true, octaves: 4, bears: 5, stageLight: true, fullCrowd: true, rig: true };
+    expect(rungsBelow(all)).toEqual([
+      { ...all, scale: 0.8 },
+      { ...all, scale: 0.64 },
+      { ...all, scale: 0.512 },
+      { ...all, scale: 0.5 },
+      { ...all, scale: 0.5, shadows: false },
+      { ...all, scale: 0.5, shadows: false, octaves: 3 },
+      { ...all, scale: 0.5, shadows: false, octaves: 2 },
+      { ...all, scale: 0.5, shadows: false, octaves: 2, fullCrowd: false },
+      { ...all, scale: 0.5, shadows: false, octaves: 2, fullCrowd: false, bears: 3 },
+      { ...all, scale: 0.5, shadows: false, octaves: 2, fullCrowd: false, bears: 1 },
+      { ...all, scale: 0.5, shadows: false, octaves: 2, fullCrowd: false, bears: 1, stageLight: false },
+      { ...all, scale: 0.5, shadows: false, octaves: 2, fullCrowd: false, bears: 1, stageLight: false, rig: false },
+      null,
+    ]);
+  });
+
   it("takes the scale down to half, then sky octaves, then halves the crowd, then bears, then ends", () => {
     const desktop: Quality = { scale: 1, shadows: false, octaves: 4, bears: 5, stageLight: false, fullCrowd: true, rig: false };
     expect(rungsBelow(desktop)).toEqual([
@@ -61,7 +80,7 @@ describe("stepDown", () => {
     ]);
   });
 
-  it("turns shadows off first, then the stage light, then the rig, then ends", () => {
+  it("with the scale, the sky, the crowd and the bears at their floors, turns shadows off, then the stage light, then the rig, then ends", () => {
     const lit: Quality = { scale: 0.5, shadows: true, octaves: 2, bears: 1, stageLight: true, fullCrowd: false, rig: true };
     expect(rungsBelow(lit)).toEqual([
       { ...lit, shadows: false },
