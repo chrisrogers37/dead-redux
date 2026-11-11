@@ -10,7 +10,7 @@ import { postPose } from "../../../public/world/pose.js";
 // that import it (the island, the path and its landmarks, the bears, the visitor's bear, the sky and the stage), load only in a
 // browser, through the page's import map, so stand-ins play them, with what the frames here use: a desktop's, in third person. They
 // draw nothing, and keep what the tests read: where each bear stands, where the visitor's bear steps, where the camera stands and
-// looks, the stage light, the flame's size, the sky's drop and the figures' beat.
+// looks, the stage light, the flame's size, the sky's drop, the figures' beat and the rig's aim.
 
 type Point = { x: number; z: number };
 type Point3 = Point & { y: number };
@@ -47,13 +47,18 @@ const fake = vi.hoisted(() => {
     }
   }
   type Bear = { g: { position: Vec; rotation: { y: number } }; legs: { rotation: { x: number } }[]; phase: number };
-  type Stage = { light: { visible: boolean; intensity: number }; panel: { material: { color: Vec } }; move: (dt: number, t: number, beats: number) => void };
+  type Stage = {
+    light: { visible: boolean; intensity: number };
+    rig: { show: Float32Array; mesh: { visible: boolean; renderOrder?: number } };
+    move: (dt: number, t: number, beats: number) => void;
+  };
+  type CrowdMesh = { count: number; renderOrder?: number };
   type Sky = { uniforms: Record<string, { value: number | Vec }> };
 
   // What the world main.js built: its scene, its camera, every bear it made (a downgrade drops some from the scene), and where the
-  // visitor's bear last stepped; the flame of a fire landmark, the stage, the sky and the meshes main.js makes itself (the beam); and
-  // the figures' phase in beats, as the last frame gave it to the stage, and the crowd's pose, as the last frame gave it to the crowd,
-  // and whether its last parting stood the figures at once.
+  // visitor's bear last stepped; the flame of a fire landmark, the stage, the crowd's mesh, the sky and the meshes main.js makes itself
+  // (the beam); and the figures' phase in beats, as the last frame gave it to the stage, the crowd's pose, as the last frame gave it to
+  // the crowd, and whether its last parting stood the figures at once.
   // `line` is the bears' line each test gives it, and `onset` the time of the last onset the analyser heard, which each test sets (null
   // for none).
   const world = {
@@ -64,6 +69,7 @@ const fake = vi.hoisted(() => {
     stepped: { x: NaN, z: NaN, heading: NaN },
     flame: { scale: new Vec(1, 1, 1) },
     stage: undefined as unknown as Stage,
+    crowd: undefined as unknown as CrowdMesh,
     sky: undefined as unknown as Sky,
     meshes: [] as { material: unknown }[],
     beats: NaN,
@@ -197,7 +203,13 @@ const fake = vi.hoisted(() => {
             uAmber: { value: 0 },
           },
         };
-        return { skyMat: world.sky, hemi: { color: new Vec() }, sun: { castShadow: false } };
+        return {
+          skyMat: world.sky,
+          hemi: { color: new Vec() },
+          sun: { castShadow: false },
+          // The stage panel's material, whose gain each frame writes.
+          panelMat: { uniforms: { uGain: { value: Float32Array.of(1) } } },
+        };
       },
       skyPair: () => [new Vec(), new Vec()],
     },
@@ -205,7 +217,8 @@ const fake = vi.hoisted(() => {
       buildStage: () => {
         world.stage = {
           light: { visible: true, intensity: 60 },
-          panel: { material: { color: new Vec() } },
+          // The rig's five numbers, as the last frame wrote them, and whether it is drawn.
+          rig: { show: new Float32Array(5), mesh: { visible: false } },
           move: (_dt, _t, beats) => {
             world.beats = beats;
           },
@@ -217,7 +230,7 @@ const fake = vi.hoisted(() => {
     crowd: {
       // As many figures as the tier asks for, which the downgrade may halve, the pose each frame gives them, and its parting.
       buildCrowd: (_scene: Scene, { count }: { count: number }) => ({
-        mesh: { count },
+        mesh: (world.crowd = { count }),
         count,
         pose: (beats: number, dance: number, rise: number, sit: number) => {
           world.posed = { beats, dance, rise, sit };
@@ -276,7 +289,7 @@ const TRACK = { title: "Bertha", duration: 600 };
 // A map of the show as the site serves one (maps.js checks it): TRACK at `step` seconds an envelope byte, with each byte's loudness
 // `rms` and low end `bass` (0-255, or a byte's value from its index), the tempo `bpm` in every 10-s window (0 for none), and the peaks
 // as [second, strength].
-function showMap({ rms = 0, bass = 0 as number | ((byte: number) => number), bpm = 0, peaks = [] as number[][], step = 1 } = {}) {
+function showMap({ rms = 0 as number | ((byte: number) => number), bass = 0 as number | ((byte: number) => number), bpm = 0, peaks = [] as number[][], step = 1 } = {}) {
   const bytes = (values: number[]) => Buffer.from(values).toString("base64");
   const series = (value: number | ((byte: number) => number)) =>
     bytes(Array.from({ length: Math.ceil(TRACK.duration / step) }, (_, i) => (typeof value === "function" ? value(i) : value)));
@@ -494,6 +507,42 @@ describe("main.js's frames", () => {
     expect(fake.world.partedAtOnce).toBe(true);
   });
 
+  it("lights the rig as the crowd dances and lifts its beams in Space, keeps it dark through what is not a song, and lights it still under reduced motion", async () => {
+    // The rig's numbers: the figures' phase in eight beats, how far it is lit, its swing, the build-up and the lift.
+    const rig = () => {
+      const [beats, lit, swing, gather, lift] = fake.world.stage.rig.show;
+      return { beats, lit, swing, gather, lift, drawn: fake.world.stage.rig.mesh.visible };
+    };
+    const song = await startWorld({ playing: true });
+    song.run(0.4);
+    expect(rig().lit).toBeCloseTo(0.5, 6);
+    song.run(0.6);
+    expect(rig()).toMatchObject({ lit: 1, lift: 0, drawn: true });
+    expect(rig().beats).toBeCloseTo(fake.world.beats % 8, 5);
+    // The swing eases toward the dance, 1 with no drive, with a 0.8 s time constant: half way at 1 s, there within 6 s.
+    expect(rig().swing).toBeCloseTo(0.514, 3);
+    song.run(5);
+    expect(rig().swing).toBeCloseTo(1, 2);
+    const tuning = await startWorld({ playing: true, title: "Tuning" });
+    tuning.run(1);
+    expect(rig()).toMatchObject({ lit: 0, drawn: false });
+    const space = await startWorld({ playing: true, title: "Space" });
+    space.run(2);
+    expect(rig()).toMatchObject({ lit: 1, lift: 1 });
+    // Under reduced motion the first frame lights it at once, its beams at rest and lifted for Space.
+    const still = await startWorld({ playing: true, title: "Space", reduced: true });
+    still.run(0.02);
+    expect(rig()).toEqual({ beats: 0, lit: 1, swing: 0, gather: 0, lift: 1, drawn: true });
+  });
+
+  it("draws the rig's beams after the world's other solid things, and the crowd after the beams", async () => {
+    await startWorld();
+    // three draws the solid things in their render order, 0 unless one is given.
+    const rigOrder = fake.world.stage.rig.mesh.renderOrder ?? 0;
+    expect(rigOrder).toBeGreaterThan(0);
+    expect(fake.world.crowd.renderOrder ?? 0).toBeGreaterThan(rigOrder);
+  });
+
   it("walks the attract camera with the bears: it stands and looks where postPose puts it for the bears as they walk", async () => {
     const page = await afterDescent({ playing: true });
     const leads: number[] = [];
@@ -579,6 +628,21 @@ describe("main.js's frames with the show's map", () => {
     expect(fake.world.flame.scale.x).toBeCloseTo(1 + 1.2 * 0.975, 9);
     page.run(0.8);
     expect(fake.world.flame.scale.x).toBe(1);
+  });
+
+  it("eases the rig's swing toward the crowd's dance with a 0.8 s time constant, so a step of the music's loudness reaches the beams slowly", async () => {
+    // The map's loudness steps from nothing to its top at 10 s, which takes the crowd's dance from 0.4 to 1.6 at once.
+    const page = await startWorld({ playing: true, routing: "plain", map: showMap({ rms: (byte) => (byte < 10 ? 0 : 255) }) });
+    const swing = () => fake.world.stage.rig.show[2];
+    page.run(9.5);
+    expect(hill().crowd.dance).toBe(0.4);
+    expect(swing()).toBeCloseTo(0.4, 3);
+    // 0.8 s past the step the dance stands at 1.6, and the swing has come 63 % of the way.
+    page.run(1.3);
+    expect(hill().crowd.dance).toBe(1.6);
+    expect(swing()).toBeCloseTo(0.4 + 1.2 * (1 - Math.exp(-1)), 1);
+    page.run(6);
+    expect(swing()).toBeCloseTo(1.6, 2);
   });
 
   it("keeps every channel under the clip where the beam crosses the sand rim, at the top of its build-up", async () => {

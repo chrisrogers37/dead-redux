@@ -8,6 +8,7 @@ interface Quality {
   bears: number;
   stageLight: boolean;
   fullCrowd: boolean;
+  rig: boolean;
 }
 
 /* The rungs below a quality, in order, ending with the null that says there are no more; capped, so a ladder that never ends fails. */
@@ -45,7 +46,7 @@ describe("median", () => {
 
 describe("stepDown", () => {
   it("takes the scale down to half, then sky octaves, then halves the crowd, then bears, then ends", () => {
-    const desktop: Quality = { scale: 1, shadows: false, octaves: 4, bears: 5, stageLight: false, fullCrowd: true };
+    const desktop: Quality = { scale: 1, shadows: false, octaves: 4, bears: 5, stageLight: false, fullCrowd: true, rig: false };
     expect(rungsBelow(desktop)).toEqual([
       { ...desktop, scale: 0.8 },
       { ...desktop, scale: 0.64 },
@@ -60,17 +61,18 @@ describe("stepDown", () => {
     ]);
   });
 
-  it("turns shadows off first, then the stage light, then ends", () => {
-    const lit: Quality = { scale: 0.5, shadows: true, octaves: 2, bears: 1, stageLight: true, fullCrowd: false };
+  it("turns shadows off first, then the stage light, then the rig, then ends", () => {
+    const lit: Quality = { scale: 0.5, shadows: true, octaves: 2, bears: 1, stageLight: true, fullCrowd: false, rig: true };
     expect(rungsBelow(lit)).toEqual([
       { ...lit, shadows: false },
       { ...lit, shadows: false, stageLight: false },
+      { ...lit, shadows: false, stageLight: false, rig: false },
       null,
     ]);
   });
 
   it("steps a phone's 0.85 down to 0.68, 0.544 and the 0.5 floor", () => {
-    const phone: Quality = { scale: 0.85, shadows: false, octaves: 3, bears: 3, stageLight: false, fullCrowd: true };
+    const phone: Quality = { scale: 0.85, shadows: false, octaves: 3, bears: 3, stageLight: false, fullCrowd: true, rig: false };
     expect(rungsBelow(phone).slice(0, 3).map((q) => q?.scale)).toEqual([0.68, 0.544, 0.5]);
   });
 });

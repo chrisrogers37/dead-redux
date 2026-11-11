@@ -59,7 +59,7 @@ function start(gl) {
   renderer.setPixelRatio(budget.pixelRatio);
   /* What the world renders at now: the tier's rung 0, until a slow device steps it down. */
   let quality = {
-    scale: budget.scale, shadows: budget.shadows, octaves: budget.octaves, bears: budget.bears, stageLight: true, fullCrowd: true,
+    scale: budget.scale, shadows: budget.shadows, octaves: budget.octaves, bears: budget.bears, stageLight: true, fullCrowd: true, rig: true,
   };
   let rung = 0;
   /* The loop: each frame queues the next. Under reduced motion it runs on only while a control that acts over time is held, and
@@ -124,10 +124,15 @@ function start(gl) {
   mergeLandmarks(scene, landmarks, moving.map((m) => m.obj));
 
   /* ---------- the sky ---------- */
-  const { skyMat, hemi, sun } = buildSky(scene, budget.octaves, data.seed);
+  const { skyMat, hemi, sun, panelMat } = buildSky(scene, budget.octaves, data.seed);
 
   /* ---------- the stage ---------- */
-  const stage = buildStage(scene, sun, quality.shadows);
+  const stage = buildStage(scene, sun, quality.shadows, panelMat, skyMat.uniforms);
+  /* The rig's beams draw after the rest of the world's solid things, adding their light to what lies behind them, and the crowd draws
+     after the beams, so a figure covers whatever light they added where it stands: seen from anywhere, a beam in front of the figures
+     leaves them dark. */
+  stage.rig.mesh.renderOrder = 1;
+  crowd.mesh.renderOrder = 2;
   /* The lights' own intensities, which layer 2 scales. */
   const lightBase = { hemi: hemi.intensity, stage: stage.light.intensity };
   /* The desktop's one shadow map, the stage's, is drawn once: nothing that casts a shadow moves. */
@@ -409,6 +414,9 @@ function start(gl) {
     /* The crowd: how many figures it draws (the tier's, or the front-weighted half of them once the downgrade halves it), how far it
        dances, the music's factor in, how far it sits, and how many figures stand off their seats for the visitor. */
     crowd: stat(() => ({ drawn: crowd.mesh.count, dance: r3(dancing * layer2.dance), sit: r3(sitting), parted: crowd.parted })),
+    /* The rig: how far it is lit, how far the build-up has gathered its beams, and how far Space has lifted them; they swing as far as
+       the crowd dances. */
+    rig: stat(() => ({ lit: r3(stage.rig.show[1]), gather: r3(stage.rig.show[3]), lift: r3(stage.rig.show[4]) })),
     /* The view, whether the visitor's bear is drawn, where its head stands to the centimetre (the sound's listener in third person),
        whether its feet land in the frame (and above the now-plate on a phone), and where its head lands, as fractions from the top-left. */
     avatar: stat(() => ({ view: third ? "third" : "first", shown: avatar.g.visible,
@@ -462,8 +470,10 @@ function start(gl) {
     skyMat.uniforms.uC2.value.copy(skyMat.uniforms.uC0.value).lerp(skyMat.uniforms.uPage.value, 0.7);
     hemi.color.copy(skyMat.uniforms.uC0.value).lerp(new THREE.Color(0xffffff), 0.3);
     hemi.intensity = lightBase.hemi * layer2.hemi;
-    stage.panel.material.color.copy(skyMat.uniforms.uC0.value).multiplyScalar(layer2.panel);
+    panelMat.uniforms.uGain.value[0] = layer2.panel;
     stage.light.intensity = lightBase.stage * layer2.stage;
+    /* Whether a song plays: the crowd dances and the rig lights for one. */
+    const dances = playing && crowdAt[index].dance ? 1 : 0;
     if (!reduced) {
       skyMat.uniforms.uTime.value = elapsed;
       /* A drop falls every 40-60 s, and as the music plays past a peak of the song between one frame and the next, unless one fell in
@@ -485,7 +495,7 @@ function start(gl) {
       figures = beatStep(figures, dt, tempo ?? FIGURES_BPM, tempo !== null && onset !== seenOnset ? (now - onset) / 1000 : null);
       seenOnset = onset;
       stage.move(dt, elapsed, figures.beats, playing);
-      dancing = toward(dancing, playing && crowdAt[index].dance ? 1 : 0, dt / 0.8);
+      dancing = toward(dancing, dances, dt / 0.8);
     } else {
       skyMat.uniforms.uTime.value = data.seed;
     }
@@ -614,6 +624,19 @@ function start(gl) {
     const sits = crowdAt[index].sit ? 1 : 0;
     sitting = reduced ? sits : toward(sitting, sits, dt / SIT_S);
     crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting);
+    /* The rig's five numbers (rig.js): the figures' phase in eight beats; how far it is lit, as far as the crowd dances, so while a song
+       plays, and under reduced motion at once while one plays, its beams still; how far its beams swing, as far as the crowd dances; the
+       build-up, which gathers them; and how far the crowd sits, which in Space lifts them. A dark rig is not drawn.
+       The swing eases toward the crowd's dance with a 0.8 s time constant, kept in the rig's own array so a frame boxes no number. So the
+       music's loudness, which widens the dance, reaches the beams slowly: a step of it 63 % of the way in 0.8 s, and a rise and fall at
+       the beat's rate at a seventh of its size at the figures' slowest tempo (80 a minute) and a thirteenth at their fastest. */
+    const rig = stage.rig.show;
+    rig[0] = figures.beats % 8;
+    rig[1] = quality.rig ? (reduced ? dances : dancing) : 0;
+    rig[2] += (dancing * layer2.dance - rig[2]) * (reduced ? 1 : 1 - Math.exp(-dt / 0.8));
+    rig[3] = layer2.rise;
+    rig[4] = sitting;
+    stage.rig.mesh.visible = rig[1] > 0;
 
     renderer.render(scene, camera);
     /* The sound's listener is the visitor: their bear's head in third person, the camera in first (listenerAt); it faces where the
