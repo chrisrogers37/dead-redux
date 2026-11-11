@@ -4,6 +4,8 @@ import { importMap } from "../import-map";
 
 // The world's modules, which import three.js and its addons by bare name through the import map.
 const WORLD = new URL("../../../public/world/", import.meta.url);
+// package.json, whose devDependencies give the tests three.js.
+const PACKAGE = new URL("../../../package.json", import.meta.url);
 
 // The URL the import map gives a bare specifier, as a browser resolves it: the specifier's own entry, or else the longest entry
 // ending in "/" that the specifier starts with.
@@ -32,5 +34,10 @@ describe("importMap", () => {
 
   it("pins each file to a sha384 digest", () => {
     for (const [url, digest] of Object.entries(importMap.integrity)) expect(digest, url).toMatch(/^sha384-[A-Za-z0-9+/]{64}$/);
+  });
+
+  it("loads three.js at the exact version package.json installs for the tests", () => {
+    const version = JSON.parse(readFileSync(PACKAGE, "utf8")).devDependencies.three;
+    for (const url of [...Object.values(importMap.imports), ...Object.keys(importMap.integrity)]) expect(url, url).toContain(`three@${version}/`);
   });
 });
