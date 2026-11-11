@@ -417,8 +417,8 @@ function start(gl) {
     /* The crowd: how many figures it draws (the tier's, or the front-weighted half of them once the downgrade halves it), how far it
        dances, the music's factor in, how far it sits, and how many figures stand off their seats for the visitor. */
     crowd: stat(() => ({ drawn: crowd.mesh.count, dance: r3(dancing * layer2.dance), sit: r3(sitting), parted: crowd.parted })),
-    /* The rig: how far it is lit, how far the build-up has gathered its beams, and how far Space has lifted them; they swing as far as
-       the crowd dances. */
+    /* The rig: how far it is lit; how far its beams are gathered, following the build-up as it rises and opening again over RIG_OPEN_S
+       seconds past a peak; and how far Space has lifted them. They swing as far as the crowd dances. */
     rig: stat(() => ({ lit: r3(stage.rig.show[1]), gather: r3(stage.rig.show[3]), lift: r3(stage.rig.show[4]) })),
     /* The view, whether the visitor's bear is drawn, where its head stands to the centimetre (the sound's listener in third person),
        whether its feet land in the frame (and above the now-plate on a phone), and where its head lands, as fractions from the top-left. */

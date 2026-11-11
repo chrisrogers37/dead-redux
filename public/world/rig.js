@@ -12,8 +12,8 @@ const BEAMS = 8, SPAN = 7.5, LAMP_Y = 7.9, LAMP_Z = 4.3;
 /* A beam: a cone LENGTH m long, R0 m in radius at its lamp and R1 at its end, which fades to nothing along it. */
 const LENGTH = 44, R0 = 0.2, R1 = 3, SIDES = 12;
 /* The fan at rest: the beams spread from -SPREAD to SPREAD rad across, every other one lower (EL_LOW) or higher (EL_HIGH), in rad above
-   level. At those angles a beam's lower edge stays more than 3.5 m over the reach of a figure's raised hands everywhere along it, over
-   the whole of its swing. */
+   level. At those angles a beam's lower edge stays above the reach of a figure's raised hands everywhere along it, over the whole of
+   its swing. */
 const SPREAD = 0.7, EL_LOW = 0.45, EL_HIGH = 0.7;
 /* On the figures' beat each beam swings out SWAY rad to either side and back once every eight beats, and tilts TILT rad up and down two
    beats behind its swing, so it draws a loop; each is at its widest on a beat, the next beam along the rig a beat after it, so a ripple
@@ -30,8 +30,7 @@ const LIGHT = 0.22, SOFT = 0.06;
 /* A beam seen end-on is thicker to the eye than one seen across, up to THICK times. */
 const THICK = 2.5;
 /* A beam's light fades to nothing at the eye from CLEAR m away, so a camera standing in a beam or beside one is not veiled by its near
-   wall. It reaches less far than any beam comes to the camera at the five test poses (?pose=among's comes nearest, 2.6 m away), so it
-   changes none of them. */
+   wall. It reaches less far than any beam comes to the camera at the test poses (ground.js's TEST_POSES), so it changes none of them. */
 const CLEAR = 2;
 
 const f = (v) => v.toFixed(4);
