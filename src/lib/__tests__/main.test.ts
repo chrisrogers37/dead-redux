@@ -645,6 +645,22 @@ describe("main.js's frames with the show's map", () => {
     expect(swing()).toBeCloseTo(1.6, 2);
   });
 
+  it("gathers the rig's beams with the build-up as it rises, and opens them again over 8 s once the music passes the peak", async () => {
+    const page = await startWorld({ playing: true, routing: "plain", map: showMap({ peaks: [[300, 0.9]] }) });
+    const gather = () => fake.world.stage.rig.show[3];
+    page.seek(296);
+    page.run(4);
+    // At 300 s the build-up stands at its top, and the beams are gathered with it.
+    expect(hill().map?.build).toBe(1);
+    expect(gather()).toBeCloseTo(1, 6);
+    // Past the peak the build-up is gone within 0.8 s, while the gather falls 1/8 a second.
+    page.run(0.8);
+    expect(hill().map?.build).toBe(0);
+    expect(gather()).toBeCloseTo(0.9, 5);
+    page.run(7.2);
+    expect(gather()).toBeCloseTo(0, 5);
+  });
+
   it("keeps every channel under the clip where the beam crosses the sand rim, at the top of its build-up", async () => {
     // The rim as the stills read it, in 8-bit sRGB. Under additive blending a ray through the beam crosses its two faces, each adding the
     // beam's colour times its opacity.
