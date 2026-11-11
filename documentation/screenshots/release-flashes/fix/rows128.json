@@ -1,0 +1,120 @@
+{
+ "what": "#128's five beams-alone rows (capture_release2.py ROW128) at the fix's head: 1 s, then 4 s counted, 30 frames a second, ?pose=crowd's camera at 800x500; the most transitions in any one-second window at any 2x2 block, per grey",
+ "rows": [
+  {
+   "row": "peak: gathered, amber, 159, the loudest dance held",
+   "most": {
+    "grey11": 3,
+    "grey64": 3,
+    "grey96": 3,
+    "grey128": 3,
+    "grey160": 3,
+    "grey192": 3,
+    "grey208": 3,
+    "grey224": 3
+   },
+   "blocks": {
+    "grey11": 4,
+    "grey64": 18,
+    "grey96": 52,
+    "grey128": 83,
+    "grey160": 143,
+    "grey192": 168,
+    "grey208": 174,
+    "grey224": 168
+   }
+  },
+  {
+   "row": "loudness 0.45 / 0.65 each half beat, 159, eased",
+   "most": {
+    "grey11": 3,
+    "grey64": 3,
+    "grey96": 4,
+    "grey128": 4,
+    "grey160": 4,
+    "grey192": 3,
+    "grey208": 4,
+    "grey224": 4
+   },
+   "blocks": {
+    "grey11": 9,
+    "grey64": 36,
+    "grey96": 3,
+    "grey128": 4,
+    "grey160": 3,
+    "grey192": 177,
+    "grey208": 2,
+    "grey224": 1
+   }
+  },
+  {
+   "row": "loudness 0.45 / 0.65 each half beat, 159, raw",
+   "most": {
+    "grey11": 5,
+    "grey64": 6,
+    "grey96": 7,
+    "grey128": 7,
+    "grey160": 7,
+    "grey192": 6,
+    "grey208": 6,
+    "grey224": 6
+   },
+   "blocks": {
+    "grey11": 8,
+    "grey64": 11,
+    "grey96": 1,
+    "grey128": 2,
+    "grey160": 1,
+    "grey192": 64,
+    "grey208": 37,
+    "grey224": 10
+   }
+  },
+  {
+   "row": "loudness 0.55 +- 0.10 at the beat's rate, 159, eased",
+   "most": {
+    "grey11": 3,
+    "grey64": 4,
+    "grey96": 4,
+    "grey128": 4,
+    "grey160": 4,
+    "grey192": 4,
+    "grey208": 4,
+    "grey224": 4
+   },
+   "blocks": {
+    "grey11": 9,
+    "grey64": 1,
+    "grey96": 2,
+    "grey128": 4,
+    "grey160": 4,
+    "grey192": 3,
+    "grey208": 3,
+    "grey224": 2
+   }
+  },
+  {
+   "row": "loudness 0.55 +- 0.10 at the beat's rate, 159, raw",
+   "most": {
+    "grey11": 4,
+    "grey64": 5,
+    "grey96": 5,
+    "grey128": 6,
+    "grey160": 6,
+    "grey192": 6,
+    "grey208": 6,
+    "grey224": 6
+   },
+   "blocks": {
+    "grey11": 1,
+    "grey64": 1,
+    "grey96": 2,
+    "grey128": 1,
+    "grey160": 3,
+    "grey192": 3,
+    "grey208": 4,
+    "grey224": 3
+   }
+  }
+ ]
+}

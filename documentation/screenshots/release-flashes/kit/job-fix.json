@@ -1,0 +1,567 @@
+{
+ "parts": [
+  {
+   "name": "fix",
+   "site": "site-fix",
+   "port": 8782,
+   "gather": 8,
+   "stop_over": 6,
+   "rows": [
+    {
+     "name": "159-change-p6",
+     "bpm": 159,
+     "kind": "change",
+     "phase": 6,
+     "show": "1973-11-11",
+     "index": 10,
+     "title": "I Know You Rider",
+     "peak": 183,
+     "mapTempo": 158
+    },
+    {
+     "name": "159-wide-p0",
+     "bpm": 159,
+     "kind": "wide",
+     "phase": 0,
+     "show": "1979-08-05",
+     "index": 6,
+     "title": "It's All Over Now",
+     "peak": 522,
+     "mapTempo": 158
+    },
+    {
+     "name": "159-wide-p1",
+     "bpm": 159,
+     "kind": "wide",
+     "phase": 1,
+     "show": "1979-08-05",
+     "index": 6,
+     "title": "It's All Over Now",
+     "peak": 522,
+     "mapTempo": 158
+    },
+    {
+     "name": "159-wide-p2",
+     "bpm": 159,
+     "kind": "wide",
+     "phase": 2,
+     "show": "1979-08-05",
+     "index": 6,
+     "title": "It's All Over Now",
+     "peak": 522,
+     "mapTempo": 158
+    },
+    {
+     "name": "159-wide-p3",
+     "bpm": 159,
+     "kind": "wide",
+     "phase": 3,
+     "show": "1979-08-05",
+     "index": 6,
+     "title": "It's All Over Now",
+     "peak": 522,
+     "mapTempo": 158
+    },
+    {
+     "name": "159-wide-p4",
+     "bpm": 159,
+     "kind": "wide",
+     "phase": 4,
+     "show": "1979-08-05",
+     "index": 6,
+     "title": "It's All Over Now",
+     "peak": 522,
+     "mapTempo": 158
+    },
+    {
+     "name": "159-wide-p5",
+     "bpm": 159,
+     "kind": "wide",
+     "phase": 5,
+     "show": "1979-08-05",
+     "index": 6,
+     "title": "It's All Over Now",
+     "peak": 522,
+     "mapTempo": 158
+    },
+    {
+     "name": "159-wide-p6",
+     "bpm": 159,
+     "kind": "wide",
+     "phase": 6,
+     "show": "1979-08-05",
+     "index": 6,
+     "title": "It's All Over Now",
+     "peak": 522,
+     "mapTempo": 158
+    },
+    {
+     "name": "159-wide-p7",
+     "bpm": 159,
+     "kind": "wide",
+     "phase": 7,
+     "show": "1979-08-05",
+     "index": 6,
+     "title": "It's All Over Now",
+     "peak": 522,
+     "mapTempo": 158
+    },
+    {
+     "name": "159-change-p0",
+     "bpm": 159,
+     "kind": "change",
+     "phase": 0,
+     "show": "1973-11-11",
+     "index": 10,
+     "title": "I Know You Rider",
+     "peak": 183,
+     "mapTempo": 158
+    },
+    {
+     "name": "159-change-p1",
+     "bpm": 159,
+     "kind": "change",
+     "phase": 1,
+     "show": "1973-11-11",
+     "index": 10,
+     "title": "I Know You Rider",
+     "peak": 183,
+     "mapTempo": 158
+    },
+    {
+     "name": "159-change-p2",
+     "bpm": 159,
+     "kind": "change",
+     "phase": 2,
+     "show": "1973-11-11",
+     "index": 10,
+     "title": "I Know You Rider",
+     "peak": 183,
+     "mapTempo": 158
+    },
+    {
+     "name": "159-change-p3",
+     "bpm": 159,
+     "kind": "change",
+     "phase": 3,
+     "show": "1973-11-11",
+     "index": 10,
+     "title": "I Know You Rider",
+     "peak": 183,
+     "mapTempo": 158
+    },
+    {
+     "name": "159-change-p4",
+     "bpm": 159,
+     "kind": "change",
+     "phase": 4,
+     "show": "1973-11-11",
+     "index": 10,
+     "title": "I Know You Rider",
+     "peak": 183,
+     "mapTempo": 158
+    },
+    {
+     "name": "159-change-p5",
+     "bpm": 159,
+     "kind": "change",
+     "phase": 5,
+     "show": "1973-11-11",
+     "index": 10,
+     "title": "I Know You Rider",
+     "peak": 183,
+     "mapTempo": 158
+    },
+    {
+     "name": "159-change-p7",
+     "bpm": 159,
+     "kind": "change",
+     "phase": 7,
+     "show": "1973-11-11",
+     "index": 10,
+     "title": "I Know You Rider",
+     "peak": 183,
+     "mapTempo": 158
+    },
+    {
+     "name": "140-wide-p0",
+     "bpm": 140,
+     "kind": "wide",
+     "phase": 0,
+     "show": "1994-09-27",
+     "index": 1,
+     "title": "Feel Like A Stranger",
+     "peak": 487,
+     "mapTempo": 140
+    },
+    {
+     "name": "140-wide-p1",
+     "bpm": 140,
+     "kind": "wide",
+     "phase": 1,
+     "show": "1994-09-27",
+     "index": 1,
+     "title": "Feel Like A Stranger",
+     "peak": 487,
+     "mapTempo": 140
+    },
+    {
+     "name": "140-wide-p2",
+     "bpm": 140,
+     "kind": "wide",
+     "phase": 2,
+     "show": "1994-09-27",
+     "index": 1,
+     "title": "Feel Like A Stranger",
+     "peak": 487,
+     "mapTempo": 140
+    },
+    {
+     "name": "140-wide-p3",
+     "bpm": 140,
+     "kind": "wide",
+     "phase": 3,
+     "show": "1994-09-27",
+     "index": 1,
+     "title": "Feel Like A Stranger",
+     "peak": 487,
+     "mapTempo": 140
+    },
+    {
+     "name": "140-wide-p4",
+     "bpm": 140,
+     "kind": "wide",
+     "phase": 4,
+     "show": "1994-09-27",
+     "index": 1,
+     "title": "Feel Like A Stranger",
+     "peak": 487,
+     "mapTempo": 140
+    },
+    {
+     "name": "140-wide-p5",
+     "bpm": 140,
+     "kind": "wide",
+     "phase": 5,
+     "show": "1994-09-27",
+     "index": 1,
+     "title": "Feel Like A Stranger",
+     "peak": 487,
+     "mapTempo": 140
+    },
+    {
+     "name": "140-wide-p6",
+     "bpm": 140,
+     "kind": "wide",
+     "phase": 6,
+     "show": "1994-09-27",
+     "index": 1,
+     "title": "Feel Like A Stranger",
+     "peak": 487,
+     "mapTempo": 140
+    },
+    {
+     "name": "140-wide-p7",
+     "bpm": 140,
+     "kind": "wide",
+     "phase": 7,
+     "show": "1994-09-27",
+     "index": 1,
+     "title": "Feel Like A Stranger",
+     "peak": 487,
+     "mapTempo": 140
+    },
+    {
+     "name": "140-change-p0",
+     "bpm": 140,
+     "kind": "change",
+     "phase": 0,
+     "show": "1990-12-09",
+     "index": 6,
+     "title": "Bird Song",
+     "peak": 366,
+     "mapTempo": 140
+    },
+    {
+     "name": "140-change-p1",
+     "bpm": 140,
+     "kind": "change",
+     "phase": 1,
+     "show": "1990-12-09",
+     "index": 6,
+     "title": "Bird Song",
+     "peak": 366,
+     "mapTempo": 140
+    },
+    {
+     "name": "140-change-p2",
+     "bpm": 140,
+     "kind": "change",
+     "phase": 2,
+     "show": "1990-12-09",
+     "index": 6,
+     "title": "Bird Song",
+     "peak": 366,
+     "mapTempo": 140
+    },
+    {
+     "name": "140-change-p3",
+     "bpm": 140,
+     "kind": "change",
+     "phase": 3,
+     "show": "1990-12-09",
+     "index": 6,
+     "title": "Bird Song",
+     "peak": 366,
+     "mapTempo": 140
+    },
+    {
+     "name": "140-change-p4",
+     "bpm": 140,
+     "kind": "change",
+     "phase": 4,
+     "show": "1990-12-09",
+     "index": 6,
+     "title": "Bird Song",
+     "peak": 366,
+     "mapTempo": 140
+    },
+    {
+     "name": "140-change-p5",
+     "bpm": 140,
+     "kind": "change",
+     "phase": 5,
+     "show": "1990-12-09",
+     "index": 6,
+     "title": "Bird Song",
+     "peak": 366,
+     "mapTempo": 140
+    },
+    {
+     "name": "140-change-p6",
+     "bpm": 140,
+     "kind": "change",
+     "phase": 6,
+     "show": "1990-12-09",
+     "index": 6,
+     "title": "Bird Song",
+     "peak": 366,
+     "mapTempo": 140
+    },
+    {
+     "name": "140-change-p7",
+     "bpm": 140,
+     "kind": "change",
+     "phase": 7,
+     "show": "1990-12-09",
+     "index": 6,
+     "title": "Bird Song",
+     "peak": 366,
+     "mapTempo": 140
+    },
+    {
+     "name": "120-wide-p0",
+     "bpm": 120,
+     "kind": "wide",
+     "phase": 0,
+     "show": "1986-12-16",
+     "index": 14,
+     "title": "Drums ->",
+     "peak": 656,
+     "mapTempo": 120
+    },
+    {
+     "name": "120-wide-p1",
+     "bpm": 120,
+     "kind": "wide",
+     "phase": 1,
+     "show": "1986-12-16",
+     "index": 14,
+     "title": "Drums ->",
+     "peak": 656,
+     "mapTempo": 120
+    },
+    {
+     "name": "120-wide-p2",
+     "bpm": 120,
+     "kind": "wide",
+     "phase": 2,
+     "show": "1986-12-16",
+     "index": 14,
+     "title": "Drums ->",
+     "peak": 656,
+     "mapTempo": 120
+    },
+    {
+     "name": "120-wide-p3",
+     "bpm": 120,
+     "kind": "wide",
+     "phase": 3,
+     "show": "1986-12-16",
+     "index": 14,
+     "title": "Drums ->",
+     "peak": 656,
+     "mapTempo": 120
+    },
+    {
+     "name": "120-wide-p4",
+     "bpm": 120,
+     "kind": "wide",
+     "phase": 4,
+     "show": "1986-12-16",
+     "index": 14,
+     "title": "Drums ->",
+     "peak": 656,
+     "mapTempo": 120
+    },
+    {
+     "name": "120-wide-p5",
+     "bpm": 120,
+     "kind": "wide",
+     "phase": 5,
+     "show": "1986-12-16",
+     "index": 14,
+     "title": "Drums ->",
+     "peak": 656,
+     "mapTempo": 120
+    },
+    {
+     "name": "120-wide-p6",
+     "bpm": 120,
+     "kind": "wide",
+     "phase": 6,
+     "show": "1986-12-16",
+     "index": 14,
+     "title": "Drums ->",
+     "peak": 656,
+     "mapTempo": 120
+    },
+    {
+     "name": "120-wide-p7",
+     "bpm": 120,
+     "kind": "wide",
+     "phase": 7,
+     "show": "1986-12-16",
+     "index": 14,
+     "title": "Drums ->",
+     "peak": 656,
+     "mapTempo": 120
+    },
+    {
+     "name": "120-change-p0",
+     "bpm": 120,
+     "kind": "change",
+     "phase": 0,
+     "show": "1986-07-07",
+     "index": 3,
+     "title": "It's All Over Now Baby Blue",
+     "peak": 122,
+     "mapTempo": 120
+    },
+    {
+     "name": "120-change-p1",
+     "bpm": 120,
+     "kind": "change",
+     "phase": 1,
+     "show": "1986-07-07",
+     "index": 3,
+     "title": "It's All Over Now Baby Blue",
+     "peak": 122,
+     "mapTempo": 120
+    },
+    {
+     "name": "120-change-p2",
+     "bpm": 120,
+     "kind": "change",
+     "phase": 2,
+     "show": "1986-07-07",
+     "index": 3,
+     "title": "It's All Over Now Baby Blue",
+     "peak": 122,
+     "mapTempo": 120
+    },
+    {
+     "name": "120-change-p3",
+     "bpm": 120,
+     "kind": "change",
+     "phase": 3,
+     "show": "1986-07-07",
+     "index": 3,
+     "title": "It's All Over Now Baby Blue",
+     "peak": 122,
+     "mapTempo": 120
+    },
+    {
+     "name": "120-change-p4",
+     "bpm": 120,
+     "kind": "change",
+     "phase": 4,
+     "show": "1986-07-07",
+     "index": 3,
+     "title": "It's All Over Now Baby Blue",
+     "peak": 122,
+     "mapTempo": 120
+    },
+    {
+     "name": "120-change-p5",
+     "bpm": 120,
+     "kind": "change",
+     "phase": 5,
+     "show": "1986-07-07",
+     "index": 3,
+     "title": "It's All Over Now Baby Blue",
+     "peak": 122,
+     "mapTempo": 120
+    },
+    {
+     "name": "120-change-p6",
+     "bpm": 120,
+     "kind": "change",
+     "phase": 6,
+     "show": "1986-07-07",
+     "index": 3,
+     "title": "It's All Over Now Baby Blue",
+     "peak": 122,
+     "mapTempo": 120
+    },
+    {
+     "name": "120-change-p7",
+     "bpm": 120,
+     "kind": "change",
+     "phase": 7,
+     "show": "1986-07-07",
+     "index": 3,
+     "title": "It's All Over Now Baby Blue",
+     "peak": 122,
+     "mapTempo": 120
+    }
+   ],
+   "save": {
+    "159-wide-p0": [
+     0,
+     12,
+     24,
+     60,
+     120,
+     180,
+     240
+    ],
+    "159-change-p6": [
+     0,
+     12,
+     24,
+     60,
+     120,
+     180,
+     240
+    ]
+   }
+  },
+  {
+   "name": "rows128",
+   "site": "site-fix",
+   "port": 8782,
+   "kind": "rows128"
+  }
+ ]
+}
