@@ -3,6 +3,7 @@ import { BODY_REACH } from "../../../public/world/collide.js";
 import { BOUND, height, STAGE, STAGE_REACH } from "../../../public/world/ground.js";
 import { DESCENT_S } from "../../../public/world/modes.js";
 import { postPose } from "../../../public/world/pose.js";
+import { WINDOW } from "../../../public/world/quality.js";
 
 // public/world/main.js runs here as a page runs it, frame by frame, with the modules it imports: what keeps a walk in bounds (confine,
 // with the limits walkLimits builds from the bears' live spots), where attract puts the camera (postPose), and what the show's map does
@@ -10,7 +11,7 @@ import { postPose } from "../../../public/world/pose.js";
 // that import it (the island, the path and its landmarks, the bears, the visitor's bear, the sky and the stage), load only in a
 // browser, through the page's import map, so stand-ins play them, with what the frames here use: a desktop's, in either view. They
 // draw nothing, and keep what the tests read: where each bear stands, where the visitor's bear steps, where the camera stands and
-// looks, the stage light, the flame's size, the sky's drop, the figures' beat and the rig's aim.
+// looks, the sun's shadow, the stage light, the flame's size, the sky's drop, the figures' beat and the rig's aim.
 
 type Point = { x: number; z: number };
 type Point3 = Point & { y: number };
@@ -56,9 +57,9 @@ const fake = vi.hoisted(() => {
   type Sky = { uniforms: Record<string, { value: number | Vec }> };
 
   // What the world main.js built: its scene, its camera, every bear it made (a downgrade drops some from the scene), and where the
-  // visitor's bear last stepped; the flame of a fire landmark, the stage, the crowd's mesh, the sky and the meshes main.js makes itself
-  // (the beam); and the figures' phase in beats, as the last frame gave it to the stage, the crowd's pose, as the last frame gave it to
-  // the crowd, and whether its last parting stood the figures at once.
+  // visitor's bear last stepped; the flame of a fire landmark, the stage, the crowd's mesh, the sky, its sun and the meshes main.js makes
+  // itself (the beam); and the figures' phase in beats, as the last frame gave it to the stage, the crowd's pose, as the last frame gave
+  // it to the crowd, and whether its last parting stood the figures at once.
   // `line` is the bears' line each test gives it, and `onset` the time of the last onset the analyser heard, which each test sets (null
   // for none).
   const world = {
@@ -71,6 +72,7 @@ const fake = vi.hoisted(() => {
     stage: undefined as unknown as Stage,
     crowd: undefined as unknown as CrowdMesh,
     sky: undefined as unknown as Sky,
+    sun: undefined as unknown as { castShadow: boolean },
     meshes: [] as { material: unknown }[],
     beats: NaN,
     posed: { beats: NaN, dance: NaN, rise: NaN, sit: NaN },
@@ -203,10 +205,11 @@ const fake = vi.hoisted(() => {
             uAmber: { value: 0 },
           },
         };
+        world.sun = { castShadow: false };
         return {
           skyMat: world.sky,
           hemi: { color: new Vec() },
-          sun: { castShadow: false },
+          sun: world.sun,
           // The stage panel's material, whose gain each frame writes.
           panelMat: { uniforms: { uGain: { value: Float32Array.of(1) } } },
         };
@@ -214,7 +217,9 @@ const fake = vi.hoisted(() => {
       skyPair: () => [new Vec(), new Vec()],
     },
     stage: {
-      buildStage: () => {
+      // With shadows, the desktop's, the stage has the sun cast its shadow, as stage.js does.
+      buildStage: (_scene: Scene, sun: { castShadow: boolean }, shadows: boolean) => {
+        if (shadows) sun.castShadow = true;
         world.stage = {
           light: { visible: true, intensity: 60 },
           // The rig's five numbers, as the last frame wrote them, and whether it is drawn.
@@ -314,6 +319,7 @@ function showMap({ rms = 0 as number | ((byte: number) => number), bass = 0 as n
 
 type Hill = {
   mode: string;
+  rung: number;
   crowd: { drawn: number; dance: number; sit: number; parted: number };
   analysis: { source: string | null; weight: number };
   map: { step: number; bass: number; build: number; swell: number; bpm: number | null } | null;
@@ -484,6 +490,27 @@ describe("main.js's frames", () => {
     for (let k = 0; k < 1500 && hill().crowd.drawn === made; k++) page.run(0.05, { ms: 50 });
     expect(hill().crowd.drawn).toBe(Math.ceil(made / 2));
     expect(page.shown()).toHaveLength(fake.world.bears.length);
+  });
+
+  it("turns off the sun's shadow and the stage light on the way down the downgrade's ladder: at its foot neither is left", async () => {
+    const page = await startWorld();
+    // The desktop's stage has the sun cast its shadow, and its light is on.
+    expect(fake.world.sun.castShadow).toBe(true);
+    expect(fake.world.stage.light.visible).toBe(true);
+    // Once the load is over, each window of 50-ms frames steps the world down a rung, until a window finds no rung left.
+    page.run(DESCENT_S, { ms: 50 });
+    for (let k = 0, rung = -1; k < 30 && hill().rung !== rung; k++) {
+      rung = hill().rung;
+      page.run((WINDOW * 50) / 1000, { ms: 50 });
+    }
+    expect(fake.world.sun.castShadow).toBe(false);
+    expect(fake.world.stage.light.visible).toBe(false);
+  });
+
+  it("steps nothing down while the world loads: 50-ms frames to just short of DESCENT_S leave it at rung 0", async () => {
+    const page = await startWorld();
+    page.run(DESCENT_S - 0.05, { ms: 50 });
+    expect(hill().rung).toBe(0);
   });
 
   it("dances the crowd to a playing song over 0.8 s and sits it in Space over 1.5 s, or at once and still under reduced motion", async () => {
