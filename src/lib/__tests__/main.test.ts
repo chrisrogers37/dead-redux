@@ -661,6 +661,31 @@ describe("main.js's frames with the show's map", () => {
     expect(gather()).toBeCloseTo(0, 5);
   });
 
+  // Frames at 100, 50, 25 and 20 a second, each of which lands on the peak at 300 s. The rig keeps its numbers in 32-bit floats, so
+  // after hundreds of frames the gather reads true to 4 places.
+  it.each([10, 20, 40, 50])("opens the rig's beams over the same 8 s of the music past a peak at frames of %i ms", async (ms) => {
+    const page = await startWorld({ playing: true, routing: "plain", map: showMap({ peaks: [[300, 0.9]] }) });
+    const gather = () => fake.world.stage.rig.show[3];
+    page.seek(296);
+    page.run(4, { ms });
+    expect(gather()).toBeCloseTo(1, 6);
+    page.run(0.8, { ms });
+    expect(gather()).toBeCloseTo(0.9, 4);
+    page.run(4, { ms });
+    expect(gather()).toBeCloseTo(0.4, 4);
+  });
+
+  it("opens the rig's beams no further in a frame of 1 s than in one of 50 ms, the most world time a frame takes", async () => {
+    const page = await startWorld({ playing: true, routing: "plain", map: showMap({ peaks: [[300, 0.9]] }) });
+    const gather = () => fake.world.stage.rig.show[3];
+    page.seek(296);
+    page.run(4.8);
+    expect(gather()).toBeCloseTo(0.9, 5);
+    // One frame of 1 s, as when the page's frames stall: the gather falls 0.05 / 8, where 1 s would take it 1 / 8.
+    page.run(1, { ms: 1000 });
+    expect(gather()).toBeCloseTo(0.9 - 0.05 / 8, 5);
+  });
+
   it("keeps every channel under the clip where the beam crosses the sand rim, at the top of its build-up", async () => {
     // The rim as the stills read it, in 8-bit sRGB. Under additive blending a ray through the beam crosses its two faces, each adding the
     // beam's colour times its opacity.
