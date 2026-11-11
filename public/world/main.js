@@ -198,6 +198,9 @@ function start(gl) {
      players' does, and only while the show plays; the sit over SIT_S, at once under reduced motion, where the crowd never dances. */
   let dancing = 0, sitting = 0;
   const SIT_S = 1.5;
+  /* The seconds the rig's beams take to open again once the music has passed a peak. The build-up gathers them as it rises, and its
+     gather falls no faster than 1 / RIG_OPEN_S a second, so the fan sweeps across the frame slowly as it opens. */
+  const RIG_OPEN_S = 8;
   /* The last frame's song and place in it, which tell when the music passes a peak. */
   let lastIndex = -1, lastPos = 0;
   /* `value` moved toward `target` by at most `step`. */
@@ -626,7 +629,8 @@ function start(gl) {
     crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting);
     /* The rig's five numbers (rig.js): the figures' phase in eight beats; how far it is lit, as far as the crowd dances, so while a song
        plays, and under reduced motion at once while one plays, its beams still; how far its beams swing, as far as the crowd dances; the
-       build-up, which gathers them; and how far the crowd sits, which in Space lifts them. A dark rig is not drawn.
+       build-up, which gathers them, opening again over RIG_OPEN_S seconds past a peak; and how far the crowd sits, which in Space lifts
+       them. A dark rig is not drawn.
        The swing eases toward the crowd's dance with a 0.8 s time constant, kept in the rig's own array so a frame boxes no number. So the
        music's loudness, which widens the dance, reaches the beams slowly: a step of it 63 % of the way in 0.8 s, and a rise and fall at
        the beat's rate at a seventh of its size at the figures' slowest tempo (80 a minute) and a thirteenth at their fastest. */
@@ -634,7 +638,7 @@ function start(gl) {
     rig[0] = figures.beats % 8;
     rig[1] = quality.rig ? (reduced ? dances : dancing) : 0;
     rig[2] += (dancing * layer2.dance - rig[2]) * (reduced ? 1 : 1 - Math.exp(-dt / 0.8));
-    rig[3] = layer2.rise;
+    rig[3] = Math.max(layer2.rise, rig[3] - dt / RIG_OPEN_S);
     rig[4] = sitting;
     stage.rig.mesh.visible = rig[1] > 0;
 
