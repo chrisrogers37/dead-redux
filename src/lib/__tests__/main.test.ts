@@ -8,8 +8,8 @@ import { WINDOW } from "../../../public/world/quality.js";
 // public/world/main.js runs here as a page runs it, frame by frame, with the modules it imports: what keeps a walk in bounds (confine,
 // with the limits walkLimits builds from the bears' live spots), where attract puts the camera (postPose), and what the show's map does
 // (maps.js, beat.js and audio.js's mappings; the analyser hears nothing here, since no AudioContext is made). three, and the modules
-// that import it (the island, the path and its landmarks, the bears, the visitor's bear, the sky and the stage), are played by
-// stand-ins, with what the frames here use: a desktop's, in either view. The stand-ins keep these tests on main.js alone, and fast,
+// that import it (the island, the path and its landmarks, the bears, the visitor's bear, the crowd, the sky and the stage), are played
+// by stand-ins, with what the frames here use: a desktop's, in either view. The stand-ins keep these tests on main.js alone, and fast,
 // frame by frame. They draw nothing, and keep what the tests read: where each bear stands, where the visitor's bear steps, where the
 // camera stands and looks and its near plane, the sun's shadow, the stage light, the flame's size, the sky's drop, the figures' beat
 // and the rig's aim.
@@ -577,7 +577,9 @@ describe("main.js's frames", () => {
     page.hold("ArrowUp", 1, () => {
       const eye = fake.world.camera.position;
       expect(eye.y).toBeCloseTo(height(eye.x, eye.z) + 3.2, 9);
-      expect(page.shown().flatMap((b) => b.legs.map((leg) => leg.rotation.x)).filter((x) => x !== 0)).toEqual([]);
+      const shown = page.shown();
+      expect(shown.length).toBeGreaterThan(0);
+      expect(shown.flatMap((b) => b.legs.map((leg) => leg.rotation.x)).filter((x) => x !== 0)).toEqual([]);
     });
   });
 

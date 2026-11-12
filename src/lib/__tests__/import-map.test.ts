@@ -1,9 +1,8 @@
-import { readdirSync, readFileSync } from "fs";
+import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
 import { importMap } from "../import-map";
+import { threeImports } from "./world-imports";
 
-// The world's modules, which import three.js and its addons by bare name through the import map.
-const WORLD = new URL("../../../public/world/", import.meta.url);
 // package.json, whose devDependencies give the tests three.js.
 const PACKAGE = new URL("../../../package.json", import.meta.url);
 
@@ -21,12 +20,8 @@ function resolve(specifier: string): string {
 
 describe("importMap", () => {
   it("pins each file the world loads from the CDN, and no other", () => {
-    const specifiers = new Set<string>();
-    for (const file of readdirSync(WORLD).filter((name) => name.endsWith(".js"))) {
-      const source = readFileSync(new URL(file, WORLD), "utf8");
-      for (const [, specifier] of source.matchAll(/\b(?:from|import)\s*\(?\s*["'](three(?:\/[^"']*)?)["']/g)) specifiers.add(specifier);
-    }
-    const loaded = new Set([...specifiers].map(resolve));
+    // The world's modules import three.js and its addons by bare name, through the import map.
+    const loaded = new Set([...threeImports().values()].flat().map(resolve));
     // three.module.min.js imports three.core.min.js from beside it.
     loaded.add(new URL("three.core.min.js", resolve("three")).href);
     expect(Object.keys(importMap.integrity).sort()).toEqual([...loaded].sort());
