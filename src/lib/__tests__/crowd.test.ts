@@ -2,13 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
 import { buildCrowd, partingOptions } from "../../../public/world/crowd.js";
-import { FACING, STAGE, STAGE_COLUMN } from "../../../public/world/ground.js";
+import { FACING, height, STAGE, STAGE_COLUMN } from "../../../public/world/ground.js";
 import { buildPath, buildWalkLine } from "../../../public/world/path.js";
 import { PERSON } from "../../../public/world/seats.js";
 
 // buildCrowd builds the crowd here from the world's own modules and three, on the world's path and the bears' line 7 m to its left as
-// main.js lays them, with no landmarks, at every seat on the hill. seats.js runs as it is, and a pass-through mock keeps what buildCrowd
-// hands parting().
+// main.js lays them, with two landmarks of the test's own in the front rows, at every seat on the hill. seats.js runs as it is, and a
+// pass-through mock keeps what buildCrowd hands parting().
 
 const kept = vi.hoisted(() => ({ options: [] as Record<string, unknown>[] }));
 
@@ -26,8 +26,16 @@ vi.mock("../../../public/world/seats.js", async (original) => {
 // Out from the stage's centre along its axis, and across it.
 const ux = Math.sin(FACING), uz = Math.cos(FACING), nx = uz, nz = -ux;
 
+// The landmarks: 6 m cubes standing on the hill 24 m out from the stage's centre, 7 m to either side of its axis.
+const SIDE = 6, landmarkAt = [-7, 7].map((b) => [STAGE[0] + 24 * ux + b * nx, STAGE[1] + 24 * uz + b * nz]);
+const landmarks = landmarkAt.map(([x, z]) => {
+  const cube = new THREE.Mesh(new THREE.BoxGeometry(SIDE, SIDE, SIDE));
+  cube.position.set(x, height(x, z) + SIDE / 2, z);
+  return cube;
+});
+
 const path = buildPath();
-const crowd = buildCrowd(new THREE.Scene(), { count: Infinity, path, line: buildWalkLine(path, 7), landmarks: [] });
+const crowd = buildCrowd(new THREE.Scene(), { count: Infinity, path, line: buildWalkLine(path, 7), landmarks });
 
 // Each figure's seat and scale, as its matrix places and scales it, and the figure's own height. buildCrowd stands its figures PERSON
 // tall, some a little shorter and some a little taller: at the scale halfway between the shortest's and the tallest's.
