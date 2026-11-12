@@ -14,6 +14,8 @@ import { buildRig } from "./rig.js";
 /* Where the show sounds from: over the platform's centre, 2 m above the shelf, which puts it 0.8 m above the platform's floor (1.2 m
    up); and the way its sound faces: the stage's own. */
 export const STAGE_SOUND = { x: STAGE[0], y: SHELF_Y + 2, z: STAGE[1], facing: [Math.sin(FACING), 0, Math.cos(FACING)] };
+/* The light panel's middle in the stage's own frame: centred, PANEL.y m over the shelf, on the back wall. */
+export const PANEL = { y: 3.7, z: -4.08 };
 
 /* Builds the stage. With `shadows` the sun casts the desktop's one shadow map, framed on the stage alone. `panelMat` is the light panel's
    material (sky.js) and `colors` the sky's uniforms, whose two colours the rig's beams take. Returns the group, the light panel, the stage
@@ -44,7 +46,7 @@ export function buildStage(scene, sun, shadows, panelMat, colors) {
   for (const m of still.children) { m.castShadow = true; m.receiveShadow = true; }
 
   /* The light panel covers the wall from the platform's floor up and plays the sky's liquid light (sky.js). */
-  const panel = mesh(new THREE.PlaneGeometry(16, 5), panelMat, 0, 3.7, -4.08);
+  const panel = mesh(new THREE.PlaneGeometry(16, 5), panelMat, 0, PANEL.y, PANEL.z);
   const light = new THREE.PointLight(0xe8b04b, 60, 40);
   light.position.set(0, 7, 0);
   group.add(panel, light);
