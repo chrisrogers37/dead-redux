@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { FACING, height, STAGE } from "../../../public/world/ground.js";
-import { crowdPlan, isBetweenSongs, isDrums, isNotASong, isSpace, isTuning, parting, seats, songsOf } from "../../../public/world/seats.js";
+import { figureGeometry, partingOptions } from "../../../public/world/crowd.js";
+import { FACING, height, STAGE, STAGE_COLUMN } from "../../../public/world/ground.js";
+import { crowdPlan, isBetweenSongs, isDrums, isNotASong, isSpace, isTuning, parting, PERSON, seats, songsOf } from "../../../public/world/seats.js";
 
 type Seat = { x: number; z: number; r: number; sit: boolean };
 type Plan = { dance: boolean; sit: boolean };
@@ -165,10 +166,13 @@ describe("crowdPlan", () => {
 });
 
 describe("parting", () => {
-  // The seats with nothing kept clear, the options crowd.js gives for its largest figures, and a visitor's bear facing (fx, fz).
+  // The seats with nothing kept clear; the options crowd.js gives parting() for its figures, at the scale buildCrowd stands them at,
+  // PERSON tall; and a visitor's bear facing (fx, fz). The figures' sizes come from the options: how near a figure comes to the
+  // visitor's middle (reach), or with its arms hanging (hang), how high it reaches (top) and how far out (wide).
   const placed = seats(none) as Seat[], n = placed.length;
-  const OPTS = { keep: 4.2, reach: 4.07, hang: 2.65, lead: 1.1, step: 5.5, back: 3, space: 1.4, most: 9.1, passes: 4, ring: 2.85, top: 3.9,
-    wide: 2.09, clear: 1.1, grade: 1.5, keeps: [] as number[][] };
+  const figure = figureGeometry();
+  figure.computeBoundingBox();
+  const OPTS = { ...partingOptions(PERSON / figure.boundingBox.max.y), keeps: [] as number[][] };
   const bear = (x: number, z: number, fx: number, fz: number) => ({ feet: { x, z }, head: { x: x + 0.8 * fx, z: z + 0.8 * fz } });
   const where = (p: { offset: Float32Array }, i: number) => [placed[i].x + p.offset[4 * i], placed[i].z + p.offset[4 * i + 2]];
 
@@ -198,8 +202,8 @@ describe("parting", () => {
     expect(moved).toBeGreaterThan(0);
     expect(fastest).toBeLessThanOrEqual(5.5 + 1e-4);
     expect(fastest).toBeGreaterThan(5);
-    expect(nearest).toBeGreaterThanOrEqual(4.07 - 1e-4);
-    expect(nearestStill).toBeGreaterThanOrEqual(2.65 - 1e-4);
+    expect(nearest).toBeGreaterThanOrEqual(OPTS.reach - 1e-4);
+    expect(nearestStill).toBeGreaterThanOrEqual(OPTS.hang - 1e-4);
     expect(ground).toBeLessThan(1e-4);
     for (let k = 0; k < 300; k++) p.step(1 / 60, at(0).feet, at(0).head, false);
     expect([...p.offset].every((v) => v === 0)).toBe(true);
@@ -246,20 +250,20 @@ describe("parting", () => {
     expect(aside.length).toBeGreaterThan(0);
     expect(p.parted).toBe(moved.length);
     for (const i of aside) expect(still(i)).toBe(1);
-    // A figure at its seat within 2.35 m of one that stepped 0.25 m aside stands still, and so does any within 5.07 m (the reach and a
-    // metre) of the visitor's middle; one 2.85 m from every figure off its seat and past that dances.
+    // A figure at its seat within 2.35 m of one that stepped 0.25 m aside stands still, and so does any within the reach and a metre of
+    // the visitor's middle; one 2.85 m from every figure off its seat and past that dances.
     const apart = (i: number, j: number) => Math.hypot(where(p, i)[0] - where(p, j)[0], where(p, i)[1] - where(p, j)[1]);
     const from = (i: number, of: number[]) => Math.min(...of.map((j) => apart(i, j)));
     const middle = (i: number) => Math.hypot(where(p, i)[0] - (v.feet.x + v.head.x) / 2, where(p, i)[1] - (v.feet.z + v.head.z) / 2);
     for (const i of all) if (off(i) === 0 && from(i, aside) < 2.35) expect(still(i)).toBe(1);
-    for (const i of all) if (middle(i) < 5.07) expect(still(i)).toBe(1);
-    for (const i of all) if (off(i) === 0 && from(i, moved) >= 2.85 && middle(i) >= 5.07) expect(still(i)).toBe(0);
+    for (const i of all) if (middle(i) < OPTS.reach + 1) expect(still(i)).toBe(1);
+    for (const i of all) if (off(i) === 0 && from(i, moved) >= 2.85 && middle(i) >= OPTS.reach + 1) expect(still(i)).toBe(0);
   });
 
   it("makes room through a turn across the front rows: no step past the visitor's own, none in what it keeps clear of, out of reach", () => {
-    // Along the front, 17 m from the stage's centre, at 12 m/s, the stage's solids and a hand kept clear (13.04 m), the walker held as
-    // main.js holds it.
-    const p = parting(placed, { ...OPTS, keeps: [[STAGE[0], STAGE[1], 13.04]] });
+    // Along the front, 17 m from the stage's centre, at 12 m/s, the stage's solids and a hand kept clear, as buildCrowd keeps them, the
+    // walker held as main.js holds it.
+    const kept = STAGE_COLUMN.r + OPTS.wide, p = parting(placed, { ...OPTS, keeps: [[STAGE[0], STAGE[1], kept]] });
     const ux = Math.sin(FACING), uz = Math.cos(FACING), nx = uz, nz = -ux;
     const walker = { x: STAGE[0] + 17 * ux - 26 * nx, z: STAGE[1] + 17 * uz - 26 * nz, heading: Math.atan2(-nx, -nz) };
     const middle = () => [walker.x - 0.4 * Math.sin(walker.heading), walker.z - 0.4 * Math.cos(walker.heading)];
@@ -277,7 +281,7 @@ describe("parting", () => {
         worst = Math.max(worst, Math.hypot(p.offset[4 * i] - last[4 * i], p.offset[4 * i + 2] - last[4 * i + 2]) - visitorStep);
         if (p.offset[4 * i] === 0 && p.offset[4 * i + 2] === 0) continue;
         moved += 1;
-        inside = Math.max(inside, 13.04 - Math.hypot(x - STAGE[0], z - STAGE[1]));
+        inside = Math.max(inside, kept - Math.hypot(x - STAGE[0], z - STAGE[1]));
         if (p.offset[4 * i + 3] >= 1 && p.rising[i] === 0) nearestStill = Math.min(nearestStill, d); else nearest = Math.min(nearest, d);
       }
       last = Float32Array.from(p.offset); [lx, lz] = [mx, mz];
@@ -285,18 +289,19 @@ describe("parting", () => {
     expect(moved).toBeGreaterThan(0);
     expect(worst).toBeLessThanOrEqual(1e-6);
     expect(inside).toBeLessThanOrEqual(1e-3);
-    expect(nearest).toBeGreaterThanOrEqual(4.07 - 1e-4);
-    expect(nearestStill).toBeGreaterThanOrEqual(2.65 - 1e-4);
+    expect(nearest).toBeGreaterThanOrEqual(OPTS.reach - 1e-4);
+    expect(nearestStill).toBeGreaterThanOrEqual(OPTS.hang - 1e-4);
   });
 
   it("holds the visitor's walker back from a figure standing still, to the bear's reach and the figure's hanging arms", () => {
     const s = { x: 70, z: -60 }, p = parting([s], OPTS);
-    // The visitor stands 3 m from the figure, which steps aside and stands still; a walker 1 m from it is held 2.65 m off.
+    // The visitor stands 3 m from the figure, which steps aside and stands still; a walker 1 m from it is held the bear's reach and the
+    // figure's hanging arms off.
     p.step(1 / 60, { x: s.x - 3.4, z: s.z }, { x: s.x - 2.6, z: s.z }, true);
     expect(p.offset[3]).toBe(1);
     const fx = s.x + p.offset[0], fz = s.z + p.offset[2], walker = { x: fx - 1.4, z: fz, heading: -Math.PI / 2 };
     p.hold(walker);
-    expect(Math.hypot(walker.x - 0.4 * Math.sin(walker.heading) - fx, walker.z - 0.4 * Math.cos(walker.heading) - fz)).toBeCloseTo(2.65, 6);
+    expect(Math.hypot(walker.x - 0.4 * Math.sin(walker.heading) - fx, walker.z - 0.4 * Math.cos(walker.heading) - fz)).toBeCloseTo(OPTS.hang, 6);
   });
 
   it("stands still a figure within a metre past the reach of the visitor's middle that did not move", () => {
@@ -309,26 +314,27 @@ describe("parting", () => {
   });
 
   it("raises a camera 1.1 m over the highest a figure reaches, out to its reach and 1.1 m, then 1.5 m lower each metre, however far", () => {
-    const s = { x: 70, z: -60 }, h = height(s.x, s.z), p = parting([s], OPTS), top = h + 3.9 + 1.1;
+    const s = { x: 70, z: -60 }, h = height(s.x, s.z), p = parting([s], OPTS), top = h + OPTS.top + 1.1, edge = OPTS.wide + 1.1;
     const raised = (x: number, z: number, y = h + 1.2) => { const point = { x, y, z }; p.over(point); return point.y; };
-    expect(raised(s.x + 3.18, s.z)).toBe(top);
-    expect(raised(s.x, s.z + 4.19)).toBeCloseTo(top - 1.5, 9);
+    expect(raised(s.x + edge - 0.01, s.z)).toBe(top);
+    expect(raised(s.x, s.z + edge + 1)).toBeCloseTo(top - 1.5, 9);
     expect(raised(s.x + 5.8, s.z)).toBe(h + 1.2);
     // A camera far below the figure: the slope reaches it 10 m out, with nothing cut off.
-    expect(raised(s.x - 10, s.z, h - 10)).toBeCloseTo(top - 1.5 * (10 - 3.19), 9);
+    expect(raised(s.x - 10, s.z, h - 10)).toBeCloseTo(top - 1.5 * (10 - edge), 9);
     expect(raised(s.x - 20, s.z, h - 10)).toBe(h - 10);
     expect(raised(s.x, s.z, top + 1)).toBe(top + 1);
   });
 
   it("says how far a camera should climb now to stand as high as a figure asks when its way reaches it, and the most it asks on the way", () => {
     // On level ground 1.2 m off it, 10 m short of the figure and closing at 10 m/s, read 20 times over 2 s and climbing at 3 m/s: 0.7 s on
-    // it is 3 m out, within the figure's reach and 1.1 m, where the figure asks 5 m over its feet, 3.8 m above it, of which 2.1 m is climbed.
+    // it is 3 m out, within the figure's reach and 1.1 m, where the figure asks the camera up to 1.1 m over its top, from 1.2 m over
+    // its feet now; 2.1 m of that is climbed by then.
     const s = { x: 78, z: -60 }, h = height(s.x, s.z), p = parting([s], OPTS), camera = { x: s.x - 10, y: h + 1.2, z: s.z };
     expect(height(camera.x, camera.z)).toBe(h);
     const way = Float64Array.of(10, 0, 0, 2, 20, 3, 0, 0);
     p.ahead(camera, way);
-    expect(way[6]).toBeCloseTo(1.7, 9);
-    expect(way[7]).toBeCloseTo(3.8, 9);
+    expect(way[6]).toBeCloseTo(OPTS.top + 1.1 - 1.2 - 2.1, 9);
+    expect(way[7]).toBeCloseTo(OPTS.top + 1.1 - 1.2, 9);
     way[0] = -10;
     p.ahead(camera, way);
     expect(way[6]).toBe(0);

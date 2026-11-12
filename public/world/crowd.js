@@ -15,7 +15,7 @@ const PALETTE = [0x1d1b22, 0x22201d, 0x1a1f26, 0x26201f, 0x1e2320, 0x2a2420, 0x1
 /* One figure in its own units, standing on y = 0 and facing +z, 1.81 tall: legs LEG tall, a torso, a head and two arms at its sides,
    hanging from shoulders SHOULDER_X either side and SHOULDER_Y up. The legs carry aLeg = 1, the arms aArm = -1 and 1. */
 const LEG = 0.86, SHOULDER_X = 0.3, SHOULDER_Y = 1.44;
-function figureGeometry() {
+export function figureGeometry() {
   const part = (geo, leg, arm) => {
     const g = geo.index ? geo.toNonIndexed() : geo, n = g.attributes.position.count;
     g.setAttribute("aLeg", new THREE.BufferAttribute(new Float32Array(n).fill(leg), 1));
@@ -48,6 +48,20 @@ const ARM_UP = 2.7, RISE_FROM = 0.3, RISE_SPAN = 0.6, RISE_W = 0.1;
 const HAND = 1.11, TOP = 2.08, PAST = 0.4, HANG = 0.354;
 /* The visitor's bear reaches 1.98 m from its middle, halfway between its feet and its head (bears.js, avatar.js). */
 const BEAR = 1.98;
+/* The options buildCrowd hands parting() (seats.js) for figures at `scale`, up to the largest's size. A figure keeps 0.15 m past their
+   bear's reach and its own from the visitor's middle where it has room, and never comes nearer than those two reaches, or nearer than
+   the bear's reach and its hanging arms (HANG) while it stands still. It sees them coming 1.1 s ahead, steps aside at 5.5 m/s and walks
+   back at 3; groups push apart within 1.4 m, past where two of the largest's hanging hands meet (0.35 units out, 1.32 m), and any
+   within 2.85 m of one that has stepped aside stand still, fading over the last 0.5 m, out of reach of a dancer's hands (0.88 units
+   out, 1.66 m). A figure standing fully still brings its arms down over a quarter second and raises them again once its stillness falls
+   below a half, keeping to either for half a second at least; one at the fading edge rises with the rest. The walk's camera keeps 1.1 m
+   out of them (avatar.js), past the near plane's corners in the widest view (1.04 m away on a phone held across, 19.5:9), rising over
+   them ahead of reaching them. */
+export function partingOptions(scale) {
+  const big = scale * 1.08, hand = HAND * big, reach = BEAR + hand;
+  return { keep: reach + 0.15, reach, hang: BEAR + HANG * big, lead: 1.1, step: 5.5, back: 3, space: 1.4, most: reach + 6, passes: 4,
+    ring: 2.85, top: TOP * big, wide: hand, clear: 1.1, grade: 1.5 };
+}
 
 const f = (v) => v.toFixed(4);
 /* After common: the crowd's attributes and uniforms, and `rot`, which turns a point in its plane by `a` rad. */
@@ -130,19 +144,10 @@ export function buildCrowd(scene, { count, path, line, landmarks }) {
     fig.set([p.sit ? 1 : 0, (i * 0.618034) % 1, far > near ? (p.r - near) / (far - near) : 0], 3 * i);
   });
   geo.setAttribute("aFig", new THREE.InstancedBufferAttribute(fig, 3));
-  /* The parting, for figures up to the largest's size. A figure keeps 0.15 m past their bear's reach and its own from the visitor's
-     middle where it has room, and never comes nearer than those two reaches, or nearer than the bear's reach and its hanging arms
-     (HANG) while it stands still. It sees them coming 1.1 s ahead, steps aside at 5.5 m/s and walks back at 3; groups push apart
-     within 1.4 m, past where two of the largest's hanging hands meet (0.35 units out, 1.32 m), and any within 2.85 m of one that has
-     stepped aside stand still, fading over the last 0.5 m, out of reach of a dancer's hands (0.88 units out, 1.66 m). A figure standing
-     fully still brings its arms down over a quarter second and raises them again once its stillness falls below a half, keeping to
-     either for half a second at least; one at the fading edge rises with the rest. It keeps clear of what the seats keep clear of, and its
-     hands of the stage's solids (STAGE_COLUMN). The walk's camera keeps 1.1 m out of them (avatar.js), past the near plane's corners
-     in the widest view (1.04 m away on a phone held across, 19.5:9), rising over them ahead of reaching them. */
-  const big = scale * 1.08, hand = HAND * big, reach = BEAR + hand;
-  const parts = parting(placed, { keep: reach + 0.15, reach, hang: BEAR + HANG * big, lead: 1.1, step: 5.5, back: 3, space: 1.4,
-    most: reach + 6, passes: 4, ring: 2.85, top: TOP * big, wide: hand, clear: 1.1, grade: 1.5,
-    keeps: [...keepOuts(around), [STAGE[0], STAGE[1], STAGE_COLUMN.r + hand]] });
+  /* The parting (partingOptions), each figure keeping clear of what the seats keep clear of, and its hands of the stage's solids
+     (STAGE_COLUMN). */
+  const big = scale * 1.08, opts = partingOptions(scale);
+  const parts = parting(placed, { ...opts, keeps: [...keepOuts(around), [STAGE[0], STAGE[1], STAGE_COLUMN.r + opts.wide]] });
   const aPart = new THREE.InstancedBufferAttribute(parts.offset, 4).setUsage(THREE.DynamicDrawUsage);
   const aRise = new THREE.InstancedBufferAttribute(parts.rising, 1).setUsage(THREE.DynamicDrawUsage);
   geo.setAttribute("aPart", aPart);
