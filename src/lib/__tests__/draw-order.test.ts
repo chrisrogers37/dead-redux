@@ -26,8 +26,9 @@ type Part = {
 type Item = { object: Part; material: Material };
 
 const world = vi.hoisted(() => ({
-  // The rig as rig.js built it, running as it is, and what each frame's render does.
+  // The rig and the crowd as rig.js and crowd.js built them, both running as they are, and what each frame's render does.
   rig: undefined as unknown as { mesh: Part },
+  crowd: undefined as unknown as { mesh: Part },
   render: (_scene: unknown, _camera: unknown) => {},
 }));
 
@@ -46,6 +47,10 @@ vi.mock("three", async (original) => ({
 vi.mock("../../../public/world/rig.js", async (original) => {
   const rig = await original<{ buildRig: (...args: unknown[]) => { mesh: Part } }>();
   return { ...rig, buildRig: (...args: unknown[]) => (world.rig = rig.buildRig(...args)) };
+});
+vi.mock("../../../public/world/crowd.js", async (original) => {
+  const crowd = await original<{ buildCrowd: (...args: unknown[]) => { mesh: Part } }>();
+  return { ...crowd, buildCrowd: (...args: unknown[]) => (world.crowd = crowd.buildCrowd(...args)) };
 });
 
 // What three draws of `scene` from `camera` in a frame, in order. WebGLRenderer's projectObject puts each mesh, line, point and sprite
@@ -77,8 +82,9 @@ function drawn(scene: Part, camera: { layers: unknown; reversedDepth: boolean })
   return { lists, order: [...list.opaque, ...list.transmissive, ...list.transparent] as Item[] };
 }
 
-// Each frame that draws the rig's beams: the list three draws them in.
-type Frame = { list: string };
+// Each frame that draws the rig's beams: the list three draws them in, and the places among the frame's draws of the beams' last draw
+// and the figures' first (-1 for none).
+type Frame = { list: string; lastBeam: number; firstFigure: number };
 const lit: Frame[] = [];
 
 // The page around the world, played by stand-ins: <main>, playing the show; the world's element; a desktop's window and screen; the
@@ -127,11 +133,13 @@ beforeAll(async () => {
   world.render = (scene, camera) => {
     const { lists, order } = drawn(scene as Part, camera as { layers: unknown; reversedDepth: boolean });
     const places = (mesh: Part) => order.flatMap((item, at) => (item.object === mesh ? [at] : []));
-    const beams = places(world.rig.mesh);
+    const beams = places(world.rig.mesh), figures = places(world.crowd.mesh);
     if (beams.length === 0) return;
     const beam = order[beams[0]];
     lit.push({
       list: Object.keys(lists).find((name) => lists[name].includes(beam))!,
+      lastBeam: Math.max(...beams),
+      firstFigure: figures.length > 0 ? Math.min(...figures) : -1,
     });
   };
   // Runs `count` frames, each 20 ms long.
@@ -157,5 +165,10 @@ describe("main.js's frames, as three draws them", () => {
   it("draw the rig's beams in three's opaque list, with the solid things, in every frame that lights them", () => {
     expect(lit.length).toBeGreaterThan(0);
     expect(lit.filter((f) => f.list !== "opaque").map((f) => f.list)).toEqual([]);
+  });
+
+  it("draw the crowd's figures after the rig's beams in every frame that lights them", () => {
+    expect(lit.length).toBeGreaterThan(0);
+    expect(lit.filter((f) => !(f.firstFigure > f.lastBeam)).map(({ lastBeam, firstFigure }) => ({ lastBeam, firstFigure }))).toEqual([]);
   });
 });
