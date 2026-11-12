@@ -7,9 +7,10 @@ import { WebGLRenderList } from "three/src/renderers/webgl/WebGLRenderLists.js";
 // camera to `drawn`, which lists what three draws and in what order, as WebGLRenderer does, in three's own render list.
 //
 // The crowd's figures stay dark under the rig's beams because three draws the beams with the solid things, before the crowd: a figure
-// covers whatever light the beams added where it stands, from any camera.
+// covers whatever light the beams added where it stands, from any camera. And the beams write no depth, so they hide no figure that
+// stands behind them.
 
-type Material = { visible: boolean };
+type Material = { visible: boolean; depthWrite: boolean };
 type Part = {
   visible: boolean;
   renderOrder: number;
@@ -82,9 +83,9 @@ function drawn(scene: Part, camera: { layers: unknown; reversedDepth: boolean })
   return { lists, order: [...list.opaque, ...list.transmissive, ...list.transparent] as Item[] };
 }
 
-// Each frame that draws the rig's beams: the list three draws them in, and the places among the frame's draws of the beams' last draw
-// and the figures' first (-1 for none).
-type Frame = { list: string; lastBeam: number; firstFigure: number };
+// Each frame that draws the rig's beams: the list three draws them in, whether they write depth, and the places among the frame's draws
+// of the beams' last draw and the figures' first (-1 for none).
+type Frame = { list: string; depthWrite: boolean; lastBeam: number; firstFigure: number };
 const lit: Frame[] = [];
 
 // The page around the world, played by stand-ins: <main>, playing the show; the world's element; a desktop's window and screen; the
@@ -138,6 +139,7 @@ beforeAll(async () => {
     const beam = order[beams[0]];
     lit.push({
       list: Object.keys(lists).find((name) => lists[name].includes(beam))!,
+      depthWrite: beam.material.depthWrite,
       lastBeam: Math.max(...beams),
       firstFigure: figures.length > 0 ? Math.min(...figures) : -1,
     });
@@ -170,5 +172,10 @@ describe("main.js's frames, as three draws them", () => {
   it("draw the crowd's figures after the rig's beams in every frame that lights them", () => {
     expect(lit.length).toBeGreaterThan(0);
     expect(lit.filter((f) => !(f.firstFigure > f.lastBeam)).map(({ lastBeam, firstFigure }) => ({ lastBeam, firstFigure }))).toEqual([]);
+  });
+
+  it("draw the rig's beams without writing depth, so they hide no figure behind them", () => {
+    expect(lit.length).toBeGreaterThan(0);
+    expect(lit.filter((f) => f.depthWrite !== false).map((f) => f.depthWrite)).toEqual([]);
   });
 });
