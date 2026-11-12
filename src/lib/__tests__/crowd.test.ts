@@ -23,6 +23,9 @@ vi.mock("../../../public/world/seats.js", async (original) => {
   };
 });
 
+// Out from the stage's centre along its axis, and across it.
+const ux = Math.sin(FACING), uz = Math.cos(FACING), nx = uz, nz = -ux;
+
 const path = buildPath();
 const crowd = buildCrowd(new THREE.Scene(), { count: Infinity, path, line: buildWalkLine(path, 7), landmarks: [] });
 
@@ -39,6 +42,28 @@ for (let i = 0; i < crowd.count; i++) {
 const scale = (Math.min(...scales) + Math.max(...scales)) / 2;
 const figure = new THREE.Box3().setFromBufferAttribute(crowd.mesh.geometry.getAttribute("position"));
 const own: Record<string, number> = partingOptions(scale);
+// Where the parting has stepped each figure from its seat, [dx, dy, dz, stillness] each.
+const offset: Float32Array = crowd.mesh.geometry.getAttribute("aPart").array;
+
+// Walks the visitor `frames` frames from `[x, z]` along `[wx, wz]`, a unit vector, at 12 m/s: 0.2 m a frame of 1/60 s, held as main.js
+// holds the walker (the crowd's hold before the step, its part after it), their bear's head 0.8 m ahead of its feet (avatar.js). After
+// each frame, `each(i)` for each figure.
+function walk([x, z]: number[], [wx, wz]: number[], frames: number, each: (i: number) => void) {
+  const walker = { x, z, heading: Math.atan2(-wx, -wz) };
+  const visitor = () => {
+    const fx = -Math.sin(walker.heading), fz = -Math.cos(walker.heading);
+    return { feet: { x: walker.x, z: walker.z }, head: { x: walker.x + 0.8 * fx, z: walker.z + 0.8 * fz } };
+  };
+  crowd.part(0, visitor().feet, visitor().head, false);
+  for (let f = 0; f < frames; f++) {
+    walker.x -= Math.sin(walker.heading) * 0.2;
+    walker.z -= Math.cos(walker.heading) * 0.2;
+    crowd.hold(walker);
+    const v = visitor();
+    crowd.part(1 / 60, v.feet, v.head, false);
+    for (let i = 0; i < crowd.count; i++) each(i);
+  }
+}
 
 describe("the crowd, as buildCrowd builds it", () => {
   it("parts its figures with the options for their own size, PERSON tall as it stands them", () => {
@@ -51,29 +76,15 @@ describe("the crowd, as buildCrowd builds it", () => {
   });
 
   it("keeps its figures' hands clear of the stage's solids as they make room for a walk across the front rows", () => {
-    // Across the front rows, 15 m from the stage's centre at the nearest, at 12 m/s, the walker held as main.js holds it. No figure's
-    // hands reach farther than `wide` from its axis (partingOptions, for figures its size), so each figure, at its seat or stepped aside,
-    // stands that far past the stage's solids (STAGE_COLUMN) from the stage's centre.
-    const clear = STAGE_COLUMN.r + own.wide, offset: Float32Array = crowd.mesh.geometry.getAttribute("aPart").array;
-    const ux = Math.sin(FACING), uz = Math.cos(FACING), nx = uz, nz = -ux;
-    const walker = { x: STAGE[0] + 15 * ux - 20 * nx, z: STAGE[1] + 15 * uz - 20 * nz, heading: Math.atan2(-nx, -nz) };
-    const visitor = () => {
-      const fx = -Math.sin(walker.heading), fz = -Math.cos(walker.heading);
-      return { feet: { x: walker.x, z: walker.z }, head: { x: walker.x + 0.8 * fx, z: walker.z + 0.8 * fz } };
-    };
-    crowd.part(0, visitor().feet, visitor().head, false);
+    // Across the front rows, 15 m from the stage's centre at the nearest. No figure's hands reach farther than `wide` from its axis
+    // (partingOptions, for figures its size), so each figure, at its seat or stepped aside, stands that far past the stage's solids
+    // (STAGE_COLUMN) from the stage's centre.
+    const clear = STAGE_COLUMN.r + own.wide;
     let moved = 0, nearest = Infinity;
-    for (let f = 0; f < 200; f++) {
-      walker.x -= Math.sin(walker.heading) * 0.2;
-      walker.z -= Math.cos(walker.heading) * 0.2;
-      crowd.hold(walker);
-      const v = visitor();
-      crowd.part(1 / 60, v.feet, v.head, false);
-      for (let i = 0; i < crowd.count; i++) {
-        if (offset[4 * i] !== 0 || offset[4 * i + 2] !== 0) moved += 1;
-        nearest = Math.min(nearest, Math.hypot(seats[i][0] + offset[4 * i] - STAGE[0], seats[i][1] + offset[4 * i + 2] - STAGE[1]));
-      }
-    }
+    walk([STAGE[0] + 15 * ux - 20 * nx, STAGE[1] + 15 * uz - 20 * nz], [nx, nz], 200, (i) => {
+      if (offset[4 * i] !== 0 || offset[4 * i + 2] !== 0) moved += 1;
+      nearest = Math.min(nearest, Math.hypot(seats[i][0] + offset[4 * i] - STAGE[0], seats[i][1] + offset[4 * i + 2] - STAGE[1]));
+    });
     expect(moved).toBeGreaterThan(0);
     expect(nearest).toBeGreaterThanOrEqual(clear - 1e-3);
   });
