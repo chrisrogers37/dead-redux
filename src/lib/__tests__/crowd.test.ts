@@ -4,18 +4,26 @@ import * as THREE from "three";
 import { buildCrowd, partingOptions } from "../../../public/world/crowd.js";
 import { FACING, height, STAGE, STAGE_COLUMN } from "../../../public/world/ground.js";
 import { buildPath, buildWalkLine } from "../../../public/world/path.js";
-import { PERSON } from "../../../public/world/seats.js";
+import { keepOuts, PERSON } from "../../../public/world/seats.js";
 
 // buildCrowd builds the crowd here from the world's own modules and three, on the world's path and the bears' line 7 m to its left as
-// main.js lays them, with two landmarks of the test's own in the front rows, at every seat on the hill. seats.js runs as it is, and a
-// pass-through mock keeps what buildCrowd hands parting().
+// main.js lays them, with two landmarks of the test's own in the front rows, at every seat on the hill. seats.js runs as it is, and
+// pass-through mocks keep what buildCrowd hands seats() and parting().
 
-const kept = vi.hoisted(() => ({ options: [] as Record<string, unknown>[] }));
+type Around = { path: number[][]; line: number[][]; landmarks: number[][] };
+const kept = vi.hoisted(() => ({ around: [] as Around[], options: [] as Record<string, unknown>[] }));
 
 vi.mock("../../../public/world/seats.js", async (original) => {
-  const seats = await original<{ parting: (placed: unknown[], options: Record<string, unknown>) => unknown }>();
+  const seats = await original<{
+    seats: (around: Around) => unknown;
+    parting: (placed: unknown[], options: Record<string, unknown>) => unknown;
+  }>();
   return {
     ...seats,
+    seats: (around: Around) => {
+      kept.around.push(around);
+      return seats.seats(around);
+    },
     parting: (placed: unknown[], options: Record<string, unknown>) => {
       kept.options.push(options);
       return seats.parting(placed, options);
@@ -95,5 +103,41 @@ describe("the crowd, as buildCrowd builds it", () => {
     });
     expect(moved).toBeGreaterThan(0);
     expect(nearest).toBeGreaterThanOrEqual(clear - 1e-3);
+  });
+
+  it("keeps its figures clear of what their seats keep clear of as they make room: the path, the bears' line and each landmark's circle", () => {
+    // What the seats keep clear of (keepOuts, each [x, z, distance]): the points of the path and of the bears' line that buildCrowd
+    // hands seats(), and a circle round each landmark's bounds, which for a cube runs through its corners.
+    const { path: onPath, line: onLine } = kept.around[0];
+    const keeps = {
+      path: keepOuts({ path: onPath, line: [], landmarks: [] }),
+      line: keepOuts({ path: [], line: onLine, landmarks: [] }),
+      landmarks: keepOuts({ path: [], line: [], landmarks: landmarkAt.map(([x, z]) => [x, z, Math.hypot(SIDE, SIDE) / 2]) }),
+    };
+    // How far past each the figures stand at the nearest, at their seats or stepped aside.
+    const past: Record<string, number> = { path: Infinity, line: Infinity, landmarks: Infinity };
+    let moved = 0;
+    const check = (i: number) => {
+      const x = seats[i][0] + offset[4 * i], z = seats[i][1] + offset[4 * i + 2];
+      if (offset[4 * i] !== 0 || offset[4 * i + 2] !== 0) moved += 1;
+      for (const [name, list] of Object.entries(keeps))
+        for (const [kx, kz, d] of list) past[name] = Math.min(past[name], Math.hypot(x - kx, z - kz) - d);
+    };
+    // Back across the front rows, 15 m from the stage's centre at the nearest, past the landmarks.
+    walk([STAGE[0] + 15 * ux + 20 * nx, STAGE[1] + 15 * uz + 20 * nz], [-nx, -nz], 200, check);
+    // Past the figure nearest the line's keep, 1 m from its seat on the side away from the line, square to the way from it to the line's
+    // nearest kept point, with the line on the walker's left.
+    let nearest = { gap: Infinity, i: 0, k: [0, 0, 0] };
+    for (const k of keeps.line)
+      seats.forEach(([x, z], i) => {
+        const gap = Math.hypot(x - k[0], z - k[1]) - k[2];
+        if (gap < nearest.gap) nearest = { gap, i, k };
+      });
+    const [sx, sz] = seats[nearest.i], to = Math.hypot(nearest.k[0] - sx, nearest.k[1] - sz);
+    const dx = (nearest.k[0] - sx) / to, dz = (nearest.k[1] - sz) / to;
+    walk([sx - dx + 20 * dz, sz - dz - 20 * dx], [-dz, dx], 200, check);
+    expect(moved).toBeGreaterThan(0);
+    const inside = Object.entries(past).filter(([, d]) => d < -1e-3);
+    expect(inside.map(([name, d]) => `${name}: ${(-d).toFixed(3)} m inside`)).toEqual([]);
   });
 });
