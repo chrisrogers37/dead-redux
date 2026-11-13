@@ -69,7 +69,7 @@ The world loads three.js from jsDelivr, so the dev server needs a network connec
 | `npm run test:run` | Every test, once |
 | `npm test` | Tests in watch mode |
 | `npx vitest run src/lib/__tests__/quality.test.ts` | One test file |
-| `npm run fetch-shows` | Refreshes `data/shows.json` from Relisten |
+| `npm run fetch-shows` | Refreshes `data/shows.json` from Relisten, and rewrites `data/pick-schedule.json` when it finds new shows (`scripts/refresh-catalog.ts`) |
 
 Tests are in `src/lib/__tests__/` and `scripts/__tests__/`.
 
@@ -79,7 +79,7 @@ Vercel deploys `main` to production at https://dead-redux.vercel.app, and each o
 
 GitHub Actions run three workflows (`.github/workflows/`):
 
-- **CI** runs Lint, Type-check and Unit tests on every pull request and every push to `main`. The repo's ruleset takes changes into `main` only through pull requests that pass all three.
+- **CI** runs Lint, Type-check and Unit tests on every pull request and every push to `main`. The repo's ruleset takes changes into `main` through pull requests that pass all three and have one approving review.
 - **Screenshots** shoots each ready preview in stills and recordings. It fails a frame over its tier's draw-call budget, two reduced-motion stills that differ, a CDN file that doesn't match its pinned hash, or a failed install check. It runs on production on demand.
 - **Maps** runs daily at 06:20 UTC. It makes the maps the next 14 featured days still need, at most two a run, from the recording each day's page plays, and commits them to the `maps` branch. The recording is analysed in memory and only the map is kept. Maps reach the site when `maps` is merged into `main`.
 

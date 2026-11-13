@@ -29,7 +29,7 @@ One file: `npx vitest run src/lib/__tests__/quality.test.ts`. The dev server sen
 
 ## How a change lands
 
-- Through a pull request off `main`. The repo's "Protect main" ruleset requires one, with Lint, Type-check and Unit tests passing, and refuses force pushes and deletion.
+- Through a pull request off `main`. The repo's "Protect main" ruleset requires one, with Lint, Type-check and Unit tests passing and one approving review, and refuses force pushes and deletion.
 - Small PRs, each with a code review and a review of its screenshots (#121).
 - Every push to a PR's branch gets a Vercel preview, and the Screenshots workflow shoots it (`screenshots.yml`). The run's artifact holds the stills and recordings the screenshot review reads.
 - Commit and PR titles start with the area they change, such as `world:`, `maps:`, `ci:` or `player:` (`git log`).

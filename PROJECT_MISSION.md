@@ -37,7 +37,7 @@ Five choices his words leave open, each with a recommended answer, grounded in w
 **What it costs:**
 - Nothing new: no new three.js file, no policy change, nothing to host or license.
 - If "still pretty basic" means the shapes themselves, this arc won't answer it. His next look at the live site is the test.
-- Files, if he wants them later: a model loader is one more pinned three.js file (`src/lib/import-map.ts`), and models and textures would be the first binary files in `public/` to host and license. Compressed ones need WebAssembly, which the policy refuses today (`src/lib/csp.ts`), so a policy change and a security review.
+- Files, if he wants them later: a glTF model loader is two more pinned three.js files, the loader and SkeletonUtils (`src/lib/import-map.ts`), and models and textures would be the first binary files in `public/` to host and license. Compressed ones need WebAssembly, which the policy refuses today, and the Draco and KTX2 loaders also start a worker from a `blob:` URL, which the policy doesn't list (`src/lib/csp.ts`), so a policy change and a security review.
 
 ### 3. Devices
 
