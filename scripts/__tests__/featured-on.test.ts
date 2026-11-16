@@ -122,6 +122,11 @@ describe("showsToMap", () => {
     expect(await showsToMap(featured, later, 2, playing)).toEqual(["1977-05-08", "1977-05-09"]);
     expect(playing.asked).toEqual([]);
   });
+
+  it("leaves out a show without a full date and picks the next one in its place", async () => {
+    const partial = [{ featured: "2026-09-30", show: "1970-12-XX" }, ...featured];
+    expect(await showsToMap(partial, new Map(), 2, asMapped(new Map()))).toEqual(["1977-05-08", "1977-05-09"]);
+  });
 });
 
 // A run's io: what it prints and what it says, the maps directories it can read ({ dir: { name: text } }), and the site it asks,
