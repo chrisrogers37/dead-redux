@@ -13,6 +13,7 @@ Each day features one show. Everyone who visits that day gets the same one, and 
 - `data/shows.json` is the catalog: 2,079 shows, from 1965-11-01 to 1995-07-09. `npm run fetch-shows` refreshes it from [Relisten](https://relisten.net). New shows join the rotation just before its first repeat, which moves no date before that point (`src/lib/pick-schedule.ts`).
 - When a page renders, it asks Relisten for the show's recordings and picks one: labelled tracks first, then a soundboard, then the best rated (`src/lib/relisten.ts`). The audio streams from the Live Music Archive at archive.org. If there is no recording, or the look-up fails, the page says which.
 - `/archive` lists the days before today, by month, and `/<YYYY-MM-DD>` is any day's page.
+- `/feed.xml` is a feed of the newest 30 daily picks for a feed reader, and `/sitemap.xml` lists every page for search engines.
 
 ## The world
 

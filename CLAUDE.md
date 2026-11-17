@@ -16,10 +16,10 @@ One file: `npx vitest run src/lib/__tests__/quality.test.ts`. The dev server sen
 
 ## Where things are
 
-- `src/app/`: the pages, the `/api/playing/<date>` route, the icons and the share cards.
+- `src/app/`: the pages, the `/api/playing/<date>` route, the sitemap, `robots.txt` and the feed (`sitemap.ts`, `robots.ts`, `feed.xml/route.ts`), the icons and the share cards.
 - `src/components/world/WorldHome.tsx`: the page around the world, its HUD, and the script tag that loads the world.
 - `src/components/player/`: the audio player.
-- `src/lib/`: the daily pick, the Relisten look-up, the policy and the import map.
+- `src/lib/`: the daily pick, the Relisten look-up, the site's address (`site.ts`), the sitemap's and the feed's entries (`feeds.ts`), the policy and the import map.
 - `public/world/*.js`: the world, as plain ES modules outside the bundle. They import only each other and three.js.
 - `public/maps/<show date>.json`: one map per show.
 - `data/shows.json`: the catalog. `data/pick-schedule.json`: every date's show.
@@ -71,6 +71,11 @@ The test hooks, `?at=`, `?t=`, `?stats=1`, `?day=`, `?sleep=`, `?lookup=`, `?pos
 - The site's day turns at midnight `America/New_York` (`src/lib/site-day.ts`; `site-day.test.ts`).
 - A date keeps its show. `pick-schedule.test.ts` pins the opening picks and the rotation by sha256. A refresh adds new shows just before the rotation's first repeat (`addToRotation`), which moves no date before it: it changes the whole rotation's pin and `firstRepeatIndex`, never the others.
 - Every show in the rotation has a recording. A show without one goes in `skipped`, with its reason (`pick-schedule.test.ts`).
+
+## The site's address
+
+- `SITE_URL` (`src/lib/site.ts`) is the base of every absolute link the site gives: `metadataBase`, the share link, the sitemap, `robots.txt` and the feed's links.
+- A feed item's ID never changes with the site's address. It is a tag URI written out in `itemId` (`src/lib/feeds.ts`), never built from `SITE_URL` (`feeds.test.ts`).
 
 ## The maps job
 
