@@ -3,20 +3,24 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { FACING, height, STAGE, SHELF_Y } from "./ground.js";
 import { mesh, mergeStill } from "./landmarks.js";
+import { buildRig } from "./rig.js";
 
 /* The stage, on its shelf at the island's north-east edge: a platform whose open front faces the island's middle (ground.js); a roof on
-   two posts over a back wall with a light panel in the sky's first colour; two PA stacks; a light; and six players as flat black
-   silhouettes, never likenesses: two guitars, a bass, keys and two drummers. */
+   two posts over a back wall with a light panel that plays the sky's liquid light; two PA stacks; a light; the rig's beams under the
+   roof's front edge (rig.js); and six players as flat black silhouettes, never likenesses: two guitars, a bass, keys and two drummers. */
 
 /* The walk's reach round the stage and the column the third-person camera keeps out of, STAGE_REACH and STAGE_COLUMN, are ground.js's:
    they follow the platform's edge, the PA stacks' outer corners and the roof's top built here. */
 /* Where the show sounds from: over the platform's centre, 2 m above the shelf, which puts it 0.8 m above the platform's floor (1.2 m
    up); and the way its sound faces: the stage's own. */
 export const STAGE_SOUND = { x: STAGE[0], y: SHELF_Y + 2, z: STAGE[1], facing: [Math.sin(FACING), 0, Math.cos(FACING)] };
+/* The light panel's middle in the stage's own frame: centred, PANEL.y m over the shelf, on the back wall. */
+export const PANEL = { y: 3.7, z: -4.08 };
 
-/* Builds the stage. With `shadows` the sun casts the desktop's one shadow map, framed on the stage alone. Returns the group, the light
-   panel (whose colour follows the sky's), the stage light (the downgrade's last rung turns it off) and `move`, which plays the players. */
-export function buildStage(scene, sun, shadows) {
+/* Builds the stage. With `shadows` the sun casts the desktop's one shadow map, framed on the stage alone. `panelMat` is the light panel's
+   material (sky.js) and `colors` the sky's uniforms, whose two colours the rig's beams take. Returns the group, the light panel, the stage
+   light (the downgrade turns it off), the rig (rig.js) and `move`, which plays the players. */
+export function buildStage(scene, sun, shadows, panelMat, colors) {
   const group = new THREE.Group();
   group.position.set(STAGE[0], SHELF_Y, STAGE[1]);
   group.rotation.y = FACING;
@@ -41,8 +45,8 @@ export function buildStage(scene, sun, shadows) {
   mergeStill(still);
   for (const m of still.children) { m.castShadow = true; m.receiveShadow = true; }
 
-  /* The light panel covers the wall from the platform's floor up; unlit, it shows the sky's colour as it is. */
-  const panel = mesh(new THREE.PlaneGeometry(16, 5), new THREE.MeshBasicMaterial({ color: 0xe8b04b }), 0, 3.7, -4.08);
+  /* The light panel covers the wall from the platform's floor up and plays the sky's liquid light (sky.js). */
+  const panel = mesh(new THREE.PlaneGeometry(16, 5), panelMat, 0, PANEL.y, PANEL.z);
   const light = new THREE.PointLight(0xe8b04b, 60, 40);
   light.position.set(0, 7, 0);
   group.add(panel, light);
@@ -89,6 +93,7 @@ export function buildStage(scene, sun, shadows) {
     kit.push(part(new THREE.CylinderGeometry(0.5, 0.5, 0.4, 12).rotateX(Math.PI / 2), x, 1.7, -1.55));
   }
   group.add(new THREE.Mesh(mergeGeometries(kit), black));
+  const rig = buildRig(group, colors);
 
   if (shadows) {
     /* The sun keeps its direction but aims at the stage, so its shadow camera frames the stage alone. */
@@ -104,13 +109,14 @@ export function buildStage(scene, sun, shadows) {
     sun.shadow.normalBias = 0.02;
   }
 
-  /* The players keep a fixed 96 beats a minute while the show plays: everyone nods on the beat, the guitars and the bass rock with the
-     strum, and each drummer's arms fall on 1 and 3. Otherwise they stand, breathing on a 4-s cycle. Each change eases over 0.8 s. Under
-     reduced motion nothing calls this, so they stand still. */
+  /* The players keep the beat while the show plays: everyone nods on it, the guitars and the bass rock with the strum, and each
+     drummer's arms fall on 1 and 3. `beats` is their phase in beats, which the caller keeps (beat.js), and `t` the world's time in
+     seconds. Otherwise they stand, breathing on a 4-s cycle. Each change eases over 0.8 s. Under reduced motion nothing calls this, so
+     they stand still. */
   let level = 0;
-  function move(dt, t, playing) {
+  function move(dt, t, beats, playing) {
     level = Math.max(0, Math.min(1, level + (playing ? dt : -dt) / 0.8));
-    const beats = (t * 96) / 60, beat = Math.sin(2 * Math.PI * beats), breath = 0.02 * (1 - level) * Math.sin((2 * Math.PI * t) / 4);
+    const beat = Math.sin(2 * Math.PI * beats), breath = 0.02 * (1 - level) * Math.sin((2 * Math.PI * t) / 4);
     for (const p of players) {
       p.g.position.y = 1.2 + 0.06 * level * beat + breath;
       if (p.strums) p.g.rotation.z = 0.15 * level * beat;
@@ -118,5 +124,5 @@ export function buildStage(scene, sun, shadows) {
     }
   }
 
-  return { group, panel, light, move };
+  return { group, panel, light, rig, move };
 }

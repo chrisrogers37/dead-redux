@@ -5,8 +5,11 @@ import {
   checkMap,
   envAt,
   loadMap,
+  mapDrive,
   MAX_PEAKS,
+  passesPeak,
   readMap,
+  tempoAround,
   tempoAt,
 } from "../../../public/world/maps.js";
 
@@ -408,6 +411,44 @@ describe("reading a track", () => {
     map.tracks[1].peaks = [];
     expect(buildUp(readMap(map).tracks[1], 10)).toBe(0);
   });
+
+  it("tells when the music plays past a peak: one after the first time and at or before the second", () => {
+    const b = readMap(fixture).tracks[1];
+    // The peak is at 20 s.
+    expect(passesPeak(b, 19.5, 20)).toBe(true);
+    expect(passesPeak(b, 19, 20.9)).toBe(true);
+    expect(passesPeak(b, 20, 21)).toBe(false);
+    expect(passesPeak(b, 18, 19.9)).toBe(false);
+  });
+
+  it("passes no peak on a seek: a step of 2 s or more, or one back", () => {
+    const b = readMap(fixture).tracks[1];
+    expect(passesPeak(b, 18.5, 20.4)).toBe(true);
+    expect(passesPeak(b, 18, 20)).toBe(false);
+    expect(passesPeak(b, 21, 19)).toBe(false);
+  });
+
+  it("gives the tempos of the windows around a time's own within the track, leaving out the windows with none", () => {
+    // Track 2's three windows read 96, none and 100.
+    const b = readMap(fixture).tracks[1];
+    expect(tempoAround(b, 15, 1)).toEqual([96, 100]);
+    expect(tempoAround(b, 15, 0)).toEqual([]);
+    expect(tempoAround(b, 0, 5)).toEqual([96, 100]);
+    expect(tempoAround(b, 99, 0)).toEqual([100]);
+  });
+
+  it("drives as the live sound does, from the envelope byte a time falls in, marked as the map's", () => {
+    expect(mapDrive(readMap(fixture).tracks[1], 20.8)).toEqual({ source: "map", loud: 200 / 255, bass: 30 / 255, bright: 100 / 255 });
+  });
+
+  it.each([
+    // 9 s is byte 2 at 4 s a step and byte 1 at 8; read at 1 s a step it would be byte 5 of 6, or the last of 3.
+    { step: 4, at9: 20 },
+    { step: 8, at9: 10 },
+  ])("drives from the byte a time falls in at $step s a step", ({ step, at9 }) => {
+    const level = at9 / 255;
+    expect(mapDrive(readMap(atStep(step)).tracks[1], 9)).toEqual({ source: "map", loud: level, bass: level, bright: level });
+  });
 });
 
 describe("loadMap", () => {
@@ -462,6 +503,15 @@ describe("loadMap", () => {
     expect(await loadMap({ ...DATA, identifier: null }, fetchMap)).toBeNull();
     expect(asked).toEqual([]);
     expect(warnings).toEqual([]);
+  });
+
+  it("lets go of a missing map's body, so its request ends", async () => {
+    // A body that stays open until it is read or cancelled, as a 404's does in a browser.
+    let cancelled = false;
+    const body = new ReadableStream({ pull: (controller) => controller.close(), cancel: () => void (cancelled = true) }, { highWaterMark: 0 });
+    const response = new Response(body, { status: 404 });
+    expect(await loadMap(DATA, async () => response)).toBeNull();
+    expect(cancelled || response.bodyUsed).toBe(true);
   });
 
   it("takes a duration under half a second off", async () => {

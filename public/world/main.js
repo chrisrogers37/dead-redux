@@ -1,18 +1,22 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { buildIsland } from "./island.js";
-import { height, PATH_POSE, SLOPE_POSE, STAGE_COLUMN, STAGE_POSE } from "./ground.js";
+import { height, STAGE_COLUMN, TEST_POSES } from "./ground.js";
 import { buildPath, layout, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
 import { makeBuilders, mergeLandmarks } from "./landmarks.js";
-import { buildBears } from "./bears.js";
+import { buildBears, drawLegs } from "./bears.js";
 import { buildAvatar } from "./avatar.js";
 import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
-import { confine, enterMode, keepSpot, slotAt, slotDistance, walkLimits } from "./modes.js";
+import { confine, DESCENT_S, enterMode, keepSpot, modeRules, slotAt, slotDistance, walkLimits } from "./modes.js";
 import { postPose as poseOver } from "./pose.js";
 import { cueClock } from "./clock.js";
-import { listen, soundStats, startSound } from "./audio.js";
+import { analyse, analysisStats, listen, mappings, onsetAt, soundStats, startSound } from "./audio.js";
+import { buildUp, loadMap, mapDrive, passesPeak } from "./maps.js";
+import { beatStep, FIGURES_BPM, figuresTempo } from "./beat.js";
 import { buildStage, STAGE_SOUND } from "./stage.js";
+import { buildCrowd } from "./crowd.js";
+import { crowdPlan, isBetweenSongs, isDrums, isSpace } from "./seats.js";
 import { budgetFor, frameSampler, pickTier, stepDown } from "./quality.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
@@ -35,6 +39,10 @@ const set2Start = hasShow ? data.set2Start ?? null : null, encoreStart = hasShow
 const starts = [];
 let total = 0;
 for (const t of tracks) { starts.push(total); total += t.duration; }
+/* What the crowd does through each track: dances, sits, or both (seats.js). */
+const crowdAt = crowdPlan(tracks, set2Start);
+/* What each track's title says it holds (seats.js): Drums, Space, or the band tuning or the crowd's noise between songs. */
+const heldAt = tracks.map(({ title }) => ({ drums: isDrums(title), space: isSpace(title), between: isBetweenSongs(title) }));
 
 const canvas = document.createElement("canvas");
 /* If the page gave up waiting for this module, the still stays and nothing starts. */
@@ -52,7 +60,9 @@ function start(gl) {
   const renderer = new THREE.WebGLRenderer({ canvas, context: gl, antialias: false, powerPreference: "low-power" });
   renderer.setPixelRatio(budget.pixelRatio);
   /* What the world renders at now: the tier's rung 0, until a slow device steps it down. */
-  let quality = { scale: budget.scale, shadows: budget.shadows, octaves: budget.octaves, bears: budget.bears, stageLight: true };
+  let quality = {
+    scale: budget.scale, shadows: budget.shadows, octaves: budget.octaves, bears: budget.bears, stageLight: true, fullCrowd: true, rig: true,
+  };
   let rung = 0;
   /* The loop: each frame queues the next. Under reduced motion it runs on only while a control that acts over time is held, and
      each input or state change wakes it for a frame, always at rung 0. A hidden tab's loop sleeps until the tab shows again. */
@@ -105,16 +115,28 @@ function start(gl) {
   /* ---------- the bears ---------- */
   const bears = buildBears(scene, budget.bears);
 
+  /* ---------- the crowd ---------- */
+  const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks });
+
   /* ---------- the visitor's bear ---------- */
-  const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN] });
-  /* The landmarks' still parts become one mesh across the path, once the camera's keep-out boxes are read from them. */
+  const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN], over: crowd.over, ahead: crowd.ahead });
+  /* Every bear's legs, the visitor's too, as one mesh (bears.js). */
+  drawLegs(scene, [...bears, avatar]);
+  /* The landmarks' still parts become one mesh across the path, once the camera's keep-out boxes and the crowd's are read from them. */
   mergeLandmarks(scene, landmarks, moving.map((m) => m.obj));
 
   /* ---------- the sky ---------- */
-  const { skyMat, hemi, sun } = buildSky(scene, budget.octaves, data.seed);
+  const { skyMat, hemi, sun, panelMat } = buildSky(scene, budget.octaves, data.seed);
 
   /* ---------- the stage ---------- */
-  const stage = buildStage(scene, sun, quality.shadows);
+  const stage = buildStage(scene, sun, quality.shadows, panelMat, skyMat.uniforms);
+  /* The rig's beams draw after the rest of the world's solid things, adding their light to what lies behind them, and the crowd draws
+     after the beams, so a figure covers whatever light they added where it stands: seen from anywhere, a beam in front of the figures
+     leaves them dark. */
+  stage.rig.mesh.renderOrder = 1;
+  crowd.mesh.renderOrder = 2;
+  /* The lights' own intensities, which layer 2 scales. */
+  const lightBase = { hemi: hemi.intensity, stage: stage.light.intensity };
   /* The desktop's one shadow map, the stage's, is drawn once: nothing that casts a shadow moves. */
   renderer.shadowMap.enabled = quality.shadows;
   renderer.shadowMap.autoUpdate = false;
@@ -128,11 +150,13 @@ function start(gl) {
     new THREE.MeshBasicMaterial({ color: 0xe8b04b, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, forceSinglePass: true }));
   beam.visible = hasShow;
   scene.add(beam);
+  /* Its own opacity, which the build-up before a peak scales. */
+  const beamBase = beam.material.opacity;
 
   /* ---------- the show clock ---------- */
   /* The audio element owns the clock: the world keeps the player's last report (sent on each timeupdate, on play and on pause)
      and runs on from it while the show plays. */
-  let playing = false, showPos = 0, index = 0, frac = 0;
+  let playing = false, showPos = 0, index = 0, frac = 0, trackPos = 0;
   let clock = { index: 0, position: 0, duration: tracks[0].duration, at: performance.now() };
   document.addEventListener("player:now", (e) => { clock = e.detail; });
   /* A cue reaches the world at once, before its audio plays, so the world shows where the show is while it loads: the bears wait
@@ -145,21 +169,52 @@ function start(gl) {
     const i = Math.max(0, Math.min(N - 1, clock.index));
     const d = clock.duration > 0 ? clock.duration : tracks[i].duration;
     const pos = Math.min(d, clock.position + (playing ? (now - clock.at) / 1000 : 0));
-    index = i; frac = d > 0 ? pos / d : 0; showPos = starts[i] + pos;
+    index = i; frac = d > 0 ? pos / d : 0; showPos = starts[i] + pos; trackPos = pos;
   }
   /* The show sounds from the stage, through the graph the first move makes (audio.js). */
   startSound(STAGE_SOUND, phone);
   const energyOf = (i) => {
-    const t = tracks[i].title.toLowerCase();
-    if (t.includes("tuning") || t.includes("crowd")) return 0.2; if (t.includes("drums")) return 0.9; if (t.includes("space")) return 0.3;
+    const held = heldAt[i];
+    if (held.between) return 0.2; if (held.drums) return 0.9; if (held.space) return 0.3;
     if (encoreStart !== null && i >= encoreStart) return 0.8;
     if (set2Start !== null) return i >= set2Start ? 0.7 : 0.5;
     /* One list: the last song as the encore and the break at about a third. */
     if (i === N - 1) return 0.8; return i < Math.floor(N * 0.37) ? 0.5 : 0.7;
   };
   let energy = 0.5;
+  /* Layer 2: this frame's drive from the music, the live sound's or, where the analyser cannot hear the show, its map's (null while
+     neither gives one, and always under reduced motion), the last drive heard, and how far the world follows it, easing over 0.8 s each
+     way so it never snaps to or from the music. */
+  let drive = null, heard = null, weight = 0;
+  /* What the music does to the world this frame (audio.js mappings). */
+  let layer2 = mappings(null, 0);
+  /* The bears' leg phase, which the music's loudness speeds; it accumulates, so a change of rate never jumps the legs. */
+  let gait = 0;
+  /* Layer 3: the show's map (maps.js), null until it has loaded and on a day without one. Where the analyser cannot hear the show, the
+     map drives the world in the live sound's place; and from it come the build-up before each of a song's peaks, which follows the map's
+     at most 1.25 a second either way, so a seek or a peak's passing never snaps, and the figures' tempo (null where it gives none). */
+  let map = null, build = 0, tempo = null;
+  /* The figures' beat (beat.js), and the time of the last onset it has seen. */
+  let figures = { beats: 0, pull: 0, locks: 0 }, seenOnset = null;
+  /* How far the crowd dances and how far it sits, each 0-1, following the track that plays (crowdAt): the dance eases over 0.8 s as the
+     players' does, and only while the show plays; the sit over SIT_S, at once under reduced motion, where the crowd never dances. */
+  let dancing = 0, sitting = 0;
+  const SIT_S = 1.5;
+  /* The seconds the rig's beams take to open again once the music has passed a peak. The build-up gathers them as it rises, and its
+     gather falls no faster than 1 / RIG_OPEN_S a second, so the fan sweeps across the frame slowly as it opens. */
+  const RIG_OPEN_S = 8;
+  /* The last frame's song and place in it, which tell when the music passes a peak. */
+  let lastIndex = -1, lastPos = 0;
+  /* `value` moved toward `target` by at most `step`. */
+  const toward = (value, target, step) => value + Math.max(-step, Math.min(step, target - value));
   let rnd = (() => { let s = data.seed * 9301 + 49297; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; })();
   let nextDrop = 40 + rnd() * 20, dropAt = -99;
+  /* The sky's drop: a ring that spreads from a point of the sky, from `dropAt`; the next falls 40-60 s on. */
+  function drop() {
+    dropAt = elapsed;
+    skyMat.uniforms.uDrop.value.set(0.2 + rnd() * 0.6, 0.3 + rnd() * 0.5, 0);
+    nextDrop = elapsed + 40 + rnd() * 20;
+  }
 
   /* ---------- the camera: walker, attract, descent, drift ---------- */
   /* The walker is the visitor, seen from behind as their own bear (third person, the default) or through its eyes (first person). The
@@ -168,16 +223,17 @@ function start(gl) {
   const walker = { x: trailhead.x, z: trailhead.z, heading: 0, pitch: 0 };
   const t0 = tangentAt(0); walker.heading = Math.atan2(-t0.x, -t0.z);
   let third = true, cut = false;
-  /* The test hooks ?pose=stage, ?pose=slope and ?pose=path, on preview deployments only (the server marks <main data-test-hooks="1">):
-     the walk starts with the visitor on the slope in front of the stage, higher up it, or on the path where it shows the stage
-     (ground.js), with no descent, and no idle time hands the view to attract. ?pose=sweep is the same walk from the trailhead, for the
+  /* The test hooks ?pose=stage, ?pose=slope, ?pose=path, ?pose=crowd and ?pose=among, on preview deployments only (the server marks
+     <main data-test-hooks="1">): the walk starts with the visitor on the slope in front of the stage, higher up it, on the path where it
+     shows the stage, or behind the crowd or among it (ground.js), with no descent. ?pose=sweep is the same walk from the trailhead, for the
      CI shoot's draw-call sweep: a `world:pose` event (x, z, heading, pitch) puts the visitor anywhere with the camera cut, the world
      holds rung 0, and it draws at a twentieth of the frame's size, which changes no draw call: three culls against the camera, whose
      aspect stays the frame's. ?pose=snout stands the walker in front of the lead bear's snout looking a little down, and ?pose=pass
      behind the last bear, a little to its side, facing its way; both start inside the bear's reach and are taken again when the view
      changes, so the walk's keep-out sets each view's distance. */
-  const hook = main.dataset.testHooks === "1" ? new URLSearchParams(location.search).get("pose") : null;
-  const testPose = hook === "stage" ? STAGE_POSE : hook === "slope" ? SLOPE_POSE : hook === "path" ? PATH_POSE : null;
+  const hooks = main.dataset.testHooks === "1" ? new URLSearchParams(location.search) : null;
+  const hook = hooks?.get("pose") ?? null;
+  const testPose = hook && Object.hasOwn(TEST_POSES, hook) ? TEST_POSES[hook] : null;
   const sweep = hook === "sweep";
   const bearHook = hook === "snout" || hook === "pass" ? hook : null;
   let bearPose = bearHook;
@@ -186,11 +242,22 @@ function start(gl) {
      their line passes nearest it, the lead bear there, with no descent. */
   const overK = /^landmark-(\d+)$/.exec(hook ?? "");
   const over = overK ? landmarks[Number(overK[1])] ?? null : null;
+  /* The test hook ?drive=map: the show's map drives the world, as where the analyser cannot hear the show, while the sound is routed
+     as ever. */
+  const mapHook = hooks?.get("drive") === "map";
+  /* This frame's drive, with `track` the map's for the song that plays (null without a map): the live sound's, else the map's while
+     the show plays where the analyser cannot hear it, in plain stereo or before its sound is routed (the page mirrors how it sounds on
+     <main>), or under ?drive=map. Never the map's where the analyser hears silence (a stall, the gap between tracks), so the two never
+     take turns within a song. */
+  function driveFor(now, track) {
+    if (!mapHook) {
+      const live = analyse(now);
+      if (live || main.dataset.routing === "webaudio") return live;
+    }
+    return track && playing ? mapDrive(track, trackPos) : null;
+  }
   let mode = over ? "attract" : reduced || posed ? "walk" : "descent";
-  let idleTimer = 0, elapsed = 0;
-  /* The descent's length, in seconds of world time. A frame adds at most 50 ms to the world's time, so a slow load stretches the
-     descent rather than outrunning it. */
-  const DESCENT_S = 6;
+  let elapsed = 0;
   /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
   let followBase = 0;
   /* The bears walk their own line at a lively pace, five 7 m apart by distance along it, and pass the landmarks rather than walk
@@ -245,17 +312,11 @@ function start(gl) {
     mode = m;
     document.dispatchEvent(new CustomEvent("world:mode", { detail: { mode } }));
   }
-  /* The controls that only look around, so they keep walking with the bears. */
-  const LOOKS = new Set(["left", "right", "lookUp", "lookDown", "drag"]);
-  /* Any input resets the idle timer. B (or the button) toggles walking with the bears; in follow, turning, looking up or down and
-     dragging only look around, and any step leaves it for a walk. Lean-back ignores the controls. */
+  /* What changes the mode (modes.js): the controls, lean-back's switch and the frames. */
+  const rules = modeRules(() => mode, setMode);
+  /* A control the world takes wakes it for a frame; lean-back takes none. */
   function userInput(action) {
-    idleTimer = 0;
-    if (mode === "drift") return;
-    wake();
-    if (action === "follow") { setMode(mode === "follow" ? "walk" : "follow"); return; }
-    if (mode === "follow" && LOOKS.has(action)) return;
-    setMode("walk");
+    if (rules.input(action)) wake();
   }
   document.addEventListener("world:follow", () => userInput("follow"));
   const input = bindInput(container, walker, userInput);
@@ -271,8 +332,7 @@ function start(gl) {
     if (t !== third) { third = t; cut = true; bearPose = bearHook; }
     avatar.g.visible = third;
     measurePlate();
-    if (lean && mode !== "drift") setMode("drift");
-    if (!lean && mode === "drift") { setMode("walk"); idleTimer = 0; }
+    rules.lean(lean);
     wake();
   }
   new MutationObserver(syncMain).observe(main, { attributes: true, attributeFilter: ["data-mode", "data-state", "data-view", "data-joined"] });
@@ -316,6 +376,8 @@ function start(gl) {
     bearSpots.length = bears.length;
     sun.castShadow = quality.shadows;
     stage.light.visible = quality.stageLight;
+    /* The seats run front first, so half the crowd is its front half. */
+    crowd.mesh.count = quality.fullCrowd ? crowd.count : Math.ceil(crowd.count / 2);
   }
   const vertex = new THREE.Vector3();
   /* In first person, how near the view comes to a bear and how much of the frame's width one covers: the depth of the nearest bear
@@ -348,11 +410,18 @@ function start(gl) {
   /* The stats the CI shoot script logs after every shot and every control a recording holds, and ?stats=1 shows, read live. They are
      defined on window.__hill, which the player also writes, so its fields stay. */
   const stat = (get) => ({ get, enumerable: true, configurable: true });
+  const r3 = (v) => Math.round(v * 1000) / 1000;
   Object.defineProperties((window.__hill ??= {}), {
     tier: stat(() => tier), scale: stat(() => quality.scale), rung: stat(() => rung),
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
     frameMs: stat(() => Math.round(sampler.frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
     mode: stat(() => mode),
+    /* The crowd: how many figures it draws (the tier's, or the front-weighted half of them once the downgrade halves it), how far it
+       dances, the music's factor in, how far it sits, and how many figures stand off their seats for the visitor. */
+    crowd: stat(() => ({ drawn: crowd.mesh.count, dance: r3(dancing * layer2.dance), sit: r3(sitting), parted: crowd.parted })),
+    /* The rig: how far it is lit; how far its beams are gathered, following the build-up as it rises and opening again over RIG_OPEN_S
+       seconds past a peak; and how far Space has lifted them. They swing as far as the crowd dances. */
+    rig: stat(() => ({ lit: r3(stage.rig.show[1]), gather: r3(stage.rig.show[3]), lift: r3(stage.rig.show[4]) })),
     /* The view, whether the visitor's bear is drawn, where its head stands to the centimetre (the sound's listener in third person),
        whether its feet land in the frame (and above the now-plate on a phone), and where its head lands, as fractions from the top-left. */
     avatar: stat(() => ({ view: third ? "third" : "first", shown: avatar.g.visible,
@@ -360,11 +429,24 @@ function start(gl) {
       ...(third ? avatar.report(camera, phone ? plateTop / frameH : null) : { clear: false, screen: null }) })),
     /* In first person, the nearest bear vertex's depth in the view and the widest share of the frame's width one bear covers. */
     bears: stat(() => (third ? null : bearsInView())),
+    analysis: stat(() => ({ source: drive?.source ?? null, weight: r3(weight), ...analysisStats() })),
+    /* The show's map once it has loaded, else null: its show and step; its loudness, low end and brightness where the show is, which
+       drive the world where the analyser cannot hear the show; the build-up as it acts, with the music's weight, and the flame's scale
+       and the panel's and the beam's factors with it; the figures' tempo (null where the map gives none); and how many onsets have
+       pulled their beat. */
+    map: stat(() => {
+      if (!map) return null;
+      const { loud, bass, bright } = mapDrive(map.tracks[index], trackPos);
+      return { show: map.show, step: map.step, loud: r3(loud), bass: r3(bass), bright: r3(bright), build: r3(build * weight),
+        swell: r3(layer2.swell), panel: r3(layer2.panel), beam: r3(layer2.beam), bpm: tempo, locks: figures.locks };
+    }),
   });
 
   function frame(now) {
     raf = !reduced || held() ? requestAnimationFrame(frame) : 0;
-    const dtMs = now - last;
+    /* A frame's timestamp marks the frame's start, which can come before the clock reading of the wake that asked for it, so time never
+       runs back: under reduced motion every frame follows a wake. */
+    const dtMs = Math.max(0, now - last);
     const dt = Math.min(0.05, dtMs / 1000);
     last = now;
     elapsed += dt;
@@ -376,32 +458,56 @@ function start(gl) {
     /* State changes blend over about eight seconds; under reduced motion they land at once. */
     const blend = reduced ? 1 : Math.min(1, dt * 0.12);
     energy += (targetEnergy - energy) * blend;
+    /* The map's track for the song that plays (null without a map). */
+    const track = map?.tracks[index] ?? null;
+    drive = reduced ? null : driveFor(now, track);
+    if (drive) heard = drive;
+    weight = toward(weight, drive ? 1 : 0, dt / 0.8);
+    build = toward(build, track ? buildUp(track, trackPos) : 0, dt / 0.8);
+    tempo = track ? figuresTempo(track, trackPos) : null;
+    layer2 = mappings(heard, weight, build);
     const f = total > 0 ? showPos / total : 0;
     const [c0, c1] = skyPair(index, f, set2Start, encoreStart);
-    skyMat.uniforms.uEnergy.value = energy;
+    skyMat.uniforms.uEnergy.value = energy * layer2.energy;
+    skyMat.uniforms.uAmber.value = layer2.amber;
     skyMat.uniforms.uC0.value.lerp(c0, blend);
     skyMat.uniforms.uC1.value.lerp(c1, blend);
     skyMat.uniforms.uC2.value.copy(skyMat.uniforms.uC0.value).lerp(skyMat.uniforms.uPage.value, 0.7);
     hemi.color.copy(skyMat.uniforms.uC0.value).lerp(new THREE.Color(0xffffff), 0.3);
-    stage.panel.material.color.copy(skyMat.uniforms.uC0.value);
+    hemi.intensity = lightBase.hemi * layer2.hemi;
+    panelMat.uniforms.uGain.value[0] = layer2.panel;
+    stage.light.intensity = lightBase.stage * layer2.stage;
+    /* Whether a song plays: the crowd dances and the rig lights for one. */
+    const dances = playing && crowdAt[index].dance ? 1 : 0;
     if (!reduced) {
       skyMat.uniforms.uTime.value = elapsed;
-      if (elapsed >= nextDrop) { dropAt = elapsed; skyMat.uniforms.uDrop.value.set(0.2 + rnd() * 0.6, 0.3 + rnd() * 0.5, 0); nextDrop = elapsed + 40 + rnd() * 20; }
+      /* A drop falls every 40-60 s, and as the music plays past a peak of the song between one frame and the next, unless one fell in
+         the last 5 s. */
+      const peak = track && weight > 0 && index === lastIndex && passesPeak(track, lastPos, trackPos);
+      if (elapsed >= nextDrop || (peak && elapsed - dropAt > 5)) drop();
+      lastIndex = index; lastPos = trackPos;
       skyMat.uniforms.uDrop.value.z = elapsed - dropAt;
       for (const m of moving) {
         if (m.kind === "spin") m.obj.rotation.y += dt * 0.3;
         else if (m.kind === "pulse") m.obj.material.emissiveIntensity = 0.6 + 0.4 * Math.sin(elapsed * 3);
         else if (m.kind === "bob") m.obj.position.y = 4 + 0.5 * Math.sin(elapsed * 1.5);
+        else if (m.kind === "flame") m.obj.intensity = m.base * layer2.flame;
+        else if (m.kind === "swell") m.obj.scale.setScalar(layer2.swell);
       }
-      stage.move(dt, elapsed, playing);
+      /* The figures' beat (beat.js): the map's tempo where it gives one, onto whose beat the live sound's onsets pull them; else
+         FIGURES_BPM, free-running. */
+      const onset = onsetAt();
+      figures = beatStep(figures, dt, tempo ?? FIGURES_BPM, tempo !== null && onset !== seenOnset ? (now - onset) / 1000 : null);
+      seenOnset = onset;
+      stage.move(dt, elapsed, figures.beats, playing);
+      dancing = toward(dancing, dances, dt / 0.8);
     } else {
       skyMat.uniforms.uTime.value = data.seed;
     }
 
     /* Drums lights the left cave and Space the right, over eight seconds; under reduced motion at once. */
-    const title = tracks[index].title;
     for (const [k, c] of caves.entries()) {
-      const target = hasShow && (k === 0 ? /drums/i : /space/i).test(title) ? 1 : 0;
+      const target = hasShow && (k === 0 ? heldAt[index].drums : heldAt[index].space) ? 1 : 0;
       c.level = reduced ? target : target > c.level ? Math.min(target, c.level + dt / 8) : Math.max(target, c.level - dt / 8);
       c.disc.visible = c.level > 0;
       c.disc.material.opacity = 0.9 * c.level;
@@ -412,6 +518,7 @@ function start(gl) {
     /* The beam stands on the landmark of the song that plays. */
     const lp = landmarks[index]?.position ?? at(landmarkU[index]);
     beam.position.set(lp.x, lp.y + 18, lp.z);
+    beam.material.opacity = beamBase * layer2.beam;
 
     /* The bears. Before the show first plays they stand where it is, and a world that opens while it plays places them there in its
        first frame; in the frame it starts they walk on from where they stand, so nothing steps. */
@@ -422,13 +529,14 @@ function start(gl) {
       if (playing) { bearsOff = true; bearD += BEAR_SPEED * dt; }
       bearsPlaced = true;
     }
+    gait += layer2.rate * dt;
     for (let k = 0; k < bears.length; k++) {
       const b = bears[k];
       const db = bearD - k * BEAR_GAP;
       const p = line.at(db), tg = line.tangentAt(db);
       b.g.position.copy(p);
       b.g.rotation.y = Math.atan2(tg.x, tg.z);
-      const swing = (playing && !reduced) ? Math.sin(elapsed * 6 + b.phase) * 0.5 : 0;
+      const swing = (playing && !reduced) ? Math.sin(gait + b.phase) * layer2.amp : 0;
       b.legs[0].rotation.x = swing; b.legs[3].rotation.x = swing; b.legs[1].rotation.x = -swing; b.legs[2].rotation.x = -swing;
     }
 
@@ -457,27 +565,29 @@ function start(gl) {
       const fw = forward();
       walker.x += (fw.x * spd - fw.z * side) * pace; walker.z += (fw.z * spd + fw.x * side) * pace;
       confine(walker, limits);
+      /* A figure that could not get out of the way stops the visitor's bear (crowd.js); the limits still have the last word. */
+      if (!cut) { crowd.hold(walker); confine(walker, limits); }
       avatar.step(walker.x, walker.z, walker.heading, dt);
+      crowd.part(dt, avatar.feet, avatar.head, reduced);
       spot.stand();
       if (third) aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));
       else {
         placeWalker();
         if (moving_ && !reduced) camera.position.y += 0.12 * Math.sin(elapsed * 9);
       }
-      if (!reduced && !posed) { idleTimer += dt; if (idleTimer > 15) setMode("attract"); }
     } else {
       /* Every other camera keeps the visitor's bear in its place in the line, walking with the five, and the walker with it; but
          follow's turns keep their own heading. */
       const s = slot();
       if (mode !== "follow") toSlot();
       avatar.step(s.x, s.z, s.heading, dt);
+      crowd.part(dt, avatar.feet, avatar.head, reduced);
       if (mode === "descent") {
         /* From above the summit, where the island reads as the mark, north up the screen, down to the camera that walks with the bears. */
         const k = easeOut(elapsed / DESCENT_S);
         const end = postPose(0, 0);
         camera.position.set(end.pos.x * k, 140 + (end.pos.y - 140) * k, end.pos.z * k);
         aim(lookTarget.set(end.look.x * k, end.look.y * k, -3 + (end.look.z + 3) * k), true);
-        if (elapsed >= DESCENT_S) setMode("attract");
       } else if (mode === "attract" || mode === "follow") {
         /* In follow, turning adds an offset to the look. */
         if (mode === "follow") walker.heading += ((keys.left ? 1 : 0) - (keys.right ? 1 : 0)) * 1.6 * dt;
@@ -503,12 +613,35 @@ function start(gl) {
       }
       avatar.settle(camera.position, lookTarget);
     }
+    /* The mode the passing frames lead to (modes.js). */
+    rules.frame(elapsed);
     if (over) {
       const o = over.position;
       camera.position.set(o.x, o.y + 30, o.z);
       camera.lookAt(o.x, o.y, o.z - 1);
     }
     cut = false;
+
+    /* The crowd dances to the figures' beat as far as the music's loudness takes it, and rises with the build-up before a peak, as far
+       as it dances; and it sits. It made room for the visitor's bear, or their eye in first person, as the bear took its place, before the
+       camera looked. */
+    const sits = crowdAt[index].sit ? 1 : 0;
+    sitting = reduced ? sits : toward(sitting, sits, dt / SIT_S);
+    crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting);
+    /* The rig's five numbers (rig.js): the figures' phase in eight beats; how far it is lit, as far as the crowd dances, so while a song
+       plays, and under reduced motion at once while one plays, its beams still; how far its beams swing, as far as the crowd dances; the
+       build-up, which gathers them, opening again over RIG_OPEN_S seconds past a peak; and how far the crowd sits, which in Space lifts
+       them. A dark rig is not drawn.
+       The swing eases toward the crowd's dance with a 0.8 s time constant, kept in the rig's own array so a frame boxes no number. So the
+       music's loudness, which widens the dance, reaches the beams slowly: a step of it 63 % of the way in 0.8 s, and a rise and fall at
+       the beat's rate at a seventh of its size at the figures' slowest tempo (80 a minute) and a thirteenth at their fastest. */
+    const rig = stage.rig.show;
+    rig[0] = figures.beats % 8;
+    rig[1] = quality.rig ? (reduced ? dances : dancing) : 0;
+    rig[2] += (dancing * layer2.dance - rig[2]) * (reduced ? 1 : 1 - Math.exp(-dt / 0.8));
+    rig[3] = Math.max(layer2.rise, rig[3] - dt / RIG_OPEN_S);
+    rig[4] = sitting;
+    stage.rig.mesh.visible = rig[1] > 0;
 
     renderer.render(scene, camera);
     /* The sound's listener is the visitor: their bear's head in third person, the camera in first (listenerAt); it faces where the
@@ -519,6 +652,9 @@ function start(gl) {
   /* The page reads the tier beside the world's state. */
   container.dataset.tier = tier;
   container.dataset.world = "ready";
+  /* The show's map, asked for once the world is ready, since the world runs without it: a day without one, and a map that fails, leave
+     it on layers 1 and 2 (maps.js loadMap). Under reduced motion none of it would run, so it is not asked for. */
+  if (!reduced) loadMap(data).then((m) => { map = m; });
   locate(performance.now());
   if (reduced) { bearD = line.dOf(landmarkU[index]); toSlot(); }
   if (testPose) { Object.assign(walker, testPose); cut = true; }

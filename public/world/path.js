@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { G, height, TRAILHEAD } from "./ground.js";
 import { hull, standClear } from "./collide.js";
+import { isDrums, isSpace } from "./seats.js";
 
 /* The setlist is the path: a closed loop over the island, with a landmark at each song's point. */
 export function buildPath() {
@@ -26,7 +27,7 @@ export function layout(tracks, set2Start, { pointU }) {
   const N = tracks.length;
   const start = [0];
   for (const t of tracks) start.push(start[start.length - 1] + t.duration);
-  const drums = tracks.findIndex((t) => /drums/i.test(t.title)), space = tracks.findIndex((t) => /space/i.test(t.title));
+  const drums = tracks.findIndex((t) => isDrums(t.title)), space = tracks.findIndex((t) => isSpace(t.title));
   const pins = [[0, 0]];
   for (const [i, u] of [[set2Start, pointU(6)], [drums, pointU(13)], [space, pointU(14)]]) {
     if (i !== null && i > pins[pins.length - 1][0] && i < N) pins.push([i, u]);

@@ -4,7 +4,8 @@
 //
 // Prints show dates one a line, in the order they are featured, once each, at most LIMIT: the shows with no map in DIR (the maps
 // that exist, one <show date>.json each), and the shows whose map was made from another recording than the one the site's
-// /api/playing route names now, since the page refuses such a map. What it reports about each day goes to stderr.
+// /api/playing route names now, since the page refuses such a map. A show without a full date, such as 1970-12-XX, is left
+// out, since no map can be made of it. What it reports about each day goes to stderr.
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { setTimeout as sleep } from "timers/promises";
@@ -12,6 +13,7 @@ import { pathToFileURL } from "url";
 import { getDailyShow, isValidDateStr } from "../src/lib/daily-show";
 import { getTodayDateStr } from "../src/lib/site-day";
 import { HttpError, politeClient, SITE, siteOf } from "./analyse-show.mjs";
+import { logText } from "./job-text.mjs";
 
 const USAGE =
   "Usage: node --import ./scripts/resolve-ts.mjs scripts/featured-on.mjs [--from YYYY-MM-DD] [--days N] [--limit N] [--maps DIR] [--site URL]";
@@ -46,7 +48,8 @@ export function featuredWindow(from, days, showOn = (date) => getDailyShow(date)
 
 /**
  * The show dates of a window to map next, in window order, each once: those with no map, and those whose map was made from
- * another recording than the one the page plays now.
+ * another recording than the one the page plays now. A show without a full date, such as 1970-12-XX, is left out and takes none of
+ * the limit: analyse-show refuses such a date, and with it every show of the run.
  *
  * @param window - What `featuredWindow` returned.
  * @param have - A Map from each show date that has a map to the recording the map was made from (its `playing`).
@@ -58,6 +61,7 @@ export async function showsToMap(window, have, limit, playingNow) {
   const picked = [];
   for (const show of new Set(window.map((day) => day.show))) {
     if (picked.length >= limit) break;
+    if (!isValidDateStr(show)) continue;
     if (!have.has(show)) {
       picked.push(show);
     } else {
@@ -97,7 +101,8 @@ const positiveInteger = (text) => (/^[1-9]\d*$/.test(text) ? Number(text) : null
 
 const nodeIO = {
   out: (line) => console.log(line),
-  log: (line) => console.error(line),
+  // Each report is one line of the job's log, whatever text from the site it holds.
+  log: (line) => console.error(logText(line)),
   list: (dir) => readdirSync(dir),
   read: (file) => readFileSync(file, "utf8"),
   fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),

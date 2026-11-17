@@ -88,14 +88,23 @@ const NAMED_ENTITIES: Record<string, string> = {
 };
 
 /**
+ * Replace each match of a tag pattern, a pattern whose matches end at a ">". No match can lie after the last ">", so the pattern
+ * runs only on the text up to and including it, where each tag start fails at once or ends at the first ">" after it: the time
+ * is linear in the text's length. On the whole text, each tag start with no ">" after it would scan to the end before failing.
+ */
+function replaceTags(text: string, tag: RegExp, replacement: string): string {
+  const end = text.lastIndexOf(">") + 1;
+  return text.slice(0, end).replace(tag, replacement) + text.slice(end);
+}
+
+/**
  * Turn source text that may hold HTML into plain text: tags are dropped, then
  * entities are decoded, and each run of whitespace becomes one space. Only a "<"
  * followed by a letter, "/" or "!" starts a tag, so "configuration< (mic stand) >"
  * stays as written. "<b>flac16</b> SBD&gt; Master" → "flac16 SBD> Master".
  */
 export function toPlainText(html: string): string {
-  return html
-    .replace(/<[a-z!/][^>]*>/gi, "")
+  return replaceTags(html, /<[a-z!/][^>]*>/gi, "")
     .replace(/&(?:#(\d+)|#x([0-9a-f]+)|(amp|lt|gt|quot|nbsp));/gi, (entity, dec, hex, name) => {
       if (name) return NAMED_ENTITIES[name.toLowerCase()];
       const code = dec ? Number(dec) : parseInt(hex, 16);
@@ -111,8 +120,8 @@ export function toPlainText(html: string): string {
  * blank lines are left out.
  */
 export function notesToLines(notes: string): string[] {
-  return notes
-    .split(/<br\b[^>]*>|\n/i)
+  return replaceTags(notes, /<br\b[^>]*>/gi, "\n")
+    .split("\n")
     .map(toPlainText)
     .filter(Boolean);
 }

@@ -25,24 +25,33 @@ export const STAGE_POSE = { x: 47.5, z: -41.3, heading: -0.855, pitch: -0.2 };
 /* The test hook ?pose=slope: higher up the slope on the stage's axis, 55 m from its centre and 18 m above its floor, facing it and
    looking down over the slope between, as its seating sees it. */
 export const SLOPE_POSE = { x: 31.7, z: -27.5, heading: -0.855, pitch: -0.3 };
+/* The test hook ?pose=crowd: on the stage's axis 61 m from its centre, just behind the crowd's last rows (seats.js), facing the stage and
+   looking down over the crowd to it. */
+export const CROWD_POSE = { x: 27.16, z: -23.6, heading: -0.855, pitch: -0.3 };
+/* The test hook ?pose=among: among the crowd's middle rows, 33 m from the stage's centre and 0.24 rad off its axis, clear of the aisle,
+   facing the stage and looking down over the figures that step aside round the visitor's bear (crowd.js). */
+export const AMONG_POSE = { x: 54.15, z: -36.66, heading: -0.615, pitch: -0.3 };
 /* The test hook ?pose=path: on the loop at the summit's north-east shoulder, heading along it, with the stage's front in the frame below,
    about 80 m off down the slope, and the boom its full length behind the bear. */
 export const PATH_POSE = { x: 18.6, z: -6.4, heading: -1.053, pitch: 0 };
+/* The test hooks' poses by the name ?pose= gives each (main.js); the CI shoot's sweep opens with them. */
+export const TEST_POSES = { stage: STAGE_POSE, slope: SLOPE_POSE, path: PATH_POSE, crowd: CROWD_POSE, among: AMONG_POSE };
 /* The walk keeps within this distance of the island's centre: past the bears' line, which reaches 112.4 m out, by more than a reach,
    so stepping back from a bear never carries a walker past it. */
 export const BOUND = 117;
 
-/* The island's own height, before the stage's shelf. */
+/* The island's own height, before the stage's shelf. Its distances are square roots rather than Math.hypot, which allocates on every
+   call, as height is read for each figure the crowd moves in a frame (seats.js). */
 export function slope(x, z) {
-  const d = Math.hypot(x, z);
+  const d = Math.sqrt(x * x + z * z);
   let h = 2.5 + 0.6 * Math.sin(x * 0.3) * Math.cos(z * 0.27);
   const t = Math.max(0, 1 - (d / 84) * (d / 84));
   h += 28 * t * Math.sqrt(t);
-  for (const [cx, cz] of CAVES) {
-    const dc = Math.hypot(x - cx, z - cz);
+  for (let k = 0; k < CAVES.length; k++) {
+    const cx = x - CAVES[k][0], cz = z - CAVES[k][1], dc = Math.sqrt(cx * cx + cz * cz);
     if (dc < 13) h -= 6 * (1 - (dc / 13) * (dc / 13));
   }
-  const nose = Math.hypot(x, z - 26);
+  const nz = z - 26, nose = Math.sqrt(x * x + nz * nz);
   if (nose < 9) h -= 2.5 * (1 - nose / 9);
   if (d > 118) h -= ((d - 118) / 10) * 5.5;
   return h;
@@ -51,7 +60,7 @@ export function slope(x, z) {
 /* The ground's height: the island's own, with the stage's shelf. */
 export function height(x, z) {
   let h = slope(x, z);
-  const ds = Math.hypot(x - STAGE[0], z - STAGE[1]);
+  const sx = x - STAGE[0], sz = z - STAGE[1], ds = Math.sqrt(sx * sx + sz * sz);
   if (ds < 14) {
     const s = Math.min(1, (14 - ds) / 6);
     h += (SHELF_Y - h) * s * s * (3 - 2 * s);

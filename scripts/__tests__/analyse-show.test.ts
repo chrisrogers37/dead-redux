@@ -3,8 +3,9 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "f
 import { tmpdir } from "os";
 import { join } from "path";
 import { fileURLToPath } from "url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkMap, MAX_MAP_BYTES, MAX_TRACKS } from "../../public/world/maps.js";
+import type { RelistenSource } from "../../src/lib/relisten";
 import {
   analyseShow,
   blockMeans,
@@ -20,6 +21,7 @@ import {
   SITE,
   tempo,
   toBytes,
+  trackUrlOf,
   USER_AGENT,
 } from "../analyse-show.mjs";
 
@@ -353,9 +355,12 @@ describe("buildMap", () => {
 // ffmpegDecode runs the ffmpeg that PATH finds, so these tests put a stand-in first on it.
 describe("ffmpegDecode", () => {
   const STUB = `#!/bin/sh
-# Stands in for ffmpeg: takes all of its input, writes two samples of PCM and exits with STUB_FFMPEG_EXIT, 0 by default.
+# Stands in for ffmpeg: takes all of its input, writes two samples of PCM, writes STUB_FFMPEG_STDERR to stderr and then
+# STUB_FFMPEG_LINES lines more when it is set, and exits with STUB_FFMPEG_EXIT, 0 by default.
 cat > /dev/null
 printf '\\001\\000\\002\\000'
+printf '%s' "\${STUB_FFMPEG_STDERR:-}" >&2
+if [ -n "\${STUB_FFMPEG_LINES:-}" ]; then yes 'Header missing' | head -n "\${STUB_FFMPEG_LINES}" >&2; fi
 exit "\${STUB_FFMPEG_EXIT:-0}"
 `;
   let bin: string;
@@ -373,6 +378,8 @@ exit "\${STUB_FFMPEG_EXIT:-0}"
   afterEach(() => {
     process.env.PATH = savedPath;
     delete process.env.STUB_FFMPEG_EXIT;
+    delete process.env.STUB_FFMPEG_STDERR;
+    delete process.env.STUB_FFMPEG_LINES;
     rmSync(bin, { recursive: true, force: true });
   });
 
@@ -412,7 +419,60 @@ exit "\${STUB_FFMPEG_EXIT:-0}"
     process.env.PATH = bin;
     await expect(ffmpegDecode(body(10), ignore, ignore)).rejects.toThrow("spawn ffmpeg ENOENT");
   });
+
+  it("hands on each line ffmpeg writes to stderr, a last line with no line feed included", async () => {
+    process.env.STUB_FFMPEG_STDERR = "pipe:0: Header missing\nError in a tag\r with a carriage return\nno line feed at the end";
+    const lines: string[] = [];
+    await ffmpegDecode(body(10), ignore, ignore, (line: string) => {
+      lines.push(line);
+    });
+    expect(lines).toEqual(["pipe:0: Header missing", "Error in a tag\r with a carriage return", "no line feed at the end"]);
+  });
+
+  it("reads ffmpeg's stderr to its end as it comes, so that ffmpeg never waits to write more than a pipe holds", async () => {
+    // 100,000 lines of 15 bytes, 1.5 MB: more than a pipe holds, which is 16 pages, 64 KiB to 1 MiB by the host's page size.
+    process.env.STUB_FFMPEG_LINES = "100000";
+    let count = 0;
+    await ffmpegDecode(body(10), ignore, ignore, () => {
+      count++;
+    });
+    expect(count).toBe(100_000);
+  });
+
+  it("logs each line ffmpeg writes to stderr as one line of the job's log, after the run's own words", async () => {
+    process.env.STUB_FFMPEG_STDERR = "pipe:0: Invalid data\r::error::x ##[error]x\n::error::y\n";
+    const run = await runOnNodeIO(fakeRun());
+    expect(run.errors.slice(0, 2)).toEqual(["    ffmpeg: pipe:0: Invalid data ::error::x ## [error]x", "    ffmpeg: ::error::y"]);
+    // The stub's two samples are not the track's 4 s, so the show fails after its first track.
+    expect(run.errors.slice(2)).toEqual([expect.stringMatching(/^1986-07-04: Touch Of Grey: [\d.e-]+ s decoded, 4 s listed$/)]);
+    expect(run.code).toBe(1);
+  });
 });
+
+// A run of one show as the maps workflow makes it, into a directory of its own, through the script's own io but for the network, which
+// answers as `fake`'s fetch does. Returns its exit code and the lines of the job's log that it printed and wrote to stderr: each message
+// cut at each carriage return or line feed, as the runner cuts a step's output into lines.
+async function runOnNodeIO(fake: ReturnType<typeof fakeRun>) {
+  const out = mkdtempSync(join(tmpdir(), "analyse-show-"));
+  const printed: string[] = [];
+  const written: string[] = [];
+  vi.spyOn(console, "log").mockImplementation((message?: unknown) => {
+    printed.push(String(message));
+  });
+  vi.spyOn(console, "error").mockImplementation((message?: unknown) => {
+    written.push(String(message));
+  });
+  vi.stubGlobal("fetch", fake.io.fetch);
+  const lines = (messages: string[]) => messages.flatMap((message) => message.split(/\r\n|\r|\n/));
+  try {
+    const code = await main(["--out", out, "1986-07-04"]);
+    return { code, log: lines(printed), errors: lines(written) };
+  } finally {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    rmSync(out, { recursive: true, force: true });
+  }
+}
 
 // The answers for the fakes below.
 type Answer = Response | Error;
@@ -583,10 +643,29 @@ const playing = (show: string) => ({
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
 // An mp3 answer of 1000 bytes, whose length the response says.
 const mp3 = (length = "1000") => new Response(new Uint8Array(1000), { headers: { "content-length": length } });
+// An answer as fetch gives it: its url is where it came from, which after a redirect is not the URL that was asked for.
+const from = (url: string, res: Response) => Object.defineProperty(res, "url", { value: url });
+// An answer whose body counts its pulls: a body let go unread is never pulled, and one that is read is.
+const counting = (text: string, init: ResponseInit) => {
+  const pulls = { count: 0 };
+  const body = new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        pulls.count++;
+        controller.enqueue(new TextEncoder().encode(text));
+        controller.close();
+      },
+    },
+    // Nothing is pulled until something reads.
+    { highWaterMark: 0 }
+  );
+  return { res: new Response(body, init), pulls };
+};
 
 // A whole run's io with nothing real in it. Relisten answers the same for every date; `answers` puts responses first in line for
-// a url.
-// The decoder reads the body it is given and "decodes" it to a 220 Hz tone as long as the next of `lengths`, in seconds.
+// a url. An answer comes from the url asked for, unless a test made it come from elsewhere.
+// The decoder reads the body it is given and "decodes" it to a 220 Hz tone as long as the next of `lengths`, in seconds; `decoded`
+// lists the lengths it has used.
 function fakeRun(options: { lengths?: number[]; answers?: Record<string, Response[]> } = {}) {
   const lengths = [...(options.lengths ?? [4, 3])];
   const answers = new Map(Object.entries(options.answers ?? {}));
@@ -595,16 +674,21 @@ function fakeRun(options: { lengths?: number[]; answers?: Record<string, Respons
   const sleeps: number[] = [];
   const logs: string[] = [];
   const errors: string[] = [];
+  const decoded: number[] = [];
+  const answer = (url: string) => {
+    const first = answers.get(url)?.shift();
+    if (first) return first;
+    const show = /\/api\/playing\/(\d{4}-\d{2}-\d{2})$/.exec(url);
+    if (show) return json(playing(show[1]));
+    if (url.endsWith(".mp3")) return mp3();
+    return httpStatus(404);
+  };
   const io = {
     fetch: async (url: string, init?: RequestInit) => {
       urls.push(url);
       agents.push(new Headers(init?.headers).get("User-Agent"));
-      const first = answers.get(url)?.shift();
-      if (first) return first;
-      const show = /\/api\/playing\/(\d{4}-\d{2}-\d{2})$/.exec(url);
-      if (show) return json(playing(show[1]));
-      if (url.endsWith(".mp3")) return mp3();
-      return httpStatus(404);
+      const res = answer(url);
+      return res.url === "" ? from(url, res) : res;
     },
     sleep: async (ms: number) => {
       sleeps.push(ms);
@@ -625,11 +709,60 @@ function fakeRun(options: { lengths?: number[]; answers?: Record<string, Respons
       }
       const seconds = lengths.shift();
       if (seconds === undefined) throw new Error("no decoded length queued");
+      decoded.push(seconds);
       onPcm(toPcm(tone(220, seconds)));
     },
   };
-  return { io, urls, agents, sleeps, logs, errors };
+  return { io, urls, agents, sleeps, logs, errors, decoded };
 }
+
+// Relisten's answer for /years/1986/1986-07-04 as it came, which the site's tests read too: the show with its fifteen recordings.
+const relisten = JSON.parse(
+  readFileSync(new URL("../../src/lib/__tests__/fixtures/relisten-1986-07-04.json", import.meta.url), "utf8")
+) as { sources: RelistenSource[] };
+
+describe("trackUrlOf", () => {
+  it("takes the MP3 of every track of the fifteen recordings Relisten lists for 1986-07-04, as fetch reads it", () => {
+    const tracks = relisten.sources.flatMap((source) =>
+      source.sets.flatMap((set) => set.tracks.map((track) => ({ identifier: source.upstream_identifier, url: track.mp3_url })))
+    );
+    expect(tracks).toHaveLength(294);
+    // One recording lists its files with spaces, which the URL parser encodes, as fetch does with a URL it is given.
+    expect(tracks.filter(({ identifier, url }) => trackUrlOf(url, identifier) !== new URL(url).href)).toEqual([]);
+  });
+
+  // The URL as the parser reads it is the one that is fetched.
+  it.each([
+    { name: "line breaks, which the parser drops", text: "https://archive.org/download/sbd-\nid/t01.mp3\r\n" },
+    { name: "a dot segment within the recording", text: "https://archive.org/download/sbd-id/notes/../t01.mp3" },
+    { name: "a host in capitals", text: "https://ARCHIVE.ORG/download/sbd-id/t01.mp3" },
+    { name: "the https port, written out", text: "https://archive.org:443/download/sbd-id/t01.mp3" },
+  ])("takes $name, and returns the URL that is fetched", ({ text }) => {
+    expect(trackUrlOf(text, "sbd-id")).toBe(T01);
+  });
+
+  it.each([
+    { name: "dot segments that leave the recording", text: "https://archive.org/download/sbd-id/../../services/search/v1/scrape" },
+    { name: "encoded dot segments", text: "https://archive.org/download/sbd-id/%2e%2e/%2E%2E/services/search/v1/scrape" },
+    { name: "a file of another recording", text: "https://archive.org/download/other-id/t01.mp3" },
+    { name: "a dot segment to another recording", text: "https://archive.org/download/sbd-id/../other-id/t01.mp3" },
+    { name: "a file of sbd-id2, not sbd-id", text: "https://archive.org/download/sbd-id2/t01.mp3" },
+    { name: "an encoded slash", text: "https://archive.org/download/sbd-id/disc1%2Ft01.mp3" },
+    { name: "an encoded slash in lower case", text: "https://archive.org/download/sbd-id/disc1%2ft01.mp3" },
+    { name: "an encoded backslash", text: "https://archive.org/download/sbd-id/disc1%5Ct01.mp3" },
+    { name: "an encoded backslash in lower case", text: "https://archive.org/download/sbd-id/disc1%5ct01.mp3" },
+    { name: "http", text: "http://archive.org/download/sbd-id/t01.mp3" },
+    { name: "a host that ends in archive.org", text: "https://notarchive.org/download/sbd-id/t01.mp3" },
+    { name: "a host that begins with archive.org", text: "https://archive.org.example.test/download/sbd-id/t01.mp3" },
+    { name: "a user name", text: "https://someone@archive.org/download/sbd-id/t01.mp3" },
+    { name: "a password", text: "https://:secret@archive.org/download/sbd-id/t01.mp3" },
+    { name: "a port", text: "https://archive.org:8443/download/sbd-id/t01.mp3" },
+    { name: "text that is not a URL", text: "archive.org/download/sbd-id/t01.mp3" },
+    { name: "no URL", text: undefined },
+  ])("refuses $name", ({ text }) => {
+    expect(trackUrlOf(text, "sbd-id")).toBeNull();
+  });
+});
 
 describe("analyseShow", () => {
   it("maps the recording the page plays, track by track", async () => {
@@ -680,28 +813,49 @@ describe("analyseShow", () => {
     expect(missing.urls).toEqual([PLAYING_URL]);
   });
 
-  // The route's answer with its first track changed, and one with n one-second tracks named by `title`.
+  // The route's answer with its first or last track changed, and one with n one-second tracks named by `title`.
   const withFirstTrack = (change: Record<string, unknown>) => {
     const listing = playing("1986-07-04");
     return { ...listing, tracks: [{ ...listing.tracks[0], ...change }, ...listing.tracks.slice(1)] };
+  };
+  const withLastTrack = (change: Record<string, unknown>) => {
+    const listing = playing("1986-07-04");
+    return { ...listing, tracks: [...listing.tracks.slice(0, -1), { ...listing.tracks[listing.tracks.length - 1], ...change }] };
   };
   const listingOf = (n: number, title = (i: number) => `Track ${i + 1}`) => ({
     ...playing("1986-07-04"),
     tracks: Array.from({ length: n }, (_, i) => ({ title: title(i), duration: 1, mp3Url: `https://archive.org/download/sbd-id/t${i + 1}.mp3` })),
   });
   const invalid = (problem: string) => `1986-07-04: the listing would make an invalid map: ${problem}`;
+  const noLength = "1986-07-04: a track of sbd-id has no valid length";
+  const notAFile = "1986-07-04: a track of sbd-id is not one of its files on archive.org";
 
-  // A listing is refused as it is read, before any audio is fetched: a track that is not a length and an archive.org MP3, and a
-  // listing whose map, built from silence, would fail checkMap or fit no step.
+  // A listing is refused as it is read, before any audio is fetched: a track with no valid length, a listing whose map, built from
+  // silence, would fail checkMap or fit no step, and a track that is not a file of the recording on archive.org.
   it.each([
-    { name: "an MP3 on another host", listing: withFirstTrack({ mp3Url: "https://example.test/t01.mp3" }), problem: "archive.org MP3" },
+    { name: "an MP3 on another host", listing: withFirstTrack({ mp3Url: "https://example.test/t01.mp3" }), problem: notAFile },
     {
       name: "an MP3 on archive.org outside /download/",
       listing: withFirstTrack({ mp3Url: "https://archive.org/services/x.mp3" }),
-      problem: "archive.org MP3",
+      problem: notAFile,
     },
-    { name: "a length that is not a number", listing: withFirstTrack({ duration: "4" }), problem: "archive.org MP3" },
-    { name: "a length over a day", listing: withFirstTrack({ duration: 86401 }), problem: "archive.org MP3" },
+    {
+      name: "an MP3 of another recording",
+      listing: withFirstTrack({ mp3Url: "https://archive.org/download/other-id/t01.mp3" }),
+      problem: notAFile,
+    },
+    {
+      name: "an MP3 path that leaves /download/",
+      listing: withFirstTrack({ mp3Url: "https://archive.org/download/sbd-id/../../services/x.mp3" }),
+      problem: notAFile,
+    },
+    {
+      name: "the last track on another host",
+      listing: withLastTrack({ mp3Url: "https://example.test/t02.mp3" }),
+      problem: notAFile,
+    },
+    { name: "a length that is not a number", listing: withFirstTrack({ duration: "4" }), problem: noLength },
+    { name: "a length over a day", listing: withFirstTrack({ duration: 86401 }), problem: noLength },
     {
       name: "an identifier that is not an archive.org identifier",
       listing: { ...playing("1986-07-04"), identifier: "sbd id" },
@@ -744,6 +898,14 @@ describe("analyseShow", () => {
     expect(checkMap(map)).toEqual([]);
   });
 
+  it("fetches and logs a track at the URL that its check makes", async () => {
+    const listing = withFirstTrack({ mp3Url: "https://archive.org/download/sbd-\nid/t01.mp3" });
+    const f = fakeRun({ answers: { [PLAYING_URL]: [json(listing)] } });
+    await analyseShow("1986-07-04", politeClient(f.io).request, f.io);
+    expect(f.urls).toEqual([PLAYING_URL, T01, T02]);
+    expect(f.logs).toContain(`  1/2 Touch Of Grey: ${T01}`);
+  });
+
   it("refuses a track whose decoded length is not its listed one", async () => {
     const f = fakeRun({ lengths: [4, 9] });
     await expect(analyseShow("1986-07-04", politeClient(f.io).request, f.io)).rejects.toThrow("Hell In A Bucket");
@@ -779,6 +941,46 @@ describe("analyseShow", () => {
     expect(checkMap(map)).toEqual([]);
     expect(f.urls).toEqual([PLAYING_URL, T01, T02]);
   });
+
+  it("takes a download that archive.org answers from one of its own servers", async () => {
+    const f = fakeRun({ answers: { [T01]: [from("https://ia800300.us.archive.org/12/items/sbd-id/t01.mp3", mp3())] } });
+    const { map } = await analyseShow("1986-07-04", politeClient(f.io).request, f.io);
+    expect(checkMap(map)).toEqual([]);
+    expect(f.urls).toEqual([PLAYING_URL, T01, T02]);
+  });
+
+  it.each([
+    { name: "another host", to: "https://example.test/t01.mp3" },
+    { name: "a host that ends in archive.org", to: "https://notarchive.org/t01.mp3" },
+    { name: "a host that begins with archive.org", to: "https://archive.org.example.test/t01.mp3" },
+  ])("lets a download redirected to $name go unread, and fails the show after its retries", async ({ to }) => {
+    const away = Array.from({ length: 3 }, () => counting("\0".repeat(1000), { headers: { "content-length": "1000" } }));
+    const f = fakeRun({ answers: { [T01]: away.map(({ res }) => from(to, res)) } });
+    await expect(analyseShow("1986-07-04", politeClient(f.io).request, f.io)).rejects.toThrow(
+      `redirected off archive.org, to ${new URL(to).hostname}`
+    );
+    expect(f.urls).toEqual([PLAYING_URL, T01, T01, T01]);
+    expect(f.decoded).toEqual([]);
+    // Each body is let go, and none is read.
+    expect(away.map(({ res }) => res.bodyUsed)).toEqual([true, true, true]);
+    expect(away.map(({ pulls }) => pulls.count)).toEqual([0, 0, 0]);
+  });
+
+  it.each([{ code: 404 }, { code: 502 }])(
+    "lets a download redirected to another host go unread when it answers $code in JSON, and fails the show after its retries",
+    async ({ code }) => {
+      const init = { status: code, headers: { "content-type": "application/json" } };
+      const away = Array.from({ length: 3 }, () => counting(JSON.stringify({ error: "no such file" }), init));
+      const f = fakeRun({ answers: { [T01]: away.map(({ res }) => from("https://example.test/t01.mp3", res)) } });
+      await expect(analyseShow("1986-07-04", politeClient(f.io).request, f.io)).rejects.toThrow(
+        "redirected off archive.org, to example.test"
+      );
+      expect(f.urls).toEqual([PLAYING_URL, T01, T01, T01]);
+      // Each body is let go, and none is read.
+      expect(away.map(({ res }) => res.bodyUsed)).toEqual([true, true, true]);
+      expect(away.map(({ pulls }) => pulls.count)).toEqual([0, 0, 0]);
+    }
+  );
 });
 
 // A directory a run that is refused must not make.
@@ -849,6 +1051,29 @@ describe("main", () => {
     expect(await main(["--out", dir, "1986-07-04", "1987-03-27"], f.io)).toBe(0);
     expect(readdirSync(dir)).toEqual(["1986-07-04.json", "1987-03-27.json"]);
     expect(f.sleeps).toEqual([1000, 1000, 1000, 1000, 1000]);
+  });
+
+  it("logs a track's title and URL on the track's line of the job's log, a line break as a space and ##[ as ## [", async () => {
+    const [first, second] = playing("1986-07-04").tracks;
+    const track = { ...first, title: "Touch Of Grey\n::error::x ##[error]x", mp3Url: `${T01}#x##[error]x` };
+    const fake = fakeRun({
+      answers: { [PLAYING_URL]: [json({ ...playing("1986-07-04"), tracks: [track, second] })], [track.mp3Url]: [httpStatus(404)] },
+    });
+    const run = await runOnNodeIO(fake);
+    expect(run.log).toEqual([
+      "1986-07-04: the page plays sbd-id, 2 tracks, 7 s listed",
+      `  1/2 Touch Of Grey ::error::x ## [error]x: ${T01}#x## [error]x`,
+      "  pause 1 s",
+    ]);
+    expect(run.errors).toEqual([`1986-07-04: ${T01}#x## [error]x answered 404`]);
+    expect(run.code).toBe(1);
+  });
+
+  it("starts the line for a failed show with its own words, when the error's text starts with ::error::x", async () => {
+    const track = { ...playing("1986-07-04").tracks[0], title: "::error::x" };
+    const f = fakeRun({ lengths: [0], answers: { [PLAYING_URL]: [json({ ...playing("1986-07-04"), tracks: [track] })] } });
+    expect(await main(["--out", dir, "1986-07-04"], f.io)).toBe(1);
+    expect(f.errors).toEqual(["1986-07-04: ::error::x: decoded no audio"]);
   });
 
   // Loading every module it imports before it reads its arguments.

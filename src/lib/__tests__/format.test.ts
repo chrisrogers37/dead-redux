@@ -125,7 +125,54 @@ describe("isPlaceholderTitle", () => {
   });
 });
 
+// toPlainText and notesToLines with each tag pattern run on the whole text, and their other steps as the functions take them: the
+// output the functions give. Their time grows with the square of the text's length when tag starts have no ">" after them.
+function wholeTextToPlainText(html: string): string {
+  return html
+    .replace(/<[a-z!/][^>]*>/gi, "")
+    .replace(/&(?:#(\d+)|#x([0-9a-f]+)|(amp|lt|gt|quot|nbsp));/gi, (entity, dec, hex, name) => {
+      if (name) return ({ amp: "&", lt: "<", gt: ">", quot: '"', nbsp: " " } as Record<string, string>)[name.toLowerCase()];
+      const code = dec ? Number(dec) : parseInt(hex, 16);
+      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : entity;
+    })
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function wholeTextNotesToLines(notes: string): string[] {
+  return notes.split(/<br\b[^>]*>|\n/i).map(wholeTextToPlainText).filter(Boolean);
+}
+
+// Pieces of source text: tags, tag starts that a later ">" may or may not close, entities and parts of them.
+const PIECES = [
+  "Set 1", " ", "\n", "-", "x", "<", ">", "/", "!", "&", "#", ";", "<b>", "</b>", "<a", '<a href="x">', "<!--", "-->",
+  "<br", "<BR", "<brx", "<br>", "<br />", "&amp;", "&lt;", "&gt;", "&#38;", "&#x26;", "&nbsp;", "&am",
+];
+
+// 5,000 texts of up to 40 pieces each, the same on every run: a linear congruential generator picks the pieces.
+const TEXTS = (() => {
+  let seed = 1;
+  const pick = (n: number) => Math.floor(((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32) * n);
+  return Array.from({ length: 5_000 }, () => Array.from({ length: pick(41) }, () => PIECES[pick(PIECES.length)]).join(""));
+})();
+
+// A linear scan of 200,000 characters takes a few milliseconds, and a quadratic one over ten thousand times as long: a second lies
+// far between them.
+const BOUND_MS = 1000;
+
 describe("notesToLines", () => {
+  it("gives the lines its patterns give on the whole text, for each generated text", () => {
+    expect(TEXTS.map(notesToLines)).toEqual(TEXTS.map(wholeTextNotesToLines));
+  });
+
+  it("ends a line at a <br> and keeps the 200,000 characters of <br after it, which no > closes, within a second", () => {
+    const tail = "<br".repeat(66_667);
+    const text = `Set 1<br>${tail}`;
+    const start = performance.now();
+    expect(notesToLines(text)).toEqual(["Set 1", tail]);
+    expect(performance.now() - start).toBeLessThan(BOUND_MS);
+  });
+
   it("ends a line at each <br /> and drops other tags", () => {
     expect(
       notesToLines('<div class="set_info">Set 1</div><br />Jack Straw, <b>Deal</b><br/><br>Set 2')
@@ -150,6 +197,18 @@ describe("notesToLines", () => {
 });
 
 describe("toPlainText", () => {
+  it("gives the text its tag pattern gives on the whole text, for each generated text", () => {
+    expect(TEXTS.map(toPlainText)).toEqual(TEXTS.map(wholeTextToPlainText));
+  });
+
+  it("drops a tag and keeps the 200,000 characters of <a after it, which no > closes, within a second", () => {
+    const tail = "<a".repeat(100_000);
+    const text = `<b>Set 1</b>${tail}`;
+    const start = performance.now();
+    expect(toPlainText(text)).toBe(`Set 1${tail}`);
+    expect(performance.now() - start).toBeLessThan(BOUND_MS);
+  });
+
   it("drops tags and decodes entities", () => {
     expect(toPlainText("<b>flac16</b> SBD&gt; Master")).toBe("flac16 SBD> Master");
     expect(toPlainText("Me &amp; My Uncle-&gt; Big River")).toBe("Me & My Uncle-> Big River");

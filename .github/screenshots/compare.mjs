@@ -52,7 +52,7 @@ if (process.env.GITHUB_STEP_SUMMARY) {
   const note = diffWritten ? ` The diff is ${code(diffPath)} in the artifact.` : "";
   const mode = enforce ? "enforced" : "report only";
   const line = `${code(pathA)} and ${code(pathB)}: ${result} (${mode}).${note}`;
-  appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Reduced-motion compare\n\n${line}\n`);
+  appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n${line}\n`);
 }
 
 process.exit(enforce && differs ? 1 : 0);

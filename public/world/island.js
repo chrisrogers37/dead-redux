@@ -8,6 +8,8 @@ import { CAVES, G, height } from "./ground.js";
 
 /* A ground vertex whose normal leans more than 35 degrees from straight up stands on a steep slope. */
 const STEEP = Math.cos((35 * Math.PI) / 180);
+/* The ring road runs from RING to SHORE m from the island's centre, and the shore past it is sand. */
+export const RING = 112, SHORE = 118;
 
 /* The ground (a grid of the tier's size, coloured by vertex) and the sea, then the ring road and the lightning path, then the caves'
    pools and lights, which it returns. */
@@ -22,7 +24,7 @@ export function buildIsland(scene, grid, phone) {
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     const hex = CAVES.some(([cx, cz]) => Math.hypot(x - cx, z - cz) < 13) ? 0x2a2622
-      : normal.getY(i) < STEEP ? 0x8e8a82 : Math.hypot(x, z) > 118 ? 0x8a8370 : 0x5f6b4e;
+      : normal.getY(i) < STEEP ? 0x8e8a82 : Math.hypot(x, z) > SHORE ? 0x8a8370 : 0x5f6b4e;
     color.setHex(hex).toArray(colors, i * 3);
   }
   ground.setAttribute("color", new THREE.BufferAttribute(colors, 3));
@@ -32,7 +34,7 @@ export function buildIsland(scene, grid, phone) {
   /* The ring road and the lightning path, as flat bands just above the ground. */
   const bandMat = new THREE.MeshLambertMaterial({ color: 0x8e8a82 });
   /* The ring lies on the ground, so it follows the shore's gentle rise and fall. */
-  const ringGeo = new THREE.RingGeometry(112, 118, 160, 2).rotateX(-Math.PI / 2);
+  const ringGeo = new THREE.RingGeometry(RING, SHORE, 160, 2).rotateX(-Math.PI / 2);
   const ringPos = ringGeo.attributes.position;
   for (let i = 0; i < ringPos.count; i++) ringPos.setY(i, height(ringPos.getX(i), ringPos.getZ(i)) + 0.2);
   ringGeo.computeVertexNormals();

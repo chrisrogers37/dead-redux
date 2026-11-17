@@ -116,3 +116,170 @@ export const soundStats = () => {
   const listener = l?.positionX ? [l.positionX.value, l.positionY.value, l.positionZ.value].map((v) => Math.round(v * 100) / 100) : null;
   return { context: ctx?.state ?? null, routed: [...slots.values()].filter((s) => s.source).length, listener };
 };
+
+/* Layer 2: the live sound, read from the analyser above. Each value smooths per read and then reads against a running reference, the
+   highest it has been lately, so loudness, low end and brightness each run 0-1 as a fraction of the show's recent loud, low or bright
+   end, as a layer-3 map's envelopes are fractions of their track's 99th percentile. */
+const READ_MS = 33;
+/* Seconds for a reference to halve while nothing reaches it. */
+const HALF_LIFE = 30;
+/* How far each value moves toward a read: loudness and the low end quickly, brightness slowly. */
+const SMOOTH = { loud: 0.25, bass: 0.25, bright: 0.1 };
+/* Under its floor a value reads as a fraction of the floor: loudness's RMS of 0.01 is -40 dBFS, and the low end's floor is -70 dB. */
+const FLOORS = { loud: 0.01, bass: 10 ** (-70 / 20), bright: 0.05 };
+
+/* The FFT bin nearest a frequency, within the spectrum: a frequency past its last bin, as 8 kHz is at a sample rate of 16 kHz or less,
+   gives the last bin. */
+export const binOf = (hz, sampleRate, fftSize) => Math.min(fftSize / 2 - 1, Math.round(hz / (sampleRate / fftSize)));
+
+/* The root mean square of a block of samples. */
+export function rmsOf(samples) {
+  let sum = 0;
+  for (const x of samples) sum += x * x;
+  return Math.sqrt(sum / samples.length);
+}
+
+/* The mean linear magnitude over bins lo to hi of a spectrum in dB, as getFloatFrequencyData gives it. */
+export function bassOf(db, lo, hi) {
+  let sum = 0;
+  for (let k = lo; k <= hi; k++) sum += 10 ** (db[k] / 20);
+  return sum / (hi - lo + 1);
+}
+
+/* The spectral centroid over bins 1 to hi, weighted by linear magnitude, as a fraction of bin hi; 0 for a silent spectrum. */
+export function brightOf(db, hi) {
+  let sum = 0, moment = 0;
+  for (let k = 1; k <= hi; k++) {
+    const m = 10 ** (db[k] / 20);
+    sum += m;
+    moment += k * m;
+  }
+  return sum > 0 ? moment / sum / hi : 0;
+}
+
+/* Onsets, from the spectral flux: the sum of each bin's rise in linear magnitude since the read before, up to brightness's top bin. A
+   read is an onset when its flux first rises over ONSET_RATIO times the median flux of the reads in the ONSET_MS before it. The figures'
+   beat takes its phase from them (beat.js). The ratio is untuned. */
+const ONSET_MS = 1500;
+const ONSET_RATIO = 1.5;
+/* The reads an onset needs before it in that time: the first reads have nothing to stand out from. */
+const ONSET_READS = 5;
+
+/* The spectral flux over bins 1 to hi of a spectrum in dB, as getFloatFrequencyData gives it: the sum of each bin's rise in linear
+   magnitude over `prev`, the last read's magnitudes, which it then replaces with this read's. */
+export function fluxOf(db, prev, hi) {
+  let sum = 0;
+  for (let k = 1; k <= hi; k++) {
+    const m = 10 ** (db[k] / 20);
+    if (m > prev[k]) sum += m - prev[k];
+    prev[k] = m;
+  }
+  return sum;
+}
+
+/* One read of the onsets, from the last: `recent` holds the flux of the reads in the ONSET_MS before this one as [ms, flux], oldest
+   first, `above` whether the read before stood over the threshold, `count` the onsets so far and `at` the last one's time (null before
+   the first). A read stands over the threshold when its flux is over ONSET_RATIO times their median, with ONSET_READS of them or more,
+   and its RMS is at loudness's floor or over, so silence has no onsets. `onset` is the first read over it. */
+export function onsetStep({ recent, above, count, at }, flux, rms, now) {
+  const kept = recent.filter(([t]) => now - t < ONSET_MS);
+  const sorted = kept.map(([, f]) => f).sort((a, b) => a - b);
+  const over = sorted.length >= ONSET_READS && rms >= FLOORS.loud && flux > ONSET_RATIO * sorted[sorted.length >> 1];
+  const onset = over && !above;
+  return { recent: [...kept, [now, flux]], above: over, onset, count: onset ? count + 1 : count, at: onset ? now : at };
+}
+
+/* One read: each raw value (loudness's is the RMS) smooths into its level, each reference follows its level, and the drive is each level
+   against its reference, at most 1 since a reference never falls below its level. `dt` is the seconds since the previous read (Infinity
+   for the first, so the references start at the levels). Near-silence still has a spectrum with a centroid, so under loudness's floor the
+   raw brightness fades with the RMS: silence reads no brightness, and its centroid never reaches brightness's reference. */
+export function readStep({ level, ref }, raw, dt) {
+  const heard = { ...raw, bright: raw.bright * Math.min(1, raw.loud / FLOORS.loud) };
+  const next = {}, held = {}, drive = { source: "analyser" };
+  for (const k of ["loud", "bass", "bright"]) {
+    next[k] = level[k] + (heard[k] - level[k]) * SMOOTH[k];
+    held[k] = Math.max(next[k], ref[k] * 0.5 ** (dt / HALF_LIFE));
+    drive[k] = next[k] / Math.max(held[k], FLOORS[k]);
+  }
+  return { level: next, ref: held, drive };
+}
+
+/* The levels, their references and the last drive; the onsets (onsetStep); the reads so far and the last one's time; and the buffers
+   and bins, made at the first read, once the context's sample rate is known. */
+let state = { level: { loud: 0, bass: 0, bright: 0 }, ref: { loud: 0, bass: 0, bright: 0 }, drive: null };
+let onsets = { recent: [], above: false, onset: false, count: 0, at: null };
+let reads = 0, lastRead = -Infinity, samples = null, spectrum = null, magnitudes = null, bins = null;
+/* Whether a routed element is playing with data to play: one that waits for data (a stalled stream) is neither paused nor sounding. */
+const sounding = () => {
+  for (const s of slots.values()) if (s.source && !s.el.paused && !s.el.ended && s.el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return true;
+  return false;
+};
+
+/* Layer 2's drive for this frame, { loud, bass, bright, source }, or null while nothing plays through the graph: before the first move,
+   while the show is paused or its stream waits for data, while the system holds the context suspended, and on a device or an element
+   that plays plain. It reads the analyser at most every READ_MS, the onsets with it, and gives the last reading in between. The frame
+   loop calls it, so it never reads in a hidden tab, and never under reduced motion, where nothing calls it. */
+export function analyse(now) {
+  if (ctx?.state !== "running" || !sounding()) return null;
+  if (now - lastRead >= READ_MS) {
+    if (!samples) {
+      samples = new Float32Array(analyser.fftSize);
+      spectrum = new Float32Array(analyser.frequencyBinCount);
+      magnitudes = new Float32Array(analyser.frequencyBinCount);
+      /* The low end's bins, 43 to 344 Hz, and brightness's top bin, 8 kHz or the spectrum's last. */
+      bins = [43, 344, 8000].map((hz) => binOf(hz, ctx.sampleRate, analyser.fftSize));
+    }
+    analyser.getFloatTimeDomainData(samples);
+    analyser.getFloatFrequencyData(spectrum);
+    const rms = rmsOf(samples);
+    state = readStep(state, { loud: rms, bass: bassOf(spectrum, bins[0], bins[1]), bright: brightOf(spectrum, bins[2]) }, (now - lastRead) / 1000);
+    onsets = onsetStep(onsets, fluxOf(spectrum, magnitudes, bins[2]), rms, now);
+    lastRead = now;
+    reads += 1;
+  }
+  return state.drive;
+}
+
+/* The time of the last onset the analyser found, as analyse's `now`; null before the first. */
+export const onsetAt = () => onsets.at;
+
+/* For the stats: the reads and the onsets since boot, the smoothed RMS before its reference, and the last drive's values. */
+export function analysisStats() {
+  const r = (x) => Math.round(x * 1000) / 1000;
+  const d = state.drive;
+  return { reads, onsets: onsets.count, rms: r(state.level.loud), loud: r(d?.loud ?? 0), bass: r(d?.bass ?? 0), bright: r(d?.bright ?? 0) };
+}
+
+const lerp = (a, b, t) => a + (b - a) * t;
+/* The panel's factor at the top of its range, where the build-up takes it at a peak: the most before the brightest of the sky's colours,
+   amber's red, clips. */
+const PANEL_TOP = 1.2;
+/* The beam's factor at the top of its range, where the build-up takes it at a peak: the most before red clips where the beam crosses the
+   island's sand rim. At the beam's own opacity its two faces add 74, 56 and 24 to the rim's 161, 133 and 111, as the stills read them,
+   so red reaches 255 from about 1.27 times. */
+const BEAM_TOP = 1.2;
+/* What the music does to the world, from the last drive heard (null for none; the live sound's, or the show's map's where the analyser
+   cannot hear the show) and how far the world follows it (`weight`, 0-1): factors on the sky's energy, the hemisphere light, the stage
+   light, the panel's colour and the flame's light, each multiplying that one's own value; the amber mix; the bears' leg rate (rad/s)
+   and swing (rad); and the crowd's dance, a factor on its own. `build` (0-1) is the map's build-up before a peak (maps.js buildUp), which
+   acts with the weight, so it rests when the music does: it takes the panel toward PANEL_TOP and the beam over the song's landmark toward
+   BEAM_TOP, and swells the flame up to 2.2 times its size, each a factor on its own value too; and the crowd rises with it as it acts
+   (`rise`, 0-1). At weight 0 every factor is 1, the mix 0, the legs as they were and the crowd unrisen, exactly. */
+export function mappings(drive, weight, build = 0) {
+  const L = drive?.loud ?? 0, B = drive?.bass ?? 0, R = drive?.bright ?? 0;
+  const lift = build * weight;
+  return {
+    energy: lerp(1, 0.6 + 0.8 * L, weight),
+    hemi: lerp(1, 0.9 + 0.2 * L, weight),
+    stage: lerp(1, 0.4 + 1.6 * B, weight),
+    panel: lerp(lerp(1, 0.6 + 0.6 * L, weight), PANEL_TOP, lift),
+    flame: lerp(1, 0.5 + 1.5 * B, weight),
+    amber: 0.3 * R * weight,
+    rate: lerp(6, 6 + 6 * L, weight),
+    amp: lerp(0.5, 0.35 + 0.3 * B, weight),
+    beam: lerp(1, BEAM_TOP, lift),
+    swell: 1 + 1.2 * lift,
+    dance: lerp(1, 0.4 + 1.2 * L, weight),
+    rise: lift,
+  };
+}

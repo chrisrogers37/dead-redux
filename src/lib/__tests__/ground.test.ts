@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { HEAD } from "../../../public/world/avatar.js";
 import {
+  AMONG_POSE,
   BOUND,
+  CROWD_POSE,
   FACING,
   height,
   PATH_POSE,
@@ -11,17 +14,15 @@ import {
   STAGE_COLUMN,
   STAGE_POSE,
   STAGE_REACH,
+  TEST_POSES,
 } from "../../../public/world/ground.js";
+import { RING, SHORE } from "../../../public/world/island.js";
+import { seats } from "../../../public/world/seats.js";
+import { PANEL } from "../../../public/world/stage.js";
 
-// Where the ring road starts, and where the shore beyond it starts to fall (public/world/island.js, slope()).
-const RING = 112, SHORE = 118;
 // The longest walk to the platform's edge that the desktop-stage recording's 25-s hold covers with seconds to spare
 // (.github/screenshots/shoot.mjs): at most 0.6 m a frame, and CI draws this view about once every 0.5 s.
 const WALK = 24.5;
-// How high a bear's head stands over the ground it walks on (public/world/avatar.js).
-const HEAD = 3.6;
-// The middle of the stage's light panel, in the stage's own frame: centred, 3.7 m above the floor, on the back wall (public/world/stage.js).
-const PANEL = { y: 3.7, z: -4.08 };
 // Half the desktop frame's width, in degrees: a 60-degree field (public/world/quality.js) at the shots' 1440 x 900.
 const HALF_WIDTH = (Math.atan(1.6 * Math.tan(Math.PI / 6)) * 180) / Math.PI;
 
@@ -98,6 +99,16 @@ describe("the stage's facing", () => {
   });
 });
 
+describe("the stage's reach and column", () => {
+  it("keeps a walk 11 m from the stage's centre", () => {
+    expect(STAGE_REACH).toBe(11);
+  });
+
+  it("holds the third-person camera out of a column 10.95 m round the stage's centre, up to 8.45 m over its shelf", () => {
+    expect(STAGE_COLUMN).toEqual({ x: STAGE[0], z: STAGE[1], r: 10.95, top: SHELF_Y + 8.45 });
+  });
+});
+
 describe("?pose=stage", () => {
   it("stands in front of the stage, beyond its reach and within the walk's bound, facing its centre", () => {
     expect(fromStage(STAGE_POSE)).toBeGreaterThan(STAGE_REACH);
@@ -128,6 +139,28 @@ describe("?pose=slope", () => {
     const below = slope(SLOPE_POSE.x, SLOPE_POSE.z) + HEAD - SHELF_Y;
     expect((Math.atan2(below, fromStage(SLOPE_POSE)) * 180) / Math.PI).toBeGreaterThan(15);
     expect(SLOPE_POSE.pitch).toBeLessThan(0);
+  });
+});
+
+describe("?pose=crowd", () => {
+  it("stands behind the crowd's last row, within the walk's bound, facing the stage's centre and looking down", () => {
+    const lastRow = Math.max(...seats({ path: [], line: [], landmarks: [] }).map((s) => s.r));
+    expect(fromStage(CROWD_POSE)).toBeGreaterThan(lastRow);
+    expect(Math.hypot(CROWD_POSE.x, CROWD_POSE.z)).toBeLessThan(BOUND);
+    expect(offHeading(CROWD_POSE)).toBeLessThan(0.1);
+    expect(CROWD_POSE.pitch).toBeLessThan(0);
+  });
+});
+
+describe("?pose=among", () => {
+  it("stands among the crowd, off its aisle, with figures within 3 m, within the walk's bound, facing the stage and looking down", () => {
+    const near = seats({ path: [], line: [], landmarks: [] }).filter((s) => Math.hypot(s.x - AMONG_POSE.x, s.z - AMONG_POSE.z) < 3);
+    expect(near.length).toBeGreaterThan(0);
+    expect(fromStage(AMONG_POSE) * Math.sin((offFront(AMONG_POSE.x, AMONG_POSE.z) * Math.PI) / 180)).toBeGreaterThan(3);
+    expect(Math.hypot(AMONG_POSE.x, AMONG_POSE.z)).toBeLessThan(BOUND);
+    expect(offHeading(AMONG_POSE)).toBeLessThan(0.1);
+    expect(AMONG_POSE.pitch).toBeLessThan(0);
+    expect(TEST_POSES.among).toBe(AMONG_POSE);
   });
 });
 

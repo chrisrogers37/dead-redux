@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nearest, rise } from "../../../public/world/boom.js";
+import { STAGE_COLUMN } from "../../../public/world/ground.js";
 
 // The boom as the walk camera hangs it (public/world/avatar.js): 11 m behind the head on a desktop, 0.35 rad above it.
 const LEN = 11;
@@ -63,7 +64,7 @@ describe("rise", () => {
     for (let k = 0; k < 8; k++) {
       const bearing = (k * Math.PI) / 4 + 0.2;
       for (const side of [1.3, 2, 2.6]) {
-        for (const r of [3, 10.95]) {
+        for (const r of [3, STAGE_COLUMN.r]) {
           for (const top of [5, 12]) {
             const col = column(bearing, side, r, top);
             const dir = line(bearing);

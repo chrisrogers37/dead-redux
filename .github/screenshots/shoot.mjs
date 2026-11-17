@@ -2,7 +2,8 @@ import { appendFile, mkdir, mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { chromium } from "playwright";
-import { PATH_POSE, SLOPE_POSE, STAGE_POSE } from "../../public/world/ground.js";
+import { TEST_POSES } from "../../public/world/ground.js";
+import { logText } from "../../scripts/job-text.mjs";
 import {
   CALL_BUDGET,
   callsFailure,
@@ -12,6 +13,7 @@ import {
   routingFailure,
   saveAssets,
   sweepPeak,
+  sweepSummary,
   walkPoses,
 } from "./assets.mjs";
 
@@ -167,13 +169,68 @@ const PAGES = [
     steps: [playStep("fixed-space-start", { ms: 12000, shot: "fixed-space" })],
   },
   // The fixed day from ?pose=stage: the visitor's bear on the slope in front of the stage, and over its head the six players against the
-  // panel, the open front toward the camera.
-  { path: "/2026-10-20?pose=stage", devices: ["desktop"], shots: ["fixed-stage"] },
+  // panel, the open front toward the camera. Then the show plays, shot again 8 s later from the same still camera, where the panel and the
+  // light follow the music.
+  {
+    path: "/2026-10-20?pose=stage",
+    devices: ["desktop"],
+    shots: ["fixed-stage"],
+    steps: [playStep("fixed-stage-playing", { ms: 8000, shot: "fixed-stage-playing-8s" })],
+  },
+  // The fixed day 20 s before Fire On The Mountain's peak (150 s into the track, in its map): the build-up lifts the stage panel and the
+  // beam and swells the flame, more by the later shot, which lands a few seconds before the peak. The `map` line reads the build-up,
+  // the flame's scale and the panel's factor beside desktop-fixed-playing-8s's, while the analyser drives the rest of the world.
+  {
+    path: "/2026-10-20?at=8&t=130",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-fire-build", { ms: 8000, shot: "fixed-fire-build-8s" })],
+  },
+  // The same from ?pose=stage with ?drive=map on previews: the map drives the world, as where the analyser cannot hear the show, and the
+  // `analysis` line reads source "map"; the panel and the platform's light follow the map's envelopes and the build-up, from the still
+  // camera, and the figures play at the map's tempo.
+  {
+    path: "/2026-10-20?pose=stage&drive=map&at=8&t=130",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-map-stage", { ms: 8000, shot: "fixed-map-stage-8s" })],
+  },
   // The fixed day from ?pose=slope: the visitor's bear higher up the slope, looking down over it to the stage at its foot.
   { path: "/2026-10-20?pose=slope", devices: ["desktop"], shots: ["fixed-stage-slope"] },
   // The fixed day from ?pose=path: the visitor's bear on the loop at the summit's north-east shoulder, heading along it, and down the slope
   // to the left of it the stage's front.
   { path: "/2026-10-20?pose=path", devices: ["desktop"], shots: ["fixed-stage-path"] },
+  // The fixed day from ?pose=crowd: the visitor's bear behind the crowd's last rows, and down the slope before it the crowd standing still
+  // to the stage. The stats line's `crowd.drawn` counts the figures the tier draws. Under reduced motion, two shots 5 s apart, which the
+  // reduced-motion compare holds to no change.
+  { path: "/2026-10-20?pose=crowd", devices: ["desktop", "phone", "phone-360"], shots: ["fixed-crowd"] },
+  { path: "/2026-10-20?pose=crowd", devices: ["desktop-reduced"], shots: ["fixed-crowd-1", "fixed-crowd-2"] },
+  // The same while the show plays, with ?drive=map: from Jack Straw's start the crowd dances to the figures' beat, as far as the map's
+  // loudness takes it, and the rig's beams swing over it; from 20 s before Fire On The Mountain's peak the build-up lifts it, the front
+  // rows first, and gathers the beams, and the later shot lands a few seconds before the peak, with the rise rippled out toward the back
+  // (the light show's key screen, on a phone and phone-360 too); and in Space it sits, swaying where it sits, and the beams lift. The
+  // stats line's `crowd` reads how far it dances and how far it sits, and `rig` how far the rig is lit, gathered and lifted.
+  {
+    path: "/2026-10-20?pose=crowd&drive=map&at=1",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-crowd-dance", { ms: 8000, shot: "fixed-crowd-dance-8s" })],
+  },
+  {
+    path: "/2026-10-20?pose=crowd&drive=map&at=8&t=130",
+    devices: ["desktop", "phone", "phone-360"],
+    shots: [],
+    steps: [playStep("fixed-crowd-rise", { ms: 8000, shot: "fixed-crowd-rise-8s" })],
+  },
+  {
+    path: "/2026-10-20?pose=crowd&drive=map&at=14",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-crowd-space", { ms: 8000, shot: "fixed-crowd-space-8s" })],
+  },
+  // The fixed day from ?pose=among: the visitor's bear among the crowd's middle rows, off the aisle, and the figures round it stepped
+  // aside.
+  { path: "/2026-10-20?pose=among", devices: ["desktop"], shots: ["fixed-crowd-among"] },
   // The fixed day from ?pose=landmark-K: from 30 m over a landmark, north up, with the bears standing where their line passes nearest it,
   // the lead bear there. Jack Straw (1) stands by the trailhead, which the line rounds as the loop closes; Touch Of Grey (6) on the
   // summit's south-west shoulder and Cold Rain And Snow (7) on the summit, both beside the line from the left cave to the right one;
@@ -240,6 +297,9 @@ const PAGES = [
     steps: [{ click: "a[href='/archive/2026-09']", waitFor: "main[data-month='2026-09']", shot: "archive-2026-09" }],
     end: "archive-2026-09-end",
   },
+  // A path no route answers, and a date that is not one: each answers 404 with the site's own page, which the policy check covers too.
+  { path: "/no/such/page", status: 404, devices: ["desktop", "phone"], shots: ["not-found"] },
+  { path: "/2026-02-30", status: 404, devices: ["desktop", "phone"], shots: ["not-found-date"] },
   // A fixed past day, so its shots compare across runs.
   { path: "/2026-03-01", shots: ["2026-03-01"] },
   // The same day, which no step plays, so no saved point stands in: L seeks 10 s before the first move, and play starts from there.
@@ -298,7 +358,6 @@ const PAGES = [
 ];
 
 // The test poses (ground.js) open each sweep, so their calls can be read beside the full-size shots taken from them.
-const TEST_POSES = { stage: STAGE_POSE, slope: SLOPE_POSE, path: PATH_POSE };
 const SWEEP_POSES = [...Object.values(TEST_POSES), ...walkPoses(15, 12)];
 
 // Generated images are saved byte for byte as the site serves them.
@@ -422,7 +481,7 @@ const RECORD_MS = 10_000;
 // What fails the run once every shot is taken: a generated image the site answers with an error, a frame over its tier's draw-call
 // budget (a shot's, or the walk's peak in a sweep), a first-person frame where a bear comes inside the camera's near plane, a show
 // playing with its sound neither through the world nor in plain stereo for a reason the player names, a required step whose control is
-// missing or whose state never comes, and a sweep that cannot finish.
+// missing or whose state never comes, a sweep that cannot finish, and a policy problem (below).
 const failures = [];
 
 // What the log says when a read had to wait for the page to load again: the shot was taken, then the page navigated as it was read.
@@ -437,6 +496,70 @@ const logStats = async (page, file) => {
   for (const failure of [callsFailure(parsed), nearFailure(parsed)]) {
     if (failure) failures.push(`${file}: ${failure}`);
   }
+};
+
+// Each policy problem, with the devices and pages where it happened: a Content-Security-Policy violation, a Permissions Policy error,
+// or a page response without the site's security headers.
+const policyProblems = new Map();
+const policyProblem = (text, where) => policyProblems.set(text, (policyProblems.get(text) ?? new Set()).add(where));
+// How many requests the pages made to each origin, by the kind of request: what the Content-Security-Policy has to allow.
+const loaded = new Map();
+let responsesChecked = 0;
+// Vercel's preview build loads its toolbar from vercel.live on every page; production's loads it only with Vercel's opt-in cookie. The
+// policy refuses it on both, and the run counts those refusals apart from the site's own.
+const VERCEL_TOOLBAR = " refused https://vercel.live/";
+let toolbarRefusals = 0;
+
+// A page's path and query, which name it in a policy problem.
+const where = (device, page) => {
+  const url = page ? new URL(page.url()) : null;
+  return `${device} ${url ? `${url.pathname}${url.search}` : "(no page)"}`;
+};
+
+// Watches a context's pages. The page reports each Content-Security-Policy violation as an event, which an init script writes to the
+// console, where the browser writes its Permissions Policy errors too; and each request's origin goes into the tally.
+const watchPolicies = async (context, device) => {
+  await context.addInitScript(() => {
+    document.addEventListener("securitypolicyviolation", (event) => {
+      console.error(`securitypolicyviolation ${event.effectiveDirective} refused ${event.blockedURI || "inline"}`);
+    });
+  });
+  context.on("console", (message) => {
+    const text = message.text();
+    if (text.startsWith("securitypolicyviolation ") && text.includes(VERCEL_TOOLBAR)) {
+      toolbarRefusals += 1;
+    } else if (/^securitypolicyviolation |permissions[- ]policy/i.test(text)) {
+      policyProblem(text.replace(/^securitypolicyviolation /, "Content-Security-Policy: "), where(device, message.page()));
+    }
+  });
+  context.on("request", (request) => {
+    const key = `${request.resourceType()} ${new URL(request.url()).origin}`;
+    loaded.set(key, (loaded.get(key) ?? 0) + 1);
+  });
+};
+
+// A page's own response carries the site's security headers, and its Content-Security-Policy a nonce, which the import map carries too.
+const checkHeaders = async (page, response, device) => {
+  responsesChecked += 1;
+  const headers = await response.allHeaders();
+  const policy = headers["content-security-policy"] ?? "";
+  const nonce = policy.match(/(?:^|; )script-src [^;]*'nonce-([^']+)'/)?.[1];
+  const mapNonce = await evaluateAcrossNavigation(
+    page,
+    () => document.querySelector('script[type="importmap"]')?.nonce ?? null,
+    reread(`${device} headers`)
+  );
+  const problems = [
+    !nonce && "no nonce in the Content-Security-Policy's script-src",
+    /'unsafe-/.test(policy) && "an 'unsafe-' source in the Content-Security-Policy",
+    nonce && mapNonce !== nonce && "an import map without the policy's nonce",
+    headers["x-content-type-options"] !== "nosniff" && `X-Content-Type-Options: ${headers["x-content-type-options"]}`,
+    headers["x-frame-options"] !== "SAMEORIGIN" && `X-Frame-Options: ${headers["x-frame-options"]}`,
+    !headers["referrer-policy"] && "no Referrer-Policy",
+    !headers["permissions-policy"] && "no Permissions-Policy",
+    headers["x-powered-by"] && `X-Powered-By: ${headers["x-powered-by"]}`,
+  ];
+  for (const problem of problems.filter(Boolean)) policyProblem(`headers: ${problem}`, where(device, page));
 };
 
 // The sweep's line for each page and device, for the job summary.
@@ -456,9 +579,11 @@ const sweepWalk = async (page, device, tracks) => {
     const { calls: peak, pose } = sweepPeak(SWEEP_POSES, calls);
     const where = `x ${pose.x.toFixed(1)}, z ${pose.z.toFixed(1)}, heading ${pose.heading.toFixed(3)}`;
     const tests = Object.keys(TEST_POSES).map((name, i) => `${name} ${calls[i]}`).join(", ");
-    const line =
+    // One line, in the log and in the summary, whatever the track's title holds.
+    const line = logText(
       `${device}, track index ${index} (${title}): at most ${peak} draw calls over ${calls.length} poses (the ${tier} budget is ` +
-      `${CALL_BUDGET[tier]}), at ${where}; the test poses ${tests}; ${Math.round((Date.now() - started) / 1000)} s`;
+        `${CALL_BUDGET[tier]}), at ${where}; the test poses ${tests}; ${Math.round((Date.now() - started) / 1000)} s`
+    );
     console.log(`sweep ${line}`);
     sweeps.push(line);
     const over = callsFailure({ tier, calls: peak });
@@ -479,7 +604,7 @@ const logBoxes = async (page, file) => {
   );
   for (const { name, x, y, width, height, visible } of boxes) {
     const size = `${Math.round(width)}x${Math.round(height)} at ${Math.round(x)},${Math.round(y)}`;
-    console.log(`box ${file} ${name}: ${visible ? `${size}${width < 44 || height < 44 ? " small" : ""}` : "hidden"}`);
+    console.log(logText(`box ${file} ${name}: ${visible ? `${size}${width < 44 || height < 44 ? " small" : ""}` : "hidden"}`));
   }
 };
 
@@ -506,9 +631,9 @@ const logPage = async (page, file) => {
     ];
   }, reread(file));
   console.log(`url ${file} ${page.url()}`);
-  console.log(`state ${file} ${state} · ${line}`);
+  console.log(logText(`state ${file} ${state} · ${line}`));
   console.log(`cursor ${file} ${cursor}`);
-  console.log(`next ${file} ${next}`);
+  console.log(logText(`next ${file} ${next}`));
 };
 
 const site = new URL(process.env.SITE_URL);
@@ -537,6 +662,7 @@ const noWebGL = await chromium.launch({ args: ["--disable-webgl", "--disable-web
 try {
   for (const [device, options] of Object.entries(DEVICES)) {
     const context = await (NO_WEBGL.has(device) ? noWebGL : browser).newContext(options);
+    await watchPolicies(context, device);
     const page = await context.newPage();
     // Playwright trims the clip to the page, so it only cuts tall pages short.
     const clip = {
@@ -546,7 +672,7 @@ try {
       height: options.viewport.height * MAX_SCREENS,
     };
 
-    for (const { path, shots, steps, end, devices, ready, sweep, failAudio } of PAGES) {
+    for (const { path, shots, steps, end, devices, ready, sweep, failAudio, status } of PAGES) {
       // The TV device is for lean-back, so it shoots the home page and only the other pages that name it.
       if (device === "tv" && path !== "/" && !devices?.includes("tv")) {
         continue;
@@ -558,10 +684,11 @@ try {
       const url = pageUrl(path, device);
       if (failAudio) await page.route(isTrackAudio, (route) => route.abort());
       const response = await open(page, url);
-      // A redirect to another host, such as a login wall, is not the site.
-      if (!response?.ok() || new URL(page.url()).host !== url.host) {
+      // A redirect to another host, such as a login wall, is not the site. A page that names a status must answer with it.
+      if ((status ? response?.status() !== status : !response?.ok()) || new URL(page.url()).host !== url.host) {
         throw new Error(`${url} answered ${response?.status()} at ${page.url()}`);
       }
+      await checkHeaders(page, response, device);
       await page
         .waitForLoadState("networkidle", { timeout: 10_000 })
         .catch(() => console.log(`${url} never went network-idle; shooting anyway`));
@@ -571,9 +698,14 @@ try {
           .waitForSelector(ready, { timeout: 15_000 })
           .catch(() => console.log(`${url} never reached ${ready}; shooting anyway`));
       }
-      // A running clock is not motion, so the reduced-motion shots hide it to stay comparable.
+      // A running clock is not motion, so the reduced-motion shots hide it to stay comparable. A constructed stylesheet hides it: the
+      // Content-Security-Policy refuses a style element, but not the CSSOM.
       if (options.reducedMotion) {
-        await page.addStyleTag({ content: '[data-mask="time"]{visibility:hidden}' });
+        await page.evaluate(() => {
+          const sheet = new CSSStyleSheet();
+          sheet.replaceSync('[data-mask="time"]{visibility:hidden}');
+          document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+        });
       }
       // A sweep that cannot finish fails the run at the end, so the shots after it are still taken.
       if (sweep) await sweepWalk(page, device, sweep).catch((error) => failures.push(`sweep ${device}: ${error.message}`));
@@ -618,7 +750,7 @@ try {
             document.querySelector("[data-action='play']")?.closest(".plate")?.querySelector(".t-tag")?.textContent ?? null,
             document.querySelector("main")?.dataset.routing ?? null,
           ]);
-          console.log(`state ${device}-${step.shot}.png ${state} · ${line}`);
+          console.log(logText(`state ${device}-${step.shot}.png ${state} · ${line}`));
           console.log(`routing ${device}-${step.shot}.png ${routing}`);
         }
         await page.waitForTimeout(STEP_SETTLE_MS);
@@ -637,17 +769,24 @@ try {
           await logStats(page, laterFile);
           await logPage(page, laterFile);
           // Serialised in the page, so each reading prints as one line of JSON.
-          const [analysis, lastGapMs, routing, state, world, corsFallback] = await page.evaluate(() => [
+          const [analysis, map, lastGapMs, routing, state, world, corsFallback, line] = await page.evaluate(() => [
             JSON.stringify(window.__hill?.analysis ?? null),
+            JSON.stringify(window.__hill?.map ?? null),
             JSON.stringify(window.__hill?.lastGapMs ?? null),
             document.querySelector("main")?.dataset.routing ?? null,
             document.querySelector("main")?.dataset.state ?? null,
             document.getElementById("world")?.dataset.world ?? null,
             window.__hill?.corsFallback ?? null,
+            document.querySelector("[data-action='play']")?.closest(".plate")?.querySelector(".t-tag")?.textContent ?? null,
           ]);
           console.log(`analysis ${laterFile} ${analysis}`);
+          // The show's map as the world reads it where the show is: its envelopes, the build-up with the flame, the panel and the beam,
+          // and the figures' tempo and the onsets that pulled their beat.
+          console.log(`map ${laterFile} ${map}`);
           console.log(`lastGapMs ${laterFile} ${lastGapMs}`);
           console.log(`routing ${laterFile} ${routing}`);
+          // The player's state and the now-plate's sentence at the later shot, so a stream that stalled shows here.
+          console.log(logText(`state ${laterFile} ${state} · ${line}`));
           // By now a playing show sounds through the world, or in plain stereo for a reason the player names (its corsFallback stat).
           const routed = routingFailure({ state, world, routing, corsFallback });
           if (routed) failures.push(`${laterFile}: ${routed}`);
@@ -681,6 +820,7 @@ try {
         size: options.viewport,
       },
     });
+    await watchPolicies(context, device);
     const page = await context.newPage();
     const url = pageUrl(path, device);
     const file = `${device}-${name}.webm`;
@@ -742,7 +882,27 @@ try {
 
   // The job summary shows the sweep's peaks on the run's page, so nobody has to open the log.
   if (process.env.GITHUB_STEP_SUMMARY && sweeps.length > 0) {
-    await appendFile(process.env.GITHUB_STEP_SUMMARY, `### The walk's draw calls\n\n${sweeps.map((line) => `- ${line}`).join("\n")}\n`);
+    await appendFile(process.env.GITHUB_STEP_SUMMARY, sweepSummary(sweeps));
+  }
+
+  // The policies' verdict and what the pages loaded, in the log and on the run's page.
+  const tally = [...loaded].sort(([a], [b]) => a.localeCompare(b)).map(([key, count]) => `${key} ×${count}`);
+  for (const line of tally) console.log(`loaded ${line}`);
+  const verdict = `${
+    policyProblems.size === 0
+      ? `No Content-Security-Policy violation and no Permissions Policy error, and all ${responsesChecked} page responses carried the site's security headers.`
+      : `${policyProblems.size} policy problem(s); each has its own "failure" line.`
+  } The policy refused Vercel's preview toolbar ${toolbarRefusals} time(s), which the run does not count.`;
+  console.log(`policies: ${verdict}`);
+  for (const [text, places] of policyProblems) {
+    const list = [...places];
+    failures.push(`${text}, at ${list.slice(0, 5).join(", ")}${list.length > 5 ? ` and ${list.length - 5} more` : ""}`);
+  }
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    await appendFile(
+      process.env.GITHUB_STEP_SUMMARY,
+      `### Policies\n\n${verdict}\n\n### What the pages loaded\n\n${tally.map((line) => `- ${line}`).join("\n")}\n`
+    );
   }
 
   failures.push(...(await saveAssets(site, ASSETS, outDir)));
