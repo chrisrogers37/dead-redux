@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { afterShow, getTodayDateStr, newDay, pastPickDay } from "../site-day";
+import { afterShow, dayStart, getTodayDateStr, newDay, pastPickDay } from "../site-day";
 
 describe("getTodayDateStr", () => {
   it("turns the day over at midnight Eastern, not UTC", () => {
@@ -19,6 +19,29 @@ describe("getTodayDateStr", () => {
     // Clocks fall back on 2026-11-01, so 2026-11-02 begins at midnight EST (05:00Z).
     expect(getTodayDateStr(new Date("2026-11-02T04:59:59Z"))).toBe("2026-11-01");
     expect(getTodayDateStr(new Date("2026-11-02T05:00:00Z"))).toBe("2026-11-02");
+  });
+});
+
+describe("dayStart", () => {
+  it("is midnight Eastern", () => {
+    expect(dayStart("2026-10-20").toISOString()).toBe("2026-10-20T04:00:00.000Z");
+    expect(dayStart("2026-12-25").toISOString()).toBe("2026-12-25T05:00:00.000Z");
+  });
+
+  it("is midnight on the days the clocks change, which they do later, at 2 a.m.", () => {
+    // Clocks spring forward on 2026-03-08 and fall back on 2026-11-01.
+    expect(dayStart("2026-03-08").toISOString()).toBe("2026-03-08T05:00:00.000Z");
+    expect(dayStart("2026-03-09").toISOString()).toBe("2026-03-09T04:00:00.000Z");
+    expect(dayStart("2026-11-01").toISOString()).toBe("2026-11-01T04:00:00.000Z");
+    expect(dayStart("2026-11-02").toISOString()).toBe("2026-11-02T05:00:00.000Z");
+  });
+
+  it("is the first moment the site reads as that day", () => {
+    for (const day of ["2026-10-20", "2026-03-08", "2026-03-09", "2026-11-01", "2026-11-02"]) {
+      const start = dayStart(day).getTime();
+      expect(getTodayDateStr(new Date(start)), day).toBe(day);
+      expect(getTodayDateStr(new Date(start - 1)), day).not.toBe(day);
+    }
   });
 });
 

@@ -87,6 +87,17 @@ export function archiveMonths(picks: DailyPick[]): ArchiveMonth[] {
 }
 
 /**
+ * The address a month of the archive is found at: the newest month's is /archive, which shows it open, until the month closes; every
+ * other month's is its own page.
+ *
+ * @param months - The archive's months, newest first, as archiveMonths gives them.
+ * @param key - The month's key: "2026-10".
+ */
+export function monthPath(months: ArchiveMonth[], key: string): string {
+  return key === months[0]?.key ? "/archive" : `/archive/${key}`;
+}
+
+/**
  * A random past pick to offer when a page's show ends: a day from launch through yesterday, apart from the page's own day;
  * null while there is none.
  *

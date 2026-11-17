@@ -1,4 +1,5 @@
 import { formatDate } from "./format";
+import { SITE_URL } from "./site";
 
 /** The show a page shares, as the page knows it. */
 export interface SharedShow {
@@ -17,7 +18,7 @@ export interface SharedShow {
  * show's date, so a link shared from the home page keeps opening the same show.
  */
 export function shareContent({ featuredDate, showDate, venue, location, isToday }: SharedShow) {
-  const url = `https://dead-redux.vercel.app/${featuredDate}`;
+  const url = `${SITE_URL}/${featuredDate}`;
   const lead = isToday ? "Today's Dead show" : `Featured on ${formatDate(featuredDate)}`;
   const text = `${lead}: ${venue}, ${location} — ${showDate}`;
   return { url, text };

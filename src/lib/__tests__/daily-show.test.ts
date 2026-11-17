@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { isShowDate } from "../../../public/world/maps.js";
 import {
+  describeDay,
   getDailyShow,
   isValidDateStr,
   isCatalogShow,
@@ -79,6 +80,15 @@ describe.each(DATE_RULES)("the date rule, as $name holds it", ({ rule }) => {
       if (saved === undefined) delete process.env.TZ;
       else process.env.TZ = saved;
     }
+  });
+});
+
+describe("describeDay", () => {
+  it("names the day's show by its venue and date, and says when it was featured", () => {
+    expect(describeDay("2026-10-20")).toEqual({
+      title: "Rich Stadium — 1986-07-04",
+      description: "Featured on October 20, 2026: Rich Stadium, Buffalo, NY, USA, July 4, 1986",
+    });
   });
 });
 

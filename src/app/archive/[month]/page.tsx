@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
-import { archiveMonths, getArchivePicks } from "@/lib/archive";
+import { archiveMonths, getArchivePicks, monthPath } from "@/lib/archive";
 import { formatMonth } from "@/lib/format";
+import { alternatesFor } from "@/lib/site";
 import { Archive } from "@/components/Archive";
 
 interface PageProps {
@@ -14,7 +15,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const name = formatMonth(month);
   // A path that is not a month keeps the archive's title; the page answers 404.
   if (name === month) return { title: "Archive | Dead Redux" };
-  return { title: `${name} — Archive | Dead Redux`, description: `Past daily Grateful Dead show picks from ${name}` };
+  return {
+    title: `${name} — Archive | Dead Redux`,
+    description: `Past daily Grateful Dead show picks from ${name}`,
+    // The newest month is also /archive, which shows it open, so until the month closes its page names /archive canonical.
+    alternates: alternatesFor(monthPath(archiveMonths(getArchivePicks()), month)),
+  };
 }
 
 export default async function ArchiveMonthPage({ params }: PageProps) {

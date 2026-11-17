@@ -1,10 +1,17 @@
+import type { Metadata } from "next";
 import { connection } from "next/server";
 import { randomPastPick } from "@/lib/archive";
-import { getDailyShow } from "@/lib/daily-show";
+import { describeDay, getDailyShow } from "@/lib/daily-show";
 import { lookUpShow, pickBestSource } from "@/lib/relisten";
-import { readSiteDay } from "@/lib/site-day";
+import { alternatesFor } from "@/lib/site";
+import { getTodayDateStr, readSiteDay } from "@/lib/site-day";
 import { forcedLookup, testHooksEnabled } from "@/lib/test-hooks";
 import { WorldHome } from "@/components/world/WorldHome";
+
+/** The title names today's show, as the day's own page does. */
+export function generateMetadata(): Metadata {
+  return { title: `${describeDay(getTodayDateStr()).title} | Dead Redux`, alternates: alternatesFor("/") };
+}
 
 export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   // Today's show depends on the date, so the page renders on every visit.
