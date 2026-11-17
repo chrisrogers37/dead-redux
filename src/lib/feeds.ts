@@ -7,6 +7,15 @@ import { dayStart } from "./site-day";
 /** How many of the newest daily picks the feed carries, today's included: a month of them. */
 export const FEED_DAYS = 30;
 
+/**
+ * A daily pick's ID in the feed, a tag URI (RFC 4151): the address the site launched at, its launch day, and the pick's day. It is
+ * written out rather than built from SITE_URL, so when the site moves, each item's link follows and its ID stays, and a feed reader
+ * shows no pick a second time.
+ */
+function itemId(featuredDate: string): string {
+  return `tag:dead-redux.vercel.app,2026-02-16:${featuredDate}`;
+}
+
 /** Text made safe to stand in XML. */
 function escapeXml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -32,12 +41,11 @@ export function feedXml(today: string): string {
     .slice(0, FEED_DAYS)
     .map(({ featuredDate }) => {
       const { title, description } = describeDay(featuredDate);
-      const link = `${SITE_URL}/${featuredDate}`;
       return [
         "<item>",
         `<title>${escapeXml(title)}</title>`,
-        `<link>${link}</link>`,
-        `<guid isPermaLink="true">${link}</guid>`,
+        `<link>${SITE_URL}/${featuredDate}</link>`,
+        `<guid isPermaLink="false">${itemId(featuredDate)}</guid>`,
         `<pubDate>${dayStart(featuredDate).toUTCString()}</pubDate>`,
         `<description>${escapeXml(description)}</description>`,
         "</item>",

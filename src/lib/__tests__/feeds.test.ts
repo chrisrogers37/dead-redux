@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getLaunchDate } from "../archive";
 import { FEED_DAYS, feedXml, sitemapEntries } from "../feeds";
 
@@ -73,11 +73,25 @@ describe("feedXml", () => {
       "<item>" +
         "<title>Rich Stadium — 1986-07-04</title>" +
         `<link>${SITE}/2026-10-20</link>` +
-        `<guid isPermaLink="true">${SITE}/2026-10-20</guid>` +
+        '<guid isPermaLink="false">tag:dead-redux.vercel.app,2026-02-16:2026-10-20</guid>' +
         "<pubDate>Tue, 20 Oct 2026 04:00:00 GMT</pubDate>" +
         "<description>Featured on October 20, 2026: Rich Stadium, Buffalo, NY, USA, July 4, 1986</description>" +
         "</item>"
     );
+  });
+
+  it("keeps each pick's ID when the site's address changes, while its link moves to the new address", async () => {
+    vi.resetModules();
+    vi.doMock("../site", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../site")>()),
+      SITE_URL: "https://example.org",
+    }));
+    const moved = (await import("../feeds")).feedXml(TODAY);
+    vi.doUnmock("../site");
+    const ids = (feed: string) => feed.match(/<guid\b[^>]*>[^<]*<\/guid>/g);
+    expect(moved).toContain("<link>https://example.org/2026-10-20</link>");
+    expect(ids(moved)).toHaveLength(FEED_DAYS);
+    expect(ids(moved)).toEqual(ids(xml));
   });
 
   it("escapes an ampersand in a venue's name", () => {
