@@ -4,13 +4,13 @@ import { keyBelongsToControl, lettersActive } from "./keys";
 const ARROWS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 const LETTERS = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE"]);
 
-function onWorldOrPad(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest("#world, [data-pad]") !== null;
+function onWorldOrStick(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest("#world, [data-stick]") !== null;
 }
 
 /**
  * The join: the first move on the page starts the show. While `waiting`, capture-phase listeners on window watch the walking keys,
- * and pointer and touch input on the world and the pad; the first event that counts as user activation calls `onMove` synchronously,
+ * and pointer and touch input on the world and the stick; the first event that counts as user activation calls `onMove` synchronously,
  * inside that event's own handler, and the listeners go. Space joins through the player's play key. Mouse-look, the wheel and
  * gamepads never count. Nothing stops the event, so the world still gets it: the first key press also walks.
  */
@@ -33,7 +33,7 @@ export function useFirstMove(onMove: () => void, waiting: boolean): void {
       fire();
     };
     const onPointer = (e: PointerEvent) => {
-      if (!onWorldOrPad(e.target)) return;
+      if (!onWorldOrStick(e.target)) return;
       if (e.type === "pointerdown" ? e.pointerType === "mouse" : e.pointerType !== "mouse") join();
     };
 
@@ -44,7 +44,7 @@ export function useFirstMove(onMove: () => void, waiting: boolean): void {
     listen("pointerdown", onPointer);
     listen("pointerup", onPointer);
     listen("touchend", (e) => {
-      if (onWorldOrPad(e.target)) join();
+      if (onWorldOrStick(e.target)) join();
     });
     return () => off.forEach((f) => f());
   }, [waiting]);

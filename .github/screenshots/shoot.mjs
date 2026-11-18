@@ -409,13 +409,13 @@ const RECORDINGS = [
       ["KeyG", 1400],
     ],
   },
-  // The phone roams with its on-screen pads, each held for its milliseconds, in order.
+  // The phone roams with its on-screen stick, pushed to its rim each way in turn for its milliseconds, then let go.
   {
     device: "phone",
     name: "roam",
-    pads: [
-      ["[data-pad='up']", 3000],
-      ["[data-pad='left']", 1200],
+    stick: [
+      ["up", 3000],
+      ["left", 1200],
     ],
   },
   // The fixed day's descent with nothing pressed: from over the summit down to the camera that walks with the bears, which wait at the
@@ -598,7 +598,7 @@ const logBoxes = async (page, file) => {
   const boxes = await page.evaluate(() =>
     Array.from(document.querySelectorAll("a, button, summary, input, [tabindex='0']"), (el) => {
       const { x, y, width, height } = el.getBoundingClientRect();
-      const name = el.dataset.action ?? el.dataset.pad ?? (el.id || el.getAttribute("aria-label") || el.textContent.trim());
+      const name = el.dataset.action ?? (el.id || el.getAttribute("aria-label") || el.textContent.trim());
       return { name, x, y, width, height, visible: el.checkVisibility() };
     })
   );
@@ -810,7 +810,7 @@ try {
     await context.close();
   }
 
-  recording: for (const { device, name, path = "/", click, waitFor, keys, pads, recordMs = RECORD_MS } of RECORDINGS) {
+  recording: for (const { device, name, path = "/", click, waitFor, keys, stick, recordMs = RECORD_MS } of RECORDINGS) {
     const options = DEVICES[device];
     // Frames arrive at the viewport's CSS size, whatever the device scale factor.
     const context = await browser.newContext({
@@ -852,25 +852,31 @@ try {
       held += ms;
       await logStats(page, `${file} after ${key}`);
     }
-    // A pad is held with a mouse press, not a touch; the log says so.
-    for (const [pad, ms] of pads ?? []) {
-      // Scripts may draw the pad after load, so it gets time to appear.
+    // The stick is pushed with a mouse press, not a touch, from its centre to its rim each way in turn, and let go at the end; the
+    // log says so.
+    if (stick) {
+      // Scripts may draw the stick after load, so it gets time to appear.
       const box = await page
-        .waitForSelector(pad, { timeout: 15_000 })
+        .waitForSelector("[data-stick]", { timeout: 15_000 })
         .then((element) => element.boundingBox())
         .catch(() => null);
       if (!box) {
-        console.log(`${file}: ${pad} absent`);
+        console.log(`${file}: [data-stick] absent`);
         await context.close();
         continue recording;
       }
-      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      const r = box.width / 2, x = box.x + r, y = box.y + box.height / 2;
+      await page.mouse.move(x, y);
       await page.mouse.down();
-      await page.waitForTimeout(ms);
+      for (const [way, ms] of stick) {
+        const [dx, dy] = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[way];
+        await page.mouse.move(x + dx * r, y + dy * r, { steps: 4 });
+        await page.waitForTimeout(ms);
+        held += ms;
+        console.log(`${file}: the stick pushed ${way} ${ms} ms with the mouse, not a touch`);
+        await logStats(page, `${file} after the stick ${way}`);
+      }
       await page.mouse.up();
-      held += ms;
-      console.log(`${file}: ${pad} held ${ms} ms with the mouse, not a touch`);
-      await logStats(page, `${file} after ${pad}`);
     }
     await page.waitForTimeout(Math.max(recordMs - held, 0));
     const video = page.video();

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BODY_REACH } from "../../../public/world/collide.js";
 import { BOUND, height, STAGE, STAGE_REACH } from "../../../public/world/ground.js";
+import { DEAD, REACH } from "../../../public/world/input.js";
 import { DESCENT_S } from "../../../public/world/modes.js";
 import { postPose } from "../../../public/world/pose.js";
 import { WINDOW } from "../../../public/world/quality.js";
@@ -348,6 +349,13 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
     getBoundingClientRect: () => ({ top: 0 }),
   });
   const main = { dataset: { state: playing ? "playing" : "paused", routing, view, ...(search ? { testHooks: "1" } : {}) } };
+  // The stick on a phone (input.js), 112 px across with its centre at (56, 56).
+  const stick = Object.assign(new EventTarget(), {
+    dataset: {},
+    style: { setProperty: () => {} },
+    setPointerCapture: () => {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 112, height: 112 }),
+  });
   const data = { showDate: SHOW, identifier: recording ? RECORDING : null, tracks: recording ? [{ ...TRACK, title }] : [], seed: 7 };
   const byId: Record<string, unknown> = { world: container, "world-data": { textContent: JSON.stringify(data) } };
   const media = (query: string) => ({ matches: reduced && query === "(prefers-reduced-motion: reduce)" });
@@ -361,7 +369,7 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
     Object.assign(new EventTarget(), {
       hidden: false,
       getElementById: (id: string) => byId[id] ?? null,
-      querySelector: (selector: string) => (selector === "main" ? main : null),
+      querySelector: (selector: string) => (selector === "main" ? main : selector === "[data-stick]" ? stick : null),
       querySelectorAll: () => [],
       createElement: () => ({ getContext: () => ({}) }),
     }),
@@ -407,9 +415,17 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
     run(seconds, { each });
     key("keyup", code);
   };
+  // Holds the stick pushed (dx, dy) px from its centre through `seconds` of frames, then lets go.
+  const push = (dx: number, dy: number, seconds: number) => {
+    const at = (type: string) => stick.dispatchEvent(Object.assign(new Event(type), { pointerId: 1, clientX: 56 + dx, clientY: 56 + dy }));
+    at("pointerdown");
+    run(seconds);
+    at("pointerup");
+  };
   return {
     run,
     hold,
+    push,
     mode: () => hill().mode,
     // The bears in the scene, lead first.
     shown: () => fake.world.bears.filter((b) => fake.world.scene.shown.has(b.g)),
@@ -581,6 +597,36 @@ describe("main.js's frames", () => {
       expect(shown.length).toBeGreaterThan(0);
       expect(shown.flatMap((b) => b.legs.map((leg) => leg.rotation.x)).filter((x) => x !== 0)).toEqual([]);
     });
+  });
+
+  it("walks and turns as far as the stick is pushed: to its reach as a key does, halfway there from its dead zone a quarter as far", async () => {
+    // Where 0.2 s of a control takes the visitor's bear from its place in the bears' line, in the walk the control starts.
+    const after = async (go: (page: Awaited<ReturnType<typeof startWorld>>) => void) => {
+      const page = await afterDescent();
+      const from = page.stepped();
+      go(page);
+      const to = page.stepped();
+      return { walked: distance(to, from), turned: to.heading - from.heading };
+    };
+    const half = REACH * (DEAD + (1 - DEAD) / 2);
+    const back = await after((page) => page.hold("ArrowDown", 0.2));
+    expect(back.walked).toBeGreaterThan(1);
+    expect((await after((page) => page.push(0, REACH, 0.2))).walked).toBeCloseTo(back.walked, 9);
+    expect((await after((page) => page.push(0, half, 0.2))).walked).toBeCloseTo(back.walked / 4, 9);
+    const left = await after((page) => page.hold("ArrowLeft", 0.2));
+    expect(left.turned).toBeGreaterThan(0.1);
+    expect((await after((page) => page.push(-REACH, 0, 0.2))).turned).toBeCloseTo(left.turned, 9);
+    expect((await after((page) => page.push(-half, 0, 0.2))).turned).toBeCloseTo(left.turned / 4, 9);
+  });
+
+  it("draws on under reduced motion while the stick is pushed, as while a key is held", async () => {
+    const page = await startWorld({ reduced: true });
+    page.run(0.02);
+    expect(page.mode()).toBe("walk");
+    const from = page.stepped();
+    // A frame that queued no next one would stop the push here (run throws); a frame walks 0.24 m, so the bear walks back on.
+    page.push(0, REACH, 1);
+    expect(distance(page.stepped(), from)).toBeGreaterThan(1);
   });
 
   it("draws the rig's beams after the world's other solid things, and the crowd after the beams", async () => {
