@@ -320,9 +320,12 @@ function start(gl) {
   }
   document.addEventListener("world:follow", () => userInput("follow"));
   const input = bindInput(container, walker, userInput);
-  const { keys } = input;
-  /* Whether a control that acts over time is held: a key or the pad that walks, turns or looks. */
-  const held = () => keys.fwd || keys.back || keys.left || keys.right || keys.strafeL || keys.strafeR || keys.lookUp || keys.lookDown;
+  const { keys, stick } = input;
+  /* Whether a control that acts over time is held: a key that walks, turns or looks, or a push on the stick. */
+  const held = () => keys.fwd || keys.back || keys.left || keys.right || keys.strafeL || keys.strafeR || keys.lookUp || keys.lookDown ||
+    stick.walk !== 0 || stick.turn !== 0;
+  /* How far the controls walk or turn, from -1 to 1: a key at full, the stick as far as it is pushed (input.js). */
+  const axis = (plus, minus, push) => Math.max(-1, Math.min(1, (plus ? 1 : 0) - (minus ? 1 : 0) + push));
   /* Lean-back, the player's state and the view live on <main>; read them now too, since the show may have started before the world
      loaded. The join and lean-back move the now-plate. */
   function syncMain() {
@@ -555,10 +558,9 @@ function start(gl) {
     /* The camera. T and G (or a vertical drag) look up and down, up to 0.8 rad either way, while walking or with the bears. */
     const tilt = (keys.lookUp ? 1 : 0) - (keys.lookDown ? 1 : 0);
     if (tilt && (mode === "walk" || mode === "follow")) walker.pitch = Math.max(-0.8, Math.min(0.8, walker.pitch + tilt * 1.2 * dt));
-    const moving_ = keys.fwd || keys.back || keys.strafeL || keys.strafeR;
     if (mode === "walk") {
-      const spd = (keys.fwd ? 1 : 0) - (keys.back ? 1 : 0);
-      const turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
+      const spd = axis(keys.fwd, keys.back, stick.walk);
+      const turn = axis(keys.left, keys.right, stick.turn);
       const side = (keys.strafeR ? 1 : 0) - (keys.strafeL ? 1 : 0);
       const pace = 12 * (keys.run ? 1.6 : 1) * dt;
       walker.heading += turn * 1.6 * dt;
@@ -573,7 +575,8 @@ function start(gl) {
       if (third) aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));
       else {
         placeWalker();
-        if (moving_ && !reduced) camera.position.y += 0.12 * Math.sin(elapsed * 9);
+        /* The eye bobs with the walk's pace: fully for a key, less for a gentle push on the stick. */
+        if (!reduced) camera.position.y += 0.12 * Math.min(1, Math.abs(spd) + Math.abs(side)) * Math.sin(elapsed * 9);
       }
     } else {
       /* Every other camera keeps the visitor's bear in its place in the line, walking with the five, and the walker with it; but
@@ -590,7 +593,7 @@ function start(gl) {
         aim(lookTarget.set(end.look.x * k, end.look.y * k, -3 + (end.look.z + 3) * k), true);
       } else if (mode === "attract" || mode === "follow") {
         /* In follow, turning adds an offset to the look. */
-        if (mode === "follow") walker.heading += ((keys.left ? 1 : 0) - (keys.right ? 1 : 0)) * 1.6 * dt;
+        if (mode === "follow") walker.heading += axis(keys.left, keys.right, stick.turn) * 1.6 * dt;
         const pose = mode === "follow" ? postPose(walker.heading - followBase, walker.pitch) : postPose(0, 0);
         camera.position.copy(pose.pos);
         aim(lookTarget.copy(pose.look), true);
