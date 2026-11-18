@@ -254,12 +254,12 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
         </>
       )}
 
-      {/* The hint waits for the first move: bottom-centre on a desktop, above the pad on a phone. */}
+      {/* The hint waits for the first move: bottom-centre on a desktop, above the stick on a phone. */}
       {hinting && (
         <p role="status" className="hud plate t-row text-ink left-1/2 -translate-x-1/2 bottom-6 max-sm:bottom-[152px] whitespace-nowrap">{hint}</p>
       )}
 
-      {/* Bottom-right on a desktop, so the bears at the trailhead stay in view; full width above the pad on a phone, a plate higher
+      {/* Bottom-right on a desktop, so the bears at the trailhead stay in view; full width above the stick on a phone, a plate higher
           while the hint shows. The wrapper and the plate stay mounted in every mode, so the player keeps playing. */}
       <div className={leanback ? "hud left-16 bottom-12 flex flex-col items-start gap-2" : `hud right-6 bottom-6 flex flex-col items-end gap-2 max-sm:left-3 max-sm:right-3 max-sm:items-stretch ${hinting ? "max-sm:bottom-[212px]" : "max-sm:bottom-[160px]"}`}>
         {!leanback && !fallback && (
@@ -281,12 +281,17 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
         </div>
       </div>
 
-      {/* The pad stays mounted in lean-back and in the still, only hidden: the world binds its buttons once, when it loads. */}
-      <div className={`hud pad left-1/2 -translate-x-1/2 bottom-6 sm:hidden! ${leanback || fallback ? "hidden!" : ""}`} aria-label="Walk">
-        <button type="button" data-pad="up" aria-label="Walk forward">↑</button>
-        <button type="button" data-pad="left" aria-label="Turn left">←</button>
-        <button type="button" data-pad="down" aria-label="Walk back">↓</button>
-        <button type="button" data-pad="right" aria-label="Turn right">→</button>
+      {/* The stick: a thumb on it walks and turns (public/world/input.js). It stays mounted in lean-back and in the still, only hidden:
+          the world binds it once, when it loads. */}
+      <div data-stick="" role="application" aria-label="Walk: slide up or down to walk, left or right to turn"
+        className={`hud stick left-1/2 -translate-x-1/2 bottom-6 sm:hidden! ${leanback || fallback ? "hidden!" : ""}`}>
+        <svg viewBox="0 0 112 112" width="112" height="112" aria-hidden="true">
+          <path data-dir="fwd" d="M50 21 56 15 62 21" />
+          <path data-dir="back" d="M50 91 56 97 62 91" />
+          <path data-dir="left" d="M21 50 15 56 21 62" />
+          <path data-dir="right" d="M91 50 97 56 91 62" />
+        </svg>
+        <span className="knob" />
       </div>
 
       {leanback && <LeanBackCorner sleepEndsAt={sleepEndsAt} onSleep={setSleepEndsAt} unit={sleepUnit} onLeave={leave} />}

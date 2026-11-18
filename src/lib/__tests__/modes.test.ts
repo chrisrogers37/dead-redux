@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { listenerAt } from "../../../public/world/audio.js";
 import { BODY_REACH } from "../../../public/world/collide.js";
 import { BOUND, STAGE, STAGE_COLUMN, STAGE_POSE, STAGE_REACH } from "../../../public/world/ground.js";
-import { bindInput } from "../../../public/world/input.js";
+import { bindInput, REACH } from "../../../public/world/input.js";
 import {
   confine,
   DESCENT_S,
@@ -417,24 +417,28 @@ function rulesFrom(start: string) {
 }
 
 // The page bindInput binds the controls on (public/world/input.js), played by stand-ins, since node has no DOM: the window and the
-// document take listeners, and the document answers bindInput's two queries, <main> (none here) and the pads, each with its direction.
-// `press` sends a key's keydown to the window.
+// document take listeners, and the document answers bindInput's two queries, <main> (none here) and the stick, 112 px across with its
+// centre at (100, 700). `press` sends a key's keydown to the window; `touch` sends the stick a pointer event at an offset from its centre.
 function bindWorld(userInput: (action: string) => void) {
-  const pads = Object.fromEntries(
-    ["up", "down", "left", "right"].map((pad) => [pad, Object.assign(new EventTarget(), { dataset: { pad } })]),
-  );
+  const stickEl = Object.assign(new EventTarget(), {
+    dataset: {},
+    style: { setProperty: () => {} },
+    setPointerCapture: () => {},
+    getBoundingClientRect: () => ({ left: 44, top: 644, width: 112, height: 112 }),
+  });
   vi.stubGlobal("window", new EventTarget());
   vi.stubGlobal("HTMLElement", class {});
   vi.stubGlobal(
     "document",
     Object.assign(new EventTarget(), {
-      querySelector: () => null,
-      querySelectorAll: (selector: string) => (selector === "[data-pad]" ? Object.values(pads) : []),
+      querySelector: (selector: string) => (selector === "[data-stick]" ? stickEl : null),
     }),
   );
-  const { keys } = bindInput(new EventTarget(), { heading: 0, pitch: 0 }, userInput);
+  const input = bindInput(new EventTarget(), { heading: 0, pitch: 0 }, userInput);
   const press = (code: string) => window.dispatchEvent(Object.assign(new Event("keydown"), { code, repeat: false }));
-  return { keys, pads, press };
+  const touch = (type: string, dx: number, dy: number) =>
+    stickEl.dispatchEvent(Object.assign(new Event(type), { pointerId: 7, clientX: 100 + dx, clientY: 700 + dy }));
+  return { ...input, press, touch };
 }
 
 describe("modeRules", () => {
@@ -465,24 +469,25 @@ describe("modeRules", () => {
     expect(spotOf(walker)).toEqual(P);
   });
 
-  it("walks on while a pad direction is held past 15 seconds: the press is one control, and no frame ends the walk", () => {
+  it("walks on while the stick is held forward past 15 seconds: the push is one control, and no frame ends the walk", () => {
     const { world, rules, run } = rulesFrom("descent");
     run(DESCENT_S);
     const controls: string[] = [];
-    const { keys, pads } = bindWorld((action) => {
+    const { stick, touch } = bindWorld((action) => {
       controls.push(action);
       rules.input(action);
     });
-    pads.up.dispatchEvent(new Event("pointerdown"));
+    touch("pointerdown", 0, -REACH);
     expect(controls).toEqual(["fwd"]);
-    // main.js moves the walker forward in each frame of a walk while `keys.fwd` holds.
+    // main.js moves the walker forward in each frame of a walk while `stick.walk` holds; the thumb shifts on the stick meanwhile.
     run(60, () => {
       expect(world.mode).toBe("walk");
-      expect(keys.fwd).toBe(true);
+      expect(stick.walk).toBe(1);
+      touch("pointermove", world.frame % 2, -REACH);
     });
     expect(controls).toEqual(["fwd"]);
-    pads.up.dispatchEvent(new Event("pointerup"));
-    expect(keys.fwd).toBe(false);
+    touch("pointerup", 0, -REACH);
+    expect(stick).toEqual({ walk: 0, turn: 0 });
   });
 
   it("still walks with the bears on B, keeps them while the visitor only looks around, and walks again on B or a step", () => {
