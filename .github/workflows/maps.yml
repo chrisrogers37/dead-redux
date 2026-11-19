@@ -51,11 +51,12 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      # A cache entry holds Ubuntu's packages for ffmpeg on one runner image, which fixes the packages ffmpeg needs, for one ISO
-      # week, which bounds how far a cached ffmpeg lags Ubuntu's updates. Only that exact key is restored.
+      # One cache entry a week serves every runner image: the packages ffmpeg needs come from that week's lists, and an image that
+      # needs one the entry lacks installs from the mirror. The ISO week bounds how far a cached ffmpeg lags Ubuntu's updates.
+      # Only that exact key is restored.
       - name: Key the package cache
         id: cache-key
-        run: echo "key=ffmpeg-$ImageOS-$ImageVersion-$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+        run: echo "key=ffmpeg-$ImageOS-$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache
         with:
@@ -75,12 +76,13 @@ jobs:
           # Ubuntu's archive key, from the runner image: the cache never supplies one.
           keyring=/usr/share/keyrings/ubuntu-archive-keyring.gpg
           warn() { echo "::warning::$1, so ffmpeg comes from the mirror."; }
-          # The cache holds lists/, each Ubuntu suite's InRelease and Packages indexes, and debs/, the .debs apt fetched for
-          # ffmpeg, all under apt's own names. A hit installs only what those signed indexes list, with the updates and security
-          # suites signed in the last ten days. apt itself only compares a cached .deb's size with its index, so the checks here
-          # hash every file.
+          # The cache holds lists/, each Ubuntu suite's InRelease and Packages indexes, named <suite>_InRelease and
+          # <suite>_<component>_binary-<architecture>_Packages, and debs/, the .debs apt fetched for ffmpeg, under apt's names. A
+          # hit installs only what those signed indexes list, with the updates and security suites signed in the last ten days.
+          # apt itself only compares a cached .deb's size with its index, so the checks here hash every file.
           from_cache() {
-            local signed releases indexes debs release index name suite path sum codename files file date signed_at deb unnamed
+            local signed releases indexes debs release index name suite path sum codename files file date signed_at deb unnamed i missing
+            local -a lists=()
             signed=$(mktemp -d)
             releases=("$PACKAGES"/lists/*_InRelease)
             indexes=("$PACKAGES"/lists/*_Packages)
@@ -91,21 +93,21 @@ jobs:
               gpgv --keyring "$keyring" --output "$signed/$name" "$release" 2>/dev/null ||
                 { warn "$name has no good signature from Ubuntu's archive key"; return 1; }
               suite=$(sed -n 's/^Suite: //p' "$signed/$name")
-              [[ $name == *_dists_"$suite"_InRelease ]] || { warn "$name signs the suite $suite"; return 1; }
+              [ "$name" = "${suite}_InRelease" ] || { warn "$name signs the suite $suite"; return 1; }
             done
             # Each Packages index has the SHA256 its suite's InRelease lists for it.
             for index in "${indexes[@]}"; do
               name=${index##*/}
-              release=${name%_*_*_Packages}_InRelease
-              path=${name#"${release%InRelease}"}
-              sum=$(awk -v path="${path//_//}" '/^[^ ]/ { sha = $1 == "SHA256:" } sha && $3 == path { print $1 }' "$signed/$release" 2>/dev/null)
+              path=${name#*_}
+              sum=$(awk -v path="${path//_//}" '/^[^ ]/ { sha = $1 == "SHA256:" } sha && $3 == path { print $1 }' "$signed/${name%%_*}_InRelease" 2>/dev/null)
               if [ -z "$sum" ] || ! sha256sum --status -c <<< "$sum  $index"; then
                 warn "$name doesn't match its InRelease"; return 1
               fi
             done
             # The updates and security suites are both there, with every Packages index the runner's sources read for them, and
-            # each was signed under ten days ago. (apt also names a binary-all index, which only a suite whose InRelease lists the
-            # architecture "all" has, and Ubuntu's don't.)
+            # each was signed under ten days ago. Those lists go where apt reads them, under the names the runner's sources give
+            # them; the release pocket, which never changes, is read from the image's own lists. (apt also names a binary-all
+            # index, which only a suite whose InRelease lists the architecture "all" has, and Ubuntu's don't.)
             codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
             for suite in "$codename-updates" "$codename-security"; do
               # shellcheck disable=SC2016
@@ -113,10 +115,12 @@ jobs:
                 'Created-By: Packages' | awk '$1 != "all" { print $2 }')
               [ -n "$files" ] || { warn "the runner's sources read no $suite"; return 1; }
               for file in $files; do
-                [ -f "$PACKAGES/lists/${file##*/}" ] || { warn "the cache has no ${file##*/}"; return 1; }
+                name=${suite}_${file##*_dists_"$suite"_}
+                [ -f "$PACKAGES/lists/$name" ] || { warn "the cache has no $name"; return 1; }
+                lists+=("$PACKAGES/lists/$name" "$file")
               done
-              release=${file##*/}
-              date=$(sed -n 's/^Date: //p' "$signed/${release%_*_*_Packages}_InRelease" 2>/dev/null)
+              lists+=("$PACKAGES/lists/${suite}_InRelease" "${file%_*_*_Packages}_InRelease")
+              date=$(sed -n 's/^Date: //p' "$signed/${suite}_InRelease" 2>/dev/null)
               signed_at=$(date -d "${date:-@0}" +%s 2>/dev/null) || signed_at=0
               if (( signed_at <= $(date +%s) - 10 * 86400 )); then
                 warn "$suite was signed ${date:-at no known date}, ten days ago or more"; return 1
@@ -124,7 +128,8 @@ jobs:
               echo "$suite: signed $date"
             done
             # Each .deb has the SHA256 of a record in those indexes and already has the name apt gives that record's .deb:
-            # Package_Version_Architecture.deb, with any ":" in the version written %3a.
+            # Package_Version_Architecture.deb, with any ":" in the version written %3a. It goes into apt's archives under the
+            # name the record gives.
             [ ${#debs[@]} -gt 0 ] || { warn "the cache has no .debs"; return 1; }
             for deb in "${debs[@]}"; do sum=$(sha256sum < "$deb"); echo "${sum%% *} ${deb##*/}"; done > "$signed/debs"
             awk -v debs="$signed/debs" '
@@ -137,14 +142,20 @@ jobs:
                   else if ($i ~ /^Architecture: /) arch = substr($i, 15)
                   else if ($i ~ /^SHA256: /) sum = substr($i, 9)
                 gsub(/:/, "%3a", ver)
-                if (sum in name && name[sum] == pkg "_" ver "_" arch ".deb") print name[sum]
+                deb = pkg "_" ver "_" arch ".deb"
+                if (sum in name && name[sum] == deb) print deb
               }' "${indexes[@]}" | sort -u > "$signed/named"
             unnamed=$(cut -d' ' -f2 "$signed/debs" | sort -u | comm -23 - "$signed/named")
             [ -z "$unnamed" ] || { warn "no index names ${unnamed%%$'\n'*} with its SHA256"; return 1; }
             echo "Every cached file passes: ${#releases[@]} InRelease files, ${#indexes[@]} Packages indexes and ${#debs[@]} .debs."
-            sudo cp "${releases[@]}" "${indexes[@]}" /var/lib/apt/lists/
-            sudo cp "${debs[@]}" /var/cache/apt/archives/
-            sudo apt-get install -y -q --no-download ffmpeg || { warn "apt couldn't install ffmpeg from the cached packages"; return 1; }
+            for (( i = 0; i < ${#lists[@]}; i += 2 )); do sudo cp "${lists[i]}" "${lists[i + 1]}"; done
+            while read -r deb; do sudo cp "$PACKAGES/debs/$deb" "/var/cache/apt/archives/$deb"; done < "$signed/named"
+            if ! sudo apt-get install -y -q --no-download ffmpeg; then
+              # What apt would have to fetch: the packages this runner needs that the entry lacks.
+              missing=$(apt-get install -qq --print-uris ffmpeg 2>/dev/null | awk '{ print $2 }')
+              warn "apt can't install ffmpeg from the cache${missing:+, which lacks ${missing//$'\n'/ }}"
+              return 1
+            fi
           }
           if command -v ffmpeg >/dev/null; then
             echo "The runner has ffmpeg."
@@ -156,11 +167,17 @@ jobs:
             sudo apt-get update -q
             sudo apt-get install -y -q -o Dir::Cache::Archives=/var/cache/apt/ffmpeg/ ffmpeg
             if [ "$HIT" != true ]; then
-              # For the save: the InRelease and Packages indexes of each suite Ubuntu's archive key signs, and those .debs.
+              # For the save: the InRelease and Packages indexes of each suite Ubuntu's archive key signs, under the suite's name,
+              # and those .debs.
               mkdir -p "$PACKAGES/lists" "$PACKAGES/debs"
               for release in /var/lib/apt/lists/*_InRelease; do
                 if gpgv --keyring "$keyring" "$release" 2>/dev/null; then
-                  cp "$release" "${release%InRelease}"*_Packages "$PACKAGES/lists/"
+                  suite=${release%_InRelease}
+                  suite=${suite##*_dists_}
+                  cp "$release" "$PACKAGES/lists/${suite}_InRelease"
+                  for index in "${release%InRelease}"*_Packages; do
+                    cp "$index" "$PACKAGES/lists/${suite}_${index##*_dists_"$suite"_}"
+                  done
                 fi
               done
               cp /var/cache/apt/ffmpeg/*.deb "$PACKAGES/debs/"
