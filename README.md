@@ -40,7 +40,7 @@ The home page and every day's page are an island, drawn in the browser with thre
 | Play or pause | Space or K |
 | Back or ahead 10 s | J or L |
 | Previous or next song | P or N |
-| On a phone | The pad walks and turns; a drag turns and looks |
+| On a phone | The stick walks and turns; a drag turns and looks |
 
 The letter keys can be switched off under Details (Single-key shortcuts). They still work while the world has focus.
 
