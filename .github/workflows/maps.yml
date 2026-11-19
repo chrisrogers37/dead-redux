@@ -51,13 +51,50 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      # The runner's image may have ffmpeg already. A stalled package mirror fails this step, not the whole job's time.
+      # The runner's image may have ffmpeg already. If not, its packages come from the runner's own Ubuntu mirror or, when that
+      # attempt fails or runs past LIMIT seconds, from the first of MIRRORS to serve them within LIMIT seconds; the install
+      # follows, from the downloaded packages. When every mirror fails, so does this step, and nothing is analysed or published.
       - name: Install ffmpeg
-        timeout-minutes: 10
+        # Up to three attempts of LIMIT seconds, then the install.
+        timeout-minutes: 12
+        env:
+          MIRRORS: https://archive.ubuntu.com/ubuntu/ https://mirrors.edge.kernel.org/ubuntu/
+          LIMIT: 180
         run: |
           if ! command -v ffmpeg >/dev/null; then
-            sudo apt-get update -q
-            sudo apt-get install -y -q ffmpeg
+            # One attempt, with the apt options given: refresh every package list, then download ffmpeg's packages, within LIMIT
+            # seconds. The refresh fails when any list fails to download (--error-on=any), and then nothing is downloaded.
+            fetch() {
+              sudo timeout -k 10 "$LIMIT" sh -c \
+                'apt-get "$@" update -q --error-on=any && apt-get "$@" install -y -q --download-only ffmpeg' sh "$@"
+            }
+            # Why an attempt stopped, from its status: 124 is timeout's.
+            why() { if [ "$1" -eq 124 ]; then echo "ran past ${LIMIT}s"; else echo "failed"; fi; }
+            opts=()
+            status=0
+            fetch || status=$?
+            from="the runner's mirror"
+            for mirror in $MIRRORS; do
+              [ "$status" -ne 0 ] || break
+              echo "::warning::Fetching ffmpeg from $from $(why "$status"); trying $mirror"
+              # The runner's Ubuntu sources with this mirror's address, and empty directories for this attempt's lists and
+              # packages, open to apt's download user: the install reads only lists this attempt fetched.
+              dir=$(mktemp -d)
+              chmod 755 "$dir"
+              mkdir "$dir/lists" "$dir/archives"
+              sed "s|^URIs:.*|URIs: $mirror|" /etc/apt/sources.list.d/ubuntu.sources > "$dir/ubuntu.sources"
+              opts=(-o "Dir::Etc::SourceList=$dir/ubuntu.sources" -o Dir::Etc::SourceParts=/dev/null
+                -o "Dir::State::Lists=$dir/lists" -o "Dir::Cache::Archives=$dir/archives")
+              status=0
+              fetch "${opts[@]}" || status=$?
+              from=$mirror
+            done
+            if [ "$status" -ne 0 ]; then
+              echo "::error::Fetching ffmpeg from $from $(why "$status"), and no mirror is left"
+              exit 1
+            fi
+            # Only the downloaded packages, so the install never waits on a mirror.
+            sudo apt-get "${opts[@]}" install -y -q --no-download ffmpeg
           fi
           echo "ffmpeg: $(command -v ffmpeg)"
       - name: Pick the shows
