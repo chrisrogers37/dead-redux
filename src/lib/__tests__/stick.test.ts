@@ -78,4 +78,22 @@ describe("bindInput's pointers", () => {
     on(window, "pointermove", 2, 100, 300);
     expect(walker.heading).toBeCloseTo(1, 12);
   });
+
+  it("takes the pressing pointer's capture, so a thumb that slides off the stick keeps steering", () => {
+    const { stickEl, on } = bindPage();
+    // A browser sends a captured pointer's events to the stick wherever it goes. The stand-ins don't, so this reads the request.
+    const capture = vi.spyOn(stickEl, "setPointerCapture");
+    on(stickEl, "pointerdown", 7, 100, 700 - REACH);
+    expect(capture.mock.calls).toEqual([[7]]);
+  });
+
+  it("stops on a cancelled touch: after a push, pointercancel and the lostpointercapture that follows leave the stick at rest", () => {
+    const { stickEl, stick, on } = bindPage();
+    on(stickEl, "pointerdown", 7, 100 - REACH, 700 - REACH);
+    expect(stick).toEqual({ walk: 1, turn: 1 });
+    // A browser follows a pointercancel with lostpointercapture for the pointer the stick holds, and either one lifts the stick.
+    on(stickEl, "pointercancel", 7, 100 - REACH, 700 - REACH);
+    on(stickEl, "lostpointercapture", 7, 100 - REACH, 700 - REACH);
+    expect(stick).toEqual({ walk: 0, turn: 0 });
+  });
 });
