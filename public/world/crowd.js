@@ -12,29 +12,66 @@ import { keepOuts, parting, PERSON, seats } from "./seats.js";
 /* Dark, nearly grey colours, a little apart in hue, so the figures read as silhouettes and as many people. */
 const PALETTE = [0x1d1b22, 0x22201d, 0x1a1f26, 0x26201f, 0x1e2320, 0x2a2420, 0x18181b, 0x241c24];
 
-/* One figure in its own units, standing on y = 0 and facing +z, 1.81 tall: legs LEG tall, a torso, a head and two arms at its sides,
-   hanging from shoulders SHOULDER_X either side and SHOULDER_Y up. The legs carry aLeg = 1, the arms aArm = -1 and 1. */
-const LEG = 0.86, SHOULDER_X = 0.3, SHOULDER_Y = 1.44;
+/* One figure in its own units, standing on y = 0 and facing +z, TALL to the top of its head: two legs LEG tall on their feet, hips, a
+   torso that widens to its shoulders, a neck, a head, and two arms at its sides ending in hands, hanging from shoulders SHOULDER_X
+   either side and SHOULDER_Y up. Each leg has a ring at the knee, halfway up it, where it bends. It stands within the plain figure it
+   replaces, 0.35 to either side and 0.27 fore and aft, its arms within that figure's, so the reaches below still bound it. The legs
+   carry aLeg = 1 and the feet aLeg = 2, the arms and hands aArm = -1 and 1.
+   Some figures wear a brimmed hat and some long hair, neither taller than the head: those parts carry aWear = 1 and 2, and the vertex
+   shader folds them away on the figures that do not wear them (HAT, HAIR), so the whole crowd is still one mesh. */
+export const LEG = 0.86, SHOULDER_X = 0.3, SHOULDER_Y = 1.44, TALL = 1.8076;
+const HEAD_Y = 1.655;
 export function figureGeometry() {
-  const part = (geo, leg, arm) => {
+  const part = (geo, leg, arm, wear = 0) => {
     const g = geo.index ? geo.toNonIndexed() : geo, n = g.attributes.position.count;
     g.setAttribute("aLeg", new THREE.BufferAttribute(new Float32Array(n).fill(leg), 1));
     g.setAttribute("aArm", new THREE.BufferAttribute(new Float32Array(n).fill(arm), 1));
+    g.setAttribute("aWear", new THREE.BufferAttribute(new Float32Array(n).fill(wear), 1));
     return g;
   };
-  return mergeGeometries([
-    part(new THREE.CylinderGeometry(0.2, 0.15, LEG, 6, 1, true).translate(0, LEG / 2, 0), 1, 0),
-    part(new THREE.CylinderGeometry(0.27, 0.2, 0.62, 6, 1, false).translate(0, 1.17, 0), 0, 0),
-    part(new THREE.IcosahedronGeometry(0.15, 0).translate(0, 1.68, 0), 0, 0),
-    part(new THREE.BoxGeometry(0.1, 0.62, 0.1).translate(-SHOULDER_X, SHOULDER_Y - 0.31, 0), 0, -1),
-    part(new THREE.BoxGeometry(0.1, 0.62, 0.1).translate(SHOULDER_X, SHOULDER_Y - 0.31, 0), 0, 1),
-  ]);
+  /* The head, an egg whose top stands at TALL. */
+  const head = new THREE.IcosahedronGeometry(0.135, 1).scale(1, 1.13, 1.05);
+  head.computeBoundingBox();
+  head.translate(0, TALL - head.boundingBox.max.y, 0);
+  const parts = [part(head, 0, 0)];
+  for (const side of [-1, 1]) {
+    parts.push(
+      part(new THREE.CylinderGeometry(0.088, 0.062, LEG, 6, 2, true).translate(side * 0.095, LEG / 2, 0), 1, 0),
+      part(new THREE.BoxGeometry(0.11, 0.07, 0.21).translate(side * 0.095, 0.035, 0.05), 2, 0),
+      part(new THREE.CylinderGeometry(0.05, 0.036, 0.54, 6, 1, true).translate(side * SHOULDER_X, SHOULDER_Y - 0.27, 0), 0, side),
+      part(new THREE.IcosahedronGeometry(0.046, 0).translate(side * SHOULDER_X, SHOULDER_Y - 0.565, 0), 0, side),
+    );
+  }
+  parts.push(
+    /* The hips, closed above and below: the torso's foot is narrower than their top, and a seated figure shows their underside. */
+    part(new THREE.CylinderGeometry(0.165, 0.17, 0.17, 8).scale(1, 1, 0.74).translate(0, 0.93, 0), 0, 0),
+    part(new THREE.CylinderGeometry(0.25, 0.158, 0.46, 8).scale(1, 1, 0.68).translate(0, 1.24, 0), 0, 0),
+    part(new THREE.CylinderGeometry(0.075, 0.25, 0.075, 8, 1, true).scale(1, 1, 0.68).translate(0, 1.5075, 0), 0, 0),
+    part(new THREE.CylinderGeometry(0.055, 0.062, 0.1, 6, 1, true).translate(0, 1.57, 0), 0, 0),
+    /* The hat: a brim round the head and a crown that ends at the head's top. */
+    part(new THREE.CylinderGeometry(0.21, 0.21, 0.02, 10).translate(0, HEAD_Y + 0.055, 0), 0, 0, 1),
+    part(new THREE.CylinderGeometry(0.118, 0.137, 0.1, 8).translate(0, TALL - 0.05, 0), 0, 0, 1),
+    /* Long hair: down the back of the head to the shoulders. */
+    part(new THREE.IcosahedronGeometry(0.165, 0).scale(1, 1.3, 0.85).translate(0, 1.585, -0.05), 0, 0, 2),
+  );
+  /* Nothing on a figure reads a texture, so its vertices carry no texture coordinates. */
+  return mergeGeometries(parts).deleteAttribute("uv");
 }
+/* Who wears what, by a figure's own phase (aFig.y, 0-1) turned into a pick from 0 to 1: a hat under HAT, long hair from HAIR[0] to
+   HAIR[1]. */
+export const HAT = 0.22, HAIR = [0.3, 0.62];
 
-/* A figure folds to sit: its legs to FOLD of their height, and the rest of it down onto them. The sitters' section sits (aFig.x = 1);
-   the rest of the crowd sits as `sit` rises, each figure in its turn, the last STAGGER behind the first. */
-const FOLD = 0.18, STAGGER = 0.5;
-/* The dance, on the figures' beat: the knees bend on each beat by BOB of a sit, and the arms swing out ARM_SWING rad between beats;
+/* A leg is two bones of the same length, the thigh and the shin, from the hip down to the knee and on to the foot. The knee stands
+   wherever those lengths put it between the hip and the foot, always ahead of the line between them, so a leg bends and never
+   stretches or shrinks. Standing, a figure's knees bend to the beat as its hips come down, by up to FOLD of the legs' height short of
+   all of it. A figure sits on the ground with its knees up: its hips SEAT above the ground and its feet flat on it, FOOT ([forward,
+   up]) from where it stood, lower or higher by as much as the ground falls or rises that far ahead of its seat (aFig.w), so its feet
+   rest on the hill. The sitters' section sits (aFig.x = 1); the rest of the crowd sits as `sit` rises, each figure in its turn, the
+   last STAGGER behind the first. */
+export const FOLD = 0.18, STAGGER = 0.5, SEAT = 0.075, FOOT = [0.36, 0.03];
+/* The ground's fall or rise ahead of a seat that a seated figure's feet follow, in the figure's own units, at the most. */
+const DROP = [-0.12, 0.3];
+/* The dance, on the figures' beat: the hips come down on each beat by BOB of what a sit takes, and the arms swing out ARM_SWING rad between beats;
    the body sways SWAY rad to each side over two beats. Each figure keeps its own phase (aFig.y, 0-1): its knees bend within JITTER of
    a beat of the rest, and its sway starts up to a beat from theirs. */
 const BOB = 0.12, ARM_SWING = 0.5, SWAY = 0.08, JITTER = 0.12;
@@ -44,7 +81,8 @@ const BOB = 0.12, ARM_SWING = 0.5, SWAY = 0.08, JITTER = 0.12;
 const ARM_UP = 2.7, RISE_FROM = 0.3, RISE_SPAN = 0.6, RISE_W = 0.1;
 /* How far a figure reaches in its own units, over every pose: its farthest vertex HAND from its axis (its arms level partway up the
    rise, swaying at the dance's widest), its highest TOP over its feet (its hands up at the rise's peak), and PAST beyond the bounds it
-   stands in; and HANG with its arms hanging, as one standing fully still (aPart.w, seats.js) holds them. */
+   stands in; and HANG with its arms hanging, as one standing fully still (aPart.w, seats.js) holds them. A seated figure's feet reach
+   further than HANG ahead of it, 0.52 from its axis, but along the ground, under where a bear's reach is its snout. */
 const HAND = 1.11, TOP = 2.08, PAST = 0.4, HANG = 0.354;
 /* The visitor's bear reaches 1.98 m from its middle, halfway between its feet and its head (bears.js, avatar.js). */
 const BEAR = 1.98;
@@ -68,7 +106,8 @@ const f = (v) => v.toFixed(4);
 const DECLARE = `
 attribute float aLeg;
 attribute float aArm;
-attribute vec3 aFig;
+attribute float aWear;
+attribute vec4 aFig;
 attribute vec4 aPart;
 attribute float aRise;
 uniform float uBeat;
@@ -76,10 +115,17 @@ uniform float uDance;
 uniform float uRise;
 uniform float uSit;
 vec2 rot(vec2 v, float a) { float c = cos(a), s = sin(a); return vec2(c * v.x - s * v.y, s * v.x + c * v.y); }`;
-/* In the figure's own units, after begin_vertex: the rise, the sit, the arms, the knees and the sway, as far as the figure dances where
-   it stands (aPart.w: still 1, at its seat 0). Every figure rises with the build-up as far as aRise lets it: all the way, but with its
-   arms brought down while it stands fully still (seats.js). */
+/* In the figure's own units, after begin_vertex: what the figure does not wear folds to a point inside its head (HAT, HAIR); then the rise,
+   the sit, the arms, the legs and the sway, as far as the figure dances where it stands (aPart.w: still 1, at its seat 0). The hips
+   come down to the beat and, sitting, to SEAT, and the rest of the figure with them. Each leg runs from its hip to its foot through
+   the knee: the thigh from the leg's upper half and the shin from its lower, each keeping its thickness across the way it lies, the
+   ring at the knee cut on the mitre between them; the foot stays flat. Every figure rises with the build-up as far as aRise lets it:
+   all the way, but with its arms brought down while it stands fully still (seats.js). */
 const DANCE = `
+if (aWear > 0.5) {
+  float pick = fract(aFig.y * 7.13 + 0.37);
+  if (aWear < 1.5 ? pick >= ${f(HAT)} : (pick < ${f(HAIR[0])} || pick >= ${f(HAIR[1])})) transformed = vec3(0.0, ${f(HEAD_Y)}, 0.0);
+}
 float moves = 1.0 - aPart.w, dance = uDance * moves;
 float rise = clamp((uRise - ${f(RISE_FROM)} - ${f(RISE_SPAN)} * aFig.z) / ${f(RISE_W)}, 0.0, 1.0) * aRise;
 float sit = max(aFig.x, clamp(uSit * ${f(1 + STAGGER)} - aFig.y * ${f(STAGGER)}, 0.0, 1.0)) * (1.0 - rise);
@@ -89,8 +135,27 @@ if (aArm != 0.0) {
   vec2 shoulder = vec2(aArm * ${f(SHOULDER_X)}, ${f(SHOULDER_Y)});
   transformed.xy = shoulder + rot(transformed.xy - shoulder, aArm * swing);
 }
-float fold = sit + (1.0 - sit) * dance * (1.0 + rise) * ${f(BOB)} * bounce;
-transformed.y = aLeg > 0.5 ? transformed.y * (1.0 - ${f(1 - FOLD)} * fold) : transformed.y - ${f(LEG * (1 - FOLD))} * fold;
+float bob = (1.0 - sit) * dance * (1.0 + rise) * ${f(BOB)} * bounce;
+float lower = ${f(LEG * (1 - FOLD))} * bob + ${f(LEG - SEAT)} * sit;
+if (aLeg > 0.5) {
+  /* The hip, the foot and the knee between them, as [forward, up]. */
+  vec2 hip = vec2(0.0, ${f(LEG)} - lower);
+  vec2 foot = sit * vec2(${f(FOOT[0])}, ${f(FOOT[1])} - clamp(aFig.w, ${f(DROP[0])}, ${f(DROP[1])}));
+  float span = max(distance(hip, foot), 1e-4);
+  vec2 along = (foot - hip) / span;
+  float half_ = 0.5 * min(span, ${f(LEG - 1e-3)});
+  vec2 ahead = vec2(-along.y, along.x);
+  vec2 knee = hip + along * half_ + ahead * sqrt(max(${f((LEG / 2) ** 2)} - half_ * half_, 0.0));
+  foot = hip + along * min(span, ${f(LEG)});
+  if (aLeg > 1.5) transformed.zy = foot + transformed.zy;
+  else {
+    float leg = clamp(transformed.y / ${f(LEG)}, 0.0, 1.0);
+    vec2 thigh = normalize(knee - hip), shin = normalize(foot - knee);
+    vec2 overThigh = vec2(-thigh.y, thigh.x), overShin = vec2(-shin.y, shin.x);
+    vec2 over = leg > 0.51 ? overThigh : leg < 0.49 ? overShin : (overThigh + overShin) / max(dot(overThigh, overThigh + overShin), 0.4);
+    transformed.zy = (leg > 0.5 ? mix(knee, hip, 2.0 * leg - 1.0) : mix(foot, knee, 2.0 * leg)) + transformed.z * over;
+  }
+} else transformed.y -= lower;
 transformed.xy = rot(transformed.xy, dance * ${f(SWAY)} * sin(3.1416 * (uBeat + aFig.y)));`;
 /* project_vertex for the crowd, which is instanced and never batched: the figure's place on the hill, then where the parting has
    stepped it (aPart.xyz), in metres. */
@@ -130,20 +195,25 @@ export function buildCrowd(scene, { count, path, line, landmarks }) {
       .replace("#include <project_vertex>", PROJECT);
   };
   const mesh = new THREE.InstancedMesh(geo, mat, n);
-  const fig = new Float32Array(3 * n);
+  const fig = new Float32Array(4 * n);
   const near = Math.min(...placed.map((p) => p.r)), far = Math.max(...placed.map((p) => p.r));
   const dummy = new THREE.Object3D(), color = new THREE.Color();
   /* The seats come in a random order across the hill, so a figure's place in it picks its turn, its size, its colour and its phase. */
   placed.forEach((p, i) => {
     dummy.position.set(p.x, height(p.x, p.z), p.z);
     dummy.rotation.set(0, Math.atan2(STAGE[0] - p.x, STAGE[1] - p.z) + (i % 7 - 3) * 0.08, 0);
-    dummy.scale.setScalar(scale * (1 + ((i * 37) % 17 - 8) * 0.01));
+    /* Each is its own height, and as broad as the standard figure or up to 12 % slighter, so none reaches past the bounds below. */
+    const tall = scale * (1 + ((i * 37) % 17 - 8) * 0.01), broad = 1 - 0.012 * ((i * 29) % 11);
+    dummy.scale.set(tall * broad, tall, tall * broad);
     dummy.updateMatrix();
     mesh.setMatrixAt(i, dummy.matrix);
     mesh.setColorAt(i, color.setHex(PALETTE[(i * 5) % PALETTE.length]));
-    fig.set([p.sit ? 1 : 0, (i * 0.618034) % 1, far > near ? (p.r - near) / (far - near) : 0], 3 * i);
+    /* How far the ground falls from the seat to where a seated figure's feet rest, ahead of it the way it faces, in its own units. */
+    const reach = FOOT[0] * tall * broad, turn = dummy.rotation.y;
+    const drop = (height(p.x, p.z) - height(p.x + Math.sin(turn) * reach, p.z + Math.cos(turn) * reach)) / tall;
+    fig.set([p.sit ? 1 : 0, (i * 0.618034) % 1, far > near ? (p.r - near) / (far - near) : 0, drop], 4 * i);
   });
-  geo.setAttribute("aFig", new THREE.InstancedBufferAttribute(fig, 3));
+  geo.setAttribute("aFig", new THREE.InstancedBufferAttribute(fig, 4));
   /* The parting (partingOptions), each figure keeping clear of what the seats keep clear of, and its hands of the stage's solids
      (STAGE_COLUMN). */
   const big = scale * 1.08, opts = partingOptions(scale);

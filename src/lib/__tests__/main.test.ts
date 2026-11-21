@@ -3,6 +3,7 @@ import { BODY_REACH } from "../../../public/world/collide.js";
 import { BOUND, height, STAGE, STAGE_REACH } from "../../../public/world/ground.js";
 import { DEAD, REACH } from "../../../public/world/input.js";
 import { DESCENT_S } from "../../../public/world/modes.js";
+import { DEEP, HOUR_RATE, lookAt, newLook } from "../../../public/world/night.js";
 import { postPose } from "../../../public/world/pose.js";
 import { WINDOW } from "../../../public/world/quality.js";
 
@@ -13,7 +14,7 @@ import { WINDOW } from "../../../public/world/quality.js";
 // by stand-ins, with what the frames here use: a desktop's, in either view. The stand-ins keep these tests on main.js alone, and fast,
 // frame by frame. They draw nothing, and keep what the tests read: where each bear stands, where the visitor's bear steps, where the
 // camera stands and looks and its near plane, the sun's shadow, the stage light, the flame's size, the sky's drop, the figures' beat
-// and the rig's aim.
+// and the rig's aim. night.js runs as it is: the night's hour and its look are plain numbers.
 
 type Point = { x: number; z: number };
 type Point3 = Point & { y: number };
@@ -80,6 +81,12 @@ const fake = vi.hoisted(() => {
     posed: { beats: NaN, dance: NaN, rise: NaN, sit: NaN },
     partedAtOnce: null as boolean | null,
     onset: null as number | null,
+    // The renderer's shadow map; the hour of the look the last frame handed the sky, and the steady share of the stage's light in it;
+    // and whether the sky then says its key light has turned, which each test sets.
+    shadowMap: undefined as unknown as { enabled: boolean; autoUpdate: boolean; needsUpdate: boolean },
+    graded: NaN,
+    lift: NaN,
+    keyTurned: false,
   };
   class Scene {
     shown = new Set<unknown>();
@@ -131,7 +138,7 @@ const fake = vi.hoisted(() => {
   const TURN = 0.05;
   const three = {
     WebGLRenderer: class {
-      shadowMap = { enabled: false, autoUpdate: true, needsUpdate: false };
+      shadowMap = (world.shadowMap = { enabled: false, autoUpdate: true, needsUpdate: false });
       setPixelRatio() {}
       setSize() {}
       render() {}
@@ -148,7 +155,8 @@ const fake = vi.hoisted(() => {
     DoubleSide: 2,
   };
   const modules = {
-    island: { buildIsland: () => ({ caves: [] }) },
+    // The island draws the night's look on its sea and its ground itself (island.js), which the frames here do not read.
+    island: { buildIsland: () => ({ caves: [], shade: () => {} }) },
     path: {
       // The loop, where the walker stands before a frame puts it in its place in the bears' line.
       buildPath: () => ({ at: () => new Vec(), tangentAt: () => new Vec(1, 0, 0) }),
@@ -178,6 +186,10 @@ const fake = vi.hoisted(() => {
         return bears;
       },
       drawLegs: () => {},
+      // The gait as bears.js's stride swings it: an arm with the leg across from it.
+      stride: (b: Bear, swing: number) => {
+        b.legs.forEach((leg, k) => { leg.rotation.x = k === 0 || k === 3 ? swing : -swing; });
+      },
     },
     avatar: {
       buildAvatar: () => ({
@@ -217,6 +229,13 @@ const fake = vi.hoisted(() => {
           sun: world.sun,
           // The stage panel's material, whose gain each frame writes.
           panelMat: { uniforms: { uGain: { value: Float32Array.of(1) } } },
+          // The sky draws the night's look itself (sky.js), and says whether its key light has turned far enough to redraw the
+          // stage's shadow.
+          grade: (look: { hour: number; stageLift: number }) => {
+            world.graded = look.hour;
+            world.lift = look.stageLift;
+            return world.keyTurned;
+          },
         };
       },
       skyPair: () => [new Vec(), new Vec()],
@@ -328,6 +347,7 @@ type Hill = {
   crowd: { drawn: number; dance: number; sit: number; parted: number };
   analysis: { source: string | null; weight: number };
   map: { step: number; bass: number; build: number; swell: number; bpm: number | null } | null;
+  night: { hour: number; show: number; dark: number };
 };
 const hill = () => (window as unknown as { __hill: Hill }).__hill;
 
@@ -394,6 +414,7 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
   fake.world.line = LINE;
   fake.world.meshes = [];
   fake.world.onset = null;
+  fake.world.keyTurned = false;
   vi.resetModules();
   await import("../../../public/world/main.js");
   if (map && !reduced) await vi.waitFor(() => expect(hill().map).not.toBeNull());
@@ -692,13 +713,111 @@ describe("main.js's frames", () => {
   });
 });
 
+// The show here is one track of 600 s, so its night runs straight from the last light at 0 s to daybreak at 600 s (night.js): the deep
+// of the night, hour 1, falls at 300 s.
+describe("main.js's frames through the night", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("opens on the hour the show stands at, in its first frame", async () => {
+    const page = await startWorld();
+    page.seek(300);
+    page.run(0.02);
+    expect(hill().night).toMatchObject({ hour: DEEP, show: DEEP, dark: 1 });
+    expect(fake.world.graded).toBe(DEEP);
+  });
+
+  it("follows a seek through the hours between, at most HOUR_RATE hours a second, and lands on the show's hour", async () => {
+    const page = await startWorld();
+    page.run(1);
+    expect(hill().night.hour).toBe(0);
+    page.seek(300);
+    let last = 0;
+    page.run(1, {
+      each: () => {
+        const { hour } = hill().night;
+        expect(hour - last).toBeGreaterThan(0);
+        expect(hour - last).toBeLessThanOrEqual(HOUR_RATE * 0.02 + 1e-9);
+        last = hour;
+      },
+    });
+    expect(hill().night).toMatchObject({ show: DEEP });
+    expect(last).toBeGreaterThan(0.3);
+    expect(last).toBeLessThan(0.5);
+    page.run(8);
+    expect(hill().night.hour).toBeCloseTo(DEEP, 2);
+    expect(fake.world.graded).toBeCloseTo(DEEP, 2);
+  });
+
+  it("keeps to the show's hour as the show plays", async () => {
+    const page = await startWorld({ playing: true });
+    page.run(20);
+    expect(hill().night.show).toBeCloseTo((2 * 20) / 600, 3);
+    expect(hill().night.show - hill().night.hour).toBeLessThan(0.004);
+  });
+
+  it("lands at once under reduced motion, on the hour halfway through the song, wherever the song has got to", async () => {
+    const page = await startWorld({ reduced: true });
+    page.run(0.02);
+    expect(hill().night).toMatchObject({ hour: DEEP, show: DEEP });
+    page.seek(30);
+    page.hold("ArrowLeft", 0.1);
+    expect(hill().night).toMatchObject({ hour: DEEP, show: DEEP });
+  });
+
+  it("adds the night's share to the stage light steadily: the music moves the light by as much in the deep of the night as at dusk", async () => {
+    const lit = async (bass: number, position: number) => {
+      const page = await startWorld({ playing: true, routing: "plain", map: showMap({ bass }) });
+      page.seek(position);
+      page.run(2);
+      return fake.world.stage.light.intensity - 60 * fake.world.lift;
+    };
+    // The low end at 255 and at 0, at dusk and in the deep of the night (the seek to 298 s lands in the first frame).
+    const dusk = (await lit(255, 0)) - (await lit(0, 0));
+    const deep = (await lit(255, 298)) - (await lit(0, 298));
+    expect(dusk).toBeCloseTo(60 * 1.6, 9);
+    expect(deep).toBeCloseTo(dusk, 9);
+    expect(fake.world.lift).toBeGreaterThan(0.9);
+    expect(fake.world.lift).toBeCloseTo(lookAt(fake.world.graded, newLook()).stageLift, 9);
+  });
+
+  it("lights the rig's beams in full through the night and lets the daylight wash them out toward daybreak", async () => {
+    const lit = async (position: number) => {
+      const page = await startWorld({ playing: true });
+      page.seek(position);
+      page.run(2);
+      return (hill() as unknown as { rig: { lit: number } }).rig.lit;
+    };
+    expect(await lit(0)).toBe(1);
+    expect(await lit(298)).toBe(1);
+    // 590 s of the 600: the look's own share for the beams at that hour.
+    const late = await lit(588);
+    expect(late).toBeCloseTo(lookAt(fake.world.graded, newLook()).beams, 3);
+    expect(late).toBeLessThan(0.6);
+    expect(late).toBeGreaterThan(0.4);
+  });
+
+  it("redraws the stage's shadow only in a frame where the sky says its key light has turned", async () => {
+    const page = await startWorld();
+    page.run(0.1);
+    fake.world.shadowMap.needsUpdate = false;
+    page.run(0.1);
+    expect(fake.world.shadowMap.needsUpdate).toBe(false);
+    fake.world.keyTurned = true;
+    page.run(0.02);
+    expect(fake.world.shadowMap.needsUpdate).toBe(true);
+  });
+});
+
 describe("main.js's frames with the show's map", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  // The stage light as the music sets it: 60, its own intensity, times layer 2's factor for the low end `bass` (0-255) at full weight.
-  const stageLight = (bass: number) => 60 * (0.4 + 1.6 * (bass / 255));
+  // The stage light: 60, its own intensity, times layer 2's factor for the low end `bass` (0-255) at full weight, or 1 while the music
+  // drives nothing (null), and the steady share of it the night adds at the hour the world shows (night.js).
+  const stageLight = (bass: number | null) => 60 * ((bass === null ? 1 : 0.4 + 1.6 * (bass / 255)) + fake.world.lift);
 
   it("asks for the show's map once the world is ready", async () => {
     const page = await startWorld({ playing: true, map: showMap() });
@@ -721,7 +840,7 @@ describe("main.js's frames with the show's map", () => {
   ])("takes no drive from the map %s", async (_where, playing, routing) => {
     await startWorld({ playing, routing, map: showMap({ bass: 128 }) }).then((page) => page.run(2));
     expect(hill().analysis).toMatchObject({ source: null, weight: 0 });
-    expect(fake.world.stage.light.intensity).toBe(60);
+    expect(fake.world.stage.light.intensity).toBeCloseTo(stageLight(null), 9);
   });
 
   it("reads a map of 4 s a step on its own clock: the drive from the byte a time falls in, and the build-up and the tempo as at 1 s", async () => {
