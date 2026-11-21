@@ -65,9 +65,10 @@ float grain(vec2 p) {
   return mix(mix(grainAt(i), grainAt(i + vec2(1.0, 0.0)), u.x), mix(grainAt(i + vec2(0.0, 1.0)), grainAt(i + vec2(1.0, 1.0)), u.x), u.y);
 }`;
 /* The grain's sizes, in cells a metre: patches some 9 m across, tussocks about a metre, and blades a hand across, which fade out
-   between FINE_NEAR and FINE_FAR m from the eye, where they would only shimmer. With `relief` the two finer sizes also tilt the
-   surface a little, so a low sun or the stage's glow picks the turf out; a phone does without it. */
-const PATCH = 0.11, TUSSOCK = 0.9, BLADE = 5.3, FINE_NEAR = 22, FINE_FAR = 70;
+   between FINE_NEAR and FINE_FAR m from the eye, where they would only shimmer. With `relief` the two finer sizes also stand RELIEF m
+   proud of the ground at their highest, so a low sun or the stage's glow picks the turf out; a phone does without it. The relief is
+   read from how the grain's height changes from one pixel to the next, which costs no more of the grain than its colour does. */
+const PATCH = 0.11, TUSSOCK = 0.9, BLADE = 5.3, FINE_NEAR = 22, FINE_FAR = 70, RELIEF = 0.126;
 /* Has a material that takes the stage's glow (takesPool) wear the land's grain as well. */
 export function grained(material, relief) {
   const pool = material.onBeforeCompile;
@@ -77,16 +78,17 @@ export function grained(material, relief) {
       .replace("#include <common>", `#include <common>${GRAIN}`)
       .replace("#include <color_fragment>", `#include <color_fragment>
         float fineShown = 1.0 - smoothstep(${f(FINE_NEAR)}, ${f(FINE_FAR)}, length(vViewPosition));
-        diffuseColor.rgb *= 0.8 + 0.3 * grain(vPoolAt.xz * ${f(PATCH)}) + 0.2 * (grain(vPoolAt.xz * ${f(TUSSOCK)} + 17.0) - 0.5)
-          + 0.26 * (grain(vPoolAt.xz * ${f(BLADE)} + 41.0) - 0.5) * fineShown;`);
+        float tussocks = grain(vPoolAt.xz * ${f(TUSSOCK)} + 17.0), blades = grain(vPoolAt.xz * ${f(BLADE)} + 41.0);
+        diffuseColor.rgb *= 0.8 + 0.3 * grain(vPoolAt.xz * ${f(PATCH)}) + 0.2 * (tussocks - 0.5) + 0.26 * (blades - 0.5) * fineShown;`);
     if (relief) shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_begin>", `#include <normal_fragment_begin>
         {
-          vec2 at = vPoolAt.xz;
-          float shown = 1.0 - smoothstep(${f(FINE_NEAR)}, ${f(FINE_FAR)}, length(vViewPosition));
-          #define LAND(p) (grain((p) * ${f(TUSSOCK)} + 17.0) + 0.45 * shown * grain((p) * ${f(BLADE)} + 41.0))
-          float here = LAND(at);
-          vec3 tilt = vec3(here - LAND(at + vec2(0.14, 0.0)), 0.0, here - LAND(at + vec2(0.0, 0.14)));
-          normal = normalize(normal + 0.9 * (viewMatrix * vec4(tilt, 0.0)).xyz);
+          /* The surface leans away from where the grain rises, as a bump map leans it (three's own way of it). */
+          float high = ${f(RELIEF)} * (tussocks + 0.45 * fineShown * blades);
+          vec3 acrossX = dFdx(-vViewPosition), acrossY = dFdy(-vViewPosition);
+          vec3 r1 = cross(acrossY, normal), r2 = cross(normal, acrossX);
+          float det = dot(acrossX, r1);
+          vec3 grad = sign(det) * (dFdx(high) * r1 + dFdy(high) * r2);
+          normal = normalize(abs(det) * normal - grad);
         }`);
   };
   return material;
@@ -275,7 +277,7 @@ export function buildIsland(scene, grid, phone) {
   /* What grows and lies on the land (flora.js): as many tufts and stones as the tier's ground is fine, thickest on a desktop's (a
      grid of 80 or more), thinner on a TV's and fewer than half as thick on a phone's, whose frame is small and whose every triangle
      costs it more; each takes the stage's glow as the ground does, and none of them stands on a track. */
-  const thick = phone ? 0.8 : grid >= 80 ? 1.9 : 1.1;
+  const thick = phone ? 0.8 : grid >= 80 ? 1.4 : 1.1;
   const flora = buildFlora(scene, { tufts: Math.round(grid * grid * thick), stones: Math.round(grid * (phone ? 2.5 : 4)), flies: Math.round(grid * (phone ? 4 : 7)),
     extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6],
     colour: landColour, lit: (material) => takesPool(material, uPool), clear: (x, z) => offTracks(x, z, FEATHER + 0.4) });

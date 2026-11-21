@@ -39,8 +39,10 @@ describe("grained", () => {
       expect(shader.fragmentShader).toContain("diffuseColor.rgb *= 0.8 + 0.3 * grain(vPoolAt.xz");
       expect(shader.fragmentShader).toContain("reflectedLight.directDiffuse += uPool");
     }
-    expect(tilted.fragmentShader).toContain("normal = normalize(normal + ");
-    expect(flat.fragmentShader).not.toContain("normal = normalize(normal + ");
+    // The relief leans the normal by the grain's own change from pixel to pixel, and takes no more of the grain to do it.
+    expect(tilted.fragmentShader).toContain("normal = normalize(abs(det) * normal - grad);");
+    expect(flat.fragmentShader).not.toContain("dFdx(high)");
+    expect(tilted.fragmentShader.split("grain(vPoolAt.xz").length).toBe(flat.fragmentShader.split("grain(vPoolAt.xz").length);
   });
 });
 
