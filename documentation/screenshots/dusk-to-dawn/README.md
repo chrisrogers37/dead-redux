@@ -10,7 +10,7 @@ Everything here was drawn by headless Chromium on a Mac's GPU, at the top rung o
 | `night-phone.png` | the same four hours on a phone, main above the night | the same |
 | `recording/desktop-crowd-night-passing.webm`, `recording/phone-crowd-night-passing.webm` | the night passing as the show clock is moved from set 1 to Drums to the encore, a hold at each | #163's preview at `b1c1cd4` |
 | `bears.png`, `bears-phone.png` | the bears on main and in #164 | #164's preview at `0d0ec9e` |
-| `crowd.png` | the crowd's figures on main and in #165, standing, seated in Space, and the seated rows at dusk; each an enlarged crop | #165's preview at `b6d0e5a` |
+| `crowd.png` | the crowd's figures on main and in #165, standing, seated in Space, and the seated rows at dusk; each an enlarged crop | #165's preview at `1a59734` |
 | `shelves-desktop.png`, `shelves-phone.png` | the HUD's three shelves out and away | #166's preview at `e5d510c` |
 
 ## Logs
