@@ -15,9 +15,9 @@ function vertices(bear: ReturnType<typeof buildBear>): number[][] {
   });
   return out;
 }
-// The swings a bear's limbs take: at rest, the five's widest to the music (0.65, audio.js) and the visitor's at a run (0.7, avatar.js).
-// and a tenth of a radian, where the forward paw's toe dips deepest.
-const SWINGS = [0, 0.1, -0.1, 0.3, -0.3, 0.5, -0.5, 0.65, -0.65, 0.7, -0.7];
+// The swings a bear's limbs take, every fortieth of a radian from the visitor's widest at a run one way to the other (0.7,
+// avatar.js; the five's widest to the music is 0.65, audio.js), so the swing where the forward paw's toe dips deepest is among them.
+const SWINGS = Array.from({ length: 57 }, (_, k) => Math.round((k - 28) * 25) / 1000);
 
 describe("buildBear", () => {
   it("stands inside the sizes the world keeps round a bear at every swing of its limbs: 4.85 m tall, 1.5 m to either side, its nose within 2.4 m, and nothing past the reach the crowd parts round", () => {
@@ -55,6 +55,21 @@ describe("buildBear", () => {
     expect(Math.max(...vertices(bear).map(([, y]) => y))).toBeCloseTo(4.85, 2);
   });
 
+  it("shows its ruff and its tail: each stands out past the body it is on", () => {
+    const bear = buildBear(new THREE.Scene(), 0xd4607a);
+    const body = vertices({ ...bear, g: bear.g }).slice(0, bear.body.geometry.attributes.position.count);
+    const position = bear.body.geometry.attributes.position;
+    const own = Array.from({ length: position.count }, (_, i) => [position.getX(i), position.getY(i), position.getZ(i)]);
+    expect(body.length).toBe(own.length);
+    // At the neck the torso is 1.03 m to either side at its widest; the ruff stands past it, and no further than the arms do.
+    const neck = own.filter(([, y]) => y > 2.9 && y < 3.3).map(([x]) => Math.abs(x));
+    expect(Math.max(...neck)).toBeGreaterThan(1.1);
+    expect(Math.max(...neck)).toBeLessThan(1.3);
+    // Behind the hips the torso's back stands 0.95 m behind the centre; the tail stands past it.
+    const rump = own.filter(([x, y]) => Math.abs(x) < 0.3 && y > 1.15 && y < 1.7).map(([, , z]) => z);
+    expect(Math.min(...rump)).toBeLessThan(-1.15);
+  });
+
   it("is one mesh to draw and four hidden limbs: two arms, then two legs, an arm swinging with the leg across from it", () => {
     const bear = buildBear(new THREE.Scene(), 0xd4607a);
     const meshes = bear.g.children.filter((o: { isMesh?: boolean }) => o.isMesh);
@@ -79,7 +94,9 @@ describe("furMaterial", () => {
       expect(shader.fragmentShader.split("#include <normal_fragment_begin>")).toHaveLength(2);
       furMaterial(vertexColors).onBeforeCompile(shader);
       expect(shader.fragmentShader).not.toBe(THREE.ShaderLib.lambert.fragmentShader);
-      expect(shader.fragmentShader).toContain("diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0)");
+      // The rim pales by how far the surface turns from the eye, and only where the surface is fur: what is dark stays dark.
+      expect(shader.fragmentShader).toContain("diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), 0.45 * fuzz * furred);");
+      expect(shader.fragmentShader).toContain("float furred = smoothstep(0.03, 0.2, dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722)));");
       expect(shader.fragmentShader).not.toMatch(/reflectedLight\.\w+ \*=/);
       expect(shader.vertexShader).toBe(THREE.ShaderLib.lambert.vertexShader);
     }

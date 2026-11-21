@@ -210,6 +210,15 @@ describe("the figure, as figureGeometry builds it", () => {
   });
 });
 
+describe("the crowd's shader", () => {
+  it("tips a seated figure's foot toe-down as the ground falls ahead of its seat, about the foot's own heel, and leaves it flat standing", () => {
+    const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
+    crowd.mesh.material.onBeforeCompile(shader);
+    // rot turns [forward, up] counter-clockwise, so a fall ahead (aFig.w over 0) turns the toe down; `sit` is 0 standing.
+    expect(shader.vertexShader).toContain("if (aLeg > 1.5) transformed.zy = foot + rot(transformed.zy, -sit * atan(clamp(aFig.w, -0.1200, 0.3000), 0.3600));");
+  });
+});
+
 describe("the crowd's seats on the hill", () => {
   it("tells each figure how far the ground falls from its seat to where its seated feet rest, ahead of it the way it faces, in its own units", () => {
     const fig = crowd.mesh.geometry.getAttribute("aFig");

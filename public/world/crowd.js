@@ -86,7 +86,7 @@ const ARM_UP = 2.7, RISE_FROM = 0.3, RISE_SPAN = 0.6, RISE_W = 0.1;
 /* How far a figure reaches in its own units, over every pose: its farthest vertex HAND from its axis (its arms level partway up the
    rise, swaying at the dance's widest), its highest TOP over its feet (its hands up at the rise's peak), and PAST beyond the bounds it
    stands in; and HANG with its arms hanging, as one standing fully still (aPart.w, seats.js) holds them. A seated figure's feet reach
-   further than HANG ahead of it, 0.54 from its axis, but along the ground, under where a bear's reach is its snout. */
+   further than HANG ahead of it, 0.55 from its axis, but along the ground, under where a bear's reach is its snout. */
 const HAND = 1.11, TOP = 2.08, PAST = 0.4, HANG = 0.354;
 /* The visitor's bear reaches 1.98 m from its middle, halfway between its feet and its head (bears.js, avatar.js). */
 const BEAR = 1.98;
@@ -123,7 +123,7 @@ vec2 rot(vec2 v, float a) { float c = cos(a), s = sin(a); return vec2(c * v.x - 
    the sit, the arms, the legs and the sway, as far as the figure dances where it stands (aPart.w: still 1, at its seat 0). The hips
    come down to the beat and, sitting, to SEAT, and the rest of the figure with them. Each leg runs from its hip to its foot through
    the knee: the thigh from the leg's upper half and the shin from its lower, each keeping its thickness across the way it lies, the
-   ring at the knee cut on the mitre between them; the foot stays flat. Every figure rises with the build-up as far as aRise lets it:
+   ring at the knee cut on the mitre between them; the foot lies flat standing and, seated, tips along the ground's fall to it. Every figure rises with the build-up as far as aRise lets it:
    all the way, but with its arms brought down while it stands fully still (seats.js). */
 const DANCE = `
 if (aWear > 0.5) {

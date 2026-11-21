@@ -88,8 +88,9 @@ export function buildBear(scene, hue) {
     part(new THREE.SphereGeometry(0.2, 12, 8).scale(1.2, 0.85, 1).translate(0, 3.5, 2.16), plain(INK)),
     part(new THREE.SphereGeometry(0.11, 8, 6).translate(-0.42, 3.9, 1.73), plain(INK)),
     part(new THREE.SphereGeometry(0.11, 8, 6).translate(0.42, 3.9, 1.73), plain(INK)),
-    /* What shows from behind, where the walk's camera stands: a ruff round the neck, paler than the fur, and a round tail. */
-    part(new THREE.TorusGeometry(0.74, 0.15, 5, 14).rotateX(Math.PI / 2 - 0.22).translate(0, 3.08, 0.32), plain(pale)),
+    /* What shows from behind, where the walk's camera stands: a ruff round the neck, paler than the fur, standing a hand proud of the
+       shoulders, and a round tail. bears.test.ts holds both to showing: a ruff inside the body is no ruff. */
+    part(new THREE.TorusGeometry(1.0, 0.17, 5, 14).rotateX(Math.PI / 2 - 0.22).translate(0, 3.1, 0), plain(pale)),
     part(new THREE.SphereGeometry(0.24, 8, 6).translate(0, 1.42, -1.02), plain(pale)),
   ]), bodyMat);
   const legs = LIMBS.map(({ at: [x, y, z], scale: [sx, sy, sz] }) => {
