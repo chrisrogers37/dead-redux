@@ -178,6 +178,10 @@ const fake = vi.hoisted(() => {
         return bears;
       },
       drawLegs: () => {},
+      // The gait as bears.js's stride swings it: an arm with the leg across from it.
+      stride: (b: Bear, swing: number) => {
+        b.legs.forEach((leg, k) => { leg.rotation.x = k === 0 || k === 3 ? swing : -swing; });
+      },
     },
     avatar: {
       buildAvatar: () => ({

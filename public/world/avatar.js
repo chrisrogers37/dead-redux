@@ -1,7 +1,7 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { height } from "./ground.js";
-import { buildBear } from "./bears.js";
+import { buildBear, stride } from "./bears.js";
 import { rise } from "./boom.js";
 
 /* The visitor's bear: a sixth bear in the site's ink, seen from behind and above. Its legs, bob and lean follow its speed, so it
@@ -18,7 +18,7 @@ export const HEAD = 3.6;
 const UP = new THREE.Vector3(0, 1, 0);
 
 export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], over = () => {}, ahead = (point, way) => { way[6] = 0; way[7] = 0; } }) {
-  const { g, legs, color } = buildBear(scene, 0xeceae4);
+  const bear = buildBear(scene, 0xeceae4), { g, legs, color } = bear;
   g.rotation.order = "YXZ";
   /* The head, for the stats and the sound's listener; the top of the head and the ground point under the bear, which the cameras
      keep in the frame. */
@@ -35,7 +35,7 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     gait += 6 * Math.sqrt(speed / WALK) * dt;
     const stance = reduced ? 0 : Math.min(1, speed / WALK);
     const swing = (0.5 + 0.2 * Math.min(1, Math.max(0, (speed - STRIDE) / (RUN - STRIDE)))) * stance * Math.sin(gait);
-    legs[0].rotation.x = swing; legs[3].rotation.x = swing; legs[1].rotation.x = -swing; legs[2].rotation.x = -swing;
+    stride(bear, swing);
     const y = height(x, z);
     g.position.set(x, y + 0.06 * stance * Math.sin(2 * gait), z);
     g.rotation.set(0.12 * stance * Math.min(1, speed / STRIDE), heading + Math.PI, 0);
