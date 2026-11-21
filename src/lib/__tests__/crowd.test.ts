@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
-import { buildCrowd, partingOptions } from "../../../public/world/crowd.js";
+import { buildCrowd, figureGeometry, FOLD, FOOT, HAIR, HAT, LEG, partingOptions, SEAT, SHOULDER_X, SHOULDER_Y, TALL } from "../../../public/world/crowd.js";
 import { FACING, height, STAGE, STAGE_COLUMN } from "../../../public/world/ground.js";
 import { buildPath, buildWalkLine } from "../../../public/world/path.js";
 import { keepOuts, PERSON } from "../../../public/world/seats.js";
@@ -139,5 +139,92 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect(moved).toBeGreaterThan(0);
     const inside = Object.entries(past).filter(([, d]) => d < -1e-3);
     expect(inside.map(([name, d]) => `${name}: ${(-d).toFixed(3)} m inside`)).toEqual([]);
+  });
+});
+
+describe("the figure, as figureGeometry builds it", () => {
+  const geo = figureGeometry();
+  const position = geo.getAttribute("position"), n = position.count;
+  const vertices = Array.from({ length: n }, (_, i) => [position.getX(i), position.getY(i), position.getZ(i)]);
+  const marks = (name: string) => Array.from({ length: n }, (_, i) => geo.getAttribute(name).getX(i) as number);
+
+  it("stands on the ground TALL to the top of its head, inside the plain figure it replaced: 0.35 to either side and 0.27 fore and aft", () => {
+    const most = (f: (v: number[]) => number) => Math.max(...vertices.map(f));
+    expect(Math.min(...vertices.map(([, y]) => y))).toBeCloseTo(0, 6);
+    expect(most(([, y]) => y)).toBeCloseTo(TALL, 6);
+    expect(most(([x]) => Math.abs(x))).toBeLessThanOrEqual(0.35);
+    expect(most(([, , z]) => Math.abs(z))).toBeLessThanOrEqual(0.27);
+  });
+
+  it("keeps its arms within the plain figure's, 0.624 from the shoulder, so the reaches the parting keeps still bound it", () => {
+    const arm = marks("aArm");
+    const reach = vertices.map(([x, y, z], i) => (arm[i] === 0 ? 0 : Math.hypot(x - arm[i] * SHOULDER_X, y - SHOULDER_Y, z)));
+    expect(arm.filter((a) => a !== 0).length).toBeGreaterThan(0);
+    expect(Math.max(...reach)).toBeLessThanOrEqual(0.624);
+    // Each arm hangs from a ball of the body at its pivot: the arm's open top, where it turns, lies inside the ball, and the ball
+    // runs into the torso, so an arm that swings or lifts stays joined and shows no hollow.
+    for (const side of [-1, 1]) {
+      const top = vertices.filter(([, y], i) => arm[i] === side && Math.abs(y - SHOULDER_Y) < 1e-6);
+      expect(top.length).toBeGreaterThan(0);
+      const ball = vertices.filter(([x, y, z], i) => arm[i] === 0 && Math.abs(Math.hypot(x - side * SHOULDER_X, y - SHOULDER_Y, z) - 0.064) < 1e-4);
+      expect(ball.length).toBe(60);
+      for (const [x, , z] of top) expect(Math.hypot(x - side * SHOULDER_X, z)).toBeLessThan(0.064);
+      // The torso's top edge, 0.25 out at its widest, stands inside the ball's inner side.
+      expect(side * Math.min(...ball.map(([x]) => side * x))).toBeLessThan(0.25);
+    }
+  });
+
+  it("marks every vertex as leg, foot, arm or neither and as hat, hair or neither, and carries nothing a texture would read", () => {
+    for (const name of ["aLeg", "aArm", "aWear"]) {
+      expect(geo.getAttribute(name).itemSize).toBe(1);
+      expect(geo.getAttribute(name).count).toBe(n);
+    }
+    expect([...new Set(marks("aLeg"))].sort()).toEqual([0, 1, 2]);
+    expect([...new Set(marks("aArm"))].sort((a, b) => a - b)).toEqual([-1, 0, 1]);
+    expect([...new Set(marks("aWear"))].sort()).toEqual([0, 1, 2]);
+    expect(geo.getAttribute("uv")).toBeUndefined();
+    // A figure wears a hat or long hair or neither, never both: the two picks stand apart.
+    expect(HAT).toBeLessThan(HAIR[0]);
+    expect(HAIR[0]).toBeLessThan(HAIR[1]);
+  });
+
+  it("is 440 triangles, and each leg has rings only at the foot, the knee halfway up and the hip, where the vertex shader bends it", () => {
+    expect(geo.index).toBeNull();
+    expect(n / 3).toBe(440);
+    const leg = marks("aLeg");
+    const rings = [...new Set(vertices.filter((_, i) => leg[i] === 1).map(([, y]) => Math.round(y * 1e6) / 1e6))].sort((a, b) => a - b);
+    expect(rings).toHaveLength(3);
+    rings.forEach((y, k) => expect(y).toBeCloseTo((k * LEG) / 2, 6));
+    // The feet stand on the ground under the shins' feet, where the shader lifts them from to set them down at a seated figure's foot.
+    const feet = vertices.filter((_, i) => leg[i] === 2);
+    expect(Math.min(...feet.map(([, y]) => y))).toBeCloseTo(0, 6);
+    expect(Math.max(...feet.map(([, y]) => y))).toBeLessThan(0.1);
+  });
+
+  it("can sit: its seated foot stands nearer its hip than its leg is long, so the knee bends, and both are near the ground", () => {
+    expect(Math.hypot(FOOT[0], FOOT[1] - SEAT)).toBeLessThan(LEG);
+    expect(SEAT).toBeLessThan(0.1);
+    expect(FOOT[1]).toBeLessThan(0.07);
+    expect(FOLD).toBeGreaterThan(0);
+    expect(FOLD).toBeLessThan(1);
+  });
+});
+
+describe("the crowd's seats on the hill", () => {
+  it("tells each figure how far the ground falls from its seat to where its seated feet rest, ahead of it the way it faces, in its own units", () => {
+    const fig = crowd.mesh.geometry.getAttribute("aFig");
+    expect(fig.itemSize).toBe(4);
+    const turn = new THREE.Quaternion(), forward = new THREE.Vector3();
+    let falls = 0;
+    for (let i = 0; i < crowd.count; i++) {
+      crowd.mesh.getMatrixAt(i, matrix);
+      matrix.decompose(at, turn, size);
+      forward.set(0, 0, 1).applyQuaternion(turn).multiplyScalar(FOOT[0] * size.z);
+      const fall = (height(at.x, at.z) - height(at.x + forward.x, at.z + forward.z)) / size.y;
+      expect(fig.getW(i)).toBeCloseTo(fall, 5);
+      if (fall > 0.02) falls += 1;
+    }
+    // The figures face the stage, down the hill: for most of them the ground falls away ahead.
+    expect(falls).toBeGreaterThan(crowd.count / 2);
   });
 });
