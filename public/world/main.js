@@ -707,7 +707,10 @@ function start(gl) {
   if (reduced) { bearD = line.dOf(landmarkU[index]); toSlot(); }
   if (testPose) { Object.assign(walker, testPose); cut = true; }
   if (sweep) {
+    /* The sweep's frames are counted, not looked at: they are drawn a twentieth of the size, and with a handful of the land's tufts,
+       which are one draw call however many they are. In CI's software renderer the tufts' triangles were most of a sweep's time. */
     quality = { ...quality, scale: 0.05 };
+    flora.sparse();
     applyQuality();
     document.addEventListener("world:pose", ({ detail }) => { Object.assign(walker, detail); cut = true; wake(); });
   }

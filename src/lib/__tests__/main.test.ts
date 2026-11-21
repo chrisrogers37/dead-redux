@@ -94,8 +94,10 @@ const fake = vi.hoisted(() => {
     // The time the island's water last took its look at (island.js), and how quiet the music was then, 0 to 1.
     tide: NaN,
     calm: NaN,
-    // Whether the land's tufts are thinned by half (flora.js), as the quality ladder last set it.
+    // Whether the land's tufts are thinned by half (flora.js), as the quality ladder last set it, and whether the world asked for a
+    // handful of them, as the draw-call sweep does.
     thinned: null as boolean | null,
+    sparse: false,
   };
   class Scene {
     shown = new Set<unknown>();
@@ -165,7 +167,7 @@ const fake = vi.hoisted(() => {
   };
   const modules = {
     // The island draws the night's look on its sea and its ground itself (island.js), which the frames here do not read.
-    island: { buildIsland: () => ({ caves: [], shade: (_look: unknown, time: number, calm: number) => { world.tide = time; world.calm = calm; }, flora: { thin: (half: boolean) => { world.thinned = half; } } }) },
+    island: { buildIsland: () => ({ caves: [], shade: (_look: unknown, time: number, calm: number) => { world.tide = time; world.calm = calm; }, flora: { thin: (half: boolean) => { world.thinned = half; }, sparse: () => { world.sparse = true; } } }) },
     path: {
       // The loop, where the walker stands before a frame puts it in its place in the bears' line.
       buildPath: () => ({ at: () => new Vec(), tangentAt: () => new Vec(1, 0, 0) }),
@@ -564,6 +566,16 @@ describe("main.js's frames", () => {
     for (let k = 0; k < 1500 && hill().crowd.drawn === made; k++) page.run(0.05, { ms: 50 });
     expect(hill().crowd.drawn).toBe(Math.ceil(made / 2));
     expect(page.shown()).toHaveLength(fake.world.bears.length);
+  });
+
+  it("draws a handful of the land's tufts for the draw-call sweep, whose frames are counted and never looked at, and all of them otherwise", async () => {
+    fake.world.sparse = false;
+    await startWorld();
+    expect(fake.world.sparse).toBe(false);
+    await startWorld({ search: "?pose=crowd" });
+    expect(fake.world.sparse).toBe(false);
+    await startWorld({ search: "?pose=sweep" });
+    expect(fake.world.sparse).toBe(true);
   });
 
   it("thins the land's tufts by half at the rung that halves the crowd, and not before", async () => {

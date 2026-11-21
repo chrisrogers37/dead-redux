@@ -146,6 +146,19 @@ describe("buildFlora", () => {
     built.thin(false);
     expect(built.tufts.count).toBe(all);
   });
+
+  it("draws a handful of tufts once asked to be sparse, still one draw call's worth, whatever the ladder then asks", () => {
+    const counted = flora();
+    counted.sparse();
+    expect(counted.tufts.count).toBe(64);
+    counted.thin(false);
+    expect(counted.tufts.count).toBe(64);
+    counted.thin(true);
+    expect(counted.tufts.count).toBe(64);
+    expect(counted.tufts.count).toBeGreaterThan(0);
+    // The stones and the fireflies are as they were.
+    expect(counted.stones.count).toBe(built.stones.count);
+  });
 });
 
 describe("the fireflies", () => {

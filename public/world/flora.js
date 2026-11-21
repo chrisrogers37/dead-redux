@@ -64,6 +64,8 @@ export function stoneGeometry() {
    wind moves a blade's tip by SWAY of the tuft's height at the most, back and forth once in ten seconds or so, with a smaller turn
    every four and a half: slow and slight, so a pale bloom never flickers against the ground behind it. */
 const SEEN_NEAR = 55, SEEN_FAR = 95, SWAY = 0.045;
+/* How many tufts a frame that is only counted draws (sparse). */
+const SPARSE = 64;
 const f = (v) => v.toFixed(4);
 /* The dancing bears' colours and a cream, each a little muted, for the blooms. */
 const BLOOMS = [0xc85a72, 0xd9a548, 0xcfc8b4, 0x9078b4, 0xd9a548, 0xc85a72];
@@ -79,8 +81,9 @@ const FLY_COLOUR = [0.8, 1.0, 0.42];
    `lit(material)` has a material take the light the ground takes (the stage's glow), and `clear(x, z)` is false where nothing may
    stand (a track). A tuft grows on turf, more thickly in some meadows than others, and a stone lies where the turf gives way to bare
    stone, along the shore's sand, and here and there on the turf. Returns `wind(time)`, which sways the tufts and moves the
-   fireflies at a time; `glow(level)`, which lights the fireflies from 0, by day, to 1; and `thin(half)`, which draws half the tufts
-   and half the fireflies, or all of them. */
+   fireflies at a time; `glow(level)`, which lights the fireflies from 0, by day, to 1; `thin(half)`, which draws half the tufts
+   and half the fireflies, or all of them; and `sparse()`, which from then on draws a handful of tufts, for a frame that is only
+   counted and never looked at. */
 export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, colour, lit, clear }) {
   const dummy = new THREE.Object3D(), tint = new THREE.Color(), bloomColour = new THREE.Color();
   /* The land at a point: its height, how upright it stands (1 on level ground), and whether anything may stand there. */
@@ -182,6 +185,8 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, col
   });
   scene.add(stoneMesh);
 
+  /* The most tufts drawn: all of them, until a caller asks for a handful (sparse). */
+  let most = Infinity;
   /* The fireflies: over tufts spread across the island, a little above the grass. Their light is added to what is behind them, and
      they write no depth, so one never hides another; they hide behind the land and whatever stands on it. */
   const flyLevel = { value: 0 };
@@ -234,8 +239,10 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, col
     /* By day they are not drawn at all, which saves their draw call. */
     glow: (level) => { flyLevel.value = level; flyPoints.visible = level > 0.01; },
     thin: (half) => {
-      tuftMesh.count = half ? Math.ceil(placed.length / 2) : placed.length;
+      tuftMesh.count = Math.min(most, half ? Math.ceil(placed.length / 2) : placed.length);
       flyGeo.setDrawRange(0, half ? Math.ceil(flyCount / 2) : flyCount);
     },
+    /* The tufts are one draw call however few of them are drawn, as long as one is. */
+    sparse: () => { most = Math.min(placed.length, SPARSE); tuftMesh.count = Math.min(tuftMesh.count, most); },
   };
 }
