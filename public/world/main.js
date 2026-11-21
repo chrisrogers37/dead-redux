@@ -510,7 +510,6 @@ function start(gl) {
     hour = hour === null || reduced ? showHour : followHour(hour, showHour, dt);
     lookAt(hour, look);
     if (grade(look)) renderer.shadowMap.needsUpdate = true;
-    shade(look);
     hemi.intensity = lightBase.hemi * look.ambientGain * layer2.hemi;
     panelMat.uniforms.uGain.value[0] = layer2.panel;
     /* The night's share of the stage's light is steady: the music moves that light by as much as it does at dusk, on top. */
@@ -544,6 +543,8 @@ function start(gl) {
     } else {
       skyMat.uniforms.uTime.value = data.seed;
     }
+    /* The island takes the look at the sky's own time, which stands still under reduced motion, so its water does too. */
+    shade(look, skyMat.uniforms.uTime.value);
 
     /* Drums lights the left cave and Space the right, over eight seconds; under reduced motion at once. */
     for (const [k, c] of caves.entries()) {

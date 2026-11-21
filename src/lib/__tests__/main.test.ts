@@ -90,6 +90,8 @@ const fake = vi.hoisted(() => {
     graded: NaN,
     lift: NaN,
     keyTurned: false,
+    // The time the island's water last took its look at (island.js).
+    tide: NaN,
   };
   class Scene {
     shown = new Set<unknown>();
@@ -159,7 +161,7 @@ const fake = vi.hoisted(() => {
   };
   const modules = {
     // The island draws the night's look on its sea and its ground itself (island.js), which the frames here do not read.
-    island: { buildIsland: () => ({ caves: [], shade: () => {} }) },
+    island: { buildIsland: () => ({ caves: [], shade: (_look: unknown, time: number) => { world.tide = time; } }) },
     path: {
       // The loop, where the walker stands before a frame puts it in its place in the bears' line.
       buildPath: () => ({ at: () => new Vec(), tangentAt: () => new Vec(1, 0, 0) }),
@@ -780,6 +782,19 @@ describe("main.js's frames through the night", () => {
     page.run(20);
     expect(hill().night.show).toBeCloseTo((2 * 20) / 600, 3);
     expect(hill().night.show - hill().night.hour).toBeLessThan(0.004);
+  });
+
+  it("moves the island's water by the sky's own time, which stands still under reduced motion at the show's seed", async () => {
+    const page = await startWorld({ playing: true });
+    page.run(1);
+    const early = fake.world.tide;
+    page.run(2);
+    expect(fake.world.tide - early).toBeCloseTo(2, 6);
+    const still = await startWorld({ reduced: true, playing: true });
+    still.run(0.02);
+    expect(fake.world.tide).toBe(7);
+    still.hold("ArrowLeft", 0.5);
+    expect(fake.world.tide).toBe(7);
   });
 
   it("lands at once under reduced motion, on the hour halfway through the song, wherever the song has got to", async () => {

@@ -78,21 +78,26 @@ export function grained(material, relief) {
   return material;
 }
 
-/* The sea: flat water in the night's colour for it (night.js), with twilight's glow lying on it as a path toward where the sun set or
-   will rise, from the shore out, the moon's path the same way toward the moon, and the stage's light on the water behind the stage. One mesh on its own material, so it costs one
-   draw call, as the plain sea did; it is not lit, and it takes the fog, so it fades into the haze as the ground does. It writes its
-   colours as they are, as the sky does (sky.js). Returns what draws a look of the night on it and sets the stage's glow on the ground
-   (`uPool`). */
+/* The sea: water in the night's colour for it (night.js), with twilight's glow lying on it as a path toward where the sun set or
+   will rise, the moon's path the same way toward the moon, and the stage's light on the water behind the stage. A slow swell crosses
+   it, a little paler on its backs, and breaks each path into bars of light; over the sand the water is shallow and paler, and it
+   laps the shore in a line of foam. One mesh on its own material, so it costs one draw call, as the plain sea did; it is not lit, and
+   it takes the fog, so it fades into the haze as the ground does. It writes its colours as they are, as the sky does (sky.js).
+   Returns what draws a look of the night on it at a time (the sky's own, which stands still under reduced motion) and sets the
+   stage's glow on the ground (`uPool`). */
+/* The swell: SWELL_M m from back to back, crossing a point every SWELL_S seconds, slow enough that no patch of water brightens and
+   dims faster than once in several seconds. The shore's line breathes in and out over LAP_S seconds. */
+const SWELL_M = 9, SWELL_S = 7, LAP_S = 9;
 function buildSea(scene, uPool) {
   const far = Math.hypot(STAGE[0], STAGE[1]), ox = STAGE[0] / far, oz = STAGE[1] / far;
   const uniforms = { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uSea: { value: new THREE.Color() }, uGlow: { value: new THREE.Color() },
-    uShine: { value: new THREE.Color() }, uSunTo: { value: new THREE.Vector2(0, -1) }, uMoon: { value: 0 } };
+    uShine: { value: new THREE.Color() }, uSunTo: { value: new THREE.Vector2(0, -1) }, uMoon: { value: 0 }, uTide: { value: 0 } };
   /* The way to the moon along the water. */
   const moonFar = Math.hypot(MOON[0], MOON[2]), mx = MOON[0] / moonFar, mz = MOON[2] / moonFar;
   const mat = new THREE.ShaderMaterial({
     uniforms, fog: true,
     vertexShader: `
-      varying vec2 vAt;
+      varying highp vec2 vAt;
       #include <fog_pars_vertex>
       void main() {
         vec4 world = modelMatrix * vec4(position, 1.0);
@@ -105,26 +110,43 @@ function buildSea(scene, uPool) {
       uniform vec3 uSea, uGlow, uShine;
       uniform vec2 uSunTo;
       uniform float uMoon;
-      varying vec2 vAt;
+      uniform highp float uTide;
+      varying highp vec2 vAt;
       #include <fog_pars_fragment>
+      ${GRAIN}
       void main() {
         float r = length(vAt);
+        /* The swell, 0 in a trough and 1 on a back: two trains of it crossing, drifting. */
+        highp vec2 drift = vec2(0.31, 0.95) * uTide * ${f(SWELL_M / SWELL_S)};
+        /* Each train's backs lie long across the way it runs: three times as long as the trains stand apart. */
+        highp vec2 one = vec2(dot(vAt + drift, vec2(0.31, 0.95)), 0.33 * dot(vAt, vec2(0.95, -0.31)));
+        highp vec2 two = vec2(dot(vAt - 1.7 * drift, vec2(-0.62, 0.78)), 0.33 * dot(vAt, vec2(0.78, 0.62)));
+        float swell = 0.6 * grain(one / ${f(SWELL_M)}) + 0.4 * grain(two / ${f(SWELL_M * 0.45)} + 31.0);
+        /* How deep the water stands over the island's own ground (ground.js slope, past the ring road), lapping in and out. */
+        float depth = (r - 118.0) * 0.55 - 2.5 - 0.6 * sin(vAt.x * 0.3) * cos(vAt.y * 0.27) + 0.22 * sin(6.2832 * uTide / ${f(LAP_S)} + 0.11 * (vAt.x + vAt.y));
         /* The light lies on the water between the eye and its source, so each path runs from under the eye toward it. */
         vec2 out2 = vAt - cameraPosition.xz;
         vec2 away = out2 / max(length(out2), 1.0);
         float facing = max(dot(away, uSunTo), 0.0);
-        vec3 col = uSea + uGlow * (0.34 * pow(facing, 60.0) + 0.1 * pow(facing, 6.0)) * smoothstep(118.0, 160.0, r);
+        float bars = 0.55 + 0.9 * swell;
+        vec3 col = uSea * (0.92 + 0.18 * swell) + uGlow * (0.34 * pow(facing, 60.0) * bars + 0.1 * pow(facing, 6.0)) * smoothstep(118.0, 160.0, r);
         float moonward = max(dot(away, vec2(${f(mx)}, ${f(mz)})), 0.0);
-        col += uMoon * vec3(0.2, 0.25, 0.37) * (pow(moonward, 90.0) + 0.16 * pow(moonward, 6.0)) * smoothstep(118.0, 150.0, r);
+        col += uMoon * vec3(0.2, 0.25, 0.37) * (pow(moonward, 90.0) * bars + 0.16 * pow(moonward, 6.0)) * smoothstep(118.0, 150.0, r);
         vec2 s = vAt - vec2(${f(STAGE[0])}, ${f(STAGE[1])});
         float along = (dot(s, vec2(${f(ox)}, ${f(oz)})) - ${f(SHINE_OUT)}) / ${f(SHINE_LONG)}, across = dot(s, vec2(${f(-oz)}, ${f(ox)})) / ${f(SHINE_WIDE)};
-        col += uShine * exp(-along * along - across * across);
+        col += uShine * exp(-along * along - across * across) * (0.7 + 0.6 * swell);
+        /* The shallows over the sand, paler and a little greener, and the foam where the water gives out. */
+        vec3 pale = uSea * 1.5 + vec3(0.02, 0.035, 0.03) + 0.25 * uGlow * pow(facing, 6.0);
+        col = mix(col, pale, 0.6 * exp(-max(depth, 0.0) * 0.9));
+        float foam = (1.0 - smoothstep(0.0, 0.5, depth)) * (0.55 + 0.45 * grain(vAt * 0.9 + 3.0));
+        col = mix(col, uSea * 2.3 + vec3(0.07) + 0.3 * uGlow * pow(facing, 3.0), 0.75 * foam);
         gl_FragColor = vec4(col, 1.0);
         #include <fog_fragment>
       }`,
   });
   scene.add(new THREE.Mesh(new THREE.PlaneGeometry(700, 700).rotateX(-Math.PI / 2), mat));
-  return (look) => {
+  return (look, time = 0) => {
+    uniforms.uTide.value = time;
     uniforms.uSea.value.fromArray(look.sea);
     uniforms.uGlow.value.fromArray(look.glow);
     uniforms.uSunTo.value.fromArray(look.glowTo);
@@ -231,8 +253,8 @@ export function buildIsland(scene, grid, phone) {
      a hand above the ground and is drawn as if a little nearer, so the ground under it never shows through. */
   const bandMat = grained(takesPool(new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 }), uPool), false);
   const surface = surfaceOf(grid), round = (RING + SHORE) / 2;
-  const ringLine = Array.from({ length: 240 }, (_, k) => [round * Math.cos((k / 240) * 2 * Math.PI), round * Math.sin((k / 240) * 2 * Math.PI)]);
   const BOLT = [G(100, 4), G(118, 92), G(82, 108), G(100, 196)];
+  const ringLine = Array.from({ length: 240 }, (_, k) => [round * Math.cos((k / 240) * 2 * Math.PI), round * Math.sin((k / 240) * 2 * Math.PI)]);
   scene.add(new THREE.Mesh(mergeGeometries([track(ringLine, true, (SHORE - RING) / 2, surface), track(BOLT, false, 1.5, surface)]), bandMat));
 
   /* The caves light for Drums (left) and Space (right): a pool on each floor and, but on a phone, a light inside. */

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { buildIsland, FEATHER, grained, landColour, RING, SHORE, surfaceOf, takesPool, TRACK, track } from "../../../public/world/island.js";
 import { CAVES, height } from "../../../public/world/ground.js";
+import { lookAt, newLook } from "../../../public/world/night.js";
 
 describe("takesPool", () => {
   it("adds the stage's glow to three's Lambert shader as the pinned version writes it: its place from the vertex shader, its light in the fragment shader", () => {
@@ -149,6 +150,38 @@ describe("a track", () => {
       const [inner, outer] = [row[1], row[2]].map(([x, , z]) => Math.hypot(x, z)).sort((a, b) => a - b);
       expect(Math.abs(inner - 47)).toBeLessThan(0.15);
       expect(Math.abs(outer - 53)).toBeLessThan(0.15);
+    }
+  });
+});
+
+describe("the sea", () => {
+  it("is one mesh on its own shader, which takes the fog, and draws each look at the time it is given", () => {
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x000000, 100, 400);
+    const { shade } = buildIsland(scene, 20, true);
+    const seas = scene.children.filter((o: { material?: { isShaderMaterial?: boolean } }) => o.material?.isShaderMaterial);
+    expect(seas).toHaveLength(1);
+    const { material } = seas[0];
+    expect(material.fog).toBe(true);
+    const look = lookAt(1, newLook());
+    shade(look, 12.5);
+    expect(material.uniforms.uTide.value).toBe(12.5);
+    expect(material.uniforms.uSea.value.toArray()).toEqual([...look.sea]);
+    // A caller that gives no time gets still water.
+    shade(look);
+    expect(material.uniforms.uTide.value).toBe(0);
+  });
+
+  it("laps the island's own shore: its depth is written from the ground's slope past the ring road", () => {
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x000000, 100, 400);
+    buildIsland(scene, 20, true);
+    const { fragmentShader } = scene.children.find((o: { material?: { isShaderMaterial?: boolean } }) => o.material?.isShaderMaterial).material;
+    // ground.js's slope past 118 m: 2.5 + 0.6 sin(0.3 x) cos(0.27 z) - 0.55 (d - 118). The shader's depth is its negative.
+    expect(fragmentShader).toContain("float depth = (r - 118.0) * 0.55 - 2.5 - 0.6 * sin(vAt.x * 0.3) * cos(vAt.y * 0.27)");
+    for (const [x, z] of [[121, 0], [0, -124], [90, 85]]) {
+      const d = Math.hypot(x, z);
+      expect(-((d - 118) * 0.55 - 2.5 - 0.6 * Math.sin(x * 0.3) * Math.cos(z * 0.27))).toBeCloseTo(height(x, z), 9);
     }
   });
 });
