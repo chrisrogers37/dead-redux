@@ -31,9 +31,19 @@ const legMat = furMaterial(false);
    the same limb), then the legs from its hips. The gait swings the first with the last and the second with the third, so an arm
    swings with the leg across from it. */
 const LIMBS = [
-  { at: [-1.3, 3.15, 0.25], scale: [0.9, 0.78, 0.9] }, { at: [1.3, 3.15, 0.25], scale: [0.9, 0.78, 0.9] },
-  { at: [-0.62, 1.6, 0], scale: [1, 1, 1] }, { at: [0.62, 1.6, 0], scale: [1, 1, 1] },
+  { at: [-1.04, 3.2, 0.2], scale: [0.88, 0.8, 0.88] }, { at: [1.04, 3.2, 0.2], scale: [0.88, 0.8, 0.88] },
+  { at: [-0.5, 1.6, 0.05], scale: [1, 1, 1] }, { at: [0.5, 1.6, 0.05], scale: [1, 1, 1] },
 ];
+/* The body: an egg 1.22 m to each side of its middle and 1.12 m fore and aft at its widest, 2.4 m up, drawing in by a fifth toward its
+   shoulders, so the bear has a chest and a belly and not one round ball; from 0.6 m up to 4.15 m, which leaves its legs showing. */
+function torso() {
+  const geo = new THREE.SphereGeometry(1, 22, 16).scale(1.22, 1.78, 1.12).translate(0, 2.37, 0), pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const t = Math.max(0, Math.min(1, (pos.getY(i) - 2.4) / 1.6)), draw = 1 - 0.2 * t * t * (3 - 2 * t);
+    pos.setXYZ(i, pos.getX(i) * draw, pos.getY(i), pos.getZ(i) * draw);
+  }
+  return geo;
+}
 const INK = new THREE.Color(0x0b0b0d), WHITE = new THREE.Color(0xffffff);
 
 /* A part of a bear's body, coloured by `paint`, which gives each vertex's colour from its place in the body. */
@@ -44,20 +54,20 @@ function part(geo, paint) {
 }
 
 /* One bear in a colour: a group whose four limbs swing, the rest of it one mesh. It stands 4.85 m tall and faces +z, within the same
-   reach as ever: its body's flanks 1.5 m from its centre, its nose 2.4 m ahead of it (collide.js, crowd.js), and its arms 0.1 m past
-   its flanks. Its belly, its muzzle and the
+   reach it has always had: its nose 2.4 m ahead of its centre, and its arms, the widest of it, 1.3 m to either side, inside the
+   1.5 m its flanks once stood at (collide.js, crowd.js). Its belly, its muzzle and the
    insides of its ears are paler; its nose and eyes are dark. Each limb stays in the group as a hidden mesh, where the gait swings it
    and what reads the bear's meshes finds it (main.js's bearsInView); drawLegs draws them. */
 export function buildBear(scene, hue) {
   const fur = new THREE.Color(hue), pale = fur.clone().lerp(WHITE, 0.5), mix = new THREE.Color();
   const plain = (c) => () => c;
   const smooth = (edge0, edge1, x) => { const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0))); return t * t * (3 - 2 * t); };
-  /* The belly: the front of the body, an oval 0.95 m to each side of its middle and 1.25 m above and below a point 1.9 m up. */
-  const belly = (v) => mix.copy(fur).lerp(pale, v.z > 0.5 ? smooth(1, 0.72, Math.hypot(v.x / 0.95, (v.y - 1.9) / 1.25)) : 0);
+  /* The belly: the front of the body, an oval 0.78 m to each side of its middle and 1.15 m above and below a point 2 m up. */
+  const belly = (v) => mix.copy(fur).lerp(pale, v.z > 0.4 ? smooth(1, 0.72, Math.hypot(v.x / 0.78, (v.y - 2) / 1.15)) : 0);
   const ear = (v) => mix.copy(fur).lerp(pale, smooth(0.72, 0.84, v.z) * smooth(0.3, 0.16, Math.hypot(Math.abs(v.x) - 0.7, v.y - 4.5)));
   const g = new THREE.Group();
   const body = new THREE.Mesh(mergeGeometries([
-    part(new THREE.SphereGeometry(1.5, 22, 16).scale(1, 1.3, 1).translate(0, 2.2, 0), belly),
+    part(torso(), belly),
     part(new THREE.SphereGeometry(1.1, 22, 16).translate(0, 3.6, 0.8), plain(fur)),
     part(new THREE.SphereGeometry(0.35, 12, 8).translate(-0.7, 4.5, 0.6), ear),
     part(new THREE.SphereGeometry(0.35, 12, 8).translate(0.7, 4.5, 0.6), ear),
