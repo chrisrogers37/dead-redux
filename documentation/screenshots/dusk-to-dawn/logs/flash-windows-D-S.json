@@ -1,0 +1,513 @@
+{
+ "D": {
+  "branchMax": 12,
+  "mainMax": 10,
+  "blocksBranchMore": 6644,
+  "blocksBranchFewer": 1684,
+  "blocksSame": 53026,
+  "histBranch": [
+   49574,
+   7789,
+   2575,
+   402,
+   572,
+   102,
+   153,
+   118,
+   53,
+   9,
+   6,
+   0,
+   1,
+   0,
+   0,
+   0,
+   0
+  ],
+  "histMain": [
+   54375,
+   3658,
+   2109,
+   347,
+   533,
+   115,
+   132,
+   73,
+   10,
+   1,
+   1,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "branchAt3By": {
+   "stage band (190-243)": 76,
+   "ground and crowd (y>=244)": 1340
+  },
+  "mainAt3By": {
+   "sky above the roof (y<190)": 2,
+   "stage band (190-243)": 84,
+   "ground and crowd (y>=244)": 1126
+  },
+  "branchAt5By": {
+   "stage band (190-243)": 23,
+   "ground and crowd (y>=244)": 419
+  },
+  "mainAt5By": {
+   "stage band (190-243)": 23,
+   "ground and crowd (y>=244)": 309
+  },
+  "totalSwingsBranch": 87814,
+  "totalSwingsMain": 63346,
+  "topWhereBranchMore": [
+   {
+    "x": 290,
+    "y": 358,
+    "branch": 12,
+    "main": 7,
+    "rangeBranch": 0.143,
+    "rangeMain": 0.117
+   },
+   {
+    "x": 228,
+    "y": 336,
+    "branch": 10,
+    "main": 2,
+    "rangeBranch": 0.158,
+    "rangeMain": 0.123
+   },
+   {
+    "x": 290,
+    "y": 354,
+    "branch": 10,
+    "main": 4,
+    "rangeBranch": 0.145,
+    "rangeMain": 0.116
+   },
+   {
+    "x": 290,
+    "y": 356,
+    "branch": 10,
+    "main": 4,
+    "rangeBranch": 0.145,
+    "rangeMain": 0.116
+   },
+   {
+    "x": 292,
+    "y": 360,
+    "branch": 10,
+    "main": 6,
+    "rangeBranch": 0.143,
+    "rangeMain": 0.117
+   },
+   {
+    "x": 292,
+    "y": 358,
+    "branch": 10,
+    "main": 8,
+    "rangeBranch": 0.143,
+    "rangeMain": 0.118
+   },
+   {
+    "x": 86,
+    "y": 358,
+    "branch": 9,
+    "main": 1,
+    "rangeBranch": 0.156,
+    "rangeMain": 0.115
+   },
+   {
+    "x": 256,
+    "y": 342,
+    "branch": 9,
+    "main": 4,
+    "rangeBranch": 0.164,
+    "rangeMain": 0.116
+   }
+  ]
+ },
+ "D-still": {
+  "branchMax": 3,
+  "mainMax": 3,
+  "blocksBranchMore": 4736,
+  "blocksBranchFewer": 628,
+  "blocksSame": 55990,
+  "histBranch": [
+   53265,
+   7190,
+   898,
+   1,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "histMain": [
+   57413,
+   3090,
+   840,
+   11,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "branchAt3By": {
+   "stage band (190-243)": 1
+  },
+  "mainAt3By": {
+   "sky above the roof (y<190)": 2,
+   "stage band (190-243)": 9
+  },
+  "branchAt5By": {},
+  "mainAt5By": {},
+  "totalSwingsBranch": 28804,
+  "totalSwingsMain": 15724,
+  "topWhereBranchMore": [
+   {
+    "x": 548,
+    "y": 0,
+    "branch": 2,
+    "main": 0,
+    "rangeBranch": 0.14,
+    "rangeMain": 0.037
+   },
+   {
+    "x": 604,
+    "y": 0,
+    "branch": 2,
+    "main": 0,
+    "rangeBranch": 0.107,
+    "rangeMain": 0.019
+   },
+   {
+    "x": 606,
+    "y": 0,
+    "branch": 2,
+    "main": 0,
+    "rangeBranch": 0.111,
+    "rangeMain": 0.018
+   },
+   {
+    "x": 608,
+    "y": 0,
+    "branch": 2,
+    "main": 0,
+    "rangeBranch": 0.117,
+    "rangeMain": 0.018
+   },
+   {
+    "x": 610,
+    "y": 0,
+    "branch": 2,
+    "main": 0,
+    "rangeBranch": 0.114,
+    "rangeMain": 0.017
+   },
+   {
+    "x": 612,
+    "y": 0,
+    "branch": 2,
+    "main": 0,
+    "rangeBranch": 0.11,
+    "rangeMain": 0.017
+   },
+   {
+    "x": 262,
+    "y": 2,
+    "branch": 2,
+    "main": 0,
+    "rangeBranch": 0.145,
+    "rangeMain": 0.029
+   },
+   {
+    "x": 524,
+    "y": 2,
+    "branch": 2,
+    "main": 0,
+    "rangeBranch": 0.141,
+    "rangeMain": 0.024
+   }
+  ]
+ },
+ "S": {
+  "branchMax": 12,
+  "mainMax": 16,
+  "blocksBranchMore": 45495,
+  "blocksBranchFewer": 1497,
+  "blocksSame": 14362,
+  "histBranch": [
+   11825,
+   46276,
+   2466,
+   367,
+   201,
+   39,
+   98,
+   51,
+   20,
+   1,
+   1,
+   6,
+   3,
+   0,
+   0,
+   0,
+   0
+  ],
+  "histMain": [
+   56602,
+   1260,
+   2067,
+   304,
+   496,
+   13,
+   305,
+   64,
+   31,
+   40,
+   64,
+   33,
+   67,
+   2,
+   4,
+   1,
+   1
+  ],
+  "branchAt3By": {
+   "sky above the roof (y<190)": 123,
+   "stage band (190-243)": 172,
+   "ground and crowd (y>=244)": 492
+  },
+  "mainAt3By": {
+   "sky above the roof (y<190)": 22,
+   "stage band (190-243)": 149,
+   "ground and crowd (y>=244)": 1254
+  },
+  "branchAt5By": {
+   "stage band (190-243)": 55,
+   "ground and crowd (y>=244)": 164
+  },
+  "mainAt5By": {
+   "stage band (190-243)": 55,
+   "ground and crowd (y>=244)": 570
+  },
+  "totalSwingsBranch": 148007,
+  "totalSwingsMain": 121792,
+  "topWhereBranchMore": [
+   {
+    "x": 232,
+    "y": 342,
+    "branch": 8,
+    "main": 6,
+    "rangeBranch": 0.154,
+    "rangeMain": 0.139
+   },
+   {
+    "x": 250,
+    "y": 344,
+    "branch": 8,
+    "main": 6,
+    "rangeBranch": 0.148,
+    "rangeMain": 0.137
+   },
+   {
+    "x": 122,
+    "y": 352,
+    "branch": 8,
+    "main": 6,
+    "rangeBranch": 0.142,
+    "rangeMain": 0.134
+   },
+   {
+    "x": 264,
+    "y": 352,
+    "branch": 8,
+    "main": 6,
+    "rangeBranch": 0.139,
+    "rangeMain": 0.144
+   },
+   {
+    "x": 264,
+    "y": 354,
+    "branch": 8,
+    "main": 6,
+    "rangeBranch": 0.139,
+    "rangeMain": 0.143
+   },
+   {
+    "x": 264,
+    "y": 356,
+    "branch": 8,
+    "main": 6,
+    "rangeBranch": 0.139,
+    "rangeMain": 0.143
+   },
+   {
+    "x": 290,
+    "y": 356,
+    "branch": 8,
+    "main": 6,
+    "rangeBranch": 0.135,
+    "rangeMain": 0.137
+   },
+   {
+    "x": 286,
+    "y": 358,
+    "branch": 8,
+    "main": 6,
+    "rangeBranch": 0.135,
+    "rangeMain": 0.138
+   }
+  ]
+ },
+ "S-still": {
+  "branchMax": 5,
+  "mainMax": 5,
+  "blocksBranchMore": 45754,
+  "blocksBranchFewer": 298,
+  "blocksSame": 15302,
+  "histBranch": [
+   12645,
+   46314,
+   2152,
+   240,
+   2,
+   1,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "histMain": [
+   57992,
+   1222,
+   2023,
+   114,
+   2,
+   1,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "branchAt3By": {
+   "sky above the roof (y<190)": 123,
+   "stage band (190-243)": 118,
+   "ground and crowd (y>=244)": 2
+  },
+  "mainAt3By": {
+   "sky above the roof (y<190)": 22,
+   "stage band (190-243)": 95
+  },
+  "branchAt5By": {
+   "stage band (190-243)": 1
+  },
+  "mainAt5By": {
+   "stage band (190-243)": 1
+  },
+  "totalSwingsBranch": 130515,
+  "totalSwingsMain": 28832,
+  "topWhereBranchMore": [
+   {
+    "x": 472,
+    "y": 200,
+    "branch": 4,
+    "main": 2,
+    "rangeBranch": 0.47,
+    "rangeMain": 0.263
+   },
+   {
+    "x": 412,
+    "y": 164,
+    "branch": 3,
+    "main": 0,
+    "rangeBranch": 0.339,
+    "rangeMain": 0.064
+   },
+   {
+    "x": 414,
+    "y": 164,
+    "branch": 3,
+    "main": 0,
+    "rangeBranch": 0.342,
+    "rangeMain": 0.066
+   },
+   {
+    "x": 406,
+    "y": 166,
+    "branch": 3,
+    "main": 0,
+    "rangeBranch": 0.338,
+    "rangeMain": 0.064
+   },
+   {
+    "x": 408,
+    "y": 166,
+    "branch": 3,
+    "main": 0,
+    "rangeBranch": 0.342,
+    "rangeMain": 0.066
+   },
+   {
+    "x": 410,
+    "y": 166,
+    "branch": 3,
+    "main": 0,
+    "rangeBranch": 0.345,
+    "rangeMain": 0.068
+   },
+   {
+    "x": 412,
+    "y": 166,
+    "branch": 3,
+    "main": 0,
+    "rangeBranch": 0.348,
+    "rangeMain": 0.07
+   },
+   {
+    "x": 414,
+    "y": 166,
+    "branch": 3,
+    "main": 0,
+    "rangeBranch": 0.349,
+    "rangeMain": 0.071
+   }
+  ]
+ }
+}
