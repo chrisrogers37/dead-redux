@@ -36,6 +36,23 @@ const NEXT = "M16 5h2v14h-2zM4 5v14l11-7z";
 /** A time on the now-plate: formatDuration's m:ss, and 0:00 where it gives nothing. */
 const clock = (s: number) => formatDuration(s) || "0:00";
 
+/**
+ * A pointer's seek gives the keys back to the world. A press on the slider focuses it, as on any control, and from then on its keys
+ * are its own, so the walk's keys did nothing until a click on the island. Once the pointer that pressed it lifts, the world takes
+ * focus again. A seek by keyboard never comes here, so the arrows go on moving the slider; and the still, which has no world to walk,
+ * is not focusable and keeps focus where it is.
+ */
+export function focusWorldOnRelease(): void {
+  const release = () => {
+    window.removeEventListener("pointerup", release);
+    window.removeEventListener("pointercancel", release);
+    const world = document.getElementById("world");
+    if (world && world.tabIndex >= 0) world.focus({ preventScroll: true });
+  };
+  window.addEventListener("pointerup", release);
+  window.addEventListener("pointercancel", release);
+}
+
 export function Transport({
   leanback,
   title,
@@ -71,6 +88,7 @@ export function Transport({
       step={1}
       value={value}
       onChange={(e) => onSeek(Number(e.currentTarget.value))}
+      onPointerDown={focusWorldOnRelease}
       className="seek w-full"
       style={value ? ({ "--p": `${(value / max) * 100}%` } as CSSProperties) : undefined}
     />

@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
-import { Transport } from "../../components/player/Transport";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { focusWorldOnRelease, Transport } from "../../components/player/Transport";
 
 describe("Transport", () => {
   const archiveUrl = "https://archive.org/details/gd1986-07-04";
@@ -37,5 +37,53 @@ describe("Transport", () => {
   it("writes no style attribute at the start, where the stylesheet fills the seek bar to 0%, and the position once it moves", () => {
     expect(renderToStaticMarkup(<Transport {...props} failed={false} />)).not.toContain("style=");
     expect(renderToStaticMarkup(<Transport {...props} position={90} failed={false} />)).toContain('style="--p:25%"');
+  });
+});
+
+describe("focusWorldOnRelease", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // The window, which takes the pointer's lift, and the page with its world: focusable (tabIndex 0), or the still's (-1), or none.
+  function page(tabIndex: number | null) {
+    const world = { tabIndex: tabIndex ?? -1, focus: vi.fn() };
+    const win = new EventTarget();
+    vi.stubGlobal("window", win);
+    vi.stubGlobal("document", { getElementById: (id: string) => (id === "world" && tabIndex !== null ? world : null) });
+    return { world, lift: (type = "pointerup") => win.dispatchEvent(new Event(type)) };
+  }
+
+  it("renders the seek slider with nothing a first paint would refuse: the press is wired by React, not written into the markup", () => {
+    const props = { leanback: false, title: "Bertha", index: 0, count: 1, set: null, position: 0, duration: 60, status: null, archiveUrl: "", playing: false,
+      onPrevious: () => {}, onPlay: () => {}, onNext: () => {}, onSeek: () => {}, onRetry: () => {} };
+    expect(renderToStaticMarkup(<Transport {...props} failed={false} />)).toContain('data-action="seek"');
+  });
+
+  it("gives the world focus once the pointer that pressed the slider lifts, without scrolling to it, and not before", () => {
+    const { world, lift } = page(0);
+    focusWorldOnRelease();
+    expect(world.focus).not.toHaveBeenCalled();
+    lift();
+    expect(world.focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+  });
+
+  it("does so for a cancelled pointer too, and only once for each press", () => {
+    const { world, lift } = page(0);
+    focusWorldOnRelease();
+    lift("pointercancel");
+    lift();
+    lift("pointercancel");
+    expect(world.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves focus where it is over the still, which is not focusable, and on a page without a world", () => {
+    const still = page(-1);
+    focusWorldOnRelease();
+    still.lift();
+    expect(still.world.focus).not.toHaveBeenCalled();
+    const none = page(null);
+    focusWorldOnRelease();
+    expect(() => none.lift()).not.toThrow();
   });
 });
