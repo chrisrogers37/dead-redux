@@ -4,7 +4,7 @@ import { buildIsland } from "./island.js";
 import { height, STAGE_COLUMN, TEST_POSES } from "./ground.js";
 import { buildPath, layout, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
 import { makeBuilders, mergeLandmarks } from "./landmarks.js";
-import { buildBears, drawLegs } from "./bears.js";
+import { buildBears, drawLegs, stride } from "./bears.js";
 import { buildAvatar } from "./avatar.js";
 import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
@@ -540,7 +540,7 @@ function start(gl) {
       b.g.position.copy(p);
       b.g.rotation.y = Math.atan2(tg.x, tg.z);
       const swing = (playing && !reduced) ? Math.sin(gait + b.phase) * layer2.amp : 0;
-      b.legs[0].rotation.x = swing; b.legs[3].rotation.x = swing; b.legs[1].rotation.x = -swing; b.legs[2].rotation.x = -swing;
+      stride(b, swing);
     }
 
     /* A bear pose (the test hooks) lands once the bears stand where this frame puts them: the walker 2 m from the lead bear's centre,
