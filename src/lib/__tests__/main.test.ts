@@ -89,6 +89,8 @@ const fake = vi.hoisted(() => {
     shadowMap: undefined as unknown as { enabled: boolean; autoUpdate: boolean; needsUpdate: boolean },
     graded: NaN,
     lift: NaN,
+    // How dark the look last graded was, 0 to 1 (night.js), unrounded.
+    dark: NaN,
     keyTurned: false,
     // The time the island's water last took its look at (island.js), and how quiet the music was then, 0 to 1.
     tide: NaN,
@@ -242,9 +244,10 @@ const fake = vi.hoisted(() => {
           panelMat: { uniforms: { uGain: { value: Float32Array.of(1) } } },
           // The sky draws the night's look itself (sky.js), and says whether its key light has turned far enough to redraw the
           // stage's shadow.
-          grade: (look: { hour: number; stageLift: number }) => {
+          grade: (look: { hour: number; stageLift: number; dark: number }) => {
             world.graded = look.hour;
             world.lift = look.stageLift;
+            world.dark = look.dark;
             return world.keyTurned;
           },
         };
@@ -975,8 +978,10 @@ describe("main.js's frames with the show's map", () => {
     expect(fake.world.flame.scale.x).toBeCloseTo(1 + 1.2 * 0.65, 9);
     page.run(7);
     expect(fake.world.flame.scale.x).toBeCloseTo(2.2, 9);
-    // The beam over the song's landmark is 1.2 times as bright, at 0.192 of its colour.
-    expect(page.beam().opacity).toBeCloseTo(0.192, 9);
+    // The beam over the song's landmark is 1.2 times as bright, 0.192 of its colour at dusk; in the dark it is dimmed by up to 0.65,
+    // and the peak, halfway through this one-track show, falls in the deep of the night.
+    expect(fake.world.dark).toBeGreaterThan(0.99);
+    expect(page.beam().opacity).toBeCloseTo(0.192 * (1 - 0.65 * fake.world.dark), 9);
     // Past the peak the build-up falls 0.025 a frame, so it is gone within 0.8 s.
     page.run(0.02);
     expect(fake.world.flame.scale.x).toBeCloseTo(1 + 1.2 * 0.975, 9);

@@ -564,7 +564,8 @@ function start(gl) {
     /* The beam stands on the landmark of the song that plays. */
     const lp = landmarks[index]?.position ?? at(landmarkU[index]);
     beam.position.set(lp.x, lp.y + 18, lp.z);
-    beam.material.opacity = beamBase * layer2.beam;
+    /* The column is a third as bright in the deep of the night, where at its dusk strength it would outshine the stage. */
+    beam.material.opacity = beamBase * layer2.beam * (1 - 0.65 * look.dark);
 
     /* The bears. Before the show first plays they stand where it is, and a world that opens while it plays places them there in its
        first frame; in the frame it starts they walk on from where they stand, so nothing steps. */

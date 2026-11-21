@@ -88,7 +88,7 @@ export const MOON = toward(MOON_AT, MOON_UP);
 const LOOKS = [
   /* The last light: the sun is just down, the sky still burns, and its low light rakes the hill from the north-west. */
   { hour: 0, zenith: 0x2b2452, horizon: 0x8c4f5e, glow: 0xff8a3a, glowGain: 1, glowTo: SUNSET, liquid: 0.9, stars: 0, moon: 0, disc: -4, haze: 0x4a3142,
-    sea: 0x1e1b30, ambient: 0xc8a08c, ground: 0x241a16, ambientGain: 0.46, key: 0xffa25e, keyGain: 2.6, keyTo: toward(SUNSET, 14), stageLift: 0,
+    sea: 0x1e1b30, ambient: 0xc8a08c, ground: 0x241a16, ambientGain: 0.46, key: 0xffa25e, keyGain: 2.15, keyTo: toward(SUNSET, 14), stageLift: 0,
     shine: 0.15, beams: 1, dark: 0.15 },
   /* The blue hour: an ember at the horizon, the first stars, the moon coming up. */
   { hour: 0.5, zenith: 0x0e1230, horizon: 0x2a3058, glow: 0xc4502e, glowGain: 0.55, glowTo: SUNSET, liquid: 0.5, stars: 0.3, moon: 0.35, disc: -8, haze: 0x161a30,
@@ -107,7 +107,7 @@ const LOOKS = [
      catching the first of the light. */
   { hour: FIRST_LIGHT, zenith: 0x1c2c56, horizon: 0x6a6a8e, glow: 0xff9466, glowGain: 0.7, glowTo: SUNRISE, liquid: 0.4, stars: 0.12, moon: 0.1, disc: -5, haze: 0x3a4060,
     sea: 0x33405f, ambient: 0x8ea2d4, ground: 0x1a1c24, ambientGain: 0.56, key: 0xffa884, keyGain: 1.7, keyTo: toward(SUNRISE, 11), stageLift: 0.2,
-    shine: 0.4, beams: 0.75, dark: 0.5 },
+    shine: 0.4, beams: 0.62, dark: 0.5 },
   /* Daybreak, at the show's end: the sun's edge comes over the sea behind the stage, and the island stands in its light. */
   { hour: DAYBREAK, zenith: 0x3c5a96, horizon: 0xd9a184, glow: 0xffc27a, glowGain: 0.62, glowTo: SUNRISE, liquid: 0.5, stars: 0, moon: 0, disc: 0.8, haze: 0x9a8a96,
     sea: 0x5b6f96, ambient: 0xc0cdea, ground: 0x2c2a2a, ambientGain: 0.9, key: 0xffc388, keyGain: 3.4, keyTo: toward(SUNRISE, 15), stageLift: 0,
