@@ -12,24 +12,50 @@ import { keepOuts, parting, PERSON, seats } from "./seats.js";
 /* Dark, nearly grey colours, a little apart in hue, so the figures read as silhouettes and as many people. */
 const PALETTE = [0x1d1b22, 0x22201d, 0x1a1f26, 0x26201f, 0x1e2320, 0x2a2420, 0x18181b, 0x241c24];
 
-/* One figure in its own units, standing on y = 0 and facing +z, 1.81 tall: legs LEG tall, a torso, a head and two arms at its sides,
-   hanging from shoulders SHOULDER_X either side and SHOULDER_Y up. The legs carry aLeg = 1, the arms aArm = -1 and 1. */
-const LEG = 0.86, SHOULDER_X = 0.3, SHOULDER_Y = 1.44;
+/* One figure in its own units, standing on y = 0 and facing +z, TALL to the top of its head: two legs LEG tall on their feet, hips, a
+   torso that widens to its shoulders, a neck, a head, and two arms at its sides ending in hands, hanging from shoulders SHOULDER_X
+   either side and SHOULDER_Y up. It stands within the plain figure it replaces, 0.35 to either side and 0.27 fore and aft, its arms
+   within that figure's, so the reaches below still bound it. The legs and feet carry aLeg = 1, the arms and hands aArm = -1 and 1.
+   Some figures wear a brimmed hat and some long hair, neither taller than the head: those parts carry aWear = 1 and 2, and the vertex
+   shader folds them away on the figures that do not wear them (HAT, HAIR), so the whole crowd is still one mesh. */
+const LEG = 0.86, SHOULDER_X = 0.3, SHOULDER_Y = 1.44, TALL = 1.8076, HEAD_Y = 1.655;
 export function figureGeometry() {
-  const part = (geo, leg, arm) => {
+  const part = (geo, leg, arm, wear = 0) => {
     const g = geo.index ? geo.toNonIndexed() : geo, n = g.attributes.position.count;
     g.setAttribute("aLeg", new THREE.BufferAttribute(new Float32Array(n).fill(leg), 1));
     g.setAttribute("aArm", new THREE.BufferAttribute(new Float32Array(n).fill(arm), 1));
+    g.setAttribute("aWear", new THREE.BufferAttribute(new Float32Array(n).fill(wear), 1));
     return g;
   };
-  return mergeGeometries([
-    part(new THREE.CylinderGeometry(0.2, 0.15, LEG, 6, 1, true).translate(0, LEG / 2, 0), 1, 0),
-    part(new THREE.CylinderGeometry(0.27, 0.2, 0.62, 6, 1, false).translate(0, 1.17, 0), 0, 0),
-    part(new THREE.IcosahedronGeometry(0.15, 0).translate(0, 1.68, 0), 0, 0),
-    part(new THREE.BoxGeometry(0.1, 0.62, 0.1).translate(-SHOULDER_X, SHOULDER_Y - 0.31, 0), 0, -1),
-    part(new THREE.BoxGeometry(0.1, 0.62, 0.1).translate(SHOULDER_X, SHOULDER_Y - 0.31, 0), 0, 1),
-  ]);
+  /* The head, an egg whose top stands at TALL. */
+  const head = new THREE.IcosahedronGeometry(0.135, 1).scale(1, 1.13, 1.05);
+  head.computeBoundingBox();
+  head.translate(0, TALL - head.boundingBox.max.y, 0);
+  const parts = [part(head, 0, 0)];
+  for (const side of [-1, 1]) {
+    parts.push(
+      part(new THREE.CylinderGeometry(0.088, 0.062, LEG, 6, 1, true).translate(side * 0.095, LEG / 2, 0), 1, 0),
+      part(new THREE.BoxGeometry(0.11, 0.07, 0.21).translate(side * 0.095, 0.035, 0.05), 1, 0),
+      part(new THREE.CylinderGeometry(0.05, 0.036, 0.54, 6, 1, true).translate(side * SHOULDER_X, SHOULDER_Y - 0.27, 0), 0, side),
+      part(new THREE.IcosahedronGeometry(0.046, 0).translate(side * SHOULDER_X, SHOULDER_Y - 0.565, 0), 0, side),
+    );
+  }
+  parts.push(
+    part(new THREE.CylinderGeometry(0.165, 0.17, 0.17, 8, 1, true).scale(1, 1, 0.74).translate(0, 0.93, 0), 0, 0),
+    part(new THREE.CylinderGeometry(0.25, 0.158, 0.46, 8).scale(1, 1, 0.68).translate(0, 1.24, 0), 0, 0),
+    part(new THREE.CylinderGeometry(0.075, 0.25, 0.075, 8, 1, true).scale(1, 1, 0.68).translate(0, 1.5075, 0), 0, 0),
+    part(new THREE.CylinderGeometry(0.055, 0.062, 0.1, 6, 1, true).translate(0, 1.57, 0), 0, 0),
+    /* The hat: a brim round the head and a crown that ends at the head's top. */
+    part(new THREE.CylinderGeometry(0.21, 0.21, 0.02, 10).translate(0, HEAD_Y + 0.055, 0), 0, 0, 1),
+    part(new THREE.CylinderGeometry(0.118, 0.137, 0.1, 8).translate(0, TALL - 0.05, 0), 0, 0, 1),
+    /* Long hair: down the back of the head to the shoulders. */
+    part(new THREE.IcosahedronGeometry(0.165, 0).scale(1, 1.3, 0.85).translate(0, 1.585, -0.05), 0, 0, 2),
+  );
+  return mergeGeometries(parts);
 }
+/* Who wears what, by a figure's own phase (aFig.y, 0-1) turned into a pick from 0 to 1: a hat under HAT, long hair from HAIR[0] to
+   HAIR[1]. */
+const HAT = 0.22, HAIR = [0.3, 0.62];
 
 /* A figure folds to sit: its legs to FOLD of their height, and the rest of it down onto them. The sitters' section sits (aFig.x = 1);
    the rest of the crowd sits as `sit` rises, each figure in its turn, the last STAGGER behind the first. */
@@ -68,6 +94,7 @@ const f = (v) => v.toFixed(4);
 const DECLARE = `
 attribute float aLeg;
 attribute float aArm;
+attribute float aWear;
 attribute vec3 aFig;
 attribute vec4 aPart;
 attribute float aRise;
@@ -76,10 +103,14 @@ uniform float uDance;
 uniform float uRise;
 uniform float uSit;
 vec2 rot(vec2 v, float a) { float c = cos(a), s = sin(a); return vec2(c * v.x - s * v.y, s * v.x + c * v.y); }`;
-/* In the figure's own units, after begin_vertex: the rise, the sit, the arms, the knees and the sway, as far as the figure dances where
-   it stands (aPart.w: still 1, at its seat 0). Every figure rises with the build-up as far as aRise lets it: all the way, but with its
+/* In the figure's own units, after begin_vertex: what the figure does not wear folds to a point inside its head (HAT, HAIR); then the rise,
+   the sit, the arms, the knees and the sway, as far as the figure dances where it stands (aPart.w: still 1, at its seat 0). Every figure rises with the build-up as far as aRise lets it: all the way, but with its
    arms brought down while it stands fully still (seats.js). */
 const DANCE = `
+if (aWear > 0.5) {
+  float pick = fract(aFig.y * 7.13 + 0.37);
+  if (aWear < 1.5 ? pick >= ${f(HAT)} : (pick < ${f(HAIR[0])} || pick >= ${f(HAIR[1])})) transformed = vec3(0.0, ${f(HEAD_Y)}, 0.0);
+}
 float moves = 1.0 - aPart.w, dance = uDance * moves;
 float rise = clamp((uRise - ${f(RISE_FROM)} - ${f(RISE_SPAN)} * aFig.z) / ${f(RISE_W)}, 0.0, 1.0) * aRise;
 float sit = max(aFig.x, clamp(uSit * ${f(1 + STAGGER)} - aFig.y * ${f(STAGGER)}, 0.0, 1.0)) * (1.0 - rise);
@@ -137,7 +168,9 @@ export function buildCrowd(scene, { count, path, line, landmarks }) {
   placed.forEach((p, i) => {
     dummy.position.set(p.x, height(p.x, p.z), p.z);
     dummy.rotation.set(0, Math.atan2(STAGE[0] - p.x, STAGE[1] - p.z) + (i % 7 - 3) * 0.08, 0);
-    dummy.scale.setScalar(scale * (1 + ((i * 37) % 17 - 8) * 0.01));
+    /* Each is its own height, and as broad as the standard figure or up to 12 % slighter, so none reaches past the bounds below. */
+    const tall = scale * (1 + ((i * 37) % 17 - 8) * 0.01), broad = 1 - 0.012 * ((i * 29) % 11);
+    dummy.scale.set(tall * broad, tall, tall * broad);
     dummy.updateMatrix();
     mesh.setMatrixAt(i, dummy.matrix);
     mesh.setColorAt(i, color.setHex(PALETTE[(i * 5) % PALETTE.length]));
