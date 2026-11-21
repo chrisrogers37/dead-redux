@@ -19,7 +19,7 @@ const PALETTE = [0x1d1b22, 0x22201d, 0x1a1f26, 0x26201f, 0x1e2320, 0x2a2420, 0x1
    carry aLeg = 1 and the feet aLeg = 2, the arms and hands aArm = -1 and 1.
    Some figures wear a brimmed hat and some long hair, neither taller than the head: those parts carry aWear = 1 and 2, and the vertex
    shader folds them away on the figures that do not wear them (HAT, HAIR), so the whole crowd is still one mesh. */
-export const LEG = 0.86, SHOULDER_X = 0.3, SHOULDER_Y = 1.44, TALL = 1.8076;
+export const LEG = 0.86, SHOULDER_X = 0.285, SHOULDER_Y = 1.44, TALL = 1.8076;
 const HEAD_Y = 1.655;
 export function figureGeometry() {
   const part = (geo, leg, arm, wear = 0) => {
@@ -38,8 +38,11 @@ export function figureGeometry() {
     parts.push(
       part(new THREE.CylinderGeometry(0.088, 0.062, LEG, 6, 2, true).translate(side * 0.095, LEG / 2, 0), 1, 0),
       part(new THREE.BoxGeometry(0.11, 0.07, 0.21).translate(side * 0.095, 0.035, 0.05), 2, 0),
-      part(new THREE.CylinderGeometry(0.05, 0.036, 0.54, 6, 1, true).translate(side * SHOULDER_X, SHOULDER_Y - 0.27, 0), 0, side),
-      part(new THREE.IcosahedronGeometry(0.046, 0).translate(side * SHOULDER_X, SHOULDER_Y - 0.565, 0), 0, side),
+      part(new THREE.CylinderGeometry(0.056, 0.042, 0.54, 6, 1, true).translate(side * SHOULDER_X, SHOULDER_Y - 0.27, 0), 0, side),
+      part(new THREE.IcosahedronGeometry(0.05, 0).translate(side * SHOULDER_X, SHOULDER_Y - 0.565, 0), 0, side),
+      /* The shoulder: a ball at the arm's pivot, part of the body, which the torso's top runs into and the arm's open top turns
+         inside, so an arm that swings or lifts stays joined to its figure and shows no hollow from above. */
+      part(new THREE.IcosahedronGeometry(0.064, 0).translate(side * SHOULDER_X, SHOULDER_Y, 0), 0, 0),
     );
   }
   parts.push(
