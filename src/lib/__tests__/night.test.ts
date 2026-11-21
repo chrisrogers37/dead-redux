@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DAYBREAK, DEEP, FIRST_LIGHT, followHour, HOUR_RATE, lookAt, newLook, nightPlan, SET_BREAK } from "../../../public/world/night.js";
+import { DAYBREAK, DEEP, FIRST_LIGHT, followHour, HOUR_RATE, lookAt, MOON, newLook, nightPlan, SET_BREAK } from "../../../public/world/night.js";
 
 // The fixed day's show (1986-07-04), as the world reads it: set 2 from track 7, Drums and Space at 13 and 14, the encore track 18.
 const FIXED = [
@@ -43,11 +43,12 @@ describe("nightPlan", () => {
     expect(night.hourAt(half)).toBeCloseTo((SET_BREAK + DEEP) / 2, 10);
   });
 
-  it("gives each track the hour it begins at", () => {
-    expect(night.hourOf(0)).toBe(0);
+  it("gives each track the hour halfway through it, so the encore stands between first light and daybreak", () => {
+    expect(night.hourOf(0)).toBeCloseTo(night.hourAt(49), 10);
     expect(night.hourOf(13)).toBeCloseTo(DEEP, 10);
-    expect(night.hourOf(18)).toBeCloseTo(FIRST_LIGHT, 10);
-    expect(night.hourOf(1)).toBeCloseTo(night.hourAt(98), 10);
+    expect(night.hourOf(14)).toBeCloseTo(DEEP, 10);
+    expect(night.hourOf(18)).toBeCloseTo((FIRST_LIGHT + DAYBREAK) / 2, 10);
+    expect(night.hourOf(1)).toBeCloseTo(night.hourAt(98 + 386 / 2), 10);
   });
 
   it("takes the break at 37 % of the tracks and the last track as the encore where the notes mark neither", () => {
@@ -149,14 +150,33 @@ describe("lookAt", () => {
     expect(deep.dark).toBe(1);
   });
 
-  it("makes the stage the light of the deep night: its light strongest and farthest-reaching there, and its glow on the sea fullest", () => {
+  it("makes the stage the light of the deep night: its own light and its glow on the ground and the sea are fullest there", () => {
     const deep = at(DEEP);
     for (const hour of [0, 0.5, 1.4, FIRST_LIGHT, DAYBREAK]) {
       const look = at(hour);
-      expect(look.stageLift).toBeLessThanOrEqual(deep.stageLift);
-      expect(look.reach).toBeLessThanOrEqual(deep.reach);
+      expect(look.stageLift).toBeLessThan(deep.stageLift);
       expect(look.shine).toBeLessThan(deep.shine);
     }
+    expect(at(0).stageLift).toBe(0);
+  });
+
+  it("shows the rig's beams in full from dusk through the night, and lets the daylight wash them out toward daybreak", () => {
+    for (const hour of [0, 0.5, DEEP, 1.4]) expect(at(hour).beams).toBe(1);
+    expect(at(FIRST_LIGHT).beams).toBeLessThan(1);
+    expect(at(DAYBREAK).beams).toBeLessThan(at(FIRST_LIGHT).beams);
+    expect(at(DAYBREAK).beams).toBeGreaterThan(0.3);
+  });
+
+  it("brings the moon out for the night and takes it in before the sun: full in the deep, gone at dusk and at daybreak", () => {
+    expect(at(0).moon).toBe(0);
+    expect(at(DEEP).moon).toBe(1);
+    expect(at(DAYBREAK).moon).toBe(0);
+    expect(at(DEEP).keyTo[0]).toBeCloseTo(MOON[0], 6);
+    expect(at(DEEP).keyTo[1]).toBeCloseTo(MOON[1], 6);
+    // The moon stands in the south-east (+x, +z), well above the horizon.
+    expect(MOON[0]).toBeGreaterThan(0);
+    expect(MOON[2]).toBeGreaterThan(0);
+    expect(MOON[1]).toBeGreaterThan(0.3);
   });
 
   it("brings the land back at first light: more light from the sky than at any hour of set 2, and more again by daybreak", () => {

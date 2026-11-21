@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { CAVES, G, height, SHELF_Y, STAGE } from "./ground.js";
+import { MOON } from "./night.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, and at its north-east edge a shelf for the stage.
    The ground's height is in ground.js. */
@@ -18,7 +19,7 @@ const SHINE = [0.4, 0.25, 0.1], SHINE_OUT = 36, SHINE_LONG = 30, SHINE_WIDE = 28
    half as strong POOL_HALF m away and gone by POOL_END. It lights the ground and the bands on it and nothing else, so the crowd stands
    dark against it; and the music does not move it, so it adds no swing in brightness to the stage's own light (stage.js), which the
    music does move. */
-const POOL = new THREE.Color(0xe8a04b).multiplyScalar(2.6), POOL_UP = 7, POOL_HALF = 15, POOL_END = 85;
+const POOL = new THREE.Color(0xff7a30).multiplyScalar(5), POOL_UP = 7, POOL_HALF = 15, POOL_END = 85;
 const f = (v) => v.toFixed(4);
 
 /* Has a Lambert material take the stage's glow (`uPool`, its colour times its strength) as one more light on it, by the angle its
@@ -41,14 +42,16 @@ function takesPool(material, uPool) {
 }
 
 /* The sea: flat water in the night's colour for it (night.js), with twilight's glow lying on it as a path toward where the sun set or
-   will rise, from the shore out, and the stage's light on the water behind the stage. One mesh on its own material, so it costs one
+   will rise, from the shore out, the moon's path the same way toward the moon, and the stage's light on the water behind the stage. One mesh on its own material, so it costs one
    draw call, as the plain sea did; it is not lit, and it takes the fog, so it fades into the haze as the ground does. It writes its
    colours as they are, as the sky does (sky.js). Returns what draws a look of the night on it and sets the stage's glow on the ground
    (`uPool`). */
 function buildSea(scene, uPool) {
   const far = Math.hypot(STAGE[0], STAGE[1]), ox = STAGE[0] / far, oz = STAGE[1] / far;
   const uniforms = { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uSea: { value: new THREE.Color() }, uGlow: { value: new THREE.Color() },
-    uShine: { value: new THREE.Color() }, uSunTo: { value: new THREE.Vector2(0, -1) } };
+    uShine: { value: new THREE.Color() }, uSunTo: { value: new THREE.Vector2(0, -1) }, uMoon: { value: 0 } };
+  /* The way to the moon along the water. */
+  const moonFar = Math.hypot(MOON[0], MOON[2]), mx = MOON[0] / moonFar, mz = MOON[2] / moonFar;
   const mat = new THREE.ShaderMaterial({
     uniforms, fog: true,
     vertexShader: `
@@ -64,12 +67,15 @@ function buildSea(scene, uPool) {
     fragmentShader: `
       uniform vec3 uSea, uGlow, uShine;
       uniform vec2 uSunTo;
+      uniform float uMoon;
       varying vec2 vAt;
       #include <fog_pars_fragment>
       void main() {
         float r = length(vAt);
         float facing = max(dot(vAt / max(r, 1.0), uSunTo), 0.0);
         vec3 col = uSea + uGlow * (0.34 * pow(facing, 60.0) + 0.1 * pow(facing, 6.0)) * smoothstep(118.0, 160.0, r);
+        float moonward = max(dot(vAt / max(r, 1.0), vec2(${f(mx)}, ${f(mz)})), 0.0);
+        col += uMoon * vec3(0.2, 0.25, 0.37) * (pow(moonward, 90.0) + 0.16 * pow(moonward, 6.0)) * smoothstep(118.0, 150.0, r);
         vec2 s = vAt - vec2(${f(STAGE[0])}, ${f(STAGE[1])});
         float along = (dot(s, vec2(${f(ox)}, ${f(oz)})) - ${f(SHINE_OUT)}) / ${f(SHINE_LONG)}, across = dot(s, vec2(${f(-oz)}, ${f(ox)})) / ${f(SHINE_WIDE)};
         col += uShine * exp(-along * along - across * across);
@@ -82,6 +88,7 @@ function buildSea(scene, uPool) {
     uniforms.uSea.value.fromArray(look.sea);
     uniforms.uGlow.value.fromArray(look.glow);
     uniforms.uSunTo.value.fromArray(look.glowTo);
+    uniforms.uMoon.value = look.moon;
     uniforms.uShine.value.fromArray(SHINE).multiplyScalar(look.shine);
     uPool.value.copy(POOL).multiplyScalar(look.shine);
   };

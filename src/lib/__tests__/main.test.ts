@@ -753,12 +753,13 @@ describe("main.js's frames through the night", () => {
     expect(hill().night.show - hill().night.hour).toBeLessThan(0.004);
   });
 
-  it("lands at once under reduced motion, on the hour the song began at, wherever the song has got to", async () => {
+  it("lands at once under reduced motion, on the hour halfway through the song, wherever the song has got to", async () => {
     const page = await startWorld({ reduced: true });
     page.run(0.02);
-    page.seek(300);
+    expect(hill().night).toMatchObject({ hour: DEEP, show: DEEP });
+    page.seek(30);
     page.hold("ArrowLeft", 0.1);
-    expect(hill().night).toMatchObject({ hour: 0, show: 0 });
+    expect(hill().night).toMatchObject({ hour: DEEP, show: DEEP });
   });
 
   it("adds the night's share to the stage light steadily: the music moves the light by as much in the deep of the night as at dusk", async () => {
@@ -775,6 +776,22 @@ describe("main.js's frames through the night", () => {
     expect(deep).toBeCloseTo(dusk, 9);
     expect(fake.world.lift).toBeGreaterThan(0.9);
     expect(fake.world.lift).toBeCloseTo(lookAt(fake.world.graded, newLook()).stageLift, 9);
+  });
+
+  it("lights the rig's beams in full through the night and lets the daylight wash them out toward daybreak", async () => {
+    const lit = async (position: number) => {
+      const page = await startWorld({ playing: true });
+      page.seek(position);
+      page.run(2);
+      return (hill() as unknown as { rig: { lit: number } }).rig.lit;
+    };
+    expect(await lit(0)).toBe(1);
+    expect(await lit(298)).toBe(1);
+    // 590 s of the 600: the look's own share for the beams at that hour.
+    const late = await lit(588);
+    expect(late).toBeCloseTo(lookAt(fake.world.graded, newLook()).beams, 3);
+    expect(late).toBeLessThan(0.6);
+    expect(late).toBeGreaterThan(0.4);
   });
 
   it("redraws the stage's shadow only in a frame where the sky says its key light has turned", async () => {
