@@ -24,3 +24,7 @@ Everything here was drawn by headless Chromium on a Mac's GPU, at the top rung o
 ## The working branch, `world/next`
 
 `next/desktop.png` and `next/phone.png`: the five pull requests together with the work that follows them (the land's turf and worn tracks, the sea's swell and foam, grass, flowers and stones, fireflies), shot from the branch's preview at `257e873`, at four hours of the show. `next/bears.png`: the bears with their ruff and tail, from the local dev server at `92b461c`.
+
+## After the five: #168 and #169
+
+`after/land-desktop.png` and `after/land-phone.png`: main above, #169 below (the land, the sea, the flora and the fireflies), from #169's preview at `864f2ed`. `after/notes-night.png` and `after/notes-bears.png`: main beside #168 (the night's light tuned; the bears' ruff and tail), from #168's preview at `0d0540e`. Main's stills are from #167's preview, whose world is main's.
