@@ -227,7 +227,7 @@ const PAGES = [
     path: "/2026-10-20?pose=crowd&drive=map&at=14",
     devices: ["desktop"],
     shots: [],
-    steps: [playStep("fixed-crowd-space", { ms: 20000, shot: "fixed-crowd-space-20s" })],
+    steps: [playStep("fixed-crowd-space", { ms: 20000, shot: "fixed-crowd-space-20s", night: true })],
   },
   // The fixed day from ?pose=among: the visitor's bear among the crowd's middle rows, off the aisle, and the figures round it stepped
   // aside.
@@ -268,40 +268,40 @@ const PAGES = [
   // From hour 0, Space's hour, 1, is 26 frames and 39 more to come within 0.05 of it, 65 in all; first light's, 1.7, which moves on as the
   // encore plays, about 100. CI draws the desktop 2.2 to 4 frames a second, about 25 of them between the join and the play step's shot,
   // which so falls near hour 0.6, the blue hour; and a later shot comes 2 to 4 s after its wait. So the desktop waits 20 s for Space (25 +
-  // 2.2 × 24 = 78 frames or more) and 30 s for first light (25 + 2.2 × 34 = 100), which on a fast runner ends just short of the world's
-  // 180th frame, where it can first step down a rung (quality.js). A phone draws 10 to 30 a second there, so the 8 s of its other later
-  // shots is over 100 frames. These stand before the show's end, which forgets the point each of them saves: no later play step resumes
+  // 2.2 × 24 = 78 frames or more) and 30 s for first light (25 + 2.2 × 34 = 100). A phone draws 10 to 30 a second there, so the 8 s of its
+  // other later shots is over 100 frames. A slower runner still gets its hour: each of these shots is `night`, which waits on for the
+  // world's hour to reach the show's. By then a slow runner may have stepped the world down a rung (quality.js), as in any later shot. These stand before the show's end, which forgets the point each of them saves: no later play step resumes
   // from one.
   {
     path: "/2026-10-20?pose=crowd&drive=map&at=14",
     devices: ["phone"],
     shots: [],
-    steps: [playStep("fixed-crowd-space", { ms: 8000, shot: "fixed-crowd-space-8s" })],
+    steps: [playStep("fixed-crowd-space", { ms: 8000, shot: "fixed-crowd-space-8s", night: true })],
   },
   {
     path: "/2026-10-20?pose=crowd&drive=map&at=18",
     devices: ["desktop"],
     shots: [],
-    steps: [playStep("fixed-crowd-first-light-start", { ms: 30000, shot: "fixed-crowd-first-light" })],
+    steps: [playStep("fixed-crowd-first-light-start", { ms: 30000, shot: "fixed-crowd-first-light", night: true })],
   },
   {
     path: "/2026-10-20?pose=crowd&drive=map&at=18",
     devices: ["phone"],
     shots: [],
-    steps: [playStep("fixed-crowd-first-light-start", { ms: 8000, shot: "fixed-crowd-first-light" })],
+    steps: [playStep("fixed-crowd-first-light-start", { ms: 8000, shot: "fixed-crowd-first-light", night: true })],
   },
   // From ?pose=path the last light is fixed-stage-path, above: the world opens on hour 0, before the show plays.
   {
     path: "/2026-10-20?pose=path&drive=map&at=14",
     devices: ["desktop"],
     shots: [],
-    steps: [playStep("fixed-path-night-start", { ms: 20000, shot: "fixed-path-night" })],
+    steps: [playStep("fixed-path-night-start", { ms: 20000, shot: "fixed-path-night", night: true })],
   },
   {
     path: "/2026-10-20?pose=path&drive=map&at=18",
     devices: ["desktop"],
     shots: [],
-    steps: [playStep("fixed-path-first-light-start", { ms: 30000, shot: "fixed-path-first-light" })],
+    steps: [playStep("fixed-path-first-light-start", { ms: 30000, shot: "fixed-path-first-light", night: true })],
   },
   // The fixed day 6 s before its last track ends (U.S. Blues, 287 s): the show ends, and the offer names a past pick.
   {
@@ -808,6 +808,13 @@ try {
         // The follow-up shot shows the page after it has been playing for a while.
         if (step.later) {
           await page.waitForTimeout(step.later.ms);
+          // A shot of the night also waits for the world's hour to come within 0.05 of the show's (night.js followHour), which a runner
+          // slower than the waits above reckon on has not reached in `ms`; a minute on, it is shot as it stands, and the log says so.
+          if (step.later.night) {
+            await page
+              .waitForFunction(() => { const n = window.__hill?.night; return !!n && Math.abs(n.hour - n.show) < 0.05; }, null, { timeout: 60_000 })
+              .catch(() => console.log(`night ${device}-${step.later.shot}.png  the world's hour had not reached the show's`));
+          }
           const laterFile = `${device}-${step.later.shot}.png`;
           await page.screenshot({ path: join(outDir, laterFile), fullPage: true, clip });
           console.log(`${laterFile}  ${url}  ${selector}`);

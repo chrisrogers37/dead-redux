@@ -24,7 +24,7 @@ const f = (v) => v.toFixed(4);
 
 /* Has a Lambert material take the stage's glow (`uPool`, its colour times its strength) as one more light on it, by the angle its
    face turns to the stage. */
-function takesPool(material, uPool) {
+export function takesPool(material, uPool) {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uPool = uPool;
     shader.vertexShader = shader.vertexShader
@@ -72,9 +72,12 @@ function buildSea(scene, uPool) {
       #include <fog_pars_fragment>
       void main() {
         float r = length(vAt);
-        float facing = max(dot(vAt / max(r, 1.0), uSunTo), 0.0);
+        /* The light lies on the water between the eye and its source, so each path runs from under the eye toward it. */
+        vec2 out2 = vAt - cameraPosition.xz;
+        vec2 away = out2 / max(length(out2), 1.0);
+        float facing = max(dot(away, uSunTo), 0.0);
         vec3 col = uSea + uGlow * (0.34 * pow(facing, 60.0) + 0.1 * pow(facing, 6.0)) * smoothstep(118.0, 160.0, r);
-        float moonward = max(dot(vAt / max(r, 1.0), vec2(${f(mx)}, ${f(mz)})), 0.0);
+        float moonward = max(dot(away, vec2(${f(mx)}, ${f(mz)})), 0.0);
         col += uMoon * vec3(0.2, 0.25, 0.37) * (pow(moonward, 90.0) + 0.16 * pow(moonward, 6.0)) * smoothstep(118.0, 150.0, r);
         vec2 s = vAt - vec2(${f(STAGE[0])}, ${f(STAGE[1])});
         float along = (dot(s, vec2(${f(ox)}, ${f(oz)})) - ${f(SHINE_OUT)}) / ${f(SHINE_LONG)}, across = dot(s, vec2(${f(-oz)}, ${f(ox)})) / ${f(SHINE_WIDE)};

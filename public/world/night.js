@@ -17,9 +17,12 @@ const BREAK_AT = 0.37, DEEP_AT = 0.6;
    halfway through a track, which stands for the whole track where the world holds still (reduced motion). The hour runs straight between the show's marks: its start, set 2's start, Drums and Space (the first run of them
    in set 2, held at DEEP from its first second to its last), the encore's start and the show's end. Where the notes mark no set 2 or
    no encore, the break falls at BREAK_AT of the tracks and the last track is the encore, as the rest of the world takes them. A mark
-   that does not come after the mark before it is left out, so the hour never runs back as the show plays on. */
+   that does not come after the mark before it is left out, so the hour never runs back as the show plays on: where Drums opens set 2
+   the dark comes on through Drums and Space, and a show that ends in Space ends in the dark. With no tracks, as on a day without a
+   recording, the hour stays at the last light. */
 export function nightPlan(tracks, set2Start, encoreStart) {
   const n = tracks.length, starts = [];
+  if (!n) return { hourAt: () => 0, hourOf: () => 0, marks: [[0, 0]] };
   let total = 0;
   for (const t of tracks) { starts.push(total); total += t.duration; }
   const startOf = (i) => (i >= n ? total : starts[Math.max(0, i)]);
@@ -48,7 +51,7 @@ export function nightPlan(tracks, set2Start, encoreStart) {
 }
 
 /* The world's hour follows the show's with a time constant of HOUR_TAU seconds and at most HOUR_RATE hours a second. While the show
-   plays the hour moves a few thousandths a second, and the world keeps to it. A seek, a skipped song or a join mid-show moves the
+   plays the hour moves less than a thousandth a second, and the world keeps to it. A seek, a skipped song or a join mid-show moves the
    show's hour at once: the world then passes through the hours between, a night from dusk to dawn in about seven seconds, so the light
    never steps. */
 export const HOUR_TAU = 0.9, HOUR_RATE = 0.45;

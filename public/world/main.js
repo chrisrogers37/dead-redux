@@ -46,7 +46,8 @@ const crowdAt = crowdPlan(tracks, set2Start);
 const heldAt = tracks.map(({ title }) => ({ drums: isDrums(title), space: isSpace(title), between: isBetweenSongs(title) }));
 /* The night the show carries the island through, by the show clock (night.js): the last light as set 1 opens, the deepest dark through
    Drums and Space, first light at the encore. */
-const night = nightPlan(tracks, set2Start, encoreStart);
+/* A day without a recording has no night to pass through: it stays in the last light. */
+const night = nightPlan(hasShow ? tracks : [], set2Start, encoreStart);
 
 const canvas = document.createElement("canvas");
 /* If the page gave up waiting for this module, the still stays and nothing starts. */

@@ -46,7 +46,7 @@ const STARS = `
         highp float rank = pick / ${f(STAR_SHARE)}, phase = starHash(cell + 59.0);
         float light = 0.22 + 0.78 * rank * rank * rank * rank;
         float breath = 1.0 - ${f(STAR_BREATH)} * (0.5 + 0.5 * sin(time * (0.5 + phase) + 6.2832 * phase));
-        return light * breath * smoothstep(${f(STAR_SIZE)}, ${f(STAR_SIZE * 0.25)}, distance(p, at));
+        return light * breath * (1.0 - smoothstep(${f(STAR_SIZE * 0.25)}, ${f(STAR_SIZE)}, distance(p, at)));
       }`;
 
 /* The sky. Its air runs from the horizon's colour up to the zenith's, with twilight's glow along the horizon toward where the sun set
@@ -68,28 +68,32 @@ export function buildSky(scene, octaves, seed) {
       uZenith: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uHaze: { value: new THREE.Color() }, uGlow: { value: new THREE.Color() },
       uSun: { value: new THREE.Vector3(0, -1, 0) }, uLiquid: { value: 1 }, uStars: { value: 0 }, uMoon: { value: 0 },
     },
-    vertexShader: `varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    /* vDir is the way from the sky's centre, which the air, the glow and the liquid light are drawn by, as they always were. vSee is the
+       way from the eye: the stars, the moon and the sun stand by it, so they keep their places as the visitor walks the island. */
+    vertexShader: `varying vec3 vDir; varying vec3 vSee; void main() { vDir = normalize(position); vSee = (modelMatrix * vec4(position, 1.0)).xyz - cameraPosition;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `
       precision mediump float;
       varying highp vec3 vDir;
+      varying highp vec3 vSee;
       uniform vec3 uZenith, uHorizon, uHaze, uGlow;
       uniform highp vec3 uSun;
       uniform float uLiquid, uStars, uMoon;
       ${liquid(octaves)}
       ${STARS}
       void main() {
-        highp vec3 d = normalize(vDir);
+        highp vec3 d = normalize(vDir), see = normalize(vSee);
         float up = max(d.y, 0.0);
         vec3 sky = mix(uHorizon, uZenith, smoothstep(0.0, 1.0, pow(up, 0.6)));
         /* Twilight: a wide arch of the glow's colour over where the sun is, and a brighter band low along the horizon there. */
         float facing = 0.5 + 0.5 * dot(normalize(d.xz + vec2(1e-4)), uSun.xy);
         sky += uGlow * (0.36 * pow(facing, 3.0) * exp(-up * 3.5) + 0.6 * pow(facing, 24.0) * exp(-up * 9.0));
-        /* The sun's edge, 1.3 degrees across, whitening the glow. */
+        /* The sun's edge, white 2 degrees across and gone by 3.4, whitening the glow. */
         float cosEl = cos(uSun.z);
-        float disc = smoothstep(0.99955, 0.99985, dot(d, vec3(uSun.x * cosEl, sin(uSun.z), uSun.y * cosEl)));
+        float disc = smoothstep(0.99955, 0.99985, dot(see, vec3(uSun.x * cosEl, sin(uSun.z), uSun.y * cosEl)));
         sky = mix(min(sky, vec3(1.0)), vec3(1.0, 0.97, 0.86), disc);
-        /* The moon, 1.8 degrees across in a soft halo, as far as the hour shows it. */
-        highp float toMoon = dot(d, vec3(${MOON.map(f).join(", ")}));
+        /* The moon, 1.8 degrees across with a soft edge out to 2.6, in a wide halo, as far as the hour shows it. */
+        highp float toMoon = dot(see, vec3(${MOON.map(f).join(", ")}));
         float moon = uMoon * smoothstep(0.99975, 0.99988, toMoon);
         sky += uMoon * vec3(0.16, 0.19, 0.27) * pow(max(toMoon, 0.0), 220.0);
         sky = mix(sky, vec3(0.93, 0.95, 1.0), moon);
@@ -98,7 +102,7 @@ export function buildSky(scene, octaves, seed) {
         vec3 light = liquid(d.xz / (d.y + 0.35) * 1.2);
         float ribbons = smoothstep(0.405, 0.77, liquidV / (1.0 - pow(0.5, float(uOct))));
         float show = smoothstep(-0.05, 0.3, d.y) * min(1.0, mix(1.6 * uLiquid * ribbons, 1.0, uLiquid * uLiquid)) * (1.0 - disc) * (1.0 - moon);
-        sky += uStars * stars(d, uTime) * (1.0 - show) * smoothstep(0.02, 0.14, d.y);
+        sky += uStars * stars(see, uTime) * (1.0 - show) * smoothstep(0.02, 0.14, d.y);
         sky = mix(sky, light, show);
         /* Under the horizon all is haze, which the far sea has faded into by its edge; the sky rises out of it over two degrees. */
         gl_FragColor = vec4(mix(uHaze, sky, smoothstep(0.0, 0.035, d.y)), 1.0);
