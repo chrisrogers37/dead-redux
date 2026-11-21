@@ -23,11 +23,14 @@ describe("the sky's grade", () => {
     const { grade } = sky();
     expect(grade(lookTurned(0, 0))).toBe(true);
     expect(grade(lookTurned(0, 0))).toBe(false);
-    expect(grade(lookTurned(0, 0.3))).toBe(false);
-    // Small turns add up: the shadow drawn at 0 is redrawn once the light stands a degree from it.
-    expect(grade(lookTurned(0, 0.45))).toBe(false);
-    expect(grade(lookTurned(0, 1))).toBe(true);
-    expect(grade(lookTurned(0, 1.3))).toBe(false);
+    // Small turns add up, as they do while the show plays: a tenth of a degree at a time, the light has turned half a degree from the
+    // shadow last drawn only at the sixth step (the turn is about the vertical, so a little less than a tenth each), and from that
+    // redraw it is counted afresh.
+    const asked = [];
+    for (let step = 1; step <= 12; step++) asked.push(grade(lookTurned(0, 0.1 * step)));
+    expect(asked.filter(Boolean)).toHaveLength(2);
+    expect(asked.indexOf(true)).toBe(5);
+    expect(asked.lastIndexOf(true)).toBe(11);
   });
 
   it("keeps the key light as far from what it aims at through the whole night, where the stage's shadow camera is framed", () => {

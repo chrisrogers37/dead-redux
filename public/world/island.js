@@ -156,6 +156,8 @@ function buildSea(scene, uPool) {
         col = mix(col, uSea * 2.3 + vec3(0.07) + 0.3 * uGlow * pow(facing, 3.0), 0.75 * foam);
         gl_FragColor = vec4(col, 1.0);
         #include <fog_fragment>
+        /* The water ends 350 m out along each axis, nearer than the fog's far end from the shore: it is all haze before it ends. */
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(250.0, 340.0, max(abs(vAt.x), abs(vAt.y))));
       }`,
   });
   scene.add(new THREE.Mesh(new THREE.PlaneGeometry(700, 700).rotateX(-Math.PI / 2), mat));
