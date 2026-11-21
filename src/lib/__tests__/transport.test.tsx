@@ -114,8 +114,8 @@ describe("focusWorldOnRelease", () => {
     expect(world.focus).not.toHaveBeenCalled();
   });
 
-  it("answers a mouse and a pen alone: a touch, which walks by the stick, and a press that names no pointer keep their place on the slider", () => {
-    for (const kind of ["touch", ""]) {
+  it("answers a mouse and a pen alone: a touch, which walks by the stick, a press that names no pointer and one of a kind it does not know keep their place on the slider", () => {
+    for (const kind of ["touch", "", "kinect"]) {
       const { world, lift } = page(0);
       press(kind);
       lift();
