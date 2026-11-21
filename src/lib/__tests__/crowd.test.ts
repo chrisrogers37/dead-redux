@@ -161,6 +161,17 @@ describe("the figure, as figureGeometry builds it", () => {
     const reach = vertices.map(([x, y, z], i) => (arm[i] === 0 ? 0 : Math.hypot(x - arm[i] * SHOULDER_X, y - SHOULDER_Y, z)));
     expect(arm.filter((a) => a !== 0).length).toBeGreaterThan(0);
     expect(Math.max(...reach)).toBeLessThanOrEqual(0.624);
+    // Each arm hangs from a ball of the body at its pivot: the arm's open top, where it turns, lies inside the ball, and the ball
+    // runs into the torso, so an arm that swings or lifts stays joined and shows no hollow.
+    for (const side of [-1, 1]) {
+      const top = vertices.filter(([, y], i) => arm[i] === side && Math.abs(y - SHOULDER_Y) < 1e-6);
+      expect(top.length).toBeGreaterThan(0);
+      const ball = vertices.filter(([x, y, z], i) => arm[i] === 0 && Math.abs(Math.hypot(x - side * SHOULDER_X, y - SHOULDER_Y, z) - 0.064) < 1e-4);
+      expect(ball.length).toBe(60);
+      for (const [x, , z] of top) expect(Math.hypot(x - side * SHOULDER_X, z)).toBeLessThan(0.064);
+      // The torso's top edge, 0.25 out at its widest, stands inside the ball's inner side.
+      expect(side * Math.min(...ball.map(([x]) => side * x))).toBeLessThan(0.25);
+    }
   });
 
   it("marks every vertex as leg, foot, arm or neither and as hat, hair or neither, and carries nothing a texture would read", () => {
@@ -177,9 +188,9 @@ describe("the figure, as figureGeometry builds it", () => {
     expect(HAIR[0]).toBeLessThan(HAIR[1]);
   });
 
-  it("is 400 triangles, and each leg has rings only at the foot, the knee halfway up and the hip, where the vertex shader bends it", () => {
+  it("is 440 triangles, and each leg has rings only at the foot, the knee halfway up and the hip, where the vertex shader bends it", () => {
     expect(geo.index).toBeNull();
-    expect(n / 3).toBe(400);
+    expect(n / 3).toBe(440);
     const leg = marks("aLeg");
     const rings = [...new Set(vertices.filter((_, i) => leg[i] === 1).map(([, y]) => Math.round(y * 1e6) / 1e6))].sort((a, b) => a - b);
     expect(rings).toHaveLength(3);
