@@ -153,7 +153,7 @@ function buildSea(scene, uPool) {
         vec3 pale = uSea * 1.5 + vec3(0.02, 0.035, 0.03) + 0.25 * uGlow * pow(facing, 6.0);
         col = mix(col, pale, 0.6 * exp(-max(depth, 0.0) * 0.9));
         float foam = (1.0 - smoothstep(0.0, 0.5, depth)) * (0.55 + 0.45 * grain(vAt * 0.9 + 3.0));
-        col = mix(col, uSea * 2.3 + vec3(0.07) + 0.3 * uGlow * pow(facing, 3.0), 0.75 * foam);
+        col = mix(col, uSea * 1.8 + vec3(0.06) + 0.3 * uGlow * pow(facing, 3.0), 0.7 * foam);
         gl_FragColor = vec4(col, 1.0);
         #include <fog_fragment>
         /* The water ends 350 m out along each axis, nearer than the fog's far end from the shore: it is all haze before it ends. */

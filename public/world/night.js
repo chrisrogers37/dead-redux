@@ -110,7 +110,7 @@ const LOOKS = [
     shine: 0.4, beams: 0.62, dark: 0.5 },
   /* Daybreak, at the show's end: the sun's edge comes over the sea behind the stage, and the island stands in its light. */
   { hour: DAYBREAK, zenith: 0x3c5a96, horizon: 0xd9a184, glow: 0xffc27a, glowGain: 0.62, glowTo: SUNRISE, liquid: 0.5, stars: 0, moon: 0, disc: 0.8, haze: 0x9a8a96,
-    sea: 0x5b6f96, ambient: 0xc0cdea, ground: 0x2c2a2a, ambientGain: 0.9, key: 0xffc388, keyGain: 3.4, keyTo: toward(SUNRISE, 15), stageLift: 0,
+    sea: 0x5b6f96, ambient: 0xc0cdea, ground: 0x2c2a2a, ambientGain: 0.9, key: 0xffc388, keyGain: 2.7, keyTo: toward(SUNRISE, 15), stageLift: 0,
     shine: 0.1, beams: 0.45, dark: 0.1 },
 ].map((k) => {
   const [gx, , gz] = toward(k.glowTo, 0);
