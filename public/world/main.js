@@ -113,7 +113,7 @@ function start(gl) {
   new ResizeObserver(resize).observe(container);
 
   /* ---------- the island ---------- */
-  const { caves, shade } = buildIsland(scene, budget.grid, phone);
+  const { caves, shade, flora } = buildIsland(scene, budget.grid, phone);
 
   /* ---------- the path and the landmarks ---------- */
   const path = buildPath();
@@ -401,8 +401,9 @@ function start(gl) {
     bearSpots.length = bears.length;
     sun.castShadow = quality.shadows;
     stage.light.visible = quality.stageLight;
-    /* The seats run front first, so half the crowd is its front half. */
+    /* The seats run front first, so half the crowd is its front half. The rung that halves the crowd thins the land's tufts by half too. */
     crowd.mesh.count = quality.fullCrowd ? crowd.count : Math.ceil(crowd.count / 2);
+    flora.thin(!quality.fullCrowd);
   }
   const vertex = new THREE.Vector3();
   /* In first person, how near the view comes to a bear and how much of the frame's width one covers: the depth of the nearest bear

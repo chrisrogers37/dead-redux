@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
-import { buildIsland, FEATHER, grained, landColour, RING, SHORE, surfaceOf, takesPool, TRACK, track } from "../../../public/world/island.js";
+import { BOLT, BOLT_HALF, buildIsland, FEATHER, grained, landColour, offTracks, RING, SHORE, surfaceOf, takesPool, TRACK, track } from "../../../public/world/island.js";
 import { CAVES, height } from "../../../public/world/ground.js";
 import { lookAt, newLook } from "../../../public/world/night.js";
 
@@ -193,8 +193,24 @@ describe("buildIsland", () => {
     const { caves } = buildIsland(scene, 20, true);
     const meshes = scene.children.filter((o: { isMesh?: boolean }) => o.isMesh);
     expect(caves).toHaveLength(2);
-    // The ground, the sea, the tracks and the two caves' pools, which stay hidden until their songs.
-    expect(meshes).toHaveLength(5);
-    expect(meshes.filter((o: { visible: boolean }) => o.visible)).toHaveLength(3);
+    // The ground, the sea, the tracks, the tufts and the stones (flora.js), and the two caves' pools, which stay hidden until their songs.
+    expect(meshes).toHaveLength(7);
+    expect(meshes.filter((o: { visible: boolean }) => o.visible)).toHaveLength(5);
+    expect(meshes.filter((o: { isInstancedMesh?: boolean }) => o.isInstancedMesh)).toHaveLength(2);
+  });
+});
+
+describe("offTracks", () => {
+  it("is false on the ring road and the lightning path and within the room asked of either, and true on the turf between", () => {
+    expect(offTracks(RING + 3, 0, 1)).toBe(false);
+    expect(offTracks(0, RING - 0.5, 1)).toBe(false);
+    expect(offTracks(RING - 1.5, 0, 1)).toBe(true);
+    const [ax, az] = BOLT[1], [bx, bz] = BOLT[2], mx = (ax + bx) / 2, mz = (az + bz) / 2;
+    expect(offTracks(mx, mz, 1)).toBe(false);
+    // Across the path from its middle: just inside its reach and the room, and just past them.
+    const len = Math.hypot(bx - ax, bz - az), nx = (bz - az) / len, nz = -(bx - ax) / len;
+    expect(offTracks(mx + nx * (BOLT_HALF + 0.9), mz + nz * (BOLT_HALF + 0.9), 1)).toBe(false);
+    expect(offTracks(mx + nx * (BOLT_HALF + 1.1), mz + nz * (BOLT_HALF + 1.1), 1)).toBe(true);
+    expect(offTracks(BOLT[0][0], BOLT[0][1], 0)).toBe(false);
   });
 });

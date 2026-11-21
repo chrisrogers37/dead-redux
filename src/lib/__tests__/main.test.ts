@@ -92,6 +92,8 @@ const fake = vi.hoisted(() => {
     keyTurned: false,
     // The time the island's water last took its look at (island.js).
     tide: NaN,
+    // Whether the land's tufts are thinned by half (flora.js), as the quality ladder last set it.
+    thinned: null as boolean | null,
   };
   class Scene {
     shown = new Set<unknown>();
@@ -161,7 +163,7 @@ const fake = vi.hoisted(() => {
   };
   const modules = {
     // The island draws the night's look on its sea and its ground itself (island.js), which the frames here do not read.
-    island: { buildIsland: () => ({ caves: [], shade: (_look: unknown, time: number) => { world.tide = time; } }) },
+    island: { buildIsland: () => ({ caves: [], shade: (_look: unknown, time: number) => { world.tide = time; }, flora: { thin: (half: boolean) => { world.thinned = half; } } }) },
     path: {
       // The loop, where the walker stands before a frame puts it in its place in the bears' line.
       buildPath: () => ({ at: () => new Vec(), tangentAt: () => new Vec(1, 0, 0) }),
@@ -559,6 +561,18 @@ describe("main.js's frames", () => {
     for (let k = 0; k < 1500 && hill().crowd.drawn === made; k++) page.run(0.05, { ms: 50 });
     expect(hill().crowd.drawn).toBe(Math.ceil(made / 2));
     expect(page.shown()).toHaveLength(fake.world.bears.length);
+  });
+
+  it("thins the land's tufts by half at the rung that halves the crowd, and not before", async () => {
+    const page = await startWorld();
+    // The land is built with all its tufts, and nothing thins them while the crowd is whole.
+    fake.world.thinned = null;
+    const made = hill().crowd.drawn;
+    for (let k = 0; k < 1500 && hill().crowd.drawn === made; k++) {
+      expect(fake.world.thinned).not.toBe(true);
+      page.run(0.05, { ms: 50 });
+    }
+    expect(fake.world.thinned).toBe(true);
   });
 
   it("turns off the sun's shadow and the stage light on the way down the downgrade's ladder: at its foot neither is left", async () => {

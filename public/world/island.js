@@ -1,6 +1,7 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { buildFlora } from "./flora.js";
 import { CAVES, G, height, SHELF_Y, STAGE } from "./ground.js";
 import { MOON } from "./night.js";
 
@@ -11,6 +12,19 @@ import { MOON } from "./night.js";
 const TURF_TO = Math.cos((28 * Math.PI) / 180), STONE_FROM = Math.cos((42 * Math.PI) / 180);
 /* The ring road runs from RING to SHORE m from the island's centre, and the shore past it is sand. */
 export const RING = 112, SHORE = 118;
+/* The lightning path's corners, from the island's north edge to its south, and how far it reaches to either side of its line. */
+export const BOLT = [G(100, 4), G(118, 92), G(82, 108), G(100, 196)], BOLT_HALF = 1.5;
+/* Whether a point stands clear of both tracks, the ring road and the lightning path, by `room` m: what grows on the land grows there. */
+export function offTracks(x, z, room) {
+  const far = Math.hypot(x, z);
+  if (far > RING - room && far < SHORE + room) return false;
+  for (let k = 0; k < BOLT.length - 1; k++) {
+    const [ax, az] = BOLT[k], [bx, bz] = BOLT[k + 1], dx = bx - ax, dz = bz - az;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
+    if (Math.hypot(x - ax - t * dx, z - az - t * dz) < BOLT_HALF + room) return false;
+  }
+  return true;
+}
 
 /* The stage's light on the water: its colour at its fullest, as the screen shows it, and where it lies, from SHINE_OUT m past the stage's
    centre out to sea along the stage's axis, SHINE_LONG m along it and SHINE_WIDE m across. The shore stands 25 m past the stage. */
@@ -247,15 +261,19 @@ export function buildIsland(scene, grid, phone) {
   ground.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   const uPool = { value: new THREE.Color(0x000000) };
   scene.add(new THREE.Mesh(ground, grained(takesPool(new THREE.MeshLambertMaterial({ vertexColors: true }), uPool), !phone)));
-  const shade = buildSea(scene, uPool);
+  const sea = buildSea(scene, uPool);
 
   /* The ring road and the lightning path: two tracks worn into the ground (track), one mesh between them, so one draw call. It lies
      a hand above the ground and is drawn as if a little nearer, so the ground under it never shows through. */
   const bandMat = grained(takesPool(new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 }), uPool), false);
   const surface = surfaceOf(grid), round = (RING + SHORE) / 2;
-  const BOLT = [G(100, 4), G(118, 92), G(82, 108), G(100, 196)];
   const ringLine = Array.from({ length: 240 }, (_, k) => [round * Math.cos((k / 240) * 2 * Math.PI), round * Math.sin((k / 240) * 2 * Math.PI)]);
-  scene.add(new THREE.Mesh(mergeGeometries([track(ringLine, true, (SHORE - RING) / 2, surface), track(BOLT, false, 1.5, surface)]), bandMat));
+  scene.add(new THREE.Mesh(mergeGeometries([track(ringLine, true, (SHORE - RING) / 2, surface), track(BOLT, false, BOLT_HALF, surface)]), bandMat));
+
+  /* What grows and lies on the land (flora.js): as many tufts and stones as the tier's ground is fine, each taking the stage's glow as
+     the ground does, none of them on a track. */
+  const flora = buildFlora(scene, { tufts: Math.round(grid * grid * 1.9), stones: Math.round(grid * 4), extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6],
+    colour: landColour, lit: (material) => takesPool(material, uPool), clear: (x, z) => offTracks(x, z, FEATHER + 0.4) });
 
   /* The caves light for Drums (left) and Space (right): a pool on each floor and, but on a phone, a light inside. */
   const caves = CAVES.map(([cx, cz]) => {
@@ -273,5 +291,7 @@ export function buildIsland(scene, grid, phone) {
     }
     return { disc, light, level: 0 };
   });
-  return { caves, shade };
+  /* A look of the night on the island at a time: the sea's, and the wind in the tufts at the same time. */
+  const shade = (look, time = 0) => { sea(look, time); flora.wind(time); };
+  return { caves, shade, flora };
 }
