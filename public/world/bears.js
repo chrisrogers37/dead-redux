@@ -16,7 +16,9 @@ export function furMaterial(vertexColors) {
   m.onBeforeCompile = (shader) => {
     shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_begin>", `#include <normal_fragment_begin>
       float fuzz = pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), 2.2);
-      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), 0.45 * fuzz);`);
+      /* Fur pales; what is dark on a bear, its nose and its eyes, stays dark to its edge. */
+      float furred = smoothstep(0.03, 0.2, dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722)));
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), 0.45 * fuzz * furred);`);
   };
   return m;
 }
@@ -27,7 +29,7 @@ const bodyMat = furMaterial(true);
 const LIMB = 1.6, PAW_UP = 0.34 * 0.72, PAW_LONG = 0.34 * 1.3, PAW_AT = [1.355, 0.14];
 const LEG = mergeGeometries([
   new THREE.CapsuleGeometry(0.29, 0.92, 4, 10).translate(0, -0.75, 0),
-  new THREE.SphereGeometry(0.34, 10, 6).scale(1, 0.72, 1.3).translate(0, -PAW_AT[0], PAW_AT[1]),
+  new THREE.SphereGeometry(0.34, 12, 6).scale(1, 0.72, 1.3).translate(0, -PAW_AT[0], PAW_AT[1]),
 ]);
 const legMat = furMaterial(false);
 /* Where each limb hangs from, in the bear's own frame: the arms from its shoulders, shorter and slimmer than the legs (a scale on
@@ -66,7 +68,7 @@ function part(geo, paint) {
    the world keeps round a bear: its nose 2.36 m ahead of its centre and its arms, the widest of it, 1.45 m to either side, within the
    2.4 m and the 1.5 m the walk allows it (collide.js), and no part of it further than 1.98 m from its middle, which stands 0.4 m ahead
    of its centre, the reach the crowd parts round (crowd.js). bears.test.ts holds it to them. Its belly, its muzzle and the insides of
-   its ears are paler; its nose and eyes are dark. Each limb stays in the group as a hidden mesh, where the gait swings it (stride) and
+   its ears, a ruff round its neck and its round tail are paler; its nose and eyes are dark. Each limb stays in the group as a hidden mesh, where the gait swings it (stride) and
    what reads the bear's meshes finds it (main.js's bearsInView); drawLegs draws them. */
 export function buildBear(scene, hue) {
   const fur = new THREE.Color(hue), pale = fur.clone().lerp(WHITE, 0.5), mix = new THREE.Color();
@@ -79,12 +81,16 @@ export function buildBear(scene, hue) {
   const body = new THREE.Mesh(mergeGeometries([
     part(torso(), belly),
     part(new THREE.SphereGeometry(1.1, 20, 14).translate(0, 3.6, 0.8), plain(fur)),
-    part(new THREE.SphereGeometry(0.35, 10, 6).translate(-0.7, 4.5, 0.6), ear),
-    part(new THREE.SphereGeometry(0.35, 10, 6).translate(0.7, 4.5, 0.6), ear),
-    part(new THREE.SphereGeometry(0.45, 12, 8).scale(1.15, 0.9, 1).translate(0, 3.4, 1.8), plain(pale)),
-    part(new THREE.SphereGeometry(0.2, 8, 6).scale(1.2, 0.85, 1).translate(0, 3.5, 2.16), plain(INK)),
-    part(new THREE.SphereGeometry(0.11, 6, 4).translate(-0.42, 3.9, 1.73), plain(INK)),
-    part(new THREE.SphereGeometry(0.11, 6, 4).translate(0.42, 3.9, 1.73), plain(INK)),
+    /* The small parts are round enough to keep a round outline a snout's length from the eye, in first person. */
+    part(new THREE.SphereGeometry(0.35, 12, 8).translate(-0.7, 4.5, 0.6), ear),
+    part(new THREE.SphereGeometry(0.35, 12, 8).translate(0.7, 4.5, 0.6), ear),
+    part(new THREE.SphereGeometry(0.45, 16, 10).scale(1.15, 0.9, 1).translate(0, 3.4, 1.8), plain(pale)),
+    part(new THREE.SphereGeometry(0.2, 12, 8).scale(1.2, 0.85, 1).translate(0, 3.5, 2.16), plain(INK)),
+    part(new THREE.SphereGeometry(0.11, 8, 6).translate(-0.42, 3.9, 1.73), plain(INK)),
+    part(new THREE.SphereGeometry(0.11, 8, 6).translate(0.42, 3.9, 1.73), plain(INK)),
+    /* What shows from behind, where the walk's camera stands: a ruff round the neck, paler than the fur, and a round tail. */
+    part(new THREE.TorusGeometry(0.74, 0.15, 5, 14).rotateX(Math.PI / 2 - 0.22).translate(0, 3.08, 0.32), plain(pale)),
+    part(new THREE.SphereGeometry(0.24, 8, 6).translate(0, 1.42, -1.02), plain(pale)),
   ]), bodyMat);
   const legs = LIMBS.map(({ at: [x, y, z], scale: [sx, sy, sz] }) => {
     const leg = mesh(LEG, legMat, x, y, z);
