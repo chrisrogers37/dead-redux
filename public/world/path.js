@@ -147,9 +147,11 @@ export function buildSegues(scene, { at, tangentAt, curveLength }, tracks, landm
     }
     for (let s = 0; s < n; s++) arr.push(...left[s], ...left[s + 1], ...right[s], ...right[s], ...left[s + 1], ...right[s + 1]);
   }
-  if (arr.length === 0) return;
+  if (arr.length === 0) return null;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(arr, 3));
   geo.computeVertexNormals();
-  scene.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x8e8a82, emissive: 0xe8b04b, emissiveIntensity: 0.25, side: THREE.DoubleSide })));
+  const lit = new THREE.MeshLambertMaterial({ color: 0x8e8a82, emissive: 0xe8b04b, emissiveIntensity: 0.25, side: THREE.DoubleSide });
+  scene.add(new THREE.Mesh(geo, lit));
+  return lit;
 }

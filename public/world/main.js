@@ -18,6 +18,7 @@ import { buildStage, STAGE_SOUND } from "./stage.js";
 import { buildCrowd } from "./crowd.js";
 import { crowdPlan, isBetweenSongs, isDrums, isSpace } from "./seats.js";
 import { budgetFor, frameSampler, pickTier, stepDown } from "./quality.js";
+import { followHour, lookAt, newLook, nightPlan } from "./night.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
    The setlist is the path; each song is a landmark; five bears walk it ahead of the listener. */
@@ -43,6 +44,10 @@ for (const t of tracks) { starts.push(total); total += t.duration; }
 const crowdAt = crowdPlan(tracks, set2Start);
 /* What each track's title says it holds (seats.js): Drums, Space, or the band tuning or the crowd's noise between songs. */
 const heldAt = tracks.map(({ title }) => ({ drums: isDrums(title), space: isSpace(title), between: isBetweenSongs(title) }));
+/* The night the show carries the island through, by the show clock (night.js): the last light as set 1 opens, the deepest dark through
+   Drums and Space, first light at the encore. */
+/* A day without a recording has no night to pass through: it stays in the last light. */
+const night = nightPlan(hasShow ? tracks : [], set2Start, encoreStart);
 
 const canvas = document.createElement("canvas");
 /* If the page gave up waiting for this module, the still stays and nothing starts. */
@@ -96,7 +101,7 @@ function start(gl) {
   new ResizeObserver(resize).observe(container);
 
   /* ---------- the island ---------- */
-  const { caves } = buildIsland(scene, budget.grid, phone);
+  const { caves, shade } = buildIsland(scene, budget.grid, phone);
 
   /* ---------- the path and the landmarks ---------- */
   const path = buildPath();
@@ -110,7 +115,9 @@ function start(gl) {
   const landmarks = placeLandmarks(scene, path, tracks, hasShow, builders, landmarkU, line);
   /* How long the landmarks took to place, most of it their search for room beside the bears' line; the stats report it. */
   (window.__hill ??= {}).placeMs = Math.round((performance.now() - placeStart) * 10) / 10;
-  if (hasShow) buildSegues(scene, path, tracks, landmarkU);
+  /* The lit bands that join a song to the one it runs into, and their own glow, which the night dims (null with no such song). */
+  const segues = hasShow ? buildSegues(scene, path, tracks, landmarkU) ?? null : null;
+  const segueGlow = segues?.emissiveIntensity ?? 0;
 
   /* ---------- the bears ---------- */
   const bears = buildBears(scene, budget.bears);
@@ -126,7 +133,7 @@ function start(gl) {
   mergeLandmarks(scene, landmarks, moving.map((m) => m.obj));
 
   /* ---------- the sky ---------- */
-  const { skyMat, hemi, sun, panelMat } = buildSky(scene, budget.octaves, data.seed);
+  const { skyMat, hemi, sun, panelMat, grade } = buildSky(scene, budget.octaves, data.seed);
 
   /* ---------- the stage ---------- */
   const stage = buildStage(scene, sun, quality.shadows, panelMat, skyMat.uniforms);
@@ -135,8 +142,11 @@ function start(gl) {
      leaves them dark. */
   stage.rig.mesh.renderOrder = 1;
   crowd.mesh.renderOrder = 2;
-  /* The lights' own intensities, which layer 2 scales. */
+  /* The lights' own intensities, which the night and layer 2 scale. */
   const lightBase = { hemi: hemi.intensity, stage: stage.light.intensity };
+  /* The night's hour as the world shows it, null until its first frame, and its look at that hour (night.js). */
+  let hour = null;
+  const look = newLook();
   /* The desktop's one shadow map, the stage's, is drawn once: nothing that casts a shadow moves. */
   renderer.shadowMap.enabled = quality.shadows;
   renderer.shadowMap.autoUpdate = false;
@@ -433,6 +443,8 @@ function start(gl) {
     /* In first person, the nearest bear vertex's depth in the view and the widest share of the frame's width one bear covers. */
     bears: stat(() => (third ? null : bearsInView())),
     analysis: stat(() => ({ source: drive?.source ?? null, weight: r3(weight), ...analysisStats() })),
+    /* The night: the hour the world shows, the hour the show clock stands at, which it follows, and how dark the island is. */
+    night: stat(() => ({ hour: r3(hour ?? 0), show: r3(reduced ? night.hourOf(index) : night.hourAt(showPos)), dark: r3(look.dark) })),
     /* The show's map once it has loaded, else null: its show and step; its loudness, low end and brightness where the show is, which
        drive the world where the analyser cannot hear the show; the build-up as it acts, with the music's weight, and the flame's scale
        and the panel's and the beam's factors with it; the figures' tempo (null where the map gives none); and how many onsets have
@@ -476,10 +488,23 @@ function start(gl) {
     skyMat.uniforms.uC0.value.lerp(c0, blend);
     skyMat.uniforms.uC1.value.lerp(c1, blend);
     skyMat.uniforms.uC2.value.copy(skyMat.uniforms.uC0.value).lerp(skyMat.uniforms.uPage.value, 0.7);
-    hemi.color.copy(skyMat.uniforms.uC0.value).lerp(new THREE.Color(0xffffff), 0.3);
-    hemi.intensity = lightBase.hemi * layer2.hemi;
+    /* The night. The world's hour follows the show's (night.js followHour): it keeps to it while the show plays, and after a seek, a
+       skipped song or a join mid-show it passes through the hours between over a few seconds. The world's first frame opens on the
+       show's hour, and under reduced motion the hour is the one halfway through the song, landing at once, so a still frame never
+       drifts.
+       The look draws on the sky, the lights and the fog (sky.js grade), which says when the key light has turned far enough for the
+       stage's shadow to be drawn again, and on the island: the sea, and the stage's glow on the ground (island.js). */
+    const showHour = reduced ? night.hourOf(index) : night.hourAt(showPos);
+    hour = hour === null || reduced ? showHour : followHour(hour, showHour, dt);
+    lookAt(hour, look);
+    if (grade(look)) renderer.shadowMap.needsUpdate = true;
+    shade(look);
+    hemi.intensity = lightBase.hemi * look.ambientGain * layer2.hemi;
     panelMat.uniforms.uGain.value[0] = layer2.panel;
-    stage.light.intensity = lightBase.stage * layer2.stage;
+    /* The night's share of the stage's light is steady: the music moves that light by as much as it does at dusk, on top. */
+    stage.light.intensity = lightBase.stage * (layer2.stage + look.stageLift);
+    /* The lit bands glow a third as bright in the deep of the night, where their own glow at dusk would outshine the stage. */
+    if (segues) segues.emissiveIntensity = segueGlow * (1 - 0.68 * look.dark);
     /* Whether a song plays: the crowd dances and the rig lights for one. */
     const dances = playing && crowdAt[index].dance ? 1 : 0;
     if (!reduced) {
@@ -632,7 +657,8 @@ function start(gl) {
     sitting = reduced ? sits : toward(sitting, sits, dt / SIT_S);
     crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting);
     /* The rig's five numbers (rig.js): the figures' phase in eight beats; how far it is lit, as far as the crowd dances, so while a song
-       plays, and under reduced motion at once while one plays, its beams still; how far its beams swing, as far as the crowd dances; the
+       plays, and under reduced motion at once while one plays, its beams still, and less as day breaks, when the sky's own light
+       washes them out (night.js `beams`); how far its beams swing, as far as the crowd dances; the
        build-up, which gathers them, opening again over RIG_OPEN_S seconds past a peak; and how far the crowd sits, which in Space lifts
        them. A dark rig is not drawn.
        The swing eases toward the crowd's dance with a 0.8 s time constant, kept in the rig's own array so a frame boxes no number. So the
@@ -640,7 +666,7 @@ function start(gl) {
        the beat's rate at a seventh of its size at the figures' slowest tempo (80 a minute) and a thirteenth at their fastest. */
     const rig = stage.rig.show;
     rig[0] = figures.beats % 8;
-    rig[1] = quality.rig ? (reduced ? dances : dancing) : 0;
+    rig[1] = quality.rig ? (reduced ? dances : dancing) * look.beams : 0;
     rig[2] += (dancing * layer2.dance - rig[2]) * (reduced ? 1 : 1 - Math.exp(-dt / 0.8));
     rig[3] = Math.max(layer2.rise, rig[3] - dt / RIG_OPEN_S);
     rig[4] = sitting;
