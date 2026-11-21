@@ -1,12 +1,12 @@
 /* eslint-disable */
 import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { CAVES, height, STAGE } from "./ground.js";
 
 /* What grows, lies and flies on the land: tufts of grass over the turf, some in flower; stones where the slope steepens and along the
    shore; and fireflies over the meadows in the dark. The tufts and the stones are one instanced mesh each and the fireflies one set of
    points, so the three cost three draw calls however many there are. Nothing here is walked round: a tuft stands no higher than a
-   figure's knee, and a stone no higher than a bear's shin. */
+   figure's knee, its bloom a hand above that, and a stone no higher than a bear's shin. */
 
 /* A number from 0 to 1 for a whole-numbered place and a salt, the same on every visit: nothing here is left to chance, so two stills of
    a world that holds still are the same still. */
@@ -16,7 +16,7 @@ export function chance(i, j, salt) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-/* One tuft in its own units, a metre tall at its tallest: BLADES blades fanned round its root, each a single triangle leaning out,
+/* One tuft in its own units, a metre tall at its tallest blade and a tenth more to its bloom's top: BLADES blades fanned round its root, each a single triangle leaning out,
    darker at the foot and paler at the tip (the colours multiply the tuft's own, by instance); and a stem with a bloom on it, which
    only a tuft in flower shows. aTip is 0 at the ground and 1 at a blade's tip, where the wind moves it; aBloom marks the bloom. */
 const BLADES = 6, BLOOM = 0.19;
@@ -57,13 +57,14 @@ export function stoneGeometry() {
   const geo = new THREE.IcosahedronGeometry(0.5, 1), pos = geo.attributes.position, v = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
     v.fromBufferAttribute(pos, i);
-    /* By the corner's own place, so the corners that three's faces share move together and the stone stays closed. */
+    /* By the corner's own place, so the corners that the faces share move together and the stone stays closed. */
     const out = 0.78 + 0.44 * chance(Math.round(v.x * 100), Math.round(v.y * 100) * 31 + Math.round(v.z * 100), 11);
     pos.setXYZ(i, v.x * out, v.y * out * 0.62, v.z * out);
   }
+  /* Its faces are shaded flat, so its corners need no normals of their own and each is kept once: 42 where the faces list 240. */
   geo.deleteAttribute("uv");
-  geo.computeVertexNormals();
-  return geo;
+  geo.deleteAttribute("normal");
+  return mergeVertices(geo, 1e-4);
 }
 
 /* Tufts are drawn in full to SEEN_NEAR m from the eye and are gone by SEEN_FAR, where each would be a speck that only shimmers. The
@@ -83,18 +84,19 @@ const FLY_ROAM = 1.6, FLY_SLOW = 5.2, FLY_QUICK = 2.5, FLY_FAR = 110;
 const FLY_COLOUR = [0.8, 1.0, 0.42];
 
 /* Builds what grows and lies on the land: at most `tufts` tufts and `stones` stones, and `flies` fireflies over the tufts. The turf reaches `extent` m from the island's
-   centre and the shore's sand lies from `beach[0]` to `beach[1]` m out; `colour(x, y, z, ny, out)` gives the land's colour at a point,
+   centre and the shore's sand lies from `beach[0]` to `beach[1]` m out; `surface(x, z)` is the ground's height as its mesh draws it,
+   which all of them stand on; `colour(x, y, z, ny, out)` gives the land's colour at a point,
    `lit(material)` has a material take the light the ground takes (the stage's glow), and `clear(x, z)` is false where nothing may
    stand (a track). A tuft grows on turf, more thickly in some meadows than others, and a stone lies where the turf gives way to bare
    stone, along the shore's sand, and here and there on the turf. Returns `wind(time)`, which sways the tufts and moves the
    fireflies at a time; `glow(level)`, which lights the fireflies from 0, by day, to 1; `thin(half)`, which draws half the tufts
    and half the fireflies, or all of them; and `sparse()`, which from then on draws a handful of tufts, for a frame that is only
    counted and never looked at. */
-export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, colour, lit, clear }) {
+export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, surface = height, colour, lit, clear }) {
   const dummy = new THREE.Object3D(), tint = new THREE.Color(), bloomColour = new THREE.Color();
-  /* The land at a point: its height, how upright it stands (1 on level ground), and whether anything may stand there. */
+  /* The land at a point: the height its mesh draws it at, and how upright the island's own slope stands there (1 on level ground). */
   const land = (x, z) => {
-    const y = height(x, z), gx = height(x + 0.5, z) - height(x - 0.5, z), gz = height(x, z + 0.5) - height(x, z - 0.5);
+    const y = surface(x, z), gx = height(x + 0.5, z) - height(x - 0.5, z), gz = height(x, z + 0.5) - height(x, z - 0.5);
     return { y, ny: 1 / Math.sqrt(1 + gx * gx + gz * gz), gx, gz };
   };
   const inCave = (x, z) => CAVES.some(([cx, cz]) => Math.hypot(x - cx, z - cz) < 13.5);
@@ -125,8 +127,10 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, col
         float shown = 1.0 - smoothstep(${f(SEEN_NEAR)}, ${f(SEEN_FAR)}, distance(cameraPosition, root));
         if (aBloom > 0.5 && aFlower.a < 0.5) transformed = vec3(0.0);
         if (aTip > 0.0) {
+          /* One wind: the same way in the world for every tuft, whichever way each is turned, so into each tuft's own frame. */
           float sway = aTip * ${f(SWAY)} * (sin(uWind * 0.6 + root.x * 0.35 + root.z * 0.27) + 0.4 * sin(uWind * 1.4 + root.z * 0.9));
-          transformed.xz += vec2(sway, 0.6 * sway);
+          vec2 wind = vec2(sway, 0.6 * sway), ax = instanceMatrix[0].xz, az = instanceMatrix[2].xz;
+          transformed.xz += vec2(dot(wind, ax) / dot(ax, ax), dot(wind, az) / dot(az, az));
         }
         transformed *= shown;`);
     /* Both faces of a blade take the light as its upper one does. */
@@ -135,17 +139,18 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, col
   };
   /* About half the cells on the turf grow a tuft, so there are twice as many cells there as tufts asked for. */
   const cell = Math.sqrt((extent * extent * 1.6) / tufts), span = Math.ceil(extent / cell);
+  /* Every cell once, in an order shuffled by the cells' own numbers, so half the tufts, or a handful, are spread over the whole island. */
+  const cells = [];
+  for (let a = -span; a <= span; a++) for (let b = -span; b <= span; b++) cells.push([chance(a, b, 0), a, b]);
+  cells.sort((p, q) => p[0] - q[0] || p[1] - q[1] || p[2] - q[2]);
   const placed = [];
-  for (let i = -span; i <= span && placed.length < tufts; i++) {
-    for (let j = -span; j <= span && placed.length < tufts; j++) {
-      /* The cells are taken in an order that scatters them, so a count cut short thins the whole island evenly. */
-      const a = ((i + span) * 7919 + (j + span) * 104729) % (2 * span + 1) - span, b = ((j + span) * 6101 + (i + span) * 15485863) % (2 * span + 1) - span;
-      const x = (a + chance(a, b, 1)) * cell, z = (b + chance(a, b, 2)) * cell;
-      if (Math.hypot(x, z) > extent || inCave(x, z) || byStage(x, z, 15) || !clear(x, z)) continue;
-      const at = land(x, z);
-      if (at.ny < 0.9 || chance(a, b, 3) > 0.3 + 0.7 * meadow(x, z)) continue;
-      placed.push([x, at.y, z, at.ny, a, b]);
-    }
+  for (const [, a, b] of cells) {
+    if (placed.length >= tufts) break;
+    const x = (a + chance(a, b, 1)) * cell, z = (b + chance(a, b, 2)) * cell;
+    if (Math.hypot(x, z) > extent || inCave(x, z) || byStage(x, z, 15) || !clear(x, z)) continue;
+    const at = land(x, z);
+    if (at.ny < 0.9 || chance(a, b, 3) > 0.3 + 0.7 * meadow(x, z)) continue;
+    placed.push([x, at.y, z, at.ny, a, b]);
   }
   const tuftMesh = new THREE.InstancedMesh(tuftGeometry(), tuftMat, placed.length);
   const flower = new Float32Array(4 * placed.length);
@@ -199,6 +204,9 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, col
   /* The fireflies: over tufts spread across the island, a little above the grass. Their light is added to what is behind them, and
      they write no depth, so one never hides another; they hide behind the land and whatever stands on it. */
   const flyLevel = { value: 0 };
+  /* The height in pixels of the frame they are drawn into, which their size is a share of, so they are as large on the screen
+     whatever the render scale. */
+  const flyTall = { value: 900 }, drawn = new THREE.Vector2();
   const flyCount = Math.min(flies, placed.length);
   const flyAt = new Float32Array(3 * flyCount), flySeed = new Float32Array(4 * flyCount);
   for (let k = 0; k < flyCount; k++) {
@@ -211,12 +219,12 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, col
   flyGeo.setAttribute("position", new THREE.BufferAttribute(flyAt, 3));
   flyGeo.setAttribute("aSeed", new THREE.BufferAttribute(flySeed, 4));
   const flyMat = new THREE.ShaderMaterial({
-    uniforms: { uTime: wind, uGlow: flyLevel },
+    uniforms: { uTime: wind, uGlow: flyLevel, uTall: flyTall },
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     vertexShader: `
       attribute vec4 aSeed;
       uniform highp float uTime;
-      uniform float uGlow;
+      uniform float uGlow, uTall;
       varying float vLit;
       void main() {
         vec3 roam = vec3(sin(uTime * (0.21 + 0.2 * aSeed.x) + 6.2832 * aSeed.y), 0.45 * sin(uTime * (0.33 + 0.2 * aSeed.z) + 6.2832 * aSeed.w),
@@ -225,7 +233,7 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, col
         /* One light every FLY_SLOW to FLY_QUICK seconds: the upper part of a slow wave, cubed, so it swells and dies away. */
         float wave = max(0.0, sin(uTime * 6.2832 / mix(${f(FLY_SLOW)}, ${f(FLY_QUICK)}, aSeed.w) + 6.2832 * aSeed.z));
         vLit = uGlow * wave * wave * wave * (1.0 - smoothstep(${f(0.5 * FLY_FAR)}, ${f(FLY_FAR)}, -seen.z));
-        gl_PointSize = clamp((520.0 + 320.0 * aSeed.x) / -seen.z, 2.5, 20.0);
+        gl_PointSize = uTall * clamp((0.58 + 0.36 * aSeed.x) / -seen.z, 0.0028, 0.022);
         gl_Position = projectionMatrix * seen;
       }`,
     fragmentShader: `
@@ -240,6 +248,7 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, col
   const flyPoints = new THREE.Points(flyGeo, flyMat);
   flyPoints.frustumCulled = false;
   flyPoints.visible = false;
+  flyPoints.onBeforeRender = (renderer) => { flyTall.value = renderer.getDrawingBufferSize(drawn).y; };
   scene.add(flyPoints);
 
   return {

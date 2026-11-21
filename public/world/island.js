@@ -1,6 +1,5 @@
 /* eslint-disable */
 import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { buildFlora } from "./flora.js";
 import { CAVES, G, height, SHELF_Y, STAGE } from "./ground.js";
 import { MOON } from "./night.js";
@@ -14,18 +13,35 @@ const TURF_TO = Math.cos((28 * Math.PI) / 180), STONE_FROM = Math.cos((42 * Math
 export const RING = 112, SHORE = 118;
 /* The lightning path's corners, from the island's north edge to its south, and how far it reaches to either side of its line. */
 export const BOLT = [G(100, 4), G(118, 92), G(82, 108), G(100, 196)], BOLT_HALF = 1.5;
-/* Whether a point stands clear of both tracks, the ring road and the lightning path, by `room` m: what grows on the land grows there. */
-export function offTracks(x, z, room) {
-  const far = Math.hypot(x, z);
-  if (far > RING - room && far < SHORE + room) return false;
+/* The tracks are packed earth worn into the land: the ring road, and the lightning path BOLT_HALF m to either side of its line. Each
+   gives way to the land's own colour over FEATHER m at its edge. They are drawn in the ground's own shader (grained), by where a
+   point of the ground lies, so they lie on it exactly wherever the ground goes. */
+export const TRACK = 0x8a806c, FEATHER = 0.9;
+const ease = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+/* How far a point lies from the lightning path's line. */
+function fromBolt(x, z) {
+  let least = Infinity;
   for (let k = 0; k < BOLT.length - 1; k++) {
     const [ax, az] = BOLT[k], [bx, bz] = BOLT[k + 1], dx = bx - ax, dz = bz - az;
     const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
-    if (Math.hypot(x - ax - t * dx, z - az - t * dz) < BOLT_HALF + room) return false;
+    least = Math.min(least, Math.hypot(x - ax - t * dx, z - az - t * dz));
   }
-  return true;
+  return least;
+}
+/* How far a point lies from the middle of the ring road. */
+const fromRing = (x, z) => Math.abs(Math.hypot(x, z) - (RING + SHORE) / 2);
+/* How much of a point of the ground is track: 1 on packed earth, 0 on the land, between them across a track's edge. The ground's
+   shader reckons the same (TRACKS). */
+export function tracksAt(x, z) {
+  return Math.max(1 - ease((SHORE - RING) / 2, (SHORE - RING) / 2 + FEATHER, fromRing(x, z)), 1 - ease(BOLT_HALF, BOLT_HALF + FEATHER, fromBolt(x, z)));
+}
+/* Whether a point stands clear of both tracks by `room` m: what grows on the land grows there. */
+export function offTracks(x, z, room) {
+  return fromRing(x, z) > (SHORE - RING) / 2 + room && fromBolt(x, z) > BOLT_HALF + room;
 }
 
+/* How far from the setlist's path anything grows. */
+const LOOP_ROOM = 2.2;
 /* The stage's light on the water: its colour at its fullest, as the screen shows it, and where it lies, from SHINE_OUT m past the stage's
    centre out to sea along the stage's axis, SHINE_LONG m along it and SHINE_WIDE m across. The shore stands 25 m past the stage. */
 const SHINE = [0.4, 0.25, 0.1], SHINE_OUT = 36, SHINE_LONG = 30, SHINE_WIDE = 28;
@@ -43,7 +59,13 @@ export function takesPool(material, uPool) {
     shader.uniforms.uPool = uPool;
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", "#include <common>\nvarying vec3 vPoolAt;")
-      .replace("#include <project_vertex>", "#include <project_vertex>\nvPoolAt = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+      /* Where the point stands in the world: for an instanced mesh, where its instance puts it. */
+      .replace("#include <project_vertex>", `#include <project_vertex>
+        #ifdef USE_INSTANCING
+          vPoolAt = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
+        #else
+          vPoolAt = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        #endif`);
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", "#include <common>\nuniform vec3 uPool;\nvarying vec3 vPoolAt;")
       .replace("#include <lights_fragment_end>", `#include <lights_fragment_end>
@@ -70,14 +92,26 @@ float grain(vec2 p) {
    proud of the ground at their highest, so a low sun or the stage's glow picks the turf out; a phone does without it. The relief is
    read from how the grain's height changes from one pixel to the next, which costs no more of the grain than its colour does. */
 const TUSSOCK = 0.9, BLADE = 5.3, FINE_NEAR = 22, FINE_FAR = 70, RELIEF = 0.126;
-/* Has a material that takes the stage's glow (takesPool) wear the land's grain as well. */
-export function grained(material, relief) {
+/* The tracks, as the ground's shader reckons them: tracksAt, in GLSL. */
+const g2 = ([x, z]) => `vec2(${f(x)}, ${f(z)})`;
+const TRACKS = `
+float fromLine(vec2 p, vec2 a, vec2 b) { vec2 ab = b - a; return distance(p, a + clamp(dot(p - a, ab) / dot(ab, ab), 0.0, 1.0) * ab); }
+float tracks(vec2 p) {
+  float ring = 1.0 - smoothstep(${f((SHORE - RING) / 2)}, ${f((SHORE - RING) / 2 + FEATHER)}, abs(length(p) - ${f((RING + SHORE) / 2)}));
+  float bolt = min(min(fromLine(p, ${g2(BOLT[0])}, ${g2(BOLT[1])}), fromLine(p, ${g2(BOLT[1])}, ${g2(BOLT[2])})), fromLine(p, ${g2(BOLT[2])}, ${g2(BOLT[3])}));
+  return max(ring, 1.0 - smoothstep(${f(BOLT_HALF)}, ${f(BOLT_HALF + FEATHER)}, bolt));
+}`;
+/* Has a material that takes the stage's glow (takesPool) wear the land's grain as well, and with `tracked` the tracks' packed earth
+   where they run. */
+export function grained(material, relief, tracked = false) {
   const pool = material.onBeforeCompile;
   material.onBeforeCompile = (shader) => {
     pool(shader);
+    const earth = new THREE.Color(TRACK);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>${GRAIN}`)
-      .replace("#include <color_fragment>", `#include <color_fragment>
+      .replace("#include <common>", `#include <common>${GRAIN}${tracked ? TRACKS : ""}`)
+      .replace("#include <color_fragment>", `#include <color_fragment>${tracked ? `
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${f(earth.r)}, ${f(earth.g)}, ${f(earth.b)}), tracks(vPoolAt.xz));` : ""}
         float fineShown = 1.0 - smoothstep(${f(FINE_NEAR)}, ${f(FINE_FAR)}, length(vViewPosition));
         float tussocks = grain(vPoolAt.xz * ${f(TUSSOCK)} + 17.0), blades = 0.5;
         if (fineShown > 0.0) blades = grain(vPoolAt.xz * ${f(BLADE)} + 41.0);
@@ -90,7 +124,7 @@ export function grained(material, relief) {
           vec3 r1 = cross(acrossY, normal), r2 = cross(normal, acrossX);
           float det = dot(acrossX, r1);
           vec3 grad = sign(det) * (dFdx(high) * r1 + dFdy(high) * r2);
-          normal = normalize(abs(det) * normal - grad);
+          normal = normalize(max(abs(det), 1e-12) * normal - grad);
         }`);
   };
   return material;
@@ -194,7 +228,6 @@ export function surfaceOf(grid) {
 /* The land's colour at a point `y` up whose normal's height is `ny`, into `out`: turf over the hill, greener in its hollows and drier
    toward the summit, in broad patches; bare stone where the slope is steep; sand past the ring road, darker where the sea wets it; and
    the caves' bowls dark. Each gives way to the next over a few metres. */
-const ease = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 /* A soft field 0 to 1 over the island, the same on every tier: three sines that never line up. */
 const field = (x, z, k) => 0.5 + 0.25 * Math.sin(x * 0.071 * k + 1.3) * Math.cos(z * 0.063 * k - 0.4) + 0.25 * Math.sin((x + z) * 0.043 * k + 2.1);
 const other = new THREE.Color(), tone = new THREE.Color();
@@ -210,57 +243,12 @@ export function landColour(x, y, z, ny, out) {
   return out.multiplyScalar(0.85 + 0.3 * field(x * 2.9 + 40, z * 2.9 - 15, 2.4));
 }
 
-/* A track worn into the ground along `points` ([x, z], a ring when `closed`), `half` m to either side of them: packed earth that gives
-   way to the land's own colour over FEATHER m at each edge, lying on the ground as its mesh draws it (`surface`), a hand above it. Its
-   corners are mitred, so a track that turns sharply comes to a point, as the lightning does. */
-export const TRACK = 0x8a806c, FEATHER = 0.9, TRACK_STEP = 1.2;
-export function track(points, closed, half, surface) {
-  /* The track's line, a point every TRACK_STEP m or less, each with the way across the track there and how far the mitre stretches it. */
-  const line = [], n = points.length, last = closed ? n : n - 1;
-  const across = (k) => { const [ax, az] = points[k % n], [bx, bz] = points[(k + 1) % n], len = Math.hypot(bx - ax, bz - az); return [(bz - az) / len, -(bx - ax) / len]; };
-  for (let k = 0; k < last; k++) {
-    const [ax, az] = points[k], [bx, bz] = points[(k + 1) % n], [nx, nz] = across(k);
-    const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / TRACK_STEP));
-    for (let j = 0; j < steps; j++) {
-      let mx = nx, mz = nz, stretch = 1;
-      if (j === 0 && (closed || k > 0)) {
-        /* A corner: across it lies halfway between the two sides' own ways across, longer by the turn. */
-        const [px, pz] = across((k - 1 + n) % n), len = Math.hypot(px + nx, pz + nz) || 1;
-        mx = (px + nx) / len; mz = (pz + nz) / len;
-        stretch = Math.min(3, 1 / Math.max(1e-3, mx * nx + mz * nz));
-      }
-      line.push([ax + ((bx - ax) * j) / steps, az + ((bz - az) * j) / steps, mx, mz, stretch]);
-    }
-  }
-  if (!closed) { const [nx, nz] = across(n - 2); line.push([points[n - 1][0], points[n - 1][1], nx, nz, 1]); }
-  const count = line.length, rows = closed ? count + 1 : count;
-  const position = new Float32Array(rows * 4 * 3), colour = new Float32Array(rows * 4 * 3), index = [], c = new THREE.Color();
-  const OFFSETS = [-(half + FEATHER), -half, half, half + FEATHER];
-  for (let r = 0; r < rows; r++) {
-    const [x, z, mx, mz, stretch] = line[r % count];
-    for (let e = 0; e < 4; e++) {
-      const px = x + mx * OFFSETS[e] * stretch, pz = z + mz * OFFSETS[e] * stretch, edge = e === 0 || e === 3, y = surface(px, pz);
-      position.set([px, y + (edge ? 0.02 : 0.1), pz], (r * 4 + e) * 3);
-      if (edge) {
-        const gx = (height(px + 0.5, pz) - height(px - 0.5, pz)), gz = (height(px, pz + 0.5) - height(px, pz - 0.5));
-        landColour(px, y, pz, 1 / Math.sqrt(1 + gx * gx + gz * gz), c);
-      } else c.setHex(TRACK);
-      c.toArray(colour, (r * 4 + e) * 3);
-    }
-    if (r < rows - 1) for (let e = 0; e < 3; e++) { const a = r * 4 + e, b = a + 4; index.push(a, b, a + 1, a + 1, b, b + 1); }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(position, 3));
-  geo.setAttribute("color", new THREE.BufferAttribute(colour, 3));
-  geo.setIndex(index);
-  geo.computeVertexNormals();
-  return geo;
-}
-
-/* The ground (a grid of the tier's size, coloured by vertex) and the sea, then the ring road and the lightning path, then the caves'
-   pools and lights. It returns the caves and `shade`, which draws a look of the night on the island: the water's colour and the light
-   lying on it, and the stage's glow on the ground (buildSea, takesPool). */
-export function buildIsland(scene, grid, phone) {
+/* The ground (a grid of the tier's size, coloured by vertex, with the ring road and the lightning path worn into it) and the sea,
+   then what grows, lies and flies on the land (flora.js), then the caves' pools and lights. `loop` is the setlist's path as points
+   [x, z] every couple of metres, which nothing grows on. It returns the caves, the flora and `shade`, which draws a look of the night
+   on the island at a time: the water's colour, the light lying on it and its swell, the stage's glow on the ground (buildSea,
+   takesPool), the wind in the tufts, and the fireflies. */
+export function buildIsland(scene, grid, phone, loop = []) {
   const ground = new THREE.PlaneGeometry(260, 260, grid, grid);
   ground.rotateX(-Math.PI / 2);
   const pos = ground.attributes.position;
@@ -271,23 +259,18 @@ export function buildIsland(scene, grid, phone) {
   for (let i = 0; i < pos.count; i++) landColour(pos.getX(i), pos.getY(i), pos.getZ(i), normal.getY(i), color).toArray(colors, i * 3);
   ground.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   const uPool = { value: new THREE.Color(0x000000) };
-  scene.add(new THREE.Mesh(ground, grained(takesPool(new THREE.MeshLambertMaterial({ vertexColors: true }), uPool), !phone)));
+  scene.add(new THREE.Mesh(ground, grained(takesPool(new THREE.MeshLambertMaterial({ vertexColors: true }), uPool), !phone, true)));
   const sea = buildSea(scene, uPool);
-
-  /* The ring road and the lightning path: two tracks worn into the ground (track), one mesh between them, so one draw call. It lies
-     a hand above the ground and is drawn as if a little nearer, so the ground under it never shows through. */
-  const bandMat = grained(takesPool(new THREE.MeshLambertMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 }), uPool), false);
-  const surface = surfaceOf(grid), round = (RING + SHORE) / 2;
-  const ringLine = Array.from({ length: 240 }, (_, k) => [round * Math.cos((k / 240) * 2 * Math.PI), round * Math.sin((k / 240) * 2 * Math.PI)]);
-  scene.add(new THREE.Mesh(mergeGeometries([track(ringLine, true, (SHORE - RING) / 2, surface), track(BOLT, false, BOLT_HALF, surface)]), bandMat));
 
   /* What grows and lies on the land (flora.js): as many tufts and stones as the tier's ground is fine, thickest on a desktop's (a
      grid of 80 or more), thinner on a TV's and fewer than half as thick on a phone's, whose frame is small and whose every triangle
-     costs it more; each takes the stage's glow as the ground does, and none of them stands on a track. */
+     costs it more. Each stands on the ground as its mesh draws it and takes the stage's glow as the ground does, and none of them
+     stands on a track or on the setlist's path, where the bears walk and the lit bands lie. */
   const thick = phone ? 0.6 : grid >= 80 ? 1.0 : 0.8;
   const flora = buildFlora(scene, { tufts: Math.round(grid * grid * thick), stones: Math.round(grid * (phone ? 2.5 : 4)), flies: Math.round(grid * (phone ? 4 : 7)),
-    extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6],
-    colour: landColour, lit: (material) => takesPool(material, uPool), clear: (x, z) => offTracks(x, z, FEATHER + 0.4) });
+    extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6], surface: surfaceOf(grid),
+    colour: landColour, lit: (material) => takesPool(material, uPool),
+    clear: (x, z) => offTracks(x, z, FEATHER + 0.4) && !loop.some(([px, pz]) => (x - px) * (x - px) + (z - pz) * (z - pz) < LOOP_ROOM * LOOP_ROOM) });
 
   /* The caves light for Drums (left) and Space (right): a pool on each floor and, but on a phone, a light inside. */
   const caves = CAVES.map(([cx, cz]) => {

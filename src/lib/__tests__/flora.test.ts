@@ -70,14 +70,14 @@ describe("the stone", () => {
     const geo = stoneGeometry(), position = geo.getAttribute("position");
     const box = new THREE.Box3().setFromBufferAttribute(position), size = box.getSize(new THREE.Vector3());
     expect(size.y).toBeLessThan(0.8 * Math.min(size.x, size.z));
-    // Corners that share a place before the squash still share one after it: no face has come apart from its neighbours.
-    const seen = new Map<string, number>();
-    for (let i = 0; i < position.count; i++) {
-      const key = [position.getX(i), position.getY(i), position.getZ(i)].map((v) => v.toFixed(5)).join(",");
-      seen.set(key, (seen.get(key) ?? 0) + 1);
-    }
-    expect(Math.min(...seen.values())).toBeGreaterThanOrEqual(5);
-    const radii = [...seen.keys()].map((key) => Math.hypot(...key.split(",").map(Number)));
+    // Each corner is kept once and shared by the five or six faces that meet at it: 42 corners, 80 faces, and no face come apart.
+    expect(position.count).toBe(42);
+    expect(geo.index.count / 3).toBe(80);
+    const uses = new Array(position.count).fill(0);
+    for (let k = 0; k < geo.index.count; k++) uses[geo.index.getX(k)] += 1;
+    expect(Math.min(...uses)).toBeGreaterThanOrEqual(5);
+    expect(geo.getAttribute("normal")).toBeUndefined();
+    const radii = Array.from({ length: position.count }, (_, i) => Math.hypot(position.getX(i), position.getY(i), position.getZ(i)));
     expect(Math.max(...radii) / Math.min(...radii)).toBeGreaterThan(1.3);
   });
 });
@@ -102,6 +102,7 @@ describe("buildFlora", () => {
       expect(Math.min(...CAVES.map(([cx, cz]) => Math.hypot(x - cx, z - cz)))).toBeGreaterThanOrEqual(13.5);
       expect(Math.hypot(x - STAGE[0], z - STAGE[1])).toBeGreaterThanOrEqual(15);
       expect(upright(x, z)).toBeGreaterThanOrEqual(0.9);
+      // Here the flora is given no surface of its own, so it stands on the island's own height; island.test.ts holds it to the mesh.
       expect(y).toBeCloseTo(height(x, z) - 0.03, 4);
       // No taller than a figure's knee: 0.8 m at the most.
       expect(size.y).toBeLessThanOrEqual(0.8 + 1e-6);
@@ -138,6 +139,16 @@ describe("buildFlora", () => {
     const inFlower = Array.from({ length: built.tufts.count }, (_, i) => flower.getW(i)).filter((w) => w === 1).length;
     expect(inFlower).toBeGreaterThan(0.03 * built.tufts.count);
     expect(inFlower).toBeLessThan(0.25 * built.tufts.count);
+  });
+
+  it("takes each cell of its grid once, whatever the count asked, so no two tufts share a place and none is left out", () => {
+    for (const asked of [330, 1500, 2890, 8200]) {
+      const grown = places(flora(asked, 10, 0).tufts);
+      expect(new Set(grown.map(({ x, z }) => `${x.toFixed(4)},${z.toFixed(4)}`)).size).toBe(grown.length);
+      // About half the cells on the turf grow a tuft: a scan that skipped cells or took some many times over would grow far fewer.
+      expect(grown.length).toBeGreaterThan(0.8 * asked);
+      expect(grown.length).toBeLessThanOrEqual(asked);
+    }
   });
 
   it("thins the tufts by half when asked, across the whole island, and gives them all back", () => {
@@ -229,6 +240,8 @@ describe("the tufts' shader", () => {
     expect(shader.vertexShader).toContain("uniform float uWind;");
     expect(shader.vertexShader).toContain("vec3 objectNormal = vec3(0.0, 1.0, 0.0);");
     expect(shader.vertexShader).toContain("vec3 root = instanceMatrix[3].xyz;");
+    // One wind for every tuft, turned into each tuft's own frame.
+    expect(shader.vertexShader).toContain("transformed.xz += vec2(dot(wind, ax) / dot(ax, ax), dot(wind, az) / dot(az, az));");
     expect(shader.vertexShader).toContain("transformed *= shown;");
     expect(shader.fragmentShader).toContain("normal = normalize(vNormal);");
     wind(4.5);

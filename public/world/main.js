@@ -113,10 +113,12 @@ function start(gl) {
   new ResizeObserver(resize).observe(container);
 
   /* ---------- the island ---------- */
-  const { caves, shade, flora } = buildIsland(scene, budget.grid, phone);
+  /* The setlist's path first: the island keeps what grows on it off the path, a point of it every 2 m. */
+  const path = buildPath();
+  const loop = Array.from({ length: Math.ceil(path.curveLength / 2) || 0 }, (_, k) => { const p = path.at((2 * k) / path.curveLength); return [p.x, p.z]; });
+  const { caves, shade, flora } = buildIsland(scene, budget.grid, phone, loop);
 
   /* ---------- the path and the landmarks ---------- */
-  const path = buildPath();
   const { at, tangentAt } = path;
   const landmarkU = layout(tracks, set2Start, path);
   /* The bears' own line, 7 m to the left of the path, which every landmark stands clear of (path.js). */

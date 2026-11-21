@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
-import { BOLT, BOLT_HALF, buildIsland, FEATHER, grained, landColour, offTracks, RING, SHORE, surfaceOf, takesPool, TRACK, track } from "../../../public/world/island.js";
+import { BOLT, BOLT_HALF, buildIsland, FEATHER, grained, landColour, offTracks, RING, SHORE, surfaceOf, takesPool, TRACK, tracksAt } from "../../../public/world/island.js";
 import { CAVES, height } from "../../../public/world/ground.js";
 import { lookAt, newLook } from "../../../public/world/night.js";
 
@@ -18,6 +18,9 @@ describe("takesPool", () => {
     expect(shader.uniforms.uPool).toBe(uPool);
     expect(shader.vertexShader).toContain("varying vec3 vPoolAt;");
     expect(shader.vertexShader).toContain("vPoolAt = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+    // An instanced mesh's point stands where its instance puts it: without this every tuft and stone took the glow as if it stood
+    // at the island's middle, out of the glow's reach.
+    expect(shader.vertexShader).toMatch(/#ifdef USE_INSTANCING\s+vPoolAt = \(modelMatrix \* instanceMatrix \* vec4\(transformed, 1\.0\)\)\.xyz;\s+#else/);
     expect(shader.fragmentShader).toContain("uniform vec3 uPool;");
     expect(shader.fragmentShader).toContain("reflectedLight.directDiffuse += uPool * diffuseColor.rgb * poolLit");
   });
@@ -40,7 +43,7 @@ describe("grained", () => {
       expect(shader.fragmentShader).toContain("reflectedLight.directDiffuse += uPool");
     }
     // The relief leans the normal by the grain's own change from pixel to pixel, and takes no more of the grain to do it.
-    expect(tilted.fragmentShader).toContain("normal = normalize(abs(det) * normal - grad);");
+    expect(tilted.fragmentShader).toContain("normal = normalize(max(abs(det), 1e-12) * normal - grad);");
     expect(flat.fragmentShader).not.toContain("dFdx(high)");
     expect(tilted.fragmentShader.split("grain(vPoolAt.xz").length).toBe(flat.fragmentShader.split("grain(vPoolAt.xz").length);
   });
@@ -104,55 +107,41 @@ describe("the ground as its mesh draws it", () => {
   });
 });
 
-describe("a track", () => {
-  const flat = () => 0;
-  const rows = (geo: { attributes: { position: { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number } } }) => {
-    const p = geo.attributes.position;
-    return Array.from({ length: p.count / 4 }, (_, r) => [0, 1, 2, 3].map((e) => [p.getX(r * 4 + e), p.getY(r * 4 + e), p.getZ(r * 4 + e)]));
-  };
+describe("the tracks", () => {
+  const round = (RING + SHORE) / 2, half = (SHORE - RING) / 2;
 
-  it("runs `half` m to either side of its line in packed earth, a hand above the ground, and gives way to the land's own colour over FEATHER m at each edge, which lies almost on it", () => {
-    const geo = track([[0, -20], [0, 20]], false, 1.5, flat), colour = geo.attributes.color, earth = new THREE.Color(TRACK), land = new THREE.Color();
-    for (const [r, row] of rows(geo).entries()) {
-      expect(row.map(([x]) => Math.abs(x))).toEqual([1.5 + FEATHER, 1.5, 1.5, 1.5 + FEATHER].map((v) => expect.closeTo(v, 5)));
-      expect(row.map(([, y]) => y)).toEqual([0.02, 0.1, 0.1, 0.02].map((v) => expect.closeTo(v, 5)));
-      for (const e of [1, 2]) expect(new THREE.Color().fromBufferAttribute(colour, r * 4 + e).getHex()).toBe(earth.getHex());
-      for (const e of [0, 3]) {
-        const [x, , z] = row[e];
-        expect(new THREE.Color().fromBufferAttribute(colour, r * 4 + e).getHex()).toBe(landColour(x, 0, z, 1 / Math.sqrt(1 + (height(x + 0.5, z) - height(x - 0.5, z)) ** 2 + (height(x, z + 0.5) - height(x, z - 0.5)) ** 2), land).getHex());
-      }
-    }
-    // A point every 1.2 m or less along it, the last at its end.
-    const along = rows(geo).map((row) => (row[1][2] + row[2][2]) / 2);
-    expect(along[0]).toBeCloseTo(-20, 5);
-    expect(along.at(-1)).toBeCloseTo(20, 5);
-    for (let k = 1; k < along.length; k++) expect(along[k] - along[k - 1]).toBeLessThanOrEqual(1.2 + 1e-5);
+  it("are packed earth on the ring road and along the lightning path, land beyond them, and between the two across FEATHER m at each edge", () => {
+    expect(tracksAt(round, 0)).toBe(1);
+    expect(tracksAt(0, -(RING + 0.5))).toBe(1);
+    expect(tracksAt(RING - FEATHER - 0.1, 0)).toBe(0);
+    expect(tracksAt(SHORE + FEATHER + 0.1, 0)).toBe(0);
+    const edge = tracksAt(RING - FEATHER / 2, 0);
+    expect(edge).toBeGreaterThan(0.3);
+    expect(edge).toBeLessThan(0.7);
+    // Across the lightning path from the middle of its second stroke.
+    const [ax, az] = BOLT[1], [bx, bz] = BOLT[2], mx = (ax + bx) / 2, mz = (az + bz) / 2, len = Math.hypot(bx - ax, bz - az), nx = (bz - az) / len, nz = -(bx - ax) / len;
+    expect(tracksAt(mx, mz)).toBe(1);
+    expect(tracksAt(mx + nx * (BOLT_HALF - 0.1), mz + nz * (BOLT_HALF - 0.1))).toBe(1);
+    expect(tracksAt(mx + nx * (BOLT_HALF + FEATHER + 0.1), mz + nz * (BOLT_HALF + FEATHER + 0.1))).toBe(0);
+    // Every corner of the lightning is on it, and the hill's open turf is not.
+    for (const [x, z] of BOLT) expect(tracksAt(x, z)).toBe(1);
+    expect(tracksAt(40, 40)).toBe(0);
+    expect(half).toBe(3);
   });
 
-  it("lies on the ground it is given", () => {
-    const surface = surfaceOf(52), geo = track([[-40, 10], [30, -25]], false, 1.5, surface);
-    for (const row of rows(geo)) row.forEach(([x, y, z], e) => expect(y - surface(x, z)).toBeCloseTo(e === 0 || e === 3 ? 0.02 : 0.1, 4));
-  });
-
-  it("comes to a point where it turns sharply, its width kept along both sides of the corner, and never more than three times as far out", () => {
-    // A right angle: the corner's outer points stand a root of two further out.
-    const corner = rows(track([[-10, 0], [0, 0], [0, 10]], false, 1, flat)).find((row) => Math.abs((row[1][0] + row[2][0]) / 2) < 1e-5 && Math.abs((row[1][2] + row[2][2]) / 2) < 1e-5)!;
-    expect(Math.hypot(corner[1][0], corner[1][2])).toBeCloseTo(Math.SQRT2, 5);
-    // A turn almost back on itself: the mitre stops at three times the track's own reach.
-    const hairpin = rows(track([[-10, 0], [0, 0], [-10, 0.5]], false, 1, flat));
-    expect(Math.max(...hairpin.flat().map(([x, , z]) => Math.hypot(Math.max(0, x), z)))).toBeLessThanOrEqual(3 * (1 + FEATHER) + 1e-5);
-  });
-
-  it("closes a ring with no gap: its last row lies on its first", () => {
-    const ring = Array.from({ length: 48 }, (_, k) => [50 * Math.cos((k / 48) * 2 * Math.PI), 50 * Math.sin((k / 48) * 2 * Math.PI)]);
-    const all = rows(track(ring, true, 3, flat));
-    all[0].forEach((point, e) => point.forEach((v, k) => expect(all.at(-1)![e][k]).toBeCloseTo(v, 5)));
-    // Its core runs 3 m to either side of the ring's 50 m all the way round, to within the chords the ring is drawn in.
-    for (const row of all) {
-      const [inner, outer] = [row[1], row[2]].map(([x, , z]) => Math.hypot(x, z)).sort((a, b) => a - b);
-      expect(Math.abs(inner - 47)).toBeLessThan(0.15);
-      expect(Math.abs(outer - 53)).toBeLessThan(0.15);
-    }
+  it("are drawn in the ground's own shader with the same numbers, so they lie on the ground wherever it goes and cost no mesh", () => {
+    const { vertexShader, fragmentShader } = THREE.ShaderLib.lambert;
+    const shader = { uniforms: {} as Record<string, unknown>, vertexShader, fragmentShader };
+    grained(takesPool(new THREE.MeshLambertMaterial(), { value: new THREE.Color() }), false, true).onBeforeCompile(shader);
+    const earth = new THREE.Color(TRACK);
+    expect(shader.fragmentShader).toContain(`float ring = 1.0 - smoothstep(${half.toFixed(4)}, ${(half + FEATHER).toFixed(4)}, abs(length(p) - ${round.toFixed(4)}));`);
+    expect(shader.fragmentShader).toContain(`return max(ring, 1.0 - smoothstep(${BOLT_HALF.toFixed(4)}, ${(BOLT_HALF + FEATHER).toFixed(4)}, bolt));`);
+    for (const [x, z] of BOLT) expect(shader.fragmentShader).toContain(`vec2(${x.toFixed(4)}, ${z.toFixed(4)})`);
+    expect(shader.fragmentShader).toContain(`diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${earth.r.toFixed(4)}, ${earth.g.toFixed(4)}, ${earth.b.toFixed(4)}), tracks(vPoolAt.xz));`);
+    // A material that is not the ground's wears the grain without them.
+    const plain = { uniforms: {} as Record<string, unknown>, vertexShader, fragmentShader };
+    grained(takesPool(new THREE.MeshLambertMaterial(), { value: new THREE.Color() }), false).onBeforeCompile(plain);
+    expect(plain.fragmentShader).not.toContain("tracks(");
   });
 });
 
@@ -189,15 +178,16 @@ describe("the sea", () => {
 });
 
 describe("buildIsland", () => {
-  it("draws the ground, the sea, and the ring road and the lightning path as one mesh between them, with a pool for each cave", () => {
+  it("draws the ground, the sea and what stands on the land, with a pool for each cave and no mesh for the tracks", () => {
     const scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0x000000, 100, 400);
     const { caves } = buildIsland(scene, 20, true);
     const meshes = scene.children.filter((o: { isMesh?: boolean }) => o.isMesh);
     expect(caves).toHaveLength(2);
-    // The ground, the sea, the tracks, the tufts and the stones (flora.js), and the two caves' pools, which stay hidden until their songs.
-    expect(meshes).toHaveLength(7);
-    expect(meshes.filter((o: { visible: boolean }) => o.visible)).toHaveLength(5);
+    // The ground, with its tracks in its own shader, the sea, the tufts and the stones (flora.js), and the two caves' pools, which stay
+    // hidden until their songs.
+    expect(meshes).toHaveLength(6);
+    expect(meshes.filter((o: { visible: boolean }) => o.visible)).toHaveLength(4);
     expect(meshes.filter((o: { isInstancedMesh?: boolean }) => o.isInstancedMesh)).toHaveLength(2);
   });
 });
@@ -214,5 +204,32 @@ describe("offTracks", () => {
     expect(offTracks(mx + nx * (BOLT_HALF + 0.9), mz + nz * (BOLT_HALF + 0.9), 1)).toBe(false);
     expect(offTracks(mx + nx * (BOLT_HALF + 1.1), mz + nz * (BOLT_HALF + 1.1), 1)).toBe(true);
     expect(offTracks(BOLT[0][0], BOLT[0][1], 0)).toBe(false);
+  });
+});
+
+describe("what stands on the land", () => {
+  it("stands on the ground as its mesh draws it, on every tier's grid, off the tracks and off the setlist's path", () => {
+    for (const [grid, phone] of [[80, false], [64, false], [52, true]] as const) {
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.Fog(0x000000, 100, 400);
+      const loop = Array.from({ length: 60 }, (_, k) => [-40 + k * 1.5, 30]);
+      const { flora } = buildIsland(scene, grid, phone, loop);
+      const surface = surfaceOf(grid), matrix = new THREE.Matrix4(), at = new THREE.Vector3();
+      expect(flora.tufts.count).toBeGreaterThan(1000);
+      for (let i = 0; i < flora.tufts.count; i++) {
+        flora.tufts.getMatrixAt(i, matrix);
+        at.setFromMatrixPosition(matrix);
+        // A tuft's root is a few centimetres under the drawn ground, never over it.
+        expect(at.y - surface(at.x, at.z)).toBeCloseTo(-0.03, 4);
+        expect(tracksAt(at.x, at.z)).toBe(0);
+        expect(Math.min(...loop.map(([x, z]) => Math.hypot(at.x - x, at.z - z)))).toBeGreaterThanOrEqual(2.2);
+      }
+      for (let i = 0; i < flora.stones.count; i++) {
+        flora.stones.getMatrixAt(i, matrix);
+        at.setFromMatrixPosition(matrix);
+        expect(at.y - surface(at.x, at.z)).toBeGreaterThanOrEqual(0);
+        expect(at.y - surface(at.x, at.z)).toBeLessThan(0.2);
+      }
+    }
   });
 });
