@@ -20,3 +20,7 @@ Everything here was drawn by headless Chromium on a Mac's GPU, at the top rung o
 - `logs/reduced-motion.log`: pairs of stills 5 s apart under reduced motion on #163's preview.
 - `logs/seek-and-join.log`: the world's hour beside the show's, every half second, through a join mid-show and seeks, with the real player.
 - `logs/flash-windows-A-B-C.json` and `logs/flash-windows-D-S.json`: swings of 10 % in relative luminance per 2×2 block in five windows of the show, the branch beside main, the whole frame and the light alone. A: Fire On The Mountain, 140 to 162 s. B: Drums, 120 to 130 s. C: Jack Straw, 60 to 70 s. D: U.S. Blues, 250 to 272 s. S: 28 s with three seeks, dusk to Drums to the encore and back.
+
+## The working branch, `world/next`
+
+`next/desktop.png` and `next/phone.png`: the five pull requests together with the work that follows them (the land's turf and worn tracks, the sea's swell and foam, grass, flowers and stones, fireflies), shot from the branch's preview at `257e873`, at four hours of the show. `next/bears.png`: the bears with their ruff and tail, from the local dev server at `92b461c`.
