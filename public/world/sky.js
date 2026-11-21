@@ -68,8 +68,9 @@ export function buildSky(scene, octaves, seed) {
       uZenith: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uHaze: { value: new THREE.Color() }, uGlow: { value: new THREE.Color() },
       uSun: { value: new THREE.Vector3(0, -1, 0) }, uLiquid: { value: 1 }, uStars: { value: 0 }, uMoon: { value: 0 },
     },
-    /* vDir is the way from the sky's centre, which the air, the glow and the liquid light are drawn by, as they always were. vSee is the
-       way from the eye: the stars, the moon and the sun stand by it, so they keep their places as the visitor walks the island. */
+    /* vDir is the way from the sky's centre, which the liquid light is drawn by, as it always was. vSee is the way from the eye: the
+       air, the glow, the stars, the moon and the sun stand by it, so the horizon lies level with the eye from the shore and from the
+       summit, the sun rises in its own glow, and all of them keep their places as the visitor walks the island. */
     vertexShader: `varying vec3 vDir; varying vec3 vSee; void main() { vDir = normalize(position); vSee = (modelMatrix * vec4(position, 1.0)).xyz - cameraPosition;
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `
@@ -83,10 +84,10 @@ export function buildSky(scene, octaves, seed) {
       ${STARS}
       void main() {
         highp vec3 d = normalize(vDir), see = normalize(vSee);
-        float up = max(d.y, 0.0);
+        float up = max(see.y, 0.0);
         vec3 sky = mix(uHorizon, uZenith, smoothstep(0.0, 1.0, pow(up, 0.6)));
         /* Twilight: a wide arch of the glow's colour over where the sun is, and a brighter band low along the horizon there. */
-        float facing = 0.5 + 0.5 * dot(normalize(d.xz + vec2(1e-4)), uSun.xy);
+        float facing = 0.5 + 0.5 * dot(normalize(see.xz + vec2(1e-4)), uSun.xy);
         sky += uGlow * (0.36 * pow(facing, 3.0) * exp(-up * 3.5) + 0.6 * pow(facing, 24.0) * exp(-up * 9.0));
         /* The sun's edge, white 2 degrees across and gone by 3.4, whitening the glow. */
         float cosEl = cos(uSun.z);
@@ -102,10 +103,10 @@ export function buildSky(scene, octaves, seed) {
         vec3 light = liquid(d.xz / (d.y + 0.35) * 1.2);
         float ribbons = smoothstep(0.405, 0.77, liquidV / (1.0 - pow(0.5, float(uOct))));
         float show = smoothstep(-0.05, 0.3, d.y) * min(1.0, mix(1.6 * uLiquid * ribbons, 1.0, uLiquid * uLiquid)) * (1.0 - disc) * (1.0 - moon);
-        sky += uStars * stars(see, uTime) * (1.0 - show) * smoothstep(0.02, 0.14, d.y);
+        sky += uStars * stars(see, uTime) * (1.0 - show) * smoothstep(0.02, 0.14, see.y);
         sky = mix(sky, light, show);
         /* Under the horizon all is haze, which the far sea has faded into by its edge; the sky rises out of it over two degrees. */
-        gl_FragColor = vec4(mix(uHaze, sky, smoothstep(0.0, 0.035, d.y)), 1.0);
+        gl_FragColor = vec4(mix(uHaze, sky, smoothstep(0.0, 0.035, see.y)), 1.0);
       }`,
   });
   scene.add(new THREE.Mesh(new THREE.SphereGeometry(500, 24, 12), skyMat));
