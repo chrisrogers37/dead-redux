@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { randomPastPick } from "@/lib/archive";
@@ -7,6 +8,7 @@ import { lookUpShow, pickBestSource } from "@/lib/relisten";
 import { alternatesFor } from "@/lib/site";
 import { readSiteDay } from "@/lib/site-day";
 import { forcedLookup, testHooksEnabled } from "@/lib/test-hooks";
+import { SHELVES_COOKIE, shelvesFromCookie } from "@/components/world/shelves";
 import { WorldHome } from "@/components/world/WorldHome";
 
 interface PageProps {
@@ -34,6 +36,8 @@ export default async function DailyShowPage({ params, searchParams }: PageProps)
   const bestSource = details ? pickBestSource(details.sources) : null;
   const { day: today, at: renderedAt } = readSiteDay();
   const pastPick = randomPastPick(today, date);
+  // The shelves the visitor put away, from their cookie, so the HTML has each where they left it.
+  const shelves = shelvesFromCookie((await cookies()).get(SHELVES_COOKIE)?.value);
 
   return (
     <WorldHome
@@ -47,6 +51,7 @@ export default async function DailyShowPage({ params, searchParams }: PageProps)
       tourName={details?.tour?.name ?? null}
       testHooks={testHooksEnabled()}
       lookupFailed={lookup.kind === "failed"}
+      shelves={shelves}
     />
   );
 }

@@ -42,6 +42,7 @@ The home page and every day's page are an island, drawn in the browser with thre
 | Back or ahead 10 s | J or L |
 | Previous or next song | P or N |
 | On a phone | The stick walks and turns; a drag turns and looks |
+| Put a panel away | The arrow tab beside the title, the buttons or the player; again to bring it back |
 
 The letter keys can be switched off under Details (Single-key shortcuts). They still work while the world has focus.
 

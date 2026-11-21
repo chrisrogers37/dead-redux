@@ -45,6 +45,33 @@ body { background-color: var(--page); color: var(--ink); }
 #world:focus-visible canvas { outline: 3px solid var(--accent); outline-offset: -3px; }
 .plate { background: rgba(11, 11, 13, 0.9); border-radius: 4px; padding: 16px; }
 .hud { position: fixed; z-index: 10; }
+/* The HUD's shelves (shelves.ts): a tab at the screen's edge and, beside it, the shelf's body, which slides past that edge when it is
+   put away and is hidden once it has gone, so nothing on it takes a click, a key or a reader. Only the tab and the body take the
+   pointer: a drag on the world passes through the rest of a shelf, and through all of one that is away. The chevron points the way
+   the shelf will go. */
+.shelf { pointer-events: none; }
+.shelf > * { pointer-events: auto; }
+.shelf-body { transition: transform 280ms ease-out; }
+.shelf[data-shelf="in"] > .shelf-body { visibility: hidden; transition: transform 280ms ease-in, visibility 0s 280ms; }
+.shelf[data-shelf="in"][data-side="left"] > .shelf-body { transform: translateX(calc(-100% - 96px)); }
+.shelf[data-shelf="in"][data-side="right"] > .shelf-body { transform: translateX(calc(100% + 96px)); }
+.shelf-tab { padding: 0; }
+/* On a phone the title's tab hangs under its plate, and stands in the corner once the plate is away; the player's stands in the
+   stick's row, at the right. Neither takes any of its plate's width. On a screen under 60rem wide, a phone on its side among them,
+   the title's plate and the buttons' row have no room for a tab beside each, so there both top tabs hang under their plates. */
+@media (width < 60rem) {
+  .shelf > .shelf-tab[data-shelf-tab="title"] { position: absolute; left: 0; top: calc(100% + 8px); }
+  .shelf[data-shelf="in"] > .shelf-tab[data-shelf-tab="title"] { top: 0; }
+}
+@media (40rem <= width < 60rem) {
+  .shelf > .shelf-tab[data-shelf-tab="actions"] { position: absolute; right: 0; top: calc(100% + 8px); }
+  .shelf[data-shelf="in"] > .shelf-tab[data-shelf-tab="actions"] { top: 0; }
+}
+@media (width < 40rem) {
+  .shelf > .shelf-tab[data-shelf-tab="player"] { position: absolute; right: 0; top: calc(100% + 58px); }
+}
+.shelf-tab svg { transition: transform 200ms ease-out; }
+.shelf-tab[data-side="left"][aria-expanded="false"] svg, .shelf-tab[data-side="right"][aria-expanded="true"] svg { transform: rotate(180deg); }
 /* The chip that names the next show fades in; a reduced-motion visitor sees it at once (the rule below turns animations off). */
 .chip { animation: chip-in 240ms ease-out; }
 @keyframes chip-in { from { opacity: 0; } }
