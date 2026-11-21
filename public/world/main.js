@@ -80,7 +80,9 @@ function start(gl) {
   let frameH = 1, plateTop = 0;
   function measurePlate() {
     const plate = document.querySelector("[data-action='play']")?.closest(".plate");
-    plateTop = plate ? plate.getBoundingClientRect().top - container.getBoundingClientRect().top : 0.62 * frameH;
+    /* A now-plate put away on its shelf (the page marks the shelf) covers nothing: the bear then stands above the stick. */
+    const over = plate?.closest("[data-shelf='in']") ? document.querySelector("[data-stick]") : plate;
+    plateTop = over ? over.getBoundingClientRect().top - container.getBoundingClientRect().top : 0.62 * frameH;
   }
 
   function resize() {
@@ -327,7 +329,7 @@ function start(gl) {
   /* How far the controls walk or turn, from -1 to 1: a key at full, the stick as far as it is pushed (input.js). */
   const axis = (plus, minus, push) => Math.max(-1, Math.min(1, (plus ? 1 : 0) - (minus ? 1 : 0) + push));
   /* Lean-back, the player's state and the view live on <main>; read them now too, since the show may have started before the world
-     loaded. The join and lean-back move the now-plate. */
+     loaded. The join, lean-back and the now-plate's shelf move the now-plate. */
   function syncMain() {
     const lean = main.dataset.mode === "leanback";
     playing = main.dataset.state === "playing";
@@ -338,7 +340,7 @@ function start(gl) {
     rules.lean(lean);
     wake();
   }
-  new MutationObserver(syncMain).observe(main, { attributes: true, attributeFilter: ["data-mode", "data-state", "data-view", "data-joined"] });
+  new MutationObserver(syncMain).observe(main, { attributes: true, attributeFilter: ["data-mode", "data-state", "data-view", "data-joined", "data-shelves"] });
   syncMain();
 
   const lookTarget = new THREE.Vector3();
