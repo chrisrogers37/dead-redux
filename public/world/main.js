@@ -75,14 +75,24 @@ function start(gl) {
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x141418, 80, 320);
   const camera = new THREE.PerspectiveCamera(budget.fov, 1, 0.5, 900);
-  /* The frame's height, and the now-plate's top edge in it (px from the top; 0.62 of the height without a player): on a phone the
-     camera keeps the visitor's bear above the plate. Measured on a resize and when the plate moves (the join, lean-back). */
+  /* The frame's height, and the now-plate's top edge in it (px from the top; 0.62 of the height without a player), or the top of what
+     is left at the frame's foot while the plate is away: on a phone the camera keeps the visitor's bear above it. Measured on a resize
+     and when the plate moves (the join, lean-back, its shelf). */
   let frameH = 1, plateTop = 0;
   function measurePlate() {
+    const frameTop = container.getBoundingClientRect().top;
     const plate = document.querySelector("[data-action='play']")?.closest(".plate");
-    /* A now-plate put away on its shelf (the page marks the shelf) covers nothing: the bear then stands above the stick. */
-    const over = plate?.closest("[data-shelf='in']") ? document.querySelector("[data-stick]") : plate;
-    plateTop = over ? over.getBoundingClientRect().top - container.getBoundingClientRect().top : 0.62 * frameH;
+    if (!plate?.closest("[data-shelf='in']")) {
+      plateTop = plate ? plate.getBoundingClientRect().top - frameTop : 0.62 * frameH;
+      return;
+    }
+    /* A now-plate put away on its shelf (the page marks the shelf) covers nothing: the bear then stands above what is left at the foot
+       of the frame, the stick and, until the first move, the hint, whichever stands higher. One with no box is not on the screen: the
+       page hides the stick on a screen 640 px wide or wider, where a phone on its side still has the phone's tier, and the hint goes
+       with the first move. With neither, nothing covers the foot of the frame, and the bear may stand anywhere in its height. */
+    const tops = ["[data-stick]", "[data-hint]"].map((s) => document.querySelector(s)?.getBoundingClientRect())
+      .filter((box) => box && box.height > 0).map((box) => box.top - frameTop);
+    plateTop = tops.length ? Math.min(...tops) : frameH;
   }
 
   function resize() {

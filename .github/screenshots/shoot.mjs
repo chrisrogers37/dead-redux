@@ -34,6 +34,14 @@ const DEVICES = {
     isMobile: true,
     hasTouch: true,
   },
+  // A phone on its side: 640 px wide or wider, where the page lays itself out as on a desktop and hides the stick, and still a touch
+  // screen under 900 px, which keeps the phone's tier (quality.js). It shoots only the pages that name it.
+  "phone-landscape": {
+    viewport: { width: 844, height: 390 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+  },
   // Without WebGL 2, for the designed still. That is a launch switch, so these two get their own browser, and they shoot only the
   // pages that name them.
   "desktop-nowebgl": { viewport: { width: 1440, height: 900 } },
@@ -45,6 +53,8 @@ const DEVICES = {
   },
 };
 const NO_WEBGL = new Set(["desktop-nowebgl", "phone-nowebgl"]);
+// The devices that shoot only the pages that name them.
+const BY_NAME = new Set([...NO_WEBGL, "phone-landscape"]);
 
 // archive.org can take tens of seconds to start a stream from CI, so a play step waits this long for the player to settle.
 const PLAY_WAIT_MS = 45_000;
@@ -61,6 +71,16 @@ const playStep = (shot, later) => ({
   player: true,
   shot,
   later,
+});
+
+// The shelf step: press a shelf's tab, wait for the page to mark the shelf away ("in") or back on the screen ("out"), then shoot, with
+// the box log where `boxes` asks. A tab that is missing, or never moves its shelf, fails the run.
+const shelfStep = (shelf, state, shot, boxes = false) => ({
+  click: `[data-shelf-tab='${shelf}']`,
+  waitFor: `[data-shelf='${state}'] > [data-shelf-tab='${shelf}']`,
+  required: true,
+  boxes,
+  shot,
 });
 
 // Each step acts on the loaded page, then shoots it. The prefix keeps one page's file names
@@ -133,13 +153,14 @@ const PAGES = [
     shots: ["fixed"],
     steps: [{ click: "[data-action='details']", boxes: true, shot: "fixed-details" }, playStep("fixed-playing")],
   },
-  // The fixed day's focus walk, under reduced motion so the ten shots differ by the ring alone: Tab lands on the world, Archive,
-  // Walk with the bears, Lean back, Share, prev, play, next, Details and the seek slider, with a shot after each press.
+  // The fixed day's focus walk, under reduced motion so the thirteen shots differ by the ring alone: Tab lands on the world, the title's
+  // tab, Archive, Walk with the bears, Lean back, Share, the buttons' tab, prev, play, next, Details, the seek slider and the player's
+  // tab, the order the screen shows them in, with a shot after each press.
   {
     path: "/2026-10-20",
     devices: ["desktop-reduced"],
     shots: [],
-    steps: Array.from({ length: 10 }, (_, i) => ({ press: "Tab", shot: `fixed-focus-${i + 1}` })),
+    steps: Array.from({ length: 13 }, (_, i) => ({ press: "Tab", shot: `fixed-focus-${i + 1}` })),
   },
   // The fixed day 5 s before its first track ends: playing crosses into track 2, and the later shot logs the gap between them.
   {
@@ -324,6 +345,49 @@ const PAGES = [
     steps: [{ click: "[data-action='lean-back']", waitFor: "[data-mode='leanback']", shot: "fixed-lookup-failed-leanback" }],
   },
   { path: "/2026-10-20?lookup=missing", devices: ["desktop", "phone"], shots: ["fixed-no-recording"] },
+  // The fixed day's shelves: each tab puts its shelf away past its edge of the screen, the title's, then the buttons', then the
+  // player's. With all three away the box log reads every control on them hidden and the three tabs 44 px square. They stay away for
+  // the page after this one.
+  {
+    path: "/2026-10-20",
+    devices: ["desktop", "phone", "phone-360", "desktop-reduced"],
+    shots: [],
+    steps: [
+      shelfStep("title", "in", "fixed-shelf-title-away"),
+      shelfStep("actions", "in", "fixed-shelf-actions-away"),
+      shelfStep("player", "in", "fixed-shelf-player-away", true),
+    ],
+  },
+  // The same page loaded again, the three shelves stored away: the HTML the server sends already has them away (`served`), so the first
+  // shot shows them away without any slide, and its box log reads as the last one did. Then each tab brings its shelf back, which
+  // leaves every shelf out for the pages after this one.
+  {
+    path: "/2026-10-20",
+    devices: ["desktop", "phone", "phone-360", "desktop-reduced"],
+    served: 'data-shelves="title,actions,player"',
+    shots: ["fixed-shelves-stored"],
+    steps: [
+      shelfStep("title", "out", "fixed-shelf-title-back"),
+      shelfStep("actions", "out", "fixed-shelf-actions-back"),
+      shelfStep("player", "out", "fixed-shelf-player-back", true),
+    ],
+  },
+  // The fixed day with the player away, on a phone and on a phone on its side: the camera frames the visitor's bear above what is left
+  // at the foot of the frame. The first shot comes before the first move, while the hint is up. Walking with the bears then starts the
+  // show, which takes the hint away, and puts the camera behind the bears: on the upright phone the visitor's bear stands above the
+  // stick, and on its side, where the page shows no stick, as low as the frame's foot. The stats line's `avatar.clear` reads whether
+  // its feet land in the frame above that. Then the tab brings the player back.
+  {
+    path: "/2026-10-20",
+    devices: ["phone", "phone-landscape"],
+    ready: "#world[data-world='ready']",
+    shots: [],
+    steps: [
+      shelfStep("player", "in", "fixed-shelf-frame"),
+      { click: "[data-action='follow']", waitFor: "[data-action='follow'][aria-pressed='true']", shot: "fixed-shelf-frame-follow" },
+      shelfStep("player", "out", "fixed-shelf-frame-back"),
+    ],
+  },
   // The walk's draw calls on the fixed day, from ?pose=sweep: the visitor's bear at each of the sweep's poses, with the world on the
   // day's first track and then on Drums (index 13), where the left cave lights. The log names each device's peak and the pose that
   // drew it.
@@ -481,7 +545,8 @@ const RECORD_MS = 10_000;
 // What fails the run once every shot is taken: a generated image the site answers with an error, a frame over its tier's draw-call
 // budget (a shot's, or the walk's peak in a sweep), a first-person frame where a bear comes inside the camera's near plane, a show
 // playing with its sound neither through the world nor in plain stereo for a reason the player names, a required step whose control is
-// missing or whose state never comes, a sweep that cannot finish, and a policy problem (below).
+// missing or whose state never comes, a page whose HTML arrives without the text it names (`served`), a sweep that cannot finish, and a
+// policy problem (below).
 const failures = [];
 
 // What the log says when a read had to wait for the page to load again: the shot was taken, then the page navigated as it was read.
@@ -593,13 +658,13 @@ const sweepWalk = async (page, device, tracks) => {
 
 // Logs every control's box after a page's first shot and after a step that names `boxes`, so a touch target is read rather than
 // measured: links, buttons, summaries, inputs and the world's focusable container, `small` on one under 44 px either way, `hidden` on one
-// not rendered.
+// not rendered, or rendered and hidden, as a shelf put away hides what it holds.
 const logBoxes = async (page, file) => {
   const boxes = await page.evaluate(() =>
     Array.from(document.querySelectorAll("a, button, summary, input, [tabindex='0']"), (el) => {
       const { x, y, width, height } = el.getBoundingClientRect();
       const name = el.dataset.action ?? (el.id || el.getAttribute("aria-label") || el.textContent.trim());
-      return { name, x, y, width, height, visible: el.checkVisibility() };
+      return { name, x, y, width, height, visible: el.checkVisibility({ visibilityProperty: true }) };
     })
   );
   for (const { name, x, y, width, height, visible } of boxes) {
@@ -672,13 +737,13 @@ try {
       height: options.viewport.height * MAX_SCREENS,
     };
 
-    for (const { path, shots, steps, end, devices, ready, sweep, failAudio, status } of PAGES) {
+    for (const { path, shots, steps, end, devices, ready, sweep, failAudio, status, served } of PAGES) {
       // The TV device is for lean-back, so it shoots the home page and only the other pages that name it.
       if (device === "tv" && path !== "/" && !devices?.includes("tv")) {
         continue;
       }
-      // A page may name the devices that shoot it; a device without WebGL shoots only the pages that do.
-      if (devices ? !devices.includes(device) : NO_WEBGL.has(device)) {
+      // A page may name the devices that shoot it; a device without WebGL, and the phone on its side, shoot only the pages that do.
+      if (devices ? !devices.includes(device) : BY_NAME.has(device)) {
         continue;
       }
       const url = pageUrl(path, device);
@@ -689,6 +754,13 @@ try {
         throw new Error(`${url} answered ${response?.status()} at ${page.url()}`);
       }
       await checkHeaders(page, response, device);
+      // A page may name text its HTML holds as the server sent it, before any script ran. The log says whether it does, and a page
+      // without it fails the run.
+      if (served) {
+        const held = (await response.text()).includes(served);
+        console.log(`served ${device} ${url}: the HTML ${held ? "holds" : "does not hold"} ${served}`);
+        if (!held) failures.push(`${device} ${path}: the HTML arrived without ${served}`);
+      }
       await page
         .waitForLoadState("networkidle", { timeout: 10_000 })
         .catch(() => console.log(`${url} never went network-idle; shooting anyway`));

@@ -10,10 +10,10 @@ import { WINDOW } from "../../../public/world/quality.js";
 // with the limits walkLimits builds from the bears' live spots), where attract puts the camera (postPose), and what the show's map does
 // (maps.js, beat.js and audio.js's mappings; the analyser hears nothing here, since no AudioContext is made). three, and the modules
 // that import it (the island, the path and its landmarks, the bears, the visitor's bear, the crowd, the sky and the stage), are played
-// by stand-ins, with what the frames here use: a desktop's, in either view. The stand-ins keep these tests on main.js alone, and fast,
-// frame by frame. They draw nothing, and keep what the tests read: where each bear stands, where the visitor's bear steps, where the
-// camera stands and looks and its near plane, the sun's shadow, the stage light, the flame's size, the sky's drop, the figures' beat
-// and the rig's aim.
+// by stand-ins, with what the frames here use: a desktop's, in either view, and a phone's first one. The stand-ins keep these tests on
+// main.js alone, and fast, frame by frame. They draw nothing, and keep what the tests read: where each bear stands, where the visitor's
+// bear steps, where the camera stands and looks and its near plane, how high in the frame it keeps the visitor's bear, the sun's shadow,
+// the stage light, the flame's size, the sky's drop, the figures' beat and the rig's aim.
 
 type Point = { x: number; z: number };
 type Point3 = Point & { y: number };
@@ -63,13 +63,15 @@ const fake = vi.hoisted(() => {
   // itself (the beam); and the figures' phase in beats, as the last frame gave it to the stage, the crowd's pose, as the last frame gave
   // it to the crowd, and whether its last parting stood the figures at once.
   // `line` is the bears' line each test gives it, and `onset` the time of the last onset the analyser heard, which each test sets (null
-  // for none).
+  // for none). `keptY` is how high in the frame the last frame asked that the visitor's bear be kept, from -1 at the frame's foot to 1
+  // at its top: on a phone, its feet.
   const world = {
     line: undefined as unknown as Line,
     scene: undefined as unknown as Scene,
     camera: undefined as unknown as Camera,
     bears: [] as Bear[],
     stepped: { x: NaN, z: NaN, heading: NaN },
+    keptY: NaN,
     flame: { scale: new Vec(1, 1, 1) },
     stage: undefined as unknown as Stage,
     crowd: undefined as unknown as CrowdMesh,
@@ -191,7 +193,10 @@ const fake = vi.hoisted(() => {
         // The third-person camera's boom, which here only looks at the walker.
         boom: (_camera: Camera, walker: Point) => new Vec(walker.x, 0, walker.z),
         settle: () => {},
-        turnDown: () => TURN,
+        turnDown: (_camera: Camera, _from: Point3, _look: Point3, _point: Vec, ndcY: number) => {
+          world.keptY = ndcY;
+          return TURN;
+        },
       }),
     },
     sky: {
@@ -323,6 +328,7 @@ function showMap({ rms = 0 as number | ((byte: number) => number), bass = 0 as n
 }
 
 type Hill = {
+  tier: string;
   mode: string;
   rung: number;
   crowd: { drawn: number; dance: number; sit: number; parted: number };
@@ -331,34 +337,52 @@ type Hill = {
 };
 const hill = () => (window as unknown as { __hill: Hill }).__hill;
 
+// A screen, which the world fills: its size in px, and whether it takes touches. quality.js gives a screen under 640 px wide the phone's
+// tier, and a touch screen under 900 px.
+type Screen = { width: number; height: number; touch: boolean };
+const DESKTOP: Screen = { width: 1280, height: 720, touch: false };
+// The HUD's boxes that a phone's camera frames the visitor's bear above (measurePlate), each by its top in px from the frame's top: the
+// now-plate's (null on a page without a player), whether its shelf has put it `away`, the stick's (null where the page hides it, so it
+// has no box) and the hint's (null once the first move has taken it off the page).
+type Hud = { plate?: number | null; away?: boolean; stick?: number | null; hint?: number | null };
+
 // The page around the world, played by stand-ins: <main>, which carries the player's state, how the show sounds and the view; the
-// world's element; the window, which takes the keys; a desktop's screen, which quality.js reads in matchMedia, innerWidth and navigator;
-// the site, which serves `map` as the show's map, and no other; and the frames, which `run` hands main.js, each `ms` long (a frame adds
-// at most 50 ms of world time), calling `each` after each one. `playing` starts the show playing; `routing` is how it sounds ("webaudio"
-// through the world's graph, "plain" in plain stereo); `search` is the page's query, on a preview; `reduced` asks for reduced motion;
-// `title` names the track; `view` is "third" or "first" person; and a day with no `recording` has no tracks. A page with a map waits
-// until the world has read it.
-async function startWorld({ playing = false, routing = "webaudio", search = "", reduced = false, map = null as object | null, title = TRACK.title, view = "third", recording = true } = {}) {
+// world's element; the window, which takes the keys; the `screen`, a desktop's unless a test names one, which quality.js reads in
+// matchMedia, innerWidth and navigator; the `hud`; the site, which serves `map` as the show's map, and no other; and the frames, which
+// `run` hands main.js, each `ms` long (a frame adds at most 50 ms of world time), calling `each` after each one. `playing` starts the
+// show playing; `routing` is how it sounds ("webaudio" through the world's graph, "plain" in plain stereo); `search` is the page's
+// query, on a preview; `reduced` asks for reduced motion; `title` names the track; `view` is "third" or "first" person; and a day with
+// no `recording` has no tracks. A page with a map waits until the world has read it.
+async function startWorld({ playing = false, routing = "webaudio", search = "", reduced = false, map = null as object | null, title = TRACK.title, view = "third", recording = true, screen = DESKTOP, hud = {} as Hud } = {}) {
   let now = 0;
   let queued: FrameRequestCallback | null = null;
   const container = Object.assign(new EventTarget(), {
     dataset: {},
-    clientWidth: 1280,
-    clientHeight: 720,
+    clientWidth: screen.width,
+    clientHeight: screen.height,
     appendChild: () => {},
     getBoundingClientRect: () => ({ top: 0 }),
   });
   const main = { dataset: { state: playing ? "playing" : "paused", routing, view, ...(search ? { testHooks: "1" } : {}) } };
-  // The stick on a phone (input.js), 112 px across with its centre at (56, 56).
+  const { plate: plateTop = null, away = false, stick: stickTop = 0, hint: hintTop = null } = hud;
+  // The stick on a phone (input.js), 112 px across with its centre at (56, 56) unless a test puts it lower; hidden, its box is empty.
   const stick = Object.assign(new EventTarget(), {
     dataset: {},
     style: { setProperty: () => {} },
     setPointerCapture: () => {},
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 112, height: 112 }),
+    getBoundingClientRect: () => (stickTop === null ? { left: 0, top: 0, width: 0, height: 0 } : { left: 0, top: stickTop, width: 112, height: 112 }),
   });
+  // The now-plate, which main.js finds from its play button, in a shelf the page marks "in" while it is away; and the hint.
+  const plate = plateTop === null ? null : {
+    closest: (selector: string) => (selector === "[data-shelf='in']" && away ? {} : null),
+    getBoundingClientRect: () => ({ top: plateTop, height: 180 }),
+  };
+  const play = plate && { closest: (selector: string) => (selector === ".plate" ? plate : null) };
+  const hint = hintTop === null ? null : { getBoundingClientRect: () => ({ top: hintTop, height: 52 }) };
+  const found: Record<string, unknown> = { main, "[data-stick]": stick, "[data-action='play']": play, "[data-hint]": hint };
   const data = { showDate: SHOW, identifier: recording ? RECORDING : null, tracks: recording ? [{ ...TRACK, title }] : [], seed: 7 };
   const byId: Record<string, unknown> = { world: container, "world-data": { textContent: JSON.stringify(data) } };
-  const media = (query: string) => ({ matches: reduced && query === "(prefers-reduced-motion: reduce)" });
+  const media = (query: string) => ({ matches: query === "(max-width: 639px)" ? screen.width < 640 : reduced && query === "(prefers-reduced-motion: reduce)" });
   const asked: string[] = [];
   vi.stubGlobal("fetch", async (url: string) => {
     asked.push(url);
@@ -369,15 +393,15 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
     Object.assign(new EventTarget(), {
       hidden: false,
       getElementById: (id: string) => byId[id] ?? null,
-      querySelector: (selector: string) => (selector === "main" ? main : selector === "[data-stick]" ? stick : null),
+      querySelector: (selector: string) => found[selector] ?? null,
       querySelectorAll: () => [],
       createElement: () => ({ getContext: () => ({}) }),
     }),
   );
   vi.stubGlobal("window", Object.assign(new EventTarget(), { matchMedia: media, devicePixelRatio: 1 }));
   vi.stubGlobal("matchMedia", media);
-  vi.stubGlobal("innerWidth", 1280);
-  vi.stubGlobal("navigator", { maxTouchPoints: 0, userAgent: "" });
+  vi.stubGlobal("innerWidth", screen.width);
+  vi.stubGlobal("navigator", { maxTouchPoints: screen.touch ? 5 : 0, userAgent: "" });
   vi.stubGlobal("location", { search });
   // input.js tells a key typed into a field from one for the world by its target.
   vi.stubGlobal("HTMLElement", class {});
@@ -689,6 +713,41 @@ describe("main.js's frames", () => {
   it("makes the camera's near plane 0.5 m, which a bear's snout stays clear of in first person (collide.js)", async () => {
     await startWorld();
     expect(fake.world.camera.near).toBe(0.5);
+  });
+});
+
+describe("main.js's frames on a phone", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // A phone held upright, and one on its side: 640 px wide or wider, where the page hides the stick, and still a touch screen under
+  // 900 px, which keeps the phone's tier.
+  const UPRIGHT: Screen = { width: 390, height: 844, touch: true };
+  const ON_ITS_SIDE: Screen = { width: 844, height: 390, touch: true };
+  // The line the world's first frame keeps the visitor's feet at or above, in px from the frame's top. main.js asks the visitor's bear for
+  // it as a height in the frame, from 1 at its top to -1 at its foot.
+  const feetLine = async (screen: Screen, hud: Hud) => {
+    const page = await startWorld({ screen, hud });
+    expect(hill().tier).toBe("phone");
+    page.run(0.02);
+    return ((1 - fake.world.keptY) / 2) * screen.height;
+  };
+
+  it("keeps the visitor's feet 24 px above the now-plate while the plate is out, whatever stands below it or does not", async () => {
+    expect(await feetLine(UPRIGHT, { plate: 500, stick: 708 })).toBeCloseTo(476, 9);
+    expect(await feetLine(UPRIGHT, { plate: 448, stick: 708, hint: 640 })).toBeCloseTo(424, 9);
+    expect(await feetLine(ON_ITS_SIDE, { plate: 196, stick: null })).toBeCloseTo(172, 9);
+  });
+
+  it("keeps them 24 px above the stick once the now-plate is away on its shelf, and above the hint while it stands over the stick", async () => {
+    expect(await feetLine(UPRIGHT, { plate: 500, away: true, stick: 708 })).toBeCloseTo(684, 9);
+    expect(await feetLine(UPRIGHT, { plate: 448, away: true, stick: 708, hint: 640 })).toBeCloseTo(616, 9);
+  });
+
+  it("keeps them 24 px above the frame's foot where the now-plate is away and the stick has no box, or above the hint while it shows", async () => {
+    expect(await feetLine(ON_ITS_SIDE, { plate: 196, away: true, stick: null })).toBeCloseTo(366, 9);
+    expect(await feetLine(ON_ITS_SIDE, { plate: 196, away: true, stick: null, hint: 314 })).toBeCloseTo(290, 9);
   });
 });
 

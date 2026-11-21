@@ -11,13 +11,13 @@ import { keyBelongsToControl, lettersActive, setSingleKey, singleKeyOn, subscrib
 import { useEventListener } from "@/components/player/useEventListener";
 import { worldData } from "./data";
 import { firstPersonOn, setFirstPerson, subscribeView } from "./view";
-import { isAway, setShelf, shelvesAway, subscribeShelves, type Shelf } from "./shelves";
+import { isAway, matchShelvesCookie, setShelf, shelvesAway, subscribeShelves, type Shelf } from "./shelves";
 import { NoRecording } from "./NoRecording";
 import { soundLabel } from "@/lib/sound";
 import { LeanBackCorner } from "./LeanBackCorner";
 import { NextChip, useNextShow, type PastPick } from "./NextShow";
 
-interface Props { show: ShowSummary; featuredDate: string; today: string; renderedAt: number; pastPick: PastPick | null; bestSource: Source | null; isToday: boolean; tourName: string | null; testHooks: boolean; lookupFailed: boolean; }
+interface Props { show: ShowSummary; featuredDate: string; today: string; renderedAt: number; pastPick: PastPick | null; bestSource: Source | null; isToday: boolean; tourName: string | null; testHooks: boolean; lookupFailed: boolean; shelves: string; }
 
 /* A value read once, not watched. */
 function subscribe() { return () => {}; }
@@ -50,8 +50,8 @@ interface DetailsProps { source: Source; show: ShowSummary; tracks: Track[]; tou
 
 /**
  * What Details holds: the source, the recording's facts, how the sound plays, the single-key and view switches and the archive links.
- * It opens as a panel above the now-plate's stack (it is positioned against the fixed wrapper), so the plate keeps its size and the
- * bears stay in view while it is shut.
+ * It opens as a panel above the now-plate's stack (it is positioned against the stack, the shelf's body, so it hangs from the plate's
+ * edge and not from the shelf's tab beside it), so the plate keeps its size and the bears stay in view while it is shut.
  */
 function DetailsPanel({ source, show, tracks, tourName, routing, world, archiveUrl, singleKey, first }: DetailsProps) {
   /* The panel fits between the now-plate's stack and the top plates above it, at every width, so it never slides under them. Only the
@@ -121,11 +121,15 @@ function DetailsPanel({ source, show, tracks, tourName, routing, world, archiveU
   );
 }
 
+/* The id of a shelf's body, which its tab names as what it controls. */
+const shelfId = (shelf: Shelf) => `shelf-${shelf}`;
+
 /* A shelf's tab: it stays at its edge of the screen, puts its shelf away past that edge and brings it back. The chevron points the
-   way the shelf will go (the stylesheet turns it). */
-function ShelfTab({ shelf, side, name, away, className = "" }: { shelf: Shelf; side: "left" | "right"; name: string; away: boolean; className?: string }) {
+   way the shelf will go (the stylesheet turns it). Its label names the shelf and never changes: aria-expanded says whether the shelf
+   is out, so a reader hears the state once. */
+function ShelfTab({ shelf, side, label, away, className = "" }: { shelf: Shelf; side: "left" | "right"; label: string; away: boolean; className?: string }) {
   return (
-    <button type="button" data-action="shelf" data-shelf-tab={shelf} data-side={side} aria-expanded={!away} aria-label={`${away ? "Show" : "Hide"} ${name}`}
+    <button type="button" data-action="shelf" data-shelf-tab={shelf} data-side={side} aria-expanded={!away} aria-controls={shelfId(shelf)} aria-label={label}
       onClick={() => setShelf(shelf, !away)} className={`plate shelf-tab h-11 w-11 shrink-0 flex items-center justify-center text-muted hover:text-ink ${className}`}>
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 6l-6 6 6 6" /></svg>
     </button>
@@ -133,7 +137,7 @@ function ShelfTab({ shelf, side, name, away, className = "" }: { shelf: Shelf; s
 }
 
 /* The page: the world's container, the HUD on plates, the hooks, the show as JSON for the world, and the module loader. */
-export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bestSource, isToday, tourName, testHooks, lookupFailed }: Props) {
+export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bestSource, isToday, tourName, testHooks, lookupFailed, shelves }: Props) {
   const tracks = useMemo(() => flatten(bestSource), [bestSource]);
   const sets = useMemo(() => (bestSource ? deriveSets(bestSource) : NO_SETS), [bestSource]);
   const data = useMemo(() => JSON.stringify(worldData(featuredDate, show, bestSource, tracks, sets)), [featuredDate, show, bestSource, tracks, sets]);
@@ -162,8 +166,11 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
   /* The view setting, mirrored onto <main> for the world module. */
   const first = useSyncExternalStore(subscribeView, firstPersonOn, () => false);
   /* The shelves put away (shelves.ts), mirrored onto <main>: on a phone the world's camera frames the visitor's bear above the
-     now-plate only while the plate is out. */
-  const away = useSyncExternalStore(subscribeShelves, shelvesAway, () => "");
+     now-plate only while the plate is out. The server renders the ones the request's cookie names (`shelves`), so a shelf put away is
+     away in the page's first paint and never slides off after it; where this browser's storage says otherwise, storage wins and the
+     cookie is rewritten to match. */
+  const away = useSyncExternalStore(subscribeShelves, shelvesAway, () => shelves);
+  useEffect(() => matchShelvesCookie(shelves), [shelves]);
   const titleAway = isAway(away, "title"), actionsAway = isAway(away, "actions"), playerAway = isAway(away, "player");
   /* Test hooks, on preview deployments only, where the server marks <main data-test-hooks="1">: ?at=<track>&t=<seconds> is where the
      first move starts, ?stats=1 shows window.__hill in the legend plate, ?day=<YYYY-MM-DD> is the site's day the day watcher reads in
@@ -236,8 +243,8 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
           {/* The title plate and, once the site's day has turned, the chip under it, in one column. On a phone the column ends 8 px
               before the icon column (which starts 64 px from the right edge), so its lines wrap before the column. */}
           <div data-hud="top" data-shelf={titleAway ? "in" : "out"} data-side="left" className="hud shelf left-6 top-6 max-sm:left-3 max-sm:top-3 max-sm:right-[72px] flex items-start gap-2">
-            <ShelfTab shelf="title" side="left" name="the show's title" away={titleAway} />
-            <div className="shelf-body min-w-0 max-sm:flex-1 flex flex-col items-start max-sm:items-stretch gap-2">
+            <ShelfTab shelf="title" side="left" label="The show's title" away={titleAway} />
+            <div id={shelfId("title")} className="shelf-body min-w-0 max-sm:flex-1 flex flex-col items-start max-sm:items-stretch gap-2">
             <div className="plate">
               <p className="t-tag text-muted">Dead Redux</p>
               <p className="t-label text-accent mt-1">{isToday ? <>Today&rsquo;s show · {formatDate(featuredDate)}</> : <>Featured {formatDate(featuredDate)}</>}</p>
@@ -248,10 +255,11 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
             {next?.kind === "day" && <NextChip next={next} leanback={false} />}
             </div>
           </div>
-          {/* Above the now-plate's stack, so an open Details panel never covers these controls on a short screen. */}
+          {/* Above the now-plate's stack, so an open Details panel never covers these controls on a short screen. The shelf's tab comes
+              after the buttons, as it stands on a desktop, at the row's right end, so Tab reaches them in the order the screen shows; on
+              a phone it stands first, at the top of the column. */}
           <div data-hud="top" data-shelf={actionsAway ? "in" : "out"} data-side="right" className="hud shelf right-6 top-6 max-sm:right-3 max-sm:top-3 flex gap-2 max-sm:flex-col max-sm:items-end z-20!">
-            <ShelfTab shelf="actions" side="right" name="the page's buttons" away={actionsAway} className="sm:order-last" />
-            <div className="shelf-body flex gap-2 max-sm:flex-col max-sm:items-end">
+            <div id={shelfId("actions")} className="shelf-body flex gap-2 max-sm:flex-col max-sm:items-end">
             {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the world starts once per page load */}
             <a href="/archive" aria-label="Archive" className="plate t-row text-muted hover:text-ink h-11 flex items-center">
               <span className="max-sm:hidden">Archive</span>
@@ -272,13 +280,15 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
             </button>
             <ShareButtons featuredDate={featuredDate} showDate={show.date} venue={show.venue} location={show.location} isToday={isToday} />
             </div>
+            <ShelfTab shelf="actions" side="right" label="The page's buttons" away={actionsAway} className="max-sm:order-first" />
           </div>
         </>
       )}
 
-      {/* The hint waits for the first move: bottom-centre on a desktop, above the stick on a phone. */}
+      {/* The hint waits for the first move: bottom-centre on a desktop, above the stick on a phone. The world finds it by data-hint
+          (public/world/main.js). */}
       {hinting && (
-        <p role="status" className="hud plate t-row text-ink left-1/2 -translate-x-1/2 bottom-6 max-sm:bottom-[152px] whitespace-nowrap">{hint}</p>
+        <p role="status" data-hint="" className="hud plate t-row text-ink left-1/2 -translate-x-1/2 bottom-6 max-sm:bottom-[152px] whitespace-nowrap">{hint}</p>
       )}
 
       {/* Bottom-right on a desktop, so the bears at the trailhead stay in view; full width above the stick on a phone, a plate higher
@@ -286,8 +296,9 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
           at the corner beside it. */}
       <div data-shelf={!leanback && playerAway ? "in" : "out"} data-side="right"
         className={leanback ? "hud left-16 bottom-12" : `hud shelf right-6 bottom-6 flex items-end gap-2 max-sm:left-3 max-sm:right-3 ${hinting ? "max-sm:bottom-[212px]" : "max-sm:bottom-[160px]"}`}>
-        {/* The stack itself, which the shelf puts away; it stays mounted there, so the show plays on. */}
-        <div className={leanback ? "flex flex-col items-start gap-2" : "shelf-body min-w-0 max-sm:flex-1 flex flex-col items-end gap-2 max-sm:items-stretch"}>
+        {/* The stack itself, which the shelf puts away; it stays mounted there, so the show plays on. The Details panel is positioned
+            against it, at rest and while it slides alike. */}
+        <div id={leanback ? undefined : shelfId("player")} className={leanback ? "flex flex-col items-start gap-2" : "shelf-body relative min-w-0 max-sm:flex-1 flex flex-col items-end gap-2 max-sm:items-stretch"}>
         {!leanback && !fallback && (
           <div className={`plate t-tag text-muted ${stats ? "" : "max-sm:hidden"}`}>
             <p className="max-sm:hidden">Arrows or WASD to roam, drag to look</p>
@@ -306,7 +317,7 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
           )}
         </div>
         </div>
-        {!leanback && <ShelfTab shelf="player" side="right" name="the player" away={playerAway} />}
+        {!leanback && <ShelfTab shelf="player" side="right" label="The player" away={playerAway} />}
       </div>
 
       {/* The stick: a thumb on it walks and turns (public/world/input.js). It stays mounted in lean-back and in the still, only hidden:
