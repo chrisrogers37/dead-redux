@@ -14,7 +14,7 @@ const PALETTE = [0x1d1b22, 0x22201d, 0x1a1f26, 0x26201f, 0x1e2320, 0x2a2420, 0x1
 
 /* One figure in its own units, standing on y = 0 and facing +z, TALL to the top of its head: two legs LEG tall on their feet, hips, a
    torso that widens to its shoulders, a neck, a head, and two arms at its sides ending in hands, hanging from shoulders SHOULDER_X
-   either side and SHOULDER_Y up. It stands within the plain figure it replaces, 0.35 to either side and 0.27 fore and aft, its arms
+   either side and SHOULDER_Y up. Each leg has a ring at the knee, where it folds to sit. It stands within the plain figure it replaces, 0.35 to either side and 0.27 fore and aft, its arms
    within that figure's, so the reaches below still bound it. The legs and feet carry aLeg = 1, the arms and hands aArm = -1 and 1.
    Some figures wear a brimmed hat and some long hair, neither taller than the head: those parts carry aWear = 1 and 2, and the vertex
    shader folds them away on the figures that do not wear them (HAT, HAIR), so the whole crowd is still one mesh. */
@@ -34,7 +34,7 @@ export function figureGeometry() {
   const parts = [part(head, 0, 0)];
   for (const side of [-1, 1]) {
     parts.push(
-      part(new THREE.CylinderGeometry(0.088, 0.062, LEG, 6, 1, true).translate(side * 0.095, LEG / 2, 0), 1, 0),
+      part(new THREE.CylinderGeometry(0.088, 0.062, LEG, 6, 2, true).translate(side * 0.095, LEG / 2, 0), 1, 0),
       part(new THREE.BoxGeometry(0.11, 0.07, 0.21).translate(side * 0.095, 0.035, 0.05), 1, 0),
       part(new THREE.CylinderGeometry(0.05, 0.036, 0.54, 6, 1, true).translate(side * SHOULDER_X, SHOULDER_Y - 0.27, 0), 0, side),
       part(new THREE.IcosahedronGeometry(0.046, 0).translate(side * SHOULDER_X, SHOULDER_Y - 0.565, 0), 0, side),
@@ -57,9 +57,15 @@ export function figureGeometry() {
    HAIR[1]. */
 const HAT = 0.22, HAIR = [0.3, 0.62];
 
-/* A figure folds to sit: its legs to FOLD of their height, and the rest of it down onto them. The sitters' section sits (aFig.x = 1);
-   the rest of the crowd sits as `sit` rises, each figure in its turn, the last STAGGER behind the first. */
-const FOLD = 0.18, STAGGER = 0.5;
+/* A figure sits on the ground with its knees up: its hips SEAT above the ground, each thigh rising forward to the knee at KNEE
+   ([forward, up]) and each shin falling forward from it to the foot at FOOT, the rest of it down on its hips. The sitters' section
+   sits (aFig.x = 1); the rest of the crowd sits as `sit` rises, each figure in its turn, the last STAGGER behind the first. A knee
+   that bends to the beat, standing, shortens the leg to FOLD of its height at the most. */
+const FOLD = 0.18, STAGGER = 0.5, SEAT = 0.13, KNEE = [0.27, 0.46], FOOT = [0.47, 0.07];
+/* Across a folded thigh and across a folded shin, toward its upper side, as [forward, up] of length 1: a leg keeps its thickness
+   across the way it lies. */
+const across = ([z0, y0], [z1, y1]) => { const len = Math.hypot(z1 - z0, y1 - y0); return [-(y1 - y0) / len, (z1 - z0) / len]; };
+const THIGH = across([0, SEAT], KNEE), SHIN = across(KNEE, FOOT);
 /* The dance, on the figures' beat: the knees bend on each beat by BOB of a sit, and the arms swing out ARM_SWING rad between beats;
    the body sways SWAY rad to each side over two beats. Each figure keeps its own phase (aFig.y, 0-1): its knees bend within JITTER of
    a beat of the rest, and its sway starts up to a beat from theirs. */
@@ -104,7 +110,9 @@ uniform float uRise;
 uniform float uSit;
 vec2 rot(vec2 v, float a) { float c = cos(a), s = sin(a); return vec2(c * v.x - s * v.y, s * v.x + c * v.y); }`;
 /* In the figure's own units, after begin_vertex: what the figure does not wear folds to a point inside its head (HAT, HAIR); then the rise,
-   the sit, the arms, the knees and the sway, as far as the figure dances where it stands (aPart.w: still 1, at its seat 0). Every figure rises with the build-up as far as aRise lets it: all the way, but with its
+   the sit, the arms, the legs and the sway, as far as the figure dances where it stands (aPart.w: still 1, at its seat 0). A leg
+   standing bends at the knee to the beat, which shortens it; a leg sitting lies along its folded thigh and shin (KNEE, FOOT), and the
+   rest of the figure comes down onto its hips. Every figure rises with the build-up as far as aRise lets it: all the way, but with its
    arms brought down while it stands fully still (seats.js). */
 const DANCE = `
 if (aWear > 0.5) {
@@ -120,8 +128,15 @@ if (aArm != 0.0) {
   vec2 shoulder = vec2(aArm * ${f(SHOULDER_X)}, ${f(SHOULDER_Y)});
   transformed.xy = shoulder + rot(transformed.xy - shoulder, aArm * swing);
 }
-float fold = sit + (1.0 - sit) * dance * (1.0 + rise) * ${f(BOB)} * bounce;
-transformed.y = aLeg > 0.5 ? transformed.y * (1.0 - ${f(1 - FOLD)} * fold) : transformed.y - ${f(LEG * (1 - FOLD))} * fold;
+float bob = (1.0 - sit) * dance * (1.0 + rise) * ${f(BOB)} * bounce;
+if (aLeg > 0.5) {
+  float leg = clamp(transformed.y / ${f(LEG)}, 0.0, 1.0);
+  vec2 knee = vec2(${f(KNEE[0])}, ${f(KNEE[1])});
+  vec2 seated = leg > 0.5
+    ? mix(knee, vec2(0.0, ${f(SEAT)}), 2.0 * leg - 1.0) + transformed.z * vec2(${f(THIGH[0])}, ${f(THIGH[1])})
+    : mix(vec2(${f(FOOT[0])}, ${f(FOOT[1])}), knee, 2.0 * leg) + transformed.z * vec2(${f(SHIN[0])}, ${f(SHIN[1])});
+  transformed.zy = mix(vec2(transformed.z, transformed.y * (1.0 - ${f(1 - FOLD)} * bob)), seated, sit);
+} else transformed.y -= ${f(LEG * (1 - FOLD))} * bob + ${f(LEG - SEAT)} * sit;
 transformed.xy = rot(transformed.xy, dance * ${f(SWAY)} * sin(3.1416 * (uBeat + aFig.y)));`;
 /* project_vertex for the crowd, which is instanced and never batched: the figure's place on the hill, then where the parting has
    stepped it (aPart.xyz), in metres. */
