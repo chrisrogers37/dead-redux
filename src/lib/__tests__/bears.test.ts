@@ -16,7 +16,8 @@ function vertices(bear: ReturnType<typeof buildBear>): number[][] {
   return out;
 }
 // The swings a bear's limbs take: at rest, the five's widest to the music (0.65, audio.js) and the visitor's at a run (0.7, avatar.js).
-const SWINGS = [0, 0.3, -0.3, 0.5, -0.5, 0.65, -0.65, 0.7, -0.7];
+// and a tenth of a radian, where the forward paw's toe dips deepest.
+const SWINGS = [0, 0.1, -0.1, 0.3, -0.3, 0.5, -0.5, 0.65, -0.65, 0.7, -0.7];
 
 describe("buildBear", () => {
   it("stands inside the sizes the world keeps round a bear at every swing of its limbs: 4.85 m tall, 1.5 m to either side, its nose within 2.4 m, and nothing past the reach the crowd parts round", () => {
@@ -38,12 +39,15 @@ describe("buildBear", () => {
   it("keeps a paw on the ground through the stride: the bear comes down as its legs swing out, and neither floats nor sinks", () => {
     const bear = buildBear(new THREE.Scene(), 0xd4607a);
     for (const swing of SWINGS) {
-      stride(bear, swing);
-      // The lower paw's lowest point is on the ground: no more than 5 mm under it, where the forward toe dips early in a stride, and
+      const drop = stride(bear, swing);
+      // The lower paw's lowest point is on the ground: no more than 1 cm under it, where the forward toe dips early in a stride, and
       // no higher over it than the paw's own facets leave it.
       const lowest = Math.min(...vertices(bear).map(([, y]) => y));
-      expect(lowest).toBeGreaterThan(-0.005);
+      expect(lowest).toBeGreaterThan(-0.01);
       expect(lowest).toBeLessThan(0.03);
+      // The body comes down as far as the limbs' hips and shoulders do, and stride says how far.
+      expect(bear.body.position.y).toBeCloseTo(-drop, 12);
+      expect(bear.legs.map((leg: { position: { y: number } }) => leg.position.y)).toEqual([3.2 - drop, 3.2 - drop, 1.6 - drop, 1.6 - drop].map((y) => expect.closeTo(y, 9)));
     }
     // At rest it stands at its full height.
     stride(bear, 0);

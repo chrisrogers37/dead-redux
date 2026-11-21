@@ -66,15 +66,16 @@ export const HAT = 0.22, HAIR = [0.3, 0.62];
 
 /* A leg is two bones of the same length, the thigh and the shin, from the hip down to the knee and on to the foot. The knee stands
    wherever those lengths put it between the hip and the foot, always ahead of the line between them, so a leg bends and never
-   stretches or shrinks. Standing, a figure's knees bend to the beat as its hips come down, by up to FOLD of the legs' height short of
-   all of it. A figure sits on the ground with its knees up: its hips SEAT above the ground and its feet flat on it, FOOT ([forward,
-   up]) from where it stood, lower or higher by as much as the ground falls or rises that far ahead of its seat (aFig.w), so its feet
-   rest on the hill. The sitters' section sits (aFig.x = 1); the rest of the crowd sits as `sit` rises, each figure in its turn, the
+   stretches or shrinks. Standing, a figure's knees bend to the beat as its hips come down, a fifth of the legs' height at the most
+   (the bob, which is counted in the height a leg has left once it has folded to FOLD of its own). A figure sits on the ground with its
+   knees up: its hips SEAT above the ground and its feet FOOT ([forward, up]) from where it stood, lower or higher by as much as the
+   ground falls or rises that far ahead of its seat (aFig.w), and tipped along that slope, so they rest on the hill. Its arms hang
+   as they do standing, its hands at the ground beside it. The sitters' section sits (aFig.x = 1); the rest of the crowd sits as `sit` rises, each figure in its turn, the
    last STAGGER behind the first. */
 export const FOLD = 0.18, STAGGER = 0.5, SEAT = 0.075, FOOT = [0.36, 0.03];
 /* The ground's fall or rise ahead of a seat that a seated figure's feet follow, in the figure's own units, at the most. */
-const DROP = [-0.12, 0.3];
-/* The dance, on the figures' beat: the hips come down on each beat by BOB of what a sit takes, and the arms swing out ARM_SWING rad between beats;
+export const DROP = [-0.12, 0.3];
+/* The dance, on the figures' beat: the hips come down on each beat by BOB of what a fold to FOLD takes, and the arms swing out ARM_SWING rad between beats;
    the body sways SWAY rad to each side over two beats. Each figure keeps its own phase (aFig.y, 0-1): its knees bend within JITTER of
    a beat of the rest, and its sway starts up to a beat from theirs. */
 const BOB = 0.12, ARM_SWING = 0.5, SWAY = 0.08, JITTER = 0.12;
@@ -85,7 +86,7 @@ const ARM_UP = 2.7, RISE_FROM = 0.3, RISE_SPAN = 0.6, RISE_W = 0.1;
 /* How far a figure reaches in its own units, over every pose: its farthest vertex HAND from its axis (its arms level partway up the
    rise, swaying at the dance's widest), its highest TOP over its feet (its hands up at the rise's peak), and PAST beyond the bounds it
    stands in; and HANG with its arms hanging, as one standing fully still (aPart.w, seats.js) holds them. A seated figure's feet reach
-   further than HANG ahead of it, 0.52 from its axis, but along the ground, under where a bear's reach is its snout. */
+   further than HANG ahead of it, 0.54 from its axis, but along the ground, under where a bear's reach is its snout. */
 const HAND = 1.11, TOP = 2.08, PAST = 0.4, HANG = 0.354;
 /* The visitor's bear reaches 1.98 m from its middle, halfway between its feet and its head (bears.js, avatar.js). */
 const BEAR = 1.98;
@@ -150,7 +151,8 @@ if (aLeg > 0.5) {
   vec2 ahead = vec2(-along.y, along.x);
   vec2 knee = hip + along * half_ + ahead * sqrt(max(${f((LEG / 2) ** 2)} - half_ * half_, 0.0));
   foot = hip + along * min(span, ${f(LEG)});
-  if (aLeg > 1.5) transformed.zy = foot + transformed.zy;
+  /* A foot lies along the ground it rests on: tipped, seated, as the ground falls from the seat to it. */
+  if (aLeg > 1.5) transformed.zy = foot + rot(transformed.zy, -sit * atan(clamp(aFig.w, ${f(DROP[0])}, ${f(DROP[1])}), ${f(FOOT[0])}));
   else {
     float leg = clamp(transformed.y / ${f(LEG)}, 0.0, 1.0);
     vec2 thigh = normalize(knee - hip), shin = normalize(foot - knee);

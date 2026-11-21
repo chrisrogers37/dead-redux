@@ -35,13 +35,14 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     gait += 6 * Math.sqrt(speed / WALK) * dt;
     const stance = reduced ? 0 : Math.min(1, speed / WALK);
     const swing = (0.5 + 0.2 * Math.min(1, Math.max(0, (speed - STRIDE) / (RUN - STRIDE)))) * stance * Math.sin(gait);
-    stride(bear, swing);
+    const drop = stride(bear, swing);
     const y = height(x, z);
     g.position.set(x, y + 0.06 * stance * Math.sin(2 * gait), z);
     g.rotation.set(0.12 * stance * Math.min(1, speed / STRIDE), heading + Math.PI, 0);
     feet.set(x, y, z);
-    head.set(x - Math.sin(heading) * 0.8, g.position.y + HEAD, z - Math.cos(heading) * 0.8);
-    top.set(head.x, g.position.y + 4.85, head.z);
+    /* The head and the top of it come down with the stride, as the body does. */
+    head.set(x - Math.sin(heading) * 0.8, g.position.y - drop + HEAD, z - Math.cos(heading) * 0.8);
+    top.set(head.x, g.position.y - drop + 4.85, head.z);
   }
 
   /* The boom: R behind the head and 0.35 rad above it, the walker's pitch lowering or raising it, looking 6 m past the head. Desktop and

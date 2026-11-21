@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
-import { buildCrowd, figureGeometry, FOLD, FOOT, HAIR, HAT, LEG, partingOptions, SEAT, SHOULDER_X, SHOULDER_Y, TALL } from "../../../public/world/crowd.js";
+import { buildCrowd, DROP, figureGeometry, FOLD, FOOT, HAIR, HAT, LEG, partingOptions, SEAT, SHOULDER_X, SHOULDER_Y, TALL } from "../../../public/world/crowd.js";
 import { FACING, height, STAGE, STAGE_COLUMN } from "../../../public/world/ground.js";
 import { buildPath, buildWalkLine } from "../../../public/world/path.js";
 import { keepOuts, PERSON } from "../../../public/world/seats.js";
@@ -222,6 +222,9 @@ describe("the crowd's seats on the hill", () => {
       forward.set(0, 0, 1).applyQuaternion(turn).multiplyScalar(FOOT[0] * size.z);
       const fall = (height(at.x, at.z) - height(at.x + forward.x, at.z + forward.z)) / size.y;
       expect(fig.getW(i)).toBeCloseTo(fall, 5);
+      // The hill never falls or rises further ahead of a seat than the feet are let to follow.
+      expect(fig.getW(i)).toBeGreaterThanOrEqual(DROP[0]);
+      expect(fig.getW(i)).toBeLessThanOrEqual(DROP[1]);
       if (fall > 0.02) falls += 1;
     }
     // The figures face the stage, down the hill: for most of them the ground falls away ahead.
