@@ -11,11 +11,10 @@ import { WINDOW } from "../../../public/world/quality.js";
 // with the limits walkLimits builds from the bears' live spots), where attract puts the camera (postPose), and what the show's map does
 // (maps.js, beat.js and audio.js's mappings; the analyser hears nothing here, since no AudioContext is made). three, and the modules
 // that import it (the island, the path and its landmarks, the bears, the visitor's bear, the crowd, the sky and the stage), are played
-// by stand-ins, with what the frames here use: a desktop's, in either view, and a phone's first one. The stand-ins keep these tests on
-// main.js alone, and fast, frame by frame. They draw nothing, and keep what the tests read: where each bear stands, where the visitor's
-// bear steps, where the camera stands and looks and its near plane, how high in the frame it keeps the visitor's bear, the sun's shadow,
-// the stage light, the flame's size, the sky's drop, the figures' beat and the rig's aim. night.js runs as it is: the night's hour and
-// its look are plain numbers.
+// by stand-ins, with what the frames here use: a desktop's, in either view. The stand-ins keep these tests on main.js alone, and fast,
+// frame by frame. They draw nothing, and keep what the tests read: where each bear stands, where the visitor's bear steps, where the
+// camera stands and looks and its near plane, the sun's shadow, the stage light, the flame's size, the sky's drop, the figures' beat
+// and the rig's aim. night.js runs as it is: the night's hour and its look are plain numbers.
 
 type Point = { x: number; z: number };
 type Point3 = Point & { y: number };
@@ -884,41 +883,6 @@ describe("main.js's frames through the night", () => {
   });
 });
 
-describe("main.js's frames on a phone", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  // A phone held upright, and one on its side: 640 px wide or wider, where the page hides the stick, and still a touch screen under
-  // 900 px, which keeps the phone's tier.
-  const UPRIGHT: Screen = { width: 390, height: 844, touch: true };
-  const ON_ITS_SIDE: Screen = { width: 844, height: 390, touch: true };
-  // The line the world's first frame keeps the visitor's feet at or above, in px from the frame's top. main.js asks the visitor's bear for
-  // it as a height in the frame, from 1 at its top to -1 at its foot.
-  const feetLine = async (screen: Screen, hud: Hud) => {
-    const page = await startWorld({ screen, hud });
-    expect(hill().tier).toBe("phone");
-    page.run(0.02);
-    return ((1 - fake.world.keptY) / 2) * screen.height;
-  };
-
-  it("keeps the visitor's feet 24 px above the now-plate while the plate is out, whatever stands below it or does not", async () => {
-    expect(await feetLine(UPRIGHT, { plate: 500, stick: 708 })).toBeCloseTo(476, 9);
-    expect(await feetLine(UPRIGHT, { plate: 448, stick: 708, hint: 640 })).toBeCloseTo(424, 9);
-    expect(await feetLine(ON_ITS_SIDE, { plate: 196, stick: null })).toBeCloseTo(172, 9);
-  });
-
-  it("keeps them 24 px above the stick once the now-plate is away on its shelf, and above the hint while it stands over the stick", async () => {
-    expect(await feetLine(UPRIGHT, { plate: 500, away: true, stick: 708 })).toBeCloseTo(684, 9);
-    expect(await feetLine(UPRIGHT, { plate: 448, away: true, stick: 708, hint: 640 })).toBeCloseTo(616, 9);
-  });
-
-  it("keeps them 24 px above the frame's foot where the now-plate is away and the stick has no box, or above the hint while it shows", async () => {
-    expect(await feetLine(ON_ITS_SIDE, { plate: 196, away: true, stick: null })).toBeCloseTo(366, 9);
-    expect(await feetLine(ON_ITS_SIDE, { plate: 196, away: true, stick: null, hint: 314 })).toBeCloseTo(290, 9);
-  });
-});
-
 describe("main.js's frames with the show's map", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -1106,5 +1070,41 @@ describe("main.js's frames with the show's map", () => {
     await new Promise((settle) => setTimeout(settle, 50));
     expect(page.asked).toEqual([]);
     expect(hill().map).toBeNull();
+  });
+});
+
+// A phone's first frame. For these the stand-ins also keep how high in the frame main.js keeps the visitor's bear.
+describe("main.js's frames on a phone", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // A phone held upright, and one on its side: 640 px wide or wider, where the page hides the stick, and still a touch screen under
+  // 900 px, which keeps the phone's tier.
+  const UPRIGHT: Screen = { width: 390, height: 844, touch: true };
+  const ON_ITS_SIDE: Screen = { width: 844, height: 390, touch: true };
+  // The line the world's first frame keeps the visitor's feet at or above, in px from the frame's top. main.js asks the visitor's bear for
+  // it as a height in the frame, from 1 at its top to -1 at its foot.
+  const feetLine = async (screen: Screen, hud: Hud) => {
+    const page = await startWorld({ screen, hud });
+    expect(hill().tier).toBe("phone");
+    page.run(0.02);
+    return ((1 - fake.world.keptY) / 2) * screen.height;
+  };
+
+  it("keeps the visitor's feet 24 px above the now-plate while the plate is out, whatever stands below it or does not", async () => {
+    expect(await feetLine(UPRIGHT, { plate: 500, stick: 708 })).toBeCloseTo(476, 9);
+    expect(await feetLine(UPRIGHT, { plate: 448, stick: 708, hint: 640 })).toBeCloseTo(424, 9);
+    expect(await feetLine(ON_ITS_SIDE, { plate: 196, stick: null })).toBeCloseTo(172, 9);
+  });
+
+  it("keeps them 24 px above the stick once the now-plate is away on its shelf, and above the hint while it stands over the stick", async () => {
+    expect(await feetLine(UPRIGHT, { plate: 500, away: true, stick: 708 })).toBeCloseTo(684, 9);
+    expect(await feetLine(UPRIGHT, { plate: 448, away: true, stick: 708, hint: 640 })).toBeCloseTo(616, 9);
+  });
+
+  it("keeps them 24 px above the frame's foot where the now-plate is away and the stick has no box, or above the hint while it shows", async () => {
+    expect(await feetLine(ON_ITS_SIDE, { plate: 196, away: true, stick: null })).toBeCloseTo(366, 9);
+    expect(await feetLine(ON_ITS_SIDE, { plate: 196, away: true, stick: null, hint: 314 })).toBeCloseTo(290, 9);
   });
 });
