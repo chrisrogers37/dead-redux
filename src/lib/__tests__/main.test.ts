@@ -90,8 +90,9 @@ const fake = vi.hoisted(() => {
     graded: NaN,
     lift: NaN,
     keyTurned: false,
-    // The time the island's water last took its look at (island.js).
+    // The time the island's water last took its look at (island.js), and how quiet the music was then, 0 to 1.
     tide: NaN,
+    calm: NaN,
     // Whether the land's tufts are thinned by half (flora.js), as the quality ladder last set it.
     thinned: null as boolean | null,
   };
@@ -163,7 +164,7 @@ const fake = vi.hoisted(() => {
   };
   const modules = {
     // The island draws the night's look on its sea and its ground itself (island.js), which the frames here do not read.
-    island: { buildIsland: () => ({ caves: [], shade: (_look: unknown, time: number) => { world.tide = time; }, flora: { thin: (half: boolean) => { world.thinned = half; } } }) },
+    island: { buildIsland: () => ({ caves: [], shade: (_look: unknown, time: number, calm: number) => { world.tide = time; world.calm = calm; }, flora: { thin: (half: boolean) => { world.thinned = half; } } }) },
     path: {
       // The loop, where the walker stands before a frame puts it in its place in the bears' line.
       buildPath: () => ({ at: () => new Vec(), tangentAt: () => new Vec(1, 0, 0) }),
@@ -809,6 +810,22 @@ describe("main.js's frames through the night", () => {
     expect(fake.world.tide).toBe(7);
     still.hold("ArrowLeft", 0.5);
     expect(fake.world.tide).toBe(7);
+  });
+
+  it("tells the island how quiet the music is, eased over seconds: 1 in silence, less as the show's map grows loud, and always 1 under reduced motion", async () => {
+    const quiet = await startWorld();
+    quiet.run(1);
+    expect(fake.world.calm).toBe(1);
+    const loud = await startWorld({ playing: true, routing: "plain", map: showMap({ rms: 255 }) });
+    loud.run(0.5);
+    const early = fake.world.calm;
+    expect(early).toBeLessThan(1);
+    expect(early).toBeGreaterThan(0.7);
+    loud.run(6);
+    expect(fake.world.calm).toBeLessThan(0.2);
+    const still = await startWorld({ reduced: true, playing: true, routing: "plain", map: showMap({ rms: 255 }) });
+    still.run(0.02);
+    expect(fake.world.calm).toBe(1);
   });
 
   it("lands at once under reduced motion, on the hour halfway through the song, wherever the song has got to", async () => {

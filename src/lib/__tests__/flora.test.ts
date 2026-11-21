@@ -6,9 +6,9 @@ import { CAVES, height, STAGE } from "../../../public/world/ground.js";
 import { landColour, offTracks, RING, SHORE } from "../../../public/world/island.js";
 
 // The flora as island.js builds it, on the island's own ground, with a stand-in for the light the ground takes.
-function flora(tufts = 1500, stones = 120) {
+function flora(tufts = 1500, stones = 120, flies = 90) {
   const scene = new THREE.Scene();
-  const built = buildFlora(scene, { tufts, stones, extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6], colour: landColour,
+  const built = buildFlora(scene, { tufts, stones, flies, extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6], colour: landColour,
     lit: (material: { onBeforeCompile: (shader: unknown) => void }) => { material.onBeforeCompile = () => {}; return material; },
     clear: (x: number, z: number) => offTracks(x, z, 1.3) });
   return { scene, ...built };
@@ -81,9 +81,10 @@ describe("the stone", () => {
 describe("buildFlora", () => {
   const built = flora(), tufts = places(built.tufts), stones = places(built.stones);
 
-  it("draws all its tufts as one instanced mesh and all its stones as another: two draw calls", () => {
-    expect(built.scene.children).toHaveLength(2);
-    expect(built.scene.children.every((o: { isInstancedMesh?: boolean }) => o.isInstancedMesh)).toBe(true);
+  it("draws all its tufts as one instanced mesh, all its stones as another and all its fireflies as one set of points: three draw calls at the most", () => {
+    expect(built.scene.children).toHaveLength(3);
+    expect(built.scene.children.filter((o: { isInstancedMesh?: boolean }) => o.isInstancedMesh)).toHaveLength(2);
+    expect(built.scene.children.filter((o: { isPoints?: boolean }) => o.isPoints)).toEqual([built.flies]);
     expect(tufts.length).toBeGreaterThan(900);
     expect(tufts.length).toBeLessThanOrEqual(1500);
     expect(stones.length).toBeGreaterThan(60);
@@ -144,6 +145,59 @@ describe("buildFlora", () => {
     for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) expect(left.filter(({ x, z }) => Math.sign(x) === sx && Math.sign(z) === sz).length).toBeGreaterThan(left.length / 12);
     built.thin(false);
     expect(built.tufts.count).toBe(all);
+  });
+});
+
+describe("the fireflies", () => {
+  const built = flora(), at = built.flies.geometry.getAttribute("position"), n = at.count;
+
+  it("fly over the tufts, spread across the island, a little above the grass", () => {
+    expect(n).toBe(90);
+    const tufts = places(built.tufts);
+    const quarters = new Set<string>();
+    for (let i = 0; i < n; i++) {
+      const x = at.getX(i), y = at.getY(i), z = at.getZ(i);
+      // Each over a tuft's own place, 0.6 to 2.1 m above the ground there.
+      expect(tufts.some((t) => Math.abs(t.x - x) < 1e-4 && Math.abs(t.z - z) < 1e-4)).toBe(true);
+      expect(y - height(x, z)).toBeGreaterThanOrEqual(0.6 - 1e-4);
+      expect(y - height(x, z)).toBeLessThanOrEqual(2.1 + 1e-4);
+      quarters.add(`${Math.sign(x)},${Math.sign(z)}`);
+    }
+    expect(quarters.size).toBe(4);
+  });
+
+  it("are not drawn by day, come out as the night's glow rises, and add their light without hiding one another", () => {
+    expect(built.flies.visible).toBe(false);
+    built.glow(0.005);
+    expect(built.flies.visible).toBe(false);
+    built.glow(0.6);
+    expect(built.flies.visible).toBe(true);
+    expect(built.flies.material.uniforms.uGlow.value).toBe(0.6);
+    expect(built.flies.material.blending).toBe(THREE.AdditiveBlending);
+    expect(built.flies.material.depthWrite).toBe(false);
+    built.glow(0);
+    expect(built.flies.visible).toBe(false);
+  });
+
+  it("move on the wind's own time, so they hold still when it does", () => {
+    built.wind(12.25);
+    expect(built.flies.material.uniforms.uTime.value).toBe(12.25);
+    built.wind(12.25);
+    expect(built.flies.material.uniforms.uTime.value).toBe(12.25);
+  });
+
+  it("light up no faster than once in two and a half seconds each: the slowest swell and fade a visitor can count", () => {
+    // The shader's wave turns once every mix(5.2, 2.5, seed) seconds, and its lit part is the upper half of that turn.
+    const { vertexShader } = built.flies.material;
+    expect(vertexShader).toContain("sin(uTime * 6.2832 / mix(5.2000, 2.5000, aSeed.w)");
+    expect(vertexShader).toContain("wave * wave * wave");
+  });
+
+  it("are halved with the tufts on the quality ladder's rung, and come back whole", () => {
+    built.thin(true);
+    expect(built.flies.geometry.drawRange.count).toBe(45);
+    built.thin(false);
+    expect(built.flies.geometry.drawRange.count).toBe(90);
   });
 });
 

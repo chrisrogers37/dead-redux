@@ -274,7 +274,7 @@ export function buildIsland(scene, grid, phone) {
 
   /* What grows and lies on the land (flora.js): as many tufts and stones as the tier's ground is fine, each taking the stage's glow as
      the ground does, none of them on a track. */
-  const flora = buildFlora(scene, { tufts: Math.round(grid * grid * 1.9), stones: Math.round(grid * 4), extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6],
+  const flora = buildFlora(scene, { tufts: Math.round(grid * grid * 1.9), stones: Math.round(grid * 4), flies: Math.round(grid * 7), extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6],
     colour: landColour, lit: (material) => takesPool(material, uPool), clear: (x, z) => offTracks(x, z, FEATHER + 0.4) });
 
   /* The caves light for Drums (left) and Space (right): a pool on each floor and, but on a phone, a light inside. */
@@ -293,7 +293,8 @@ export function buildIsland(scene, grid, phone) {
     }
     return { disc, light, level: 0 };
   });
-  /* A look of the night on the island at a time: the sea's, and the wind in the tufts at the same time. */
-  const shade = (look, time = 0) => { sea(look, time); flora.wind(time); };
+  /* A look of the night on the island at a time: the sea's, the wind in the tufts at the same time, and the fireflies, which come out
+     as far as the night is dark and `calm` (1 when the music is quiet, 0 at its loudest) lets them. */
+  const shade = (look, time = 0, calm = 1) => { sea(look, time); flora.wind(time); flora.glow(look.dark * look.dark * (0.35 + 0.65 * calm)); };
   return { caves, shade, flora };
 }

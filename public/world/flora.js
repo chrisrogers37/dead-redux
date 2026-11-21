@@ -3,9 +3,10 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { CAVES, height, STAGE } from "./ground.js";
 
-/* What grows and lies on the land: tufts of grass over the turf, some in flower, and stones where the slope steepens and along the
-   shore. Each is one instanced mesh, so the two cost two draw calls however many there are. Nothing here is walked round: a tuft
-   stands no higher than a figure's knee, and a stone no higher than a bear's shin. */
+/* What grows, lies and flies on the land: tufts of grass over the turf, some in flower; stones where the slope steepens and along the
+   shore; and fireflies over the meadows in the dark. The tufts and the stones are one instanced mesh each and the fireflies one set of
+   points, so the three cost three draw calls however many there are. Nothing here is walked round: a tuft stands no higher than a
+   figure's knee, and a stone no higher than a bear's shin. */
 
 /* A number from 0 to 1 for a whole-numbered place and a salt, the same on every visit: nothing here is left to chance, so two stills of
    a world that holds still are the same still. */
@@ -60,19 +61,27 @@ export function stoneGeometry() {
 }
 
 /* Tufts are drawn in full to SEEN_NEAR m from the eye and are gone by SEEN_FAR, where each would be a speck that only shimmers. The
-   wind moves a blade's tip by SWAY of the tuft's height at the most. */
-const SEEN_NEAR = 55, SEEN_FAR = 95, SWAY = 0.09;
+   wind moves a blade's tip by SWAY of the tuft's height at the most, back and forth once in ten seconds or so, with a smaller turn
+   every four and a half: slow and slight, so a pale bloom never flickers against the ground behind it. */
+const SEEN_NEAR = 55, SEEN_FAR = 95, SWAY = 0.045;
 const f = (v) => v.toFixed(4);
-/* The dancing bears' colours and the page's white, for the blooms. */
-const BLOOMS = [0xd4607a, 0xe8b04b, 0xeceae4, 0x9a80c0, 0xe8b04b, 0xd4607a];
+/* The dancing bears' colours and a cream, each a little muted, for the blooms. */
+const BLOOMS = [0xc85a72, 0xd9a548, 0xcfc8b4, 0x9078b4, 0xd9a548, 0xc85a72];
 
-/* Builds what grows and lies on the land: at most `tufts` tufts and `stones` stones. The turf reaches `extent` m from the island's
+/* The fireflies: each wanders FLY_ROAM m about its own place over the grass and lights up once every FLY_SLOW to FLY_QUICK seconds,
+   a soft rise and fall that fills about a third of that time, so no one of them brightens and dims faster than once in FLY_QUICK
+   seconds. They show as far as the night is dark and the music quiet, and are gone by FLY_FAR m from the eye. */
+const FLY_ROAM = 1.6, FLY_SLOW = 5.2, FLY_QUICK = 2.5, FLY_FAR = 110;
+const FLY_COLOUR = [0.8, 1.0, 0.42];
+
+/* Builds what grows and lies on the land: at most `tufts` tufts and `stones` stones, and `flies` fireflies over the tufts. The turf reaches `extent` m from the island's
    centre and the shore's sand lies from `beach[0]` to `beach[1]` m out; `colour(x, y, z, ny, out)` gives the land's colour at a point,
    `lit(material)` has a material take the light the ground takes (the stage's glow), and `clear(x, z)` is false where nothing may
    stand (a track). A tuft grows on turf, more thickly in some meadows than others, and a stone lies where the turf gives way to bare
-   stone, along the shore's sand, and here and there on the turf. Returns `wind(time)`, which sways the tufts at a time, and
-   `thin(half)`, which draws half the tufts or all of them. */
-export function buildFlora(scene, { tufts, stones, extent, beach, colour, lit, clear }) {
+   stone, along the shore's sand, and here and there on the turf. Returns `wind(time)`, which sways the tufts and moves the
+   fireflies at a time; `glow(level)`, which lights the fireflies from 0, by day, to 1; and `thin(half)`, which draws half the tufts
+   and half the fireflies, or all of them. */
+export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, colour, lit, clear }) {
   const dummy = new THREE.Object3D(), tint = new THREE.Color(), bloomColour = new THREE.Color();
   /* The land at a point: its height, how upright it stands (1 on level ground), and whether anything may stand there. */
   const land = (x, z) => {
@@ -105,7 +114,7 @@ export function buildFlora(scene, { tufts, stones, extent, beach, colour, lit, c
         vec3 root = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
         float shown = 1.0 - smoothstep(${f(SEEN_NEAR)}, ${f(SEEN_FAR)}, length((modelViewMatrix * vec4(root, 1.0)).xyz));
         if (aBloom > 0.5 && aFlower.a < 0.5) transformed = vec3(0.0);
-        float sway = aTip * ${f(SWAY)} * (sin(uWind * 1.1 + root.x * 0.35 + root.z * 0.27) + 0.4 * sin(uWind * 2.3 + root.z * 0.9));
+        float sway = aTip * ${f(SWAY)} * (sin(uWind * 0.6 + root.x * 0.35 + root.z * 0.27) + 0.4 * sin(uWind * 1.4 + root.z * 0.9));
         transformed.xz += vec2(sway, 0.6 * sway);
         transformed *= shown;`);
     /* Both faces of a blade take the light as its upper one does. */
@@ -173,9 +182,60 @@ export function buildFlora(scene, { tufts, stones, extent, beach, colour, lit, c
   });
   scene.add(stoneMesh);
 
+  /* The fireflies: over tufts spread across the island, a little above the grass. Their light is added to what is behind them, and
+     they write no depth, so one never hides another; they hide behind the land and whatever stands on it. */
+  const flyLevel = { value: 0 };
+  const flyCount = Math.min(flies, placed.length);
+  const flyAt = new Float32Array(3 * flyCount), flySeed = new Float32Array(4 * flyCount);
+  for (let k = 0; k < flyCount; k++) {
+    /* Every so-many-th tuft, which the cells' scattered order has already spread across the island. */
+    const [x, y, z, , a, b] = placed[Math.floor((k * placed.length) / flyCount)];
+    flyAt.set([x, y + 0.6 + 1.5 * chance(a, b, 31), z], 3 * k);
+    flySeed.set([chance(a, b, 32), chance(a, b, 33), chance(a, b, 34), chance(a, b, 35)], 4 * k);
+  }
+  const flyGeo = new THREE.BufferGeometry();
+  flyGeo.setAttribute("position", new THREE.BufferAttribute(flyAt, 3));
+  flyGeo.setAttribute("aSeed", new THREE.BufferAttribute(flySeed, 4));
+  const flyMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: wind, uGlow: flyLevel },
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: `
+      attribute vec4 aSeed;
+      uniform highp float uTime;
+      uniform float uGlow;
+      varying float vLit;
+      void main() {
+        vec3 roam = vec3(sin(uTime * (0.21 + 0.2 * aSeed.x) + 6.2832 * aSeed.y), 0.45 * sin(uTime * (0.33 + 0.2 * aSeed.z) + 6.2832 * aSeed.w),
+          cos(uTime * (0.17 + 0.2 * aSeed.y) + 6.2832 * aSeed.x));
+        vec4 seen = modelViewMatrix * vec4(position + ${f(FLY_ROAM)} * roam, 1.0);
+        /* One light every FLY_SLOW to FLY_QUICK seconds: the upper part of a slow wave, cubed, so it swells and dies away. */
+        float wave = max(0.0, sin(uTime * 6.2832 / mix(${f(FLY_SLOW)}, ${f(FLY_QUICK)}, aSeed.w) + 6.2832 * aSeed.z));
+        vLit = uGlow * wave * wave * wave * (1.0 - smoothstep(${f(0.5 * FLY_FAR)}, ${f(FLY_FAR)}, -seen.z));
+        gl_PointSize = clamp((520.0 + 320.0 * aSeed.x) / -seen.z, 2.5, 20.0);
+        gl_Position = projectionMatrix * seen;
+      }`,
+    fragmentShader: `
+      varying float vLit;
+      void main() {
+        /* A bright heart in a soft halo. */
+        float out_ = length(gl_PointCoord - 0.5) * 2.0;
+        float soft = (1.0 - smoothstep(0.0, 1.0, out_)) * (0.35 + 1.9 * (1.0 - smoothstep(0.0, 0.3, out_)));
+        gl_FragColor = vec4(vec3(${FLY_COLOUR.map(f).join(", ")}) * vLit * soft, 1.0);
+      }`,
+  });
+  const flyPoints = new THREE.Points(flyGeo, flyMat);
+  flyPoints.frustumCulled = false;
+  flyPoints.visible = false;
+  scene.add(flyPoints);
+
   return {
-    tufts: tuftMesh, stones: stoneMesh,
+    tufts: tuftMesh, stones: stoneMesh, flies: flyPoints,
     wind: (time) => { wind.value = time; },
-    thin: (half) => { tuftMesh.count = half ? Math.ceil(placed.length / 2) : placed.length; },
+    /* By day they are not drawn at all, which saves their draw call. */
+    glow: (level) => { flyLevel.value = level; flyPoints.visible = level > 0.01; },
+    thin: (half) => {
+      tuftMesh.count = half ? Math.ceil(placed.length / 2) : placed.length;
+      flyGeo.setDrawRange(0, half ? Math.ceil(flyCount / 2) : flyCount);
+    },
   };
 }

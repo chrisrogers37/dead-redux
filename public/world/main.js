@@ -208,6 +208,8 @@ function start(gl) {
      neither gives one, and always under reduced motion), the last drive heard, and how far the world follows it, easing over 0.8 s each
      way so it never snaps to or from the music. */
   let drive = null, heard = null, weight = 0;
+  /* How quiet the music is, from 1, silence, to 0, its loudest, eased over seconds: the fireflies' cue (flora.js). */
+  let calm = 1;
   /* What the music does to the world this frame (audio.js mappings). */
   let layer2 = mappings(null, 0);
   /* The bears' leg phase, which the music's loudness speeds; it accumulates, so a change of rate never jumps the legs. */
@@ -544,8 +546,10 @@ function start(gl) {
     } else {
       skyMat.uniforms.uTime.value = data.seed;
     }
-    /* The island takes the look at the sky's own time, which stands still under reduced motion, so its water does too. */
-    shade(look, skyMat.uniforms.uTime.value);
+    /* The island takes the look at the sky's own time, which stands still under reduced motion, so its water does too. Its fireflies
+       come out as the music quietens, over a few seconds; under reduced motion they keep the calm of a quiet night. */
+    calm = reduced ? 1 : toward(calm, 1 - weight * (heard?.loud ?? 0), dt / 2.5);
+    shade(look, skyMat.uniforms.uTime.value, calm);
 
     /* Drums lights the left cave and Space the right, over eight seconds; under reduced motion at once. */
     for (const [k, c] of caves.entries()) {
