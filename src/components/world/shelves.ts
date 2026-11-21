@@ -7,6 +7,13 @@ export type Shelf = (typeof SHELVES)[number];
 
 /** localStorage key of the shelves put away: their names, in SHELVES' order, joined by commas; "" or nothing when all are out. */
 const SHELVES_STORAGE = "dead-redux:shelves";
+/**
+ * The cookie that carries the same string to the server, which renders each shelf where the visitor left it. Storage alone is read
+ * only once the page's script runs, so a shelf put away would load out and then slide off.
+ */
+export const SHELVES_COOKIE = "dead-redux-shelves";
+/** How long the cookie lasts, in seconds: a year. */
+const COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
 /** Fired on document when a shelf moves; the storage event reaches only other tabs. */
 const SHELVES_EVENT = "dead-redux:shelves-change";
 
@@ -14,6 +21,14 @@ const SHELVES_EVENT = "dead-redux:shelves-change";
 export function parseShelves(value: string | null): string {
   const named = (value ?? "").split(",");
   return SHELVES.filter((shelf) => named.includes(shelf)).join(",");
+}
+
+/**
+ * The shelves a request's cookie puts away, for the server's render: parseShelves' string, so whatever a visitor writes in the cookie,
+ * only the three names reach the markup.
+ */
+export function shelvesFromCookie(value: string | undefined): string {
+  return parseShelves(value ?? null);
 }
 
 /** Whether `away` (parseShelves' string) names a shelf. */
@@ -35,14 +50,37 @@ export function shelvesAway(): string {
   }
 }
 
-/** Puts a shelf away or brings it out, and tells this tab's listeners. */
+/** Writes the cookie to match `away`, on every path, for a year; with every shelf out it is cleared. */
+function writeCookie(away: string): void {
+  try {
+    document.cookie = `${SHELVES_COOKIE}=${away}; path=/; max-age=${away ? COOKIE_MAX_AGE : 0}; SameSite=Lax`;
+  } catch {
+    // cookies unavailable: the server renders every shelf out, and the page puts the stored ones away once it has loaded
+  }
+}
+
+/**
+ * Puts a shelf away or brings it out, and tells this tab's listeners. Storage is what this browser goes by, and the cookie is written
+ * to match what it now holds, so where storage cannot be written the cookie names no shelf either.
+ */
 export function setShelf(shelf: Shelf, put: boolean): void {
   try {
     localStorage.setItem(SHELVES_STORAGE, withShelf(shelvesAway(), shelf, put));
   } catch {
     // storage unavailable: the shelves stay out
   }
+  writeCookie(shelvesAway());
   document.dispatchEvent(new Event(SHELVES_EVENT));
+}
+
+/**
+ * Once the page has hydrated: where the shelves stored here differ from `sent`, the ones the request's cookie named and the server
+ * rendered, the stored ones stand (useSyncExternalStore has drawn them by then) and the cookie is rewritten to match, so the next
+ * load's HTML is right. That is a visitor whose cookie was cleared, or who put a shelf away before there was a cookie.
+ */
+export function matchShelvesCookie(sent: string): void {
+  const away = shelvesAway();
+  if (away !== sent) writeCookie(away);
 }
 
 /** Subscribes to the shelves' moves, from this tab or another, for useSyncExternalStore. */
