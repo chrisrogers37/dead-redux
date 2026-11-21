@@ -227,7 +227,12 @@ const PAGES = [
     path: "/2026-10-20?pose=crowd&drive=map&at=14",
     devices: ["desktop"],
     shots: [],
-    steps: [playStep("fixed-crowd-space", { ms: 20000, shot: "fixed-crowd-space-20s", night: true })],
+    steps: [
+      playStep("fixed-crowd-space", { ms: 20000, shot: "fixed-crowd-space-20s", night: true }),
+      // The moon, which no camera of the shoot faces: it stands 150 degrees round from north and 30 up (night.js), which from
+      // ?pose=crowd's heading is 1.76 rad to the right and, from its look down, 1 rad up. A drag turns the view 0.005 rad a px.
+      { drag: [353, -200], shot: "fixed-crowd-moon" },
+    ],
   },
   // The fixed day from ?pose=among: the visitor's bear among the crowd's middle rows, off the aisle, and the figures round it stepped
   // aside.
@@ -259,8 +264,9 @@ const PAGES = [
       },
     ],
   },
-  // The night the show carries the island through (night.js), at three of its hours, while the show plays with ?drive=map: the last light,
-  // as Jack Straw opens set 1; the deep of the night, in Space; and first light, as U.S. Blues, the encore, begins. From ?pose=crowd on
+  // The night the show carries the island through (night.js), at four of its hours, while the show plays with ?drive=map: the last light,
+  // as Jack Straw opens set 1; the deep of the night, in Space, with the moon; first light, as U.S. Blues, the encore, begins; and
+  // daybreak, as it ends. From ?pose=crowd on
   // the desktop and a phone, where fixed-crowd-dance and the desktop's fixed-crowd-space, above, are the first two; and from ?pose=path on
   // the desktop. The stats line's `night` reads the hour the world shows beside the hour the show stands at.
   // The join moves the show's hour at once, and the world follows it frame by frame (followHour): a frame adds at most 50 ms of world
@@ -289,6 +295,20 @@ const PAGES = [
     devices: ["phone"],
     shots: [],
     steps: [playStep("fixed-crowd-first-light-start", { ms: 8000, shot: "fixed-crowd-first-light", night: true })],
+  },
+  // Daybreak, behind the stage: the encore joined 72 s before its end (U.S. Blues, 287 s), shot 30 s on, with the show still playing,
+  // the sun's edge on the horizon and the rig's beams washed out to about half.
+  {
+    path: "/2026-10-20?pose=crowd&drive=map&at=18&t=215",
+    devices: ["desktop", "phone"],
+    shots: [],
+    steps: [playStep("fixed-crowd-daybreak-start", { ms: 30000, shot: "fixed-crowd-daybreak", night: true })],
+  },
+  {
+    path: "/2026-10-20?pose=path&drive=map&at=18&t=215",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-path-daybreak-start", { ms: 30000, shot: "fixed-path-daybreak", night: true })],
   },
   // From ?pose=path the last light is fixed-stage-path, above: the world opens on hour 0, before the show plays.
   {
@@ -779,6 +799,14 @@ try {
         if (step.focus) await page.focus(selector);
         else if (step.click) await page.click(selector);
         if (step.press) await page.keyboard.press(step.press);
+        // A drag on the world turns and tilts the view by so many px ([right, down]), from a point clear of every plate.
+        if (step.drag) {
+          const { width, height } = page.viewportSize(), x = width * 0.45, y = height * 0.55;
+          await page.mouse.move(x, y);
+          await page.mouse.down();
+          await page.mouse.move(x + step.drag[0], y + step.drag[1], { steps: 8 });
+          await page.mouse.up();
+        }
         if (step.waitFor) {
           await page
             .waitForSelector(step.waitFor, { timeout: step.waitMs ?? 15_000 })
