@@ -55,7 +55,8 @@ interface DetailsProps { source: Source; show: ShowSummary; tracks: Track[]; tou
  */
 function DetailsPanel({ source, show, tracks, tourName, routing, world, archiveUrl, singleKey, first }: DetailsProps) {
   /* The panel fits between the now-plate's stack and the top plates above it, at every width, so it never slides under them. Only the
-     plates it would run into count: on a phone both, on a wider screen the top-right row. */
+     plates it would run into count: on a phone both, on a wider screen the top-right row. A plate's tab counts with it, wherever it
+     hangs, and of a plate put away on its shelf only the tab is left to count. */
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -63,7 +64,8 @@ function DetailsPanel({ source, show, tracks, tourName, routing, world, archiveU
     if (!el || !wrapper) return;
     const fit = () => {
       const { left, right } = el.getBoundingClientRect();
-      const above = Array.from(document.querySelectorAll("[data-hud='top']"), (n) => n.getBoundingClientRect()).filter((r) => r.left < right && r.right > left);
+      const above = Array.from(document.querySelectorAll("[data-hud='top'][data-shelf='out'], [data-hud='top']:not([data-shelf]), [data-hud='top'] > [data-shelf-tab]"), (n) => n.getBoundingClientRect())
+        .filter((r) => r.left < right && r.right > left);
       const hud = Math.max(0, ...above.map((r) => r.bottom));
       el.style.maxHeight = `${Math.max(0, Math.floor(wrapper.getBoundingClientRect().top - 8 - (hud + 8)))}px`;
     };

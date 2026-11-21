@@ -57,10 +57,17 @@ body { background-color: var(--page); color: var(--ink); }
 .shelf[data-shelf="in"][data-side="right"] > .shelf-body { transform: translateX(calc(100% + 96px)); }
 .shelf-tab { padding: 0; }
 /* On a phone the title's tab hangs under its plate, and stands in the corner once the plate is away; the player's stands in the
-   stick's row, at the right. Neither takes any of its plate's width. */
-@media (width < 40rem) {
+   stick's row, at the right. Neither takes any of its plate's width. On a screen under 60rem wide, a phone on its side among them,
+   the title's plate and the buttons' row have no room for a tab beside each, so there both top tabs hang under their plates. */
+@media (width < 60rem) {
   .shelf > .shelf-tab[data-shelf-tab="title"] { position: absolute; left: 0; top: calc(100% + 8px); }
   .shelf[data-shelf="in"] > .shelf-tab[data-shelf-tab="title"] { top: 0; }
+}
+@media (40rem <= width < 60rem) {
+  .shelf > .shelf-tab[data-shelf-tab="actions"] { position: absolute; right: 0; top: calc(100% + 8px); }
+  .shelf[data-shelf="in"] > .shelf-tab[data-shelf-tab="actions"] { top: 0; }
+}
+@media (width < 40rem) {
   .shelf > .shelf-tab[data-shelf-tab="player"] { position: absolute; right: 0; top: calc(100% + 58px); }
 }
 .shelf-tab svg { transition: transform 200ms ease-out; }
