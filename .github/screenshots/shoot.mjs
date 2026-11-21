@@ -209,10 +209,11 @@ const PAGES = [
   // loudness takes it, and the rig's beams swing over it; from 20 s before Fire On The Mountain's peak the build-up lifts it, the front
   // rows first, and gathers the beams, and the later shot lands a few seconds before the peak, with the rise rippled out toward the back
   // (the light show's key screen, on a phone and phone-360 too); and in Space it sits, swaying where it sits, and the beams lift. The
-  // stats line's `crowd` reads how far it dances and how far it sits, and `rig` how far the rig is lit, gathered and lifted.
+  // stats line's `crowd` reads how far it dances and how far it sits, and `rig` how far the rig is lit, gathered and lifted. Jack Straw's
+  // start is shot on a phone too, and Space's later shot waits 20 s: they are the night's shots as well (below).
   {
     path: "/2026-10-20?pose=crowd&drive=map&at=1",
-    devices: ["desktop"],
+    devices: ["desktop", "phone"],
     shots: [],
     steps: [playStep("fixed-crowd-dance", { ms: 8000, shot: "fixed-crowd-dance-8s" })],
   },
@@ -226,7 +227,7 @@ const PAGES = [
     path: "/2026-10-20?pose=crowd&drive=map&at=14",
     devices: ["desktop"],
     shots: [],
-    steps: [playStep("fixed-crowd-space", { ms: 8000, shot: "fixed-crowd-space-8s" })],
+    steps: [playStep("fixed-crowd-space", { ms: 20000, shot: "fixed-crowd-space-20s" })],
   },
   // The fixed day from ?pose=among: the visitor's bear among the crowd's middle rows, off the aisle, and the figures round it stepped
   // aside.
@@ -257,6 +258,50 @@ const PAGES = [
         shot: "fixed-newday-tapped",
       },
     ],
+  },
+  // The night the show carries the island through (night.js), at three of its hours, while the show plays with ?drive=map: the last light,
+  // as Jack Straw opens set 1; the deep of the night, in Space; and first light, as U.S. Blues, the encore, begins. From ?pose=crowd on
+  // the desktop and a phone, where fixed-crowd-dance and the desktop's fixed-crowd-space, above, are the first two; and from ?pose=path on
+  // the desktop. The stats line's `night` reads the hour the world shows beside the hour the show stands at.
+  // The join moves the show's hour at once, and the world follows it frame by frame (followHour): a frame adds at most 50 ms of world
+  // time, so it moves the hour at most 0.0225 (0.45 a second), and once under 0.42 of an hour is left, 5.4 % of that (1 - e^(-0.05/0.9)).
+  // From hour 0, Space's hour, 1, is 26 frames and 39 more to come within 0.05 of it, 65 in all; first light's, 1.7, which moves on as the
+  // encore plays, about 100. CI draws the desktop 2.2 to 4 frames a second, about 25 of them between the join and the play step's shot,
+  // which so falls near hour 0.6, the blue hour; and a later shot comes 2 to 4 s after its wait. So the desktop waits 20 s for Space (25 +
+  // 2.2 × 24 = 78 frames or more) and 30 s for first light (25 + 2.2 × 34 = 100), which on a fast runner ends just short of the world's
+  // 180th frame, where it can first step down a rung (quality.js). A phone draws 10 to 30 a second there, so the 8 s of its other later
+  // shots is over 100 frames. These stand before the show's end, which forgets the point each of them saves: no later play step resumes
+  // from one.
+  {
+    path: "/2026-10-20?pose=crowd&drive=map&at=14",
+    devices: ["phone"],
+    shots: [],
+    steps: [playStep("fixed-crowd-space", { ms: 8000, shot: "fixed-crowd-space-8s" })],
+  },
+  {
+    path: "/2026-10-20?pose=crowd&drive=map&at=18",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-crowd-first-light-start", { ms: 30000, shot: "fixed-crowd-first-light" })],
+  },
+  {
+    path: "/2026-10-20?pose=crowd&drive=map&at=18",
+    devices: ["phone"],
+    shots: [],
+    steps: [playStep("fixed-crowd-first-light-start", { ms: 8000, shot: "fixed-crowd-first-light" })],
+  },
+  // From ?pose=path the last light is fixed-stage-path, above: the world opens on hour 0, before the show plays.
+  {
+    path: "/2026-10-20?pose=path&drive=map&at=14",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-path-night-start", { ms: 20000, shot: "fixed-path-night" })],
+  },
+  {
+    path: "/2026-10-20?pose=path&drive=map&at=18",
+    devices: ["desktop"],
+    shots: [],
+    steps: [playStep("fixed-path-first-light-start", { ms: 30000, shot: "fixed-path-first-light" })],
   },
   // The fixed day 6 s before its last track ends (U.S. Blues, 287 s): the show ends, and the offer names a past pick.
   {
