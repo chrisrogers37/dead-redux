@@ -272,9 +272,12 @@ export function buildIsland(scene, grid, phone) {
   const ringLine = Array.from({ length: 240 }, (_, k) => [round * Math.cos((k / 240) * 2 * Math.PI), round * Math.sin((k / 240) * 2 * Math.PI)]);
   scene.add(new THREE.Mesh(mergeGeometries([track(ringLine, true, (SHORE - RING) / 2, surface), track(BOLT, false, BOLT_HALF, surface)]), bandMat));
 
-  /* What grows and lies on the land (flora.js): as many tufts and stones as the tier's ground is fine, each taking the stage's glow as
-     the ground does, none of them on a track. */
-  const flora = buildFlora(scene, { tufts: Math.round(grid * grid * 1.9), stones: Math.round(grid * 4), flies: Math.round(grid * 7), extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6],
+  /* What grows and lies on the land (flora.js): as many tufts and stones as the tier's ground is fine, thickest on a desktop's (a
+     grid of 80 or more), thinner on a TV's and fewer than half as thick on a phone's, whose frame is small and whose every triangle
+     costs it more; each takes the stage's glow as the ground does, and none of them stands on a track. */
+  const thick = phone ? 0.8 : grid >= 80 ? 1.9 : 1.1;
+  const flora = buildFlora(scene, { tufts: Math.round(grid * grid * thick), stones: Math.round(grid * (phone ? 2.5 : 4)), flies: Math.round(grid * (phone ? 4 : 7)),
+    extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6],
     colour: landColour, lit: (material) => takesPool(material, uPool), clear: (x, z) => offTracks(x, z, FEATHER + 0.4) });
 
   /* The caves light for Drums (left) and Space (right): a pool on each floor and, but on a phone, a light inside. */
