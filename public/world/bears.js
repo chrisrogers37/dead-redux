@@ -104,13 +104,15 @@ const legReach = (angle) => {
 };
 /* Swings a bear's limbs by `swing` radians: an arm with the leg across from it, the two legs against each other. A leg that swings
    from the hip lifts its paw, so the whole bear comes down by as much as its lower paw rose, and a paw stays on the ground through the
-   stride. It never rises: early in a stride the toe of the forward paw dips a few millimetres under the ground instead. */
+   stride. It never rises: early in a stride the toe of the forward paw dips a few millimetres under the ground instead. Returns how
+   far the bear came down, in metres. */
 const REST = legReach(0);
 export function stride(bear, swing) {
   const { legs, body } = bear, drop = Math.max(0, REST - legReach(Math.abs(swing)));
   legs[0].rotation.x = swing; legs[3].rotation.x = swing; legs[1].rotation.x = -swing; legs[2].rotation.x = -swing;
   for (let k = 0; k < 4; k++) legs[k].position.y = LIMBS[k].at[1] - drop;
   body.position.y = 0 - drop;
+  return drop;
 }
 
 /* The tier's bears (five, or three on a phone) in the dancing-bear colours. */
