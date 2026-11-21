@@ -114,11 +114,13 @@ describe("focusWorldOnRelease", () => {
     expect(world.focus).not.toHaveBeenCalled();
   });
 
-  it("does nothing for a touch, which walks by the stick, so a screen reader's tap keeps its place on the slider", () => {
-    const { world, lift } = page(0);
-    press("touch");
-    lift();
-    expect(world.focus).not.toHaveBeenCalled();
+  it("answers a mouse and a pen alone: a touch, which walks by the stick, and a press that names no pointer keep their place on the slider", () => {
+    for (const kind of ["touch", ""]) {
+      const { world, lift } = page(0);
+      press(kind);
+      lift();
+      expect(world.focus).not.toHaveBeenCalled();
+    }
   });
 
   it("leaves focus where it is over the still, which is not focusable, and on a page without a world", () => {
