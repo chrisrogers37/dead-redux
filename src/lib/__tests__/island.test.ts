@@ -159,7 +159,7 @@ describe("the sea", () => {
     const scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0x000000, 100, 400);
     const { shade } = buildIsland(scene, 20, true);
-    const seas = scene.children.filter((o: { material?: { isShaderMaterial?: boolean } }) => o.material?.isShaderMaterial);
+    const seas = scene.children.filter((o: { isMesh?: boolean; material?: { isShaderMaterial?: boolean } }) => o.isMesh && o.material?.isShaderMaterial);
     expect(seas).toHaveLength(1);
     const { material } = seas[0];
     expect(material.fog).toBe(true);
@@ -176,7 +176,7 @@ describe("the sea", () => {
     const scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0x000000, 100, 400);
     buildIsland(scene, 20, true);
-    const { fragmentShader } = scene.children.find((o: { material?: { isShaderMaterial?: boolean } }) => o.material?.isShaderMaterial).material;
+    const { fragmentShader } = scene.children.find((o: { isMesh?: boolean; material?: { isShaderMaterial?: boolean } }) => o.isMesh && o.material?.isShaderMaterial).material;
     // ground.js's slope past 118 m: 2.5 + 0.6 sin(0.3 x) cos(0.27 z) - 0.55 (d - 118). The shader's depth is its negative.
     expect(fragmentShader).toContain("float depth = (r - 118.0) * 0.55 - 2.5 - 0.6 * sin(vAt.x * 0.3) * cos(vAt.y * 0.27)");
     for (const [x, z] of [[121, 0], [0, -124], [90, 85]]) {
