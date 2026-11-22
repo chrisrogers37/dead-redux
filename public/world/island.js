@@ -92,6 +92,13 @@ float grain(vec2 p) {
    proud of the ground at their highest, so a low sun or the stage's glow picks the turf out; a phone does without it. The relief is
    read from how the grain's height changes from one pixel to the next, which costs no more of the grain than its colour does. */
 const TUSSOCK = 0.9, BLADE = 5.3, FINE_NEAR = 22, FINE_FAR = 70, RELIEF = 0.126;
+/* A grain is drawn in full while a pixel takes in no more than HELD_FROM of one of its cells, and is gone, into the ground's even
+   colour, by HELD_TO of one: past that a pixel cannot hold it, and it would break into a dither where the land is seen edge-on. */
+const HELD_FROM = 0.25, HELD_TO = 0.6;
+/* The angle a pixel spans on a desktop's frame, 900 px tall with a 60 degree view; and the angle one spans for a camera and a frame
+   `tall` px high. */
+const PIXEL = (2 * Math.tan(Math.PI / 6)) / 900;
+export const pixelAngle = (camera, tall) => (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(1, tall);
 /* The tracks, as the ground's shader reckons them: tracksAt, in GLSL. */
 const g2 = ([x, z]) => `vec2(${f(x)}, ${f(z)})`;
 const TRACKS = `
@@ -102,18 +109,31 @@ float tracks(vec2 p) {
   return max(ring, 1.0 - smoothstep(${f(BOLT_HALF)}, ${f(BOLT_HALF + FEATHER)}, bolt));
 }`;
 /* Has a material that takes the stage's glow (takesPool) wear the land's grain as well, and with `tracked` the tracks' packed earth
-   where they run. */
-export function grained(material, relief, tracked = false) {
+   where they run. `pixel` holds the angle one pixel of the frame spans, in radians, which whoever draws the mesh keeps to the camera
+   and the frame (pixelAngle); left alone it is a desktop's. The material is one that shades smooth: the grain reads its normal. */
+export function grained(material, relief, tracked = false, pixel = { value: PIXEL }) {
   const pool = material.onBeforeCompile;
   material.onBeforeCompile = (shader) => {
     pool(shader);
+    shader.uniforms.uPixel = pixel;
     const earth = new THREE.Color(TRACK);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>${GRAIN}${tracked ? TRACKS : ""}`)
+      .replace("#include <common>", `#include <common>\nuniform float uPixel;${GRAIN}${tracked ? TRACKS : ""}`)
       .replace("#include <color_fragment>", `#include <color_fragment>${tracked ? `
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${f(earth.r)}, ${f(earth.g)}, ${f(earth.b)}), tracks(vPoolAt.xz));` : ""}
-        float fineShown = 1.0 - smoothstep(${f(FINE_NEAR)}, ${f(FINE_FAR)}, length(vViewPosition));
-        float tussocks = grain(vPoolAt.xz * ${f(TUSSOCK)} + 17.0), blades = 0.5;
+        /* How much ground this pixel takes in along the line of sight, in metres: as far as the ground is from the eye, by the
+           angle a pixel spans (uPixel), over how squarely the eye meets the ground. Seen edge-on a pixel takes in more than a
+           grain is wide, and a grain a pixel cannot hold only dithers, so each size of grain goes as its cells near a pixel's
+           reach. The ground's own smooth normal is read, so the fade runs across the mesh's triangles without a step. */
+        float covers = length(vViewPosition) * uPixel / max(abs(dot(normalize(vNormal), normalize(vViewPosition))), 0.02);
+        /* Where the land bends sharply, as at the shore's rim, the smooth normal can stand squarer to the eye than the face it is
+           drawn on, so the reach is never taken for less than the face's own, read from pixel to pixel. */
+        vec2 acrossGround = dFdx(vPoolAt.xz), downGround = dFdy(vPoolAt.xz);
+        covers = max(covers, sqrt(max(dot(acrossGround, acrossGround), dot(downGround, downGround))));
+        float coarseShown = 1.0 - smoothstep(${f(HELD_FROM)}, ${f(HELD_TO)}, covers * ${f(TUSSOCK)});
+        float fineShown = (1.0 - smoothstep(${f(FINE_NEAR)}, ${f(FINE_FAR)}, length(vViewPosition))) * (1.0 - smoothstep(${f(HELD_FROM)}, ${f(HELD_TO)}, covers * ${f(BLADE)}));
+        float tussocks = 0.5, blades = 0.5;
+        if (coarseShown > 0.0) tussocks = mix(0.5, grain(vPoolAt.xz * ${f(TUSSOCK)} + 17.0), coarseShown);
         if (fineShown > 0.0) blades = grain(vPoolAt.xz * ${f(BLADE)} + 41.0);
         diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - 0.5) + 0.26 * (blades - 0.5) * fineShown;`);
     if (relief) shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_begin>", `#include <normal_fragment_begin>
@@ -265,7 +285,11 @@ export function buildIsland(scene, grid, phone, loop = []) {
   for (let i = 0; i < pos.count; i++) landColour(pos.getX(i), pos.getY(i), pos.getZ(i), normal.getY(i), color).toArray(colors, i * 3);
   ground.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   const uPool = { value: new THREE.Color(0x000000) };
-  scene.add(new THREE.Mesh(ground, grained(takesPool(new THREE.MeshLambertMaterial({ vertexColors: true }), uPool), !phone, true)));
+  const uPixel = { value: PIXEL }, drawn = new THREE.Vector2();
+  const land = new THREE.Mesh(ground, grained(takesPool(new THREE.MeshLambertMaterial({ vertexColors: true }), uPool), !phone, true, uPixel));
+  /* The grain fades by what a pixel of this frame takes in of the ground, whatever the tier's view and the render scale. */
+  land.onBeforeRender = (renderer, _scene, camera) => { uPixel.value = pixelAngle(camera, renderer.getDrawingBufferSize(drawn).y); };
+  scene.add(land);
   const sea = buildSea(scene, uPool);
 
   /* What grows and lies on the land (flora.js): as many tufts and stones as the tier's ground is fine, thickest on a desktop's (a
@@ -289,7 +313,7 @@ export function buildIsland(scene, grid, phone, loop = []) {
     }
     return true;
   };
-  const flora = buildFlora(scene, { tufts: Math.round(grid * grid * thick), stones: Math.round(grid * (phone ? 2.5 : 4)), flies: Math.round(grid * (phone ? 4 : 7)),
+  const flora = buildFlora(scene, { tufts: Math.round(grid * grid * thick), stones: Math.round(grid * (phone ? 2.5 : 4)), flies: Math.round(grid * (phone ? 8 : 14)),
     extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6], surface: surfaceOf(grid),
     colour: landColour, lit: (material) => takesPool(material, uPool),
     clear: (x, z) => offTracks(x, z, FEATHER + 0.4) && offLoop(x, z) });

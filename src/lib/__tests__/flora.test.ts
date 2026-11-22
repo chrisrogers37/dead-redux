@@ -61,6 +61,13 @@ describe("the tuft", () => {
     expect([...new Set(bloom)].sort()).toEqual([0, 1]);
     // Six corners, eight faces.
     expect(bloom.filter((b) => b === 1).length).toBe(6);
+    // The bloom carries its own shading, palest at its top corner and deepest at its bottom one, and no two corners alike.
+    const shades = Array.from({ length: n }, (_, i) => [position.getY(i), geo.getAttribute("color").getX(i) as number]).filter((_, i) => bloom[i] === 1);
+    const byHeight = [...shades].sort((a, b) => a[0] - b[0]);
+    expect(byHeight[0][1]).toBe(Math.min(...shades.map(([, shade]) => shade)));
+    expect(byHeight[5][1]).toBe(Math.max(...shades.map(([, shade]) => shade)));
+    expect(byHeight[5][1] / byHeight[0][1]).toBeGreaterThan(1.8);
+    expect(new Set(shades.map(([, shade]) => shade.toFixed(3))).size).toBe(6);
     expect(geo.getAttribute("uv")).toBeUndefined();
   });
 });
@@ -210,8 +217,11 @@ describe("the fireflies", () => {
 
   it("are not drawn by day, come out as the night's glow rises, and add their light without hiding one another", () => {
     expect(built.flies.visible).toBe(false);
-    built.glow(0.005);
+    // Under a twentieth of their glow, as at last light, they are too faint to see and are not drawn.
+    built.glow(0.04);
     expect(built.flies.visible).toBe(false);
+    built.glow(0.06);
+    expect(built.flies.visible).toBe(true);
     built.glow(0.6);
     expect(built.flies.visible).toBe(true);
     expect(built.flies.material.uniforms.uGlow.value).toBe(0.6);
@@ -254,6 +264,8 @@ describe("the tufts' shader", () => {
     expect(shader.vertexShader).toContain("uniform float uWind;");
     expect(shader.vertexShader).toContain("vec3 objectNormal = vec3(0.0, 1.0, 0.0);");
     expect(shader.vertexShader).toContain("vec3 root = instanceMatrix[3].xyz;");
+    // A bloom is its instance's colour times its own corner's shade.
+    expect(shader.vertexShader).toContain("if (aBloom > 0.5) vColor.rgb = aFlower.rgb * color.rgb;");
     // One wind for every tuft, turned into each tuft's own frame, and as far as the tuft is tall: 0.058 of its height.
     expect(shader.vertexShader).toContain("float tall = length(instanceMatrix[1].xyz);");
     expect(shader.vertexShader).toContain("float sway = aTip * 0.0580 * tall * (sin(uWind * 0.6 + root.x * 0.35 + root.z * 0.27) + 0.4 * sin(uWind * 1.4 + root.z * 0.9));");

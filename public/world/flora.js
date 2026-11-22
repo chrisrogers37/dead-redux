@@ -36,7 +36,10 @@ export function tuftGeometry() {
   const first = position.length / 3, at = [0.05 * 0.95, 0.97, 0.02];
   for (const [x, y, z] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
     position.push(at[0] + x * BLOOM, at[1] + y * BLOOM * 0.7, at[2] + z * BLOOM);
-    colour.push(1, 1, 1);
+    /* Its own shading, since it takes the light as the ground does: paler on top, deeper underneath, and one side of it a little in
+       its own shade, so it reads as a round head and not a flat card. The bloom's colour, by instance, multiplies it. */
+    const shade = 0.9 + 0.32 * y + 0.1 * x - 0.14 * z;
+    colour.push(shade, shade, shade);
     tip.push(1);
     bloom.push(1);
   }
@@ -82,11 +85,14 @@ const BLOOMS = [0xc85a72, 0xd9a548, 0xcfc8b4, 0x9078b4, 0xd9a548, 0xc85a72];
    and falls FLY_BOB of that as it goes; and lights up once every FLY_SLOW to FLY_QUICK seconds, a soft rise and fall that fills
    about a third of that time, so no one of them brightens and dims faster than once in FLY_QUICK seconds. They show as far as the
    night is dark and the music quiet, and are gone by FLY_FAR m from the eye. */
-const FLY_ROAM = 1.6, FLY_BOB = 0.45, FLY_SLOW = 5.2, FLY_QUICK = 2.5, FLY_FAR = 110;
+const FLY_ROAM = 1.6, FLY_BOB = 0.45, FLY_SLOW = 5.2, FLY_QUICK = 2.5, FLY_FAR = 80;
 /* At the lowest of its wander a firefly is FLY_CLEAR m over the highest ground it passes, or up to FLY_LIFT m more, so none ever
    sinks into a hillside and goes out. The ground under a wander is read at FLY_STEPS places each way from its middle, and the land's
    lie it follows is never steeper than FLY_LIE. */
 const FLY_CLEAR = 0.4, FLY_LIFT = 1.2, FLY_STEPS = 3, FLY_LIE = 0.6;
+/* The glow under which a firefly is too faint to see. The show's opening is under it: the dark there is under 0.2, and the glow is
+   no more than its square. */
+const FLY_SEEN = 0.05;
 const FLY_COLOUR = [0.8, 1.0, 0.42];
 
 /* Builds what grows and lies on the land: at most `tufts` tufts and `stones` stones, and `flies` fireflies over the tufts. The turf reaches `extent` m from the island's
@@ -126,7 +132,7 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, sur
       /* Every blade takes the light as the ground under it does, so a tuft has no dark side. */
       .replace("#include <beginnormal_vertex>", "vec3 objectNormal = vec3(0.0, 1.0, 0.0);")
       .replace("#include <color_vertex>", `#include <color_vertex>
-        if (aBloom > 0.5) vColor.rgb = aFlower.rgb;`)
+        if (aBloom > 0.5) vColor.rgb = aFlower.rgb * color.rgb;`)
       .replace("#include <begin_vertex>", `#include <begin_vertex>
         /* The tuft's root is its instance's place: the mesh itself stands at the world's origin, unturned. */
         vec3 root = instanceMatrix[3].xyz;
@@ -277,8 +283,8 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, sur
   return {
     tufts: tuftMesh, stones: stoneMesh, flies: flyPoints,
     wind: (time) => { wind.value = time; },
-    /* By day they are not drawn at all, which saves their draw call. */
-    glow: (level) => { flyLevel.value = level; flyPoints.visible = level > 0.01; },
+    /* By day and at last light, under a twentieth of their glow, they are not drawn at all, which saves their draw call. */
+    glow: (level) => { flyLevel.value = level; flyPoints.visible = level > FLY_SEEN; },
     thin: (half) => {
       tuftMesh.count = Math.min(most, half ? Math.ceil(placed.length / 2) : placed.length);
       flyGeo.setDrawRange(0, half ? Math.ceil(flyCount / 2) : flyCount);

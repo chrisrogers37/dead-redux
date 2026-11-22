@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
-import { BOLT, BOLT_HALF, buildIsland, FEATHER, grained, landColour, offTracks, RING, SHORE, surfaceOf, takesPool, TRACK, tracksAt } from "../../../public/world/island.js";
+import { BOLT, BOLT_HALF, buildIsland, FEATHER, grained, landColour, offTracks, pixelAngle, RING, SHORE, surfaceOf, takesPool, TRACK, tracksAt } from "../../../public/world/island.js";
 import { CAVES, height } from "../../../public/world/ground.js";
 import { lookAt, newLook } from "../../../public/world/night.js";
 
@@ -40,6 +40,17 @@ describe("grained", () => {
       expect(shader.uniforms.uPool).toBeDefined();
       expect(shader.fragmentShader).toContain("float grain(vec2 p)");
       expect(shader.fragmentShader).toContain("diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - 0.5)");
+      // Each size of grain goes as its cells near what a pixel takes in of the ground, so none dithers where the land is seen
+      // edge-on: in full to a quarter of a cell a pixel, gone by six tenths.
+      expect(shader.fragmentShader).toContain("uniform float uPixel;");
+      expect(shader.fragmentShader).toContain("float covers = length(vViewPosition) * uPixel / max(abs(dot(normalize(vNormal), normalize(vViewPosition))), 0.02);");
+      // And never less than the drawn face's own reach, read from pixel to pixel, where the land bends sharply.
+      expect(shader.fragmentShader).toContain("covers = max(covers, sqrt(max(dot(acrossGround, acrossGround), dot(downGround, downGround))));");
+      // Left alone, a pixel spans what one does on a desktop's frame: 900 px tall, a 60 degree view.
+      expect((shader.uniforms.uPixel as { value: number }).value).toBeCloseTo((2 * Math.tan(Math.PI / 6)) / 900, 9);
+      expect(shader.fragmentShader).toContain("float coarseShown = 1.0 - smoothstep(0.2500, 0.6000, covers * 0.9000);");
+      expect(shader.fragmentShader).toContain("* (1.0 - smoothstep(0.2500, 0.6000, covers * 5.3000));");
+      expect(shader.fragmentShader).toContain("if (coarseShown > 0.0) tussocks = mix(0.5, grain(vPoolAt.xz * 0.9000 + 17.0), coarseShown);");
       expect(shader.fragmentShader).toContain("reflectedLight.directDiffuse += uPool");
     }
     // The relief leans the normal by the grain's own change from pixel to pixel, and takes no more of the grain to do it.
@@ -232,6 +243,25 @@ describe("buildIsland", () => {
     expect(meshes.filter((o: { visible: boolean }) => o.visible)).toHaveLength(4);
     expect(meshes.filter((o: { isInstancedMesh?: boolean }) => o.isInstancedMesh)).toHaveLength(2);
   });
+  it("tells the ground's grain what a pixel of the frame takes in, by the camera's view and the frame's height, as each frame is drawn", () => {
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x000000, 100, 400);
+    buildIsland(scene, 20, false);
+    const ground = scene.children.find((o: { isMesh?: boolean; geometry: { attributes: { position: { count: number } } } }) => o.isMesh && o.geometry.attributes.position.count === 21 ** 2);
+    const shader = { uniforms: {} as Record<string, { value: number }>, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
+    ground.material.onBeforeCompile(shader);
+    const frame = (fov: number, tall: number) => { ground.onBeforeRender({ getDrawingBufferSize: (size: { set(x: number, y: number): unknown }) => size.set(2 * tall, tall) }, scene, { fov }); return shader.uniforms.uPixel.value; };
+    // A desktop's frame; the same at half the render scale, where a pixel takes in twice the ground; and a phone's wider view.
+    expect(frame(60, 900)).toBeCloseTo(0.001283, 6);
+    expect(frame(60, 450)).toBeCloseTo(2 * 0.001283, 6);
+    expect(frame(75, 717)).toBeCloseTo(pixelAngle({ fov: 75 }, 717), 12);
+    expect(frame(75, 717)).toBeCloseTo((2 * Math.tan((75 * Math.PI) / 360)) / 717, 12);
+    // From 3 m up, a desktop's pixel at 22 m takes in 0.21 m of level ground, more than a blade's cell of 0.19 m: the blades are gone
+    // there (0.6 of a cell is their end), where by distance alone they were drawn in full.
+    const covers = (far: number, up: number, pixel: number) => (Math.hypot(far, up) * pixel) / (up / Math.hypot(far, up));
+    expect(covers(22, 3, frame(60, 900)) * 5.3).toBeGreaterThan(0.6);
+    expect(covers(5, 3, frame(60, 900)) * 5.3).toBeLessThan(0.25);
+  });
 });
 
 describe("offTracks", () => {
@@ -281,7 +311,7 @@ describe("what stands on the land", () => {
   });
 
   it("keeps every firefly over the drawn ground through the whole of its wander, on every tier's grid, so none sinks into a hillside and goes out", () => {
-    for (const [grid, phone, count] of [[80, false, 560], [64, false, 448], [52, true, 208]] as const) {
+    for (const [grid, phone, count] of [[80, false, 1120], [64, false, 896], [52, true, 416]] as const) {
       const scene = new THREE.Scene();
       scene.fog = new THREE.Fog(0x000000, 100, 400);
       const { flora } = buildIsland(scene, grid, phone);
