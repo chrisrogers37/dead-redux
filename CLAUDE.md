@@ -67,7 +67,7 @@ One file: `npx vitest run src/lib/__tests__/quality.test.ts`. The dev server sen
 
 The test hooks, `?at=`, `?t=`, `?stats=1`, `?day=`, `?sleep=`, `?lookup=`, `?pose=`, `?drive=`, `?still=` and `?rung=`, answer only on Vercel previews. The server reads the switch, never a `NEXT_PUBLIC_` variable (`src/lib/test-hooks.ts`; `test-hooks.test.ts`). `?tier=` works anywhere.
 
-`?pose=near-K` stands the visitor on the path beside song K's landmark, facing it (`nearStand` in `public/world/path.js`). The shoot takes such a still of every landmark of the fixed day, on a desktop and a phone, and of every other kind of landmark on four more days (`.github/screenshots/near.mjs`). `scripts/__tests__/near-landmarks.test.ts` holds that table to the maps and to the builders' table, so a new kind of landmark gets a still there.
+`?pose=near-K` stands the visitor on the path beside song K's landmark, facing it (`nearStand` in `public/world/path.js`), and `?as=K:Title` builds song K's landmark as a song of that title would have it. With them the shoot takes a still of every landmark of the fixed day, and then of every other kind of landmark, on a desktop and a phone (`.github/screenshots/near.mjs`). `scripts/__tests__/near-landmarks.test.ts` holds those titles to the builders' table, so a new kind of landmark gets a still there.
 
 `?still=1`, `?rung=N` and a `?pose=` of four numbers, `X,Z,HEADING,PITCH`, are the flash counter's: the light alone in the frame, the world N rungs down its quality ladder and held there, and the visitor anywhere (`public/world/main.js`; `main.test.ts`).
 

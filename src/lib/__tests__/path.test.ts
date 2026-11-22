@@ -88,6 +88,14 @@ describe("?pose=near-K: where the visitor stands by a landmark", () => {
     faces(high, all[7].position, "high");
   });
 
+  it("looks no steeper than the walk's own tilt goes: 0.8 rad up or down", () => {
+    const all = landmarks();
+    all[3].position.y -= 60;
+    all[7].position.y += 60;
+    expect(nearStand(path, u, all, 3)!.pitch).toBe(-0.8);
+    expect(nearStand(path, u, all, 7)!.pitch).toBe(0.8);
+  });
+
   it("faces a landmark that stands off its song's point, 14 m from where it stands, not from the point", () => {
     const all = landmarks({ 4: 9 });
     const stand = nearStand(path, u, all, 4)!;
@@ -121,19 +129,24 @@ describe("?pose=near-K: where the visitor stands by a landmark", () => {
       all.push({ position: { x: from.x + fx * ahead - fz * aside, y: to.y, z: from.z + fz * ahead + fx * aside } });
       return { all, to };
     };
-    // 2 m in front of the eye at 14 m: from 11 m it stands behind the eye.
+    // With nothing in the view, it is clear from 14 m.
+    expect(nearStand(path, u, landmarks(), 8)!.clear).toBe(true);
+    // 2 m in front of the eye at 14 m: from 11 m it stands behind the eye, and the view is clear.
     let { all, to } = withOne(2, 0);
     expect(gap(nearStand(path, u, all, 8)!, to)).toBeCloseTo(11, 6);
+    expect(nearStand(path, u, all, 8)!.clear).toBe(true);
     // 5 m in front: still in the view from 11 m, behind the eye from 8 m.
     ({ all, to } = withOne(5, 0));
     expect(gap(nearStand(path, u, all, 8)!, to)).toBeCloseTo(8, 6);
-    // 10 m in front, 4 m short of the landmark: in every view, and the closest is taken.
+    expect(nearStand(path, u, all, 8)!.clear).toBe(true);
+    // 10 m in front, 4 m short of the landmark: in every view. The closest is taken, and the stand says the view is not clear.
     ({ all, to } = withOne(10, 0));
     expect(gap(nearStand(path, u, all, 8)!, to)).toBeCloseTo(8, 6);
+    expect(nearStand(path, u, all, 8)!.clear).toBe(false);
     // 3.9 m off the line of sight is in the view, and 4.5 m is not; nor is one behind the eye, or past the landmark.
     ({ all, to } = withOne(2, 3.9));
     expect(gap(nearStand(path, u, all, 8)!, to)).toBeCloseTo(11, 6);
-    for (const [ahead, aside] of [[2, 4.5], [-3, 0], [17, 0]]) {
+    for (const [ahead, aside] of [[2, 4.5], [-3, 0], [-0.2, 0], [14.3, 0], [17, 0]]) {
       ({ all, to } = withOne(ahead, aside));
       expect(gap(nearStand(path, u, all, 8)!, to), `${ahead} m ahead, ${aside} m aside`).toBeCloseTo(14, 6);
     }

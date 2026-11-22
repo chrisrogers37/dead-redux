@@ -25,6 +25,8 @@ import { followHour, lookAt, newLook, nightPlan } from "./night.js";
 
 const container = document.getElementById("world");
 const main = document.querySelector("main");
+/* The test hooks' query, on preview deployments only: there the server marks <main data-test-hooks="1">. */
+const hooks = main.dataset.testHooks === "1" ? new URLSearchParams(location.search) : null;
 const data = JSON.parse(document.getElementById("world-data").textContent);
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const tier = pickTier();
@@ -34,6 +36,10 @@ const hasShow = data.tracks.length > 0;
 /* Without a recording the clock still sums over one stand-in track; it never shapes the path or places a landmark. */
 const tracks = hasShow ? data.tracks : [{ title: "Set", duration: 600 }];
 const N = tracks.length;
+/* The test hook ?as=K:Title, given as often as wanted: song K's landmark is built as a song of that title would have it, so one
+   show's page can show every kind of landmark. Only the landmark changes: the song keeps its place, its length and its name. */
+const builtAs = new Map((hooks?.getAll("as") ?? []).map((value) => /^(\d+):(.+)$/s.exec(value)).filter(Boolean).map(([, k, title]) => [Number(k), title]));
+const landmarkTitle = (k) => builtAs.get(k) ?? tracks[k].title;
 /* Where set 2 and the encore begin, from the notes; null where they do not say. */
 const set2Start = hasShow ? data.set2Start ?? null : null, encoreStart = hasShow ? data.encoreStart ?? null : null;
 /* Where each track starts in the show, in seconds, and the show's length. */
@@ -126,7 +132,7 @@ function start(gl) {
   const builders = makeBuilders(phone);
   const { moving } = builders;
   const placeStart = performance.now();
-  const landmarks = placeLandmarks(scene, path, tracks, hasShow, builders, landmarkU, line);
+  const landmarks = placeLandmarks(scene, path, builtAs.size ? tracks.map((t, k) => ({ ...t, title: landmarkTitle(k) })) : tracks, hasShow, builders, landmarkU, line);
   /* How long the landmarks took to place, most of it their search for room beside the bears' line; the stats report it. */
   (window.__hill ??= {}).placeMs = Math.round((performance.now() - placeStart) * 10) / 10;
   /* The lit bands that join a song to the one it runs into, and their own glow, which the night dims (null with no such song). */
@@ -259,7 +265,6 @@ function start(gl) {
      changes, so the walk's keep-out sets each view's distance. ?pose=near-K stands the visitor on the path 14 m short of song K's
      landmark, or closer where another landmark would stand in the view, facing it and looking a little way up it (path.js nearStand);
      a `world:near` event ({ index }) stands it by another's, so the CI shoot sees every landmark of a show from one page. */
-  const hooks = main.dataset.testHooks === "1" ? new URLSearchParams(location.search) : null;
   const hook = hooks?.get("pose") ?? null;
   /* The flash counter's test hooks (scripts/flash), three more: this pose, and ?still=1 and ?rung=N below.
      ?pose=X,Z,HEADING,PITCH, four plain numbers: the visitor stands there, as a named pose has them. A pitch past the 0.8 rad the
@@ -283,10 +288,10 @@ function start(gl) {
      their line passes nearest it, the lead bear there, with no descent. */
   const overK = /^landmark-(\d+)$/.exec(hook ?? "");
   const over = overK ? landmarks[Number(overK[1])] ?? null : null;
-  /* The test hook ?pose=near-K: the song whose landmark the visitor stands by, which a `world:near` event changes. Null without the
-     hook, and where the show has no song K. */
+  /* The test hook ?pose=near-K: the song whose landmark the visitor stands by, which a `world:near` event changes, and whether no
+     other landmark stands in the view of it. Null without the hook, and where the show has no song K. */
   const nearK = /^near-(\d+)$/.exec(hook ?? "");
-  let nearAt = nearK && landmarks[Number(nearK[1])] ? Number(nearK[1]) : null;
+  let nearAt = nearK && landmarks[Number(nearK[1])] ? Number(nearK[1]) : null, nearClear = null;
   const posed = testPose !== null || sweep || bearPose !== null || nearAt !== null;
   /* The test hook ?drive=map: the show's map drives the world, as where the analyser cannot hear the show, while the sound is routed
      as ever. */
@@ -477,8 +482,9 @@ function start(gl) {
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
     frameMs: stat(() => Math.round(sampler.frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
     mode: stat(() => mode),
-    /* Under ?pose=near-K, the song whose landmark the visitor stands by, with its title as this page has it. */
-    near: stat(() => (nearAt === null ? null : { index: nearAt, title: tracks[nearAt].title })),
+    /* Under ?pose=near-K, the song whose landmark the visitor stands by, the title its landmark is built for, and whether no other
+       landmark stands in the view of it. */
+    near: stat(() => (nearAt === null ? null : { index: nearAt, title: landmarkTitle(nearAt), clear: nearClear })),
     /* The crowd: how many figures it draws (the tier's, or the front-weighted half of them once the downgrade halves it), how far it
        dances, the music's factor in, how far it sits, and how many figures stand off their seats for the visitor. */
     crowd: stat(() => ({ drawn: crowd.mesh.count, dance: r3(dancing * layer2.dance), sit: r3(sitting), parted: crowd.parted })),
@@ -515,7 +521,9 @@ function start(gl) {
     const dt = Math.min(0.05, dtMs / 1000);
     last = now;
     elapsed += dt;
-    if (!reduced && !sweep) sample(dtMs);
+    /* A page under ?pose=near-K holds its rung too: the shoot takes many stills from one load, in a renderer that draws two frames a
+       second, and the last must be drawn as the first was. */
+    if (!reduced && !sweep && nearAt === null) sample(dtMs);
 
     /* The show. */
     locate(now);
@@ -744,13 +752,15 @@ function start(gl) {
   if (testPose) { Object.assign(walker, testPose); cut = true; }
   if (nearAt !== null) {
     /* Stands the visitor by song k's landmark, the last bear beside it and the others on ahead, with the camera cut. The frame's size
-       and the flora stay as they are: these frames are looked at. */
+       and the flora stay as they are, and the world holds its rung (the frame loop, above): these frames are looked at. */
     const standNear = (k) => {
       const stand = Number.isInteger(k) ? nearStand(path, landmarkU, landmarks, k) : null;
       if (!stand) return;
+      const { clear, ...pose } = stand;
       nearAt = k;
+      nearClear = clear;
       bearsD = passD(landmarks[k]) + (bears.length - 1) * BEAR_GAP;
-      Object.assign(walker, stand);
+      Object.assign(walker, pose);
       cut = true;
       wake();
     };

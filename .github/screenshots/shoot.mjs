@@ -272,8 +272,9 @@ const PAGES = [
   { path: "/2026-10-20?pose=landmark-7", devices: ["desktop"], shots: ["fixed-over-cold-rain"] },
   { path: "/2026-10-20?pose=landmark-12", devices: ["desktop"], shots: ["fixed-over-uncle-johns-band"] },
   // The near stills (near.mjs): the visitor stands beside each landmark, 14 m short of it on the path and facing it, the last bear
-  // beside it and the others on ahead, and the page is shot whole. Every landmark of the fixed day, on a desktop and a phone, and
-  // on four more days the kinds of landmark its show lacks, on a desktop. A landmark is read here at the size a visitor sees it.
+  // beside it and the others on ahead, and the page is shot whole. Every landmark of the fixed day, then, on a second load of it,
+  // every other kind of landmark, each built at one of the fixed day's songs' points. A landmark is read here at the size a
+  // visitor sees it.
   ...nearPages(),
   // The fixed day with the site's day faked as 2099-01-01, a day it will not reach: the chip names the new day at load and stays while
   // the show plays on (the 8-s shot's clock has moved; the url line still reads the fixed page); in lean-back it sits above the title; its
@@ -642,7 +643,8 @@ const SHELVES = ["title", "actions", "player"];
 // Shows the world whole (`whole`), or as the shoot's other pages expect it: whole is the view in first person, where the visitor's
 // own bear is out of the frame, with the HUD's three shelves put away. Both are set as a visitor sets them, with V and with each
 // shelf's tab, and only where they are not so already, since the page keeps both from one load to the next. Then the page settles.
-const showWhole = async (page, whole) => {
+// A view or a shelf that does not follow fails the run for `where`: left as it is, it would be in every later page of the device.
+const showWhole = async (page, whole, where) => {
   const state = whole ? "in" : "out";
   // Whether the view is first person already, and which shelves are where they are wanted already.
   const { first, there } = await page.evaluate(
@@ -655,13 +657,20 @@ const showWhole = async (page, whole) => {
   if (first !== whole) {
     await page.focus("#world");
     await page.keyboard.press("KeyV");
+    await page
+      .waitForSelector(`main[data-view='${whole ? "first" : "third"}']`, { timeout: 15_000 })
+      .catch(() => failures.push(`${where}: the view never turned to ${whole ? "first" : "third"} person`));
   }
   for (const [k, shelf] of SHELVES.entries()) {
-    if (there[k] || (await page.locator(shelfTab(shelf)).count()) === 0) continue;
+    if (there[k]) continue;
+    if ((await page.locator(shelfTab(shelf)).count()) === 0) {
+      failures.push(`${where}: no tab for the ${shelf} shelf`);
+      continue;
+    }
     await page.click(shelfTab(shelf));
     await page
       .waitForSelector(shelfAt(shelf, state), { timeout: 15_000 })
-      .catch(() => console.log(`shelf ${shelf}: never ${whole ? "put away" : "brought back"}`));
+      .catch(() => failures.push(`${where}: the ${shelf} shelf was never ${whole ? "put away" : "brought back"}`));
   }
   if (first !== whole || there.includes(false)) await page.waitForTimeout(STEP_SETTLE_MS);
 };
@@ -883,7 +892,7 @@ try {
         });
       }
       // A page shot whole is in first person with the shelves away, until its steps are done.
-      if (whole) await showWhole(page, true);
+      if (whole) await showWhole(page, true, `${device} ${path}`);
       // A sweep that cannot finish fails the run at the end, so the shots after it are still taken.
       if (sweep) await sweepWalk(page, device, sweep).catch((error) => failures.push(`sweep ${device}: ${error.message}`));
 
@@ -920,16 +929,22 @@ try {
           await page.mouse.up();
         }
         // A near step stands the visitor by another song's landmark and waits for the frames that draw the cut and the bears there:
-        // frames, since a software renderer draws two a second and a GPU sixty. They are its settle.
+        // frames, since a software renderer draws two a second and a GPU sixty. They are its settle. A world that is not drawing
+        // has no still to take: the step fails the run and is skipped, at once where there is no world at all.
         if (step.near !== undefined) {
-          const moved = await page.evaluate((index) => {
+          const from = await page.evaluate((index) => {
             const from = window.__hill?.frames ?? null;
             document.dispatchEvent(new CustomEvent("world:near", { detail: { index } }));
             return from;
           }, step.near);
-          await page
-            .waitForFunction(([from, frames]) => from !== null && window.__hill.frames >= from + frames, [moved, NEAR_FRAMES], { timeout: 30_000 })
-            .catch(() => console.log(`${step.shot}: the world drew fewer than ${NEAR_FRAMES} frames after the move; shooting anyway`));
+          const drawn =
+            from !== null &&
+            (await page.waitForFunction(([from, frames]) => window.__hill.frames >= from + frames, [from, NEAR_FRAMES], { timeout: 30_000 }).then(() => true, () => false));
+          if (!drawn) {
+            failures.push(`${device}-${step.shot}.png: ${from === null ? "the page has no world" : `the world drew fewer than ${NEAR_FRAMES} frames in 30 s`} after the move to song ${step.near}`);
+            console.log(`${step.shot}: no still, the world is not drawing`);
+            continue;
+          }
         }
         if (step.waitFor) {
           await page
@@ -1001,7 +1016,7 @@ try {
           if (routed) failures.push(`${laterFile}: ${routed}`);
         }
       }
-      if (whole) await showWhole(page, false);
+      if (whole) await showWhole(page, false, `${device} ${path}, after its steps`);
 
       if (end) {
         // The last screen, as a visitor who scrolled to the bottom sees it.
