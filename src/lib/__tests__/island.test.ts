@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { BOLT, BOLT_HALF, buildIsland, FEATHER, grained, landColour, offTracks, pixelAngle, RING, SHORE, surfaceOf, takesPool, TRACK, tracksAt } from "../../../public/world/island.js";
 import { CAVES, height } from "../../../public/world/ground.js";
+import { onCrowdGround } from "../../../public/world/seats.js";
 import { lookAt, newLook } from "../../../public/world/night.js";
 
 describe("takesPool", () => {
@@ -295,18 +296,27 @@ describe("what stands on the land", () => {
         // A tuft's root is a few centimetres under the drawn ground, never over it.
         expect(at.y - surface(at.x, at.z)).toBeCloseTo(-0.03, 4);
         expect(tracksAt(at.x, at.z)).toBe(0);
+        // None on the crowd's ground or within 2 m of it, where a figure would stand in it.
+        expect(onCrowdGround(at.x, at.z, 2)).toBe(false);
         const fromLoop = Math.min(...loop.map(([x, z]) => Math.hypot(at.x - x, at.z - z)));
         expect(fromLoop).toBeGreaterThanOrEqual(2.2);
         nearest = Math.min(nearest, fromLoop);
       }
       // The path clears its own 2.2 m and no more: a tuft stands within a metre of that.
       expect(nearest).toBeLessThan(3.2);
+      // No firefly flies over the crowd either: each is over a tuft.
+      const flies = flora.flies.geometry.getAttribute("position");
+      for (let i = 0; i < flies.count; i++) expect(onCrowdGround(flies.getX(i), flies.getZ(i), 2)).toBe(false);
+      let among = 0;
       for (let i = 0; i < flora.stones.count; i++) {
         flora.stones.getMatrixAt(i, matrix);
         at.setFromMatrixPosition(matrix);
+        if (onCrowdGround(at.x, at.z)) among += 1;
         expect(at.y - surface(at.x, at.z)).toBeGreaterThanOrEqual(0);
         expect(at.y - surface(at.x, at.z)).toBeLessThan(0.2);
       }
+      // Stones lie on the crowd's ground as anywhere.
+      expect(among).toBeGreaterThan(0);
     }
   });
 

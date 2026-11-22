@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { buildFlora } from "./flora.js";
 import { CAVES, G, height, SHELF_Y, STAGE } from "./ground.js";
 import { MOON } from "./night.js";
+import { onCrowdGround } from "./seats.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, and at its north-east edge a shelf for the stage.
    The ground's height is in ground.js. */
@@ -40,6 +41,9 @@ export function offTracks(x, z, room) {
   return fromRing(x, z) > (SHORE - RING) / 2 + room && fromBolt(x, z) > BOLT_HALF + room;
 }
 
+/* How far past the crowd's ground the turf is trodden bare of tufts: a figure stands or sits anywhere on that ground, steps aside
+   for the visitor and rises with the music, and a blade or a bloom that came up through it would flicker against it as it swayed. */
+const CROWD_ROOM = 2;
 /* How far from the setlist's path anything grows, and the side of the squares its points are sorted into (no less than that). */
 const LOOP_ROOM = 2.2, LOOP_SQUARE = 4;
 /* The stage's light on the water: its colour at its fullest, as the screen shows it, and where it lies, from SHINE_OUT m past the stage's
@@ -295,7 +299,8 @@ export function buildIsland(scene, grid, phone, loop = []) {
   /* What grows and lies on the land (flora.js): as many tufts and stones as the tier's ground is fine, thickest on a desktop's (a
      grid of 80 or more), thinner on a TV's and fewer than half as thick on a phone's, whose frame is small and whose every triangle
      costs it more. Each stands on the ground as its mesh draws it and takes the stage's glow as the ground does, and none of them
-     stands on a track or on the setlist's path, where the bears walk and the lit bands lie. */
+     stands on a track or on the setlist's path, where the bears walk and the lit bands lie. No tuft grows on the crowd's ground;
+     stones lie there as anywhere. */
   const thick = phone ? 0.6 : grid >= 80 ? 1.0 : 0.8;
   /* The path's points by the square of LOOP_SQUARE m each lies in, so a place is tried against the few points near it and not
      against the whole path. */
@@ -316,7 +321,7 @@ export function buildIsland(scene, grid, phone, loop = []) {
   const flora = buildFlora(scene, { tufts: Math.round(grid * grid * thick), stones: Math.round(grid * (phone ? 2.5 : 4)), flies: Math.round(grid * (phone ? 8 : 14)),
     extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6], surface: surfaceOf(grid),
     colour: landColour, lit: (material) => takesPool(material, uPool),
-    clear: (x, z) => offTracks(x, z, FEATHER + 0.4) && offLoop(x, z) });
+    clear: (x, z) => offTracks(x, z, FEATHER + 0.4) && offLoop(x, z), trodden: (x, z) => onCrowdGround(x, z, CROWD_ROOM) });
 
   /* The caves light for Drums (left) and Space (right): a pool on each floor and, but on a phone, a light inside. */
   const caves = CAVES.map(([cx, cz]) => {

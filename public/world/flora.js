@@ -98,13 +98,13 @@ const FLY_COLOUR = [0.8, 1.0, 0.42];
 /* Builds what grows and lies on the land: at most `tufts` tufts and `stones` stones, and `flies` fireflies over the tufts. The turf reaches `extent` m from the island's
    centre and the shore's sand lies from `beach[0]` to `beach[1]` m out; `surface(x, z)` is the ground's height as its mesh draws it,
    which all of them stand on; `colour(x, y, z, ny, out)` gives the land's colour at a point,
-   `lit(material)` has a material take the light the ground takes (the stage's glow), and `clear(x, z)` is false where nothing may
-   stand (a track). A tuft grows on turf, more thickly in some meadows than others, and a stone lies where the turf gives way to bare
+   `lit(material)` has a material take the light the ground takes (the stage's glow), `clear(x, z)` is false where nothing may
+   stand (a track), and `trodden(x, z)` is true where the turf is trodden and no tuft grows, so no firefly flies (the crowd's ground). A tuft grows on turf, more thickly in some meadows than others, and a stone lies where the turf gives way to bare
    stone, along the shore's sand, and here and there on the turf. Returns `wind(time)`, which sways the tufts and moves the
    fireflies at a time; `glow(level)`, which lights the fireflies from 0, by day, to 1; `thin(half)`, which draws half the tufts
    and half the fireflies, or all of them; and `sparse()`, which from then on draws a handful of tufts, for a frame that is only
    counted and never looked at. */
-export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, surface = height, colour, lit, clear }) {
+export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, surface = height, colour, lit, clear, trodden = () => false }) {
   const dummy = new THREE.Object3D(), tint = new THREE.Color(), bloomColour = new THREE.Color();
   /* The land at a point: the height its mesh draws it at, and how upright the island's own slope stands there (1 on level ground). */
   const land = (x, z) => {
@@ -162,7 +162,7 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, sur
   for (const [, a, b] of cells) {
     if (placed.length >= tufts) break;
     const x = (a + chance(a, b, 1)) * cell, z = (b + chance(a, b, 2)) * cell;
-    if (Math.hypot(x, z) > extent || inCave(x, z) || byStage(x, z, 15) || !clear(x, z)) continue;
+    if (Math.hypot(x, z) > extent || inCave(x, z) || byStage(x, z, 15) || !clear(x, z) || trodden(x, z)) continue;
     const at = land(x, z);
     if (at.ny < 0.9 || chance(a, b, 3) > 0.3 + 0.7 * meadow(x, z)) continue;
     placed.push([x, at.y, z, at.ny, a, b]);
