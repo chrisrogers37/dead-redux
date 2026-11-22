@@ -113,10 +113,12 @@ function start(gl) {
   new ResizeObserver(resize).observe(container);
 
   /* ---------- the island ---------- */
-  const { caves, shade } = buildIsland(scene, budget.grid, phone);
+  /* The setlist's path first: the island keeps what grows on it off the path, a point of it every 2 m. */
+  const path = buildPath();
+  const loop = Array.from({ length: Math.ceil(path.curveLength / 2) || 0 }, (_, k) => { const p = path.at((2 * k) / path.curveLength); return [p.x, p.z]; });
+  const { caves, shade, flora } = buildIsland(scene, budget.grid, phone, loop);
 
   /* ---------- the path and the landmarks ---------- */
-  const path = buildPath();
   const { at, tangentAt } = path;
   const landmarkU = layout(tracks, set2Start, path);
   /* The bears' own line, 7 m to the left of the path, which every landmark stands clear of (path.js). */
@@ -208,6 +210,8 @@ function start(gl) {
      neither gives one, and always under reduced motion), the last drive heard, and how far the world follows it, easing over 0.8 s each
      way so it never snaps to or from the music. */
   let drive = null, heard = null, weight = 0;
+  /* How quiet the music is, from 1, silence, to 0, its loudest, eased over seconds: the fireflies' cue (flora.js). */
+  let calm = 1;
   /* What the music does to the world this frame (audio.js mappings). */
   let layer2 = mappings(null, 0);
   /* The bears' leg phase, which the music's loudness speeds; it accumulates, so a change of rate never jumps the legs. */
@@ -403,6 +407,8 @@ function start(gl) {
     stage.light.visible = quality.stageLight;
     /* The seats run front first, so half the crowd is its front half. */
     crowd.mesh.count = quality.fullCrowd ? crowd.count : Math.ceil(crowd.count / 2);
+    /* The land's tufts and fireflies are the first thing a slow device loses half of: at the ladder's first rung, with the render scale. */
+    flora.thin(quality.scale < budget.scale);
   }
   const vertex = new THREE.Vector3();
   /* In first person, how near the view comes to a bear and how much of the frame's width one covers: the depth of the nearest bear
@@ -510,7 +516,6 @@ function start(gl) {
     hour = hour === null || reduced ? showHour : followHour(hour, showHour, dt);
     lookAt(hour, look);
     if (grade(look)) renderer.shadowMap.needsUpdate = true;
-    shade(look);
     hemi.intensity = lightBase.hemi * look.ambientGain * layer2.hemi;
     panelMat.uniforms.uGain.value[0] = layer2.panel;
     /* The night's share of the stage's light is steady: the music moves that light by as much as it does at dusk, on top. */
@@ -544,6 +549,10 @@ function start(gl) {
     } else {
       skyMat.uniforms.uTime.value = data.seed;
     }
+    /* The island takes the look at the sky's own time, which stands still under reduced motion, so its water does too. Its fireflies
+       come out as the music quietens, over a few seconds; under reduced motion they keep the calm of a quiet night. */
+    calm = reduced ? 1 : toward(calm, 1 - weight * (heard?.loud ?? 0), dt / 2.5);
+    shade(look, skyMat.uniforms.uTime.value, calm);
 
     /* Drums lights the left cave and Space the right, over eight seconds; under reduced motion at once. */
     for (const [k, c] of caves.entries()) {
@@ -558,7 +567,8 @@ function start(gl) {
     /* The beam stands on the landmark of the song that plays. */
     const lp = landmarks[index]?.position ?? at(landmarkU[index]);
     beam.position.set(lp.x, lp.y + 18, lp.z);
-    beam.material.opacity = beamBase * layer2.beam;
+    /* The column is a third as bright in the deep of the night, where at its dusk strength it would outshine the stage. */
+    beam.material.opacity = beamBase * layer2.beam * (1 - 0.65 * look.dark);
 
     /* The bears. Before the show first plays they stand where it is, and a world that opens while it plays places them there in its
        first frame; in the frame it starts they walk on from where they stand, so nothing steps. */
@@ -700,7 +710,10 @@ function start(gl) {
   if (reduced) { bearD = line.dOf(landmarkU[index]); toSlot(); }
   if (testPose) { Object.assign(walker, testPose); cut = true; }
   if (sweep) {
+    /* The sweep's frames are counted, not looked at: they are drawn a twentieth of the size, and with a handful of the land's tufts,
+       which are one draw call however many they are. In CI's software renderer the tufts' triangles were most of a sweep's time. */
     quality = { ...quality, scale: 0.05 };
+    flora.sparse();
     applyQuality();
     document.addEventListener("world:pose", ({ detail }) => { Object.assign(walker, detail); cut = true; wake(); });
   }

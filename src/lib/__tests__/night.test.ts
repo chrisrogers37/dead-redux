@@ -94,6 +94,14 @@ describe("nightPlan", () => {
     expect(night.hourAt(5000)).toBe(DEEP);
     expect(night.marks.every(([t], i, all) => i === 0 || t > all[i - 1][0])).toBe(true);
   });
+
+  it("comes on through Drums and Space where Drums opens set 2, since two marks on one second keep the first", () => {
+    const tracks = ["Bertha", "Sugaree", "Drums", "Space", "Truckin'", "U.S. Blues"].map((title) => ({ title, duration: 300 }));
+    const night = nightPlan(tracks, 2, 5);
+    expect(night.hourAt(600)).toBeCloseTo(SET_BREAK, 10);
+    expect(night.hourAt(900)).toBeCloseTo((SET_BREAK + DEEP) / 2, 10);
+    expect(night.hourAt(1200)).toBe(DEEP);
+  });
 });
 
 describe("nightPlan without a show", () => {
@@ -102,14 +110,6 @@ describe("nightPlan without a show", () => {
     expect([0, 300, 6000].map(night.hourAt)).toEqual([0, 0, 0]);
     expect([0, 1, 5].map(night.hourOf)).toEqual([0, 0, 0]);
     expect(night.marks).toEqual([[0, 0]]);
-  });
-
-  it("comes on through Drums and Space where Drums opens set 2, since two marks on one second keep the first", () => {
-    const tracks = ["Bertha", "Sugaree", "Drums", "Space", "Truckin'", "U.S. Blues"].map((title) => ({ title, duration: 300 }));
-    const night = nightPlan(tracks, 2, 5);
-    expect(night.hourAt(600)).toBeCloseTo(SET_BREAK, 10);
-    expect(night.hourAt(900)).toBeCloseTo((SET_BREAK + DEEP) / 2, 10);
-    expect(night.hourAt(1200)).toBe(DEEP);
   });
 });
 

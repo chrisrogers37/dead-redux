@@ -19,4 +19,20 @@ describe("the visitor's bear", () => {
     expect(swings(true).filter((x) => x !== 0)).toEqual([]);
     expect(swings(false).filter((x) => x !== 0).length).toBeGreaterThan(0);
   });
+
+  it("brings its head and the top of it down with its stride, as far as its body comes down", () => {
+    const avatar = buildAvatar(new THREE.Scene(), [], { phone: false, reduced: false });
+    let most = 0;
+    for (let f = 0; f <= 120; f++) {
+      avatar.step(0.2 * f, 0, -Math.PI / 2, f === 0 ? 0 : 1 / 60);
+      // The body mesh, the group's one visible child, stands as far under the group as the stride brought the bear down.
+      const body = avatar.g.children.find((o: { visible: boolean }) => o.visible);
+      const down = -body.position.y;
+      expect(avatar.head.y).toBeCloseTo(avatar.g.position.y - down + 3.6, 9);
+      expect(avatar.top.y).toBeCloseTo(avatar.g.position.y - down + 4.85, 9);
+      most = Math.max(most, down);
+    }
+    // At a walk the bear comes down a few centimetres at the ends of each stride.
+    expect(most).toBeGreaterThan(0.02);
+  });
 });

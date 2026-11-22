@@ -17,6 +17,13 @@ const SECTIONS = [
   { r0: 16, r1: 28, a0: 0.7, a1: 1, gap: 5.2 },
   { r0: 28, r1: 44, a0: 0.85, a1: 1, gap: 5.2 },
 ];
+/* Whether a point lies on the crowd's ground: in one of its sections, or within `room` metres of one. The land grows nothing there
+   that a figure would stand or sit in (island.js). */
+export function onCrowdGround(x, z, room = 0) {
+  const dx = x - STAGE[0], dz = z - STAGE[1], r = Math.hypot(dx, dz), turn = Math.atan2(dx, dz) - FACING;
+  const off = Math.abs(Math.atan2(Math.sin(turn), Math.cos(turn)));
+  return SECTIONS.some(({ r0, r1, a1 }) => r >= r0 - room && r <= r1 + room && off <= a1 + room / Math.max(r, 1));
+}
 /* How near the sections come to the stage's centre, and how far they reach from it. */
 const NEAR = Math.min(...SECTIONS.map((s) => s.r0)), FAR = Math.max(...SECTIONS.map((s) => s.r1));
 

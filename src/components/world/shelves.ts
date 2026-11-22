@@ -76,11 +76,14 @@ export function setShelf(shelf: Shelf, put: boolean): void {
 /**
  * Once the page has hydrated: where the shelves stored here differ from `sent`, the ones the request's cookie named and the server
  * rendered, the stored ones stand (useSyncExternalStore has drawn them by then) and the cookie is rewritten to match, so the next
- * load's HTML is right. That is a visitor whose cookie was cleared, or who put a shelf away before there was a cookie.
+ * load's HTML is right. That is a visitor whose cookie was cleared, or who put a shelf away before there was a cookie. While any
+ * shelf is away the cookie is written again on every load, which keeps it a year from the last visit, or a week where the browser
+ * caps a script's cookie at that (Safari): it would otherwise be dropped a week after the last press on a tab, however often the
+ * visitor came.
  */
 export function matchShelvesCookie(sent: string): void {
   const away = shelvesAway();
-  if (away !== sent) writeCookie(away);
+  if (away !== sent || away) writeCookie(away);
 }
 
 /** Subscribes to the shelves' moves, from this tab or another, for useSyncExternalStore. */

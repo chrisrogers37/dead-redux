@@ -40,12 +40,13 @@ const clock = (s: number) => formatDuration(s) || "0:00";
  * A pointer's seek gives the keys back to the world. A press on the slider focuses it, as on any control, and from then on its keys
  * are its own, so the walk's keys did nothing until a click on the island. Once the pointer that pressed it lifts, or is cancelled,
  * the world takes focus again, if focus is still where the press left it: on the slider, or on the page where a browser focuses
- * nothing for a press. A seek by keyboard never comes here, so the arrows go on moving the slider. Nor does a touch: a phone walks
- * by its stick, not by keys, and a screen reader's tap would lose its place on the slider. The still, which has no world to walk, is
- * not focusable and keeps focus where it is.
+ * nothing for a press. A seek by keyboard never comes here, so the arrows go on moving the slider. Only a mouse and a pen are
+ * answered: a touch walks by its stick, not by keys, and a press that names no pointer, or one this page does not know, as a
+ * synthesised press may, keeps its place on the slider. The still, which has no world to walk, is not focusable and keeps focus
+ * where it is.
  */
 export function focusWorldOnRelease(press: { pointerId: number; pointerType: string; currentTarget: unknown }): void {
-  if (press.pointerType === "touch") return;
+  if (press.pointerType !== "mouse" && press.pointerType !== "pen") return;
   const { pointerId, currentTarget: slider } = press;
   const release = (lift: Event) => {
     if ((lift as PointerEvent).pointerId !== pointerId) return;

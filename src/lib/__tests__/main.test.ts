@@ -88,7 +88,16 @@ const fake = vi.hoisted(() => {
     shadowMap: undefined as unknown as { enabled: boolean; autoUpdate: boolean; needsUpdate: boolean },
     graded: NaN,
     lift: NaN,
+    // How dark the look last graded was, 0 to 1 (night.js), unrounded.
+    dark: NaN,
     keyTurned: false,
+    // The time the island's water last took its look at (island.js), and how quiet the music was then, 0 to 1.
+    tide: NaN,
+    calm: NaN,
+    // Whether the land's tufts are thinned by half (flora.js), as the quality ladder last set it, and whether the world asked for a
+    // handful of them, as the draw-call sweep does.
+    thinned: null as boolean | null,
+    sparse: false,
   };
   class Scene {
     shown = new Set<unknown>();
@@ -158,7 +167,7 @@ const fake = vi.hoisted(() => {
   };
   const modules = {
     // The island draws the night's look on its sea and its ground itself (island.js), which the frames here do not read.
-    island: { buildIsland: () => ({ caves: [], shade: () => {} }) },
+    island: { buildIsland: () => ({ caves: [], shade: (_look: unknown, time: number, calm: number) => { world.tide = time; world.calm = calm; }, flora: { thin: (half: boolean) => { world.thinned = half; }, sparse: () => { world.sparse = true; } } }) },
     path: {
       // The loop, where the walker stands before a frame puts it in its place in the bears' line.
       buildPath: () => ({ at: () => new Vec(), tangentAt: () => new Vec(1, 0, 0) }),
@@ -236,9 +245,10 @@ const fake = vi.hoisted(() => {
           panelMat: { uniforms: { uGain: { value: Float32Array.of(1) } } },
           // The sky draws the night's look itself (sky.js), and says whether its key light has turned far enough to redraw the
           // stage's shadow.
-          grade: (look: { hour: number; stageLift: number }) => {
+          grade: (look: { hour: number; stageLift: number; dark: number }) => {
             world.graded = look.hour;
             world.lift = look.stageLift;
+            world.dark = look.dark;
             return world.keyTurned;
           },
         };
@@ -558,6 +568,30 @@ describe("main.js's frames", () => {
     expect(page.shown()).toHaveLength(fake.world.bears.length);
   });
 
+  it("draws a handful of the land's tufts for the draw-call sweep, whose frames are counted and never looked at, and all of them otherwise", async () => {
+    fake.world.sparse = false;
+    await startWorld();
+    expect(fake.world.sparse).toBe(false);
+    await startWorld({ search: "?pose=crowd" });
+    expect(fake.world.sparse).toBe(false);
+    await startWorld({ search: "?pose=sweep" });
+    expect(fake.world.sparse).toBe(true);
+  });
+
+  it("thins the land's tufts by half at the downgrade's first rung, with the render scale, long before the crowd is halved", async () => {
+    const page = await startWorld();
+    // The land is built with all its tufts, and nothing thins them while the world is at its own quality.
+    fake.world.thinned = null;
+    const made = hill().crowd.drawn;
+    for (let k = 0; k < 1500 && hill().rung === 0; k++) {
+      expect(fake.world.thinned).not.toBe(true);
+      page.run(0.05, { ms: 50 });
+    }
+    expect(hill().rung).toBe(1);
+    expect(fake.world.thinned).toBe(true);
+    expect(hill().crowd.drawn).toBe(made);
+  });
+
   it("turns off the sun's shadow and the stage light on the way down the downgrade's ladder: at its foot neither is left", async () => {
     const page = await startWorld();
     // The desktop's stage has the sun cast its shadow, and its light is on.
@@ -781,6 +815,35 @@ describe("main.js's frames through the night", () => {
     expect(hill().night.show - hill().night.hour).toBeLessThan(0.004);
   });
 
+  it("moves the island's water by the sky's own time, which stands still under reduced motion at the show's seed", async () => {
+    const page = await startWorld({ playing: true });
+    page.run(1);
+    const early = fake.world.tide;
+    page.run(2);
+    expect(fake.world.tide - early).toBeCloseTo(2, 6);
+    const still = await startWorld({ reduced: true, playing: true });
+    still.run(0.02);
+    expect(fake.world.tide).toBe(7);
+    still.hold("ArrowLeft", 0.5);
+    expect(fake.world.tide).toBe(7);
+  });
+
+  it("tells the island how quiet the music is, eased over seconds: 1 in silence, less as the show's map grows loud, and always 1 under reduced motion", async () => {
+    const quiet = await startWorld();
+    quiet.run(1);
+    expect(fake.world.calm).toBe(1);
+    const loud = await startWorld({ playing: true, routing: "plain", map: showMap({ rms: 255 }) });
+    loud.run(0.5);
+    const early = fake.world.calm;
+    expect(early).toBeLessThan(1);
+    expect(early).toBeGreaterThan(0.7);
+    loud.run(6);
+    expect(fake.world.calm).toBeLessThan(0.2);
+    const still = await startWorld({ reduced: true, playing: true, routing: "plain", map: showMap({ rms: 255 }) });
+    still.run(0.02);
+    expect(fake.world.calm).toBe(1);
+  });
+
   it("lands at once under reduced motion, on the hour halfway through the song, wherever the song has got to", async () => {
     const page = await startWorld({ reduced: true });
     page.run(0.02);
@@ -893,8 +956,10 @@ describe("main.js's frames with the show's map", () => {
     expect(fake.world.flame.scale.x).toBeCloseTo(1 + 1.2 * 0.65, 9);
     page.run(7);
     expect(fake.world.flame.scale.x).toBeCloseTo(2.2, 9);
-    // The beam over the song's landmark is 1.2 times as bright, at 0.192 of its colour.
-    expect(page.beam().opacity).toBeCloseTo(0.192, 9);
+    // The beam over the song's landmark is 1.2 times as bright, 0.192 of its colour at dusk; in the dark it is dimmed by up to 0.65,
+    // and the peak, halfway through this one-track show, falls in the deep of the night.
+    expect(fake.world.dark).toBeGreaterThan(0.99);
+    expect(page.beam().opacity).toBeCloseTo(0.192 * (1 - 0.65 * fake.world.dark), 9);
     // Past the peak the build-up falls 0.025 a frame, so it is gone within 0.8 s.
     page.run(0.02);
     expect(fake.world.flame.scale.x).toBeCloseTo(1 + 1.2 * 0.975, 9);
