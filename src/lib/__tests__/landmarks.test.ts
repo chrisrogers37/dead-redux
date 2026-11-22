@@ -186,6 +186,90 @@ describe("the landmarks built of many parts", () => {
     expect(hi - lo).toBeLessThan(2.2);
   });
 
+  it("hangs each stirrup from the saddle: its strap comes down from under a skirt, and the stirrup hooks on the strap's foot", () => {
+    // By colour, in the rail's own frame: the straps, the skirts and the stirrups' iron. The saddle sits at x 1.2, turned 0.08 rad.
+    const { position, color } = landmark("C C Rider").parts[0].geometry.attributes;
+    const of = (hex: number, keep: (x: number, y: number, z: number) => boolean = () => true) => {
+      const tone = new THREE.Color(hex), out: number[][] = [];
+      for (let i = 0; i < position.count; i++) {
+        if (Math.abs(color.getX(i) - tone.r) + Math.abs(color.getY(i) - tone.g) + Math.abs(color.getZ(i) - tone.b) > 1e-4) continue;
+        if (keep(position.getX(i), position.getY(i), position.getZ(i))) out.push([position.getX(i), position.getY(i), position.getZ(i)]);
+      }
+      return out;
+    };
+    const span = (points: number[][], axis: number) => [Math.min(...points.map((p) => p[axis])), Math.max(...points.map((p) => p[axis]))];
+    for (const side of [-1, 1]) {
+      const onSide = (_x: number, _y: number, z: number) => Math.sign(z - 0.13) === side;
+      const strap = of(0x6a4426, onSide), skirt = of(0x7a5230, onSide), stirrup = of(0x55595c, (x, y, z) => onSide(x, y, z) && x > 0.6 && x < 1.9);
+      expect(strap).toHaveLength(36);
+      expect(skirt).toHaveLength(36);
+      expect(stirrup.length).toBeGreaterThan(40);
+      // The strap's top is above the skirt's lower edge and within a hand of the skirt, on the saddle's side of it.
+      const [strapLow, strapTop] = span(strap, 1), [skirtLow] = span(skirt, 1);
+      expect(strapTop).toBeGreaterThan(skirtLow);
+      const far = (points: number[][]) => Math.max(...points.map((p) => Math.abs(p[2] - 0.13))), near = (points: number[][]) => Math.min(...points.map((p) => Math.abs(p[2] - 0.13)));
+      expect(far(strap)).toBeLessThan(far(skirt) + 0.02);
+      expect(near(strap)).toBeGreaterThan(near(skirt) - 0.12);
+      // The stirrup's ring reaches up past the strap's foot and hangs under it, in the strap's own plane.
+      const [ringLow, ringTop] = span(stirrup, 1);
+      expect(ringTop).toBeGreaterThan(strapLow);
+      expect(ringLow).toBeLessThan(strapLow - 0.2);
+      expect(Math.abs((span(stirrup, 2)[0] + span(stirrup, 2)[1]) / 2 - (span(strap, 2)[0] + span(strap, 2)[1]) / 2)).toBeLessThan(0.03);
+    }
+  });
+
+  it("closes the cabin: a sill under each side wall, whose first log lies half a course up, and a board under each eave", () => {
+    const { position, color } = landmark("Tennessee Jed").parts[0].geometry.attributes, plank = new THREE.Color(0x4a3520);
+    const planks = (keep: (x: number, y: number, z: number) => boolean) => {
+      let n = 0;
+      for (let i = 0; i < position.count; i++) {
+        if (Math.abs(color.getX(i) - plank.r) + Math.abs(color.getY(i) - plank.g) + Math.abs(color.getZ(i) - plank.b) > 1e-4) continue;
+        if (keep(position.getX(i), position.getY(i), position.getZ(i))) n += 1;
+      }
+      return n;
+    };
+    // Each is a box: 36 corners. The sills lie between the footing's top (0.3) and the side logs' underside (0.52).
+    for (const x of [-2.45, 2.45]) expect(planks((px, y, z) => Math.abs(px - x) < 0.25 && y > 0.25 && y < 0.6 && Math.abs(z) < 1.9)).toBe(36);
+    // The boards lie between the front and back walls' top (3.0) and the roof over them.
+    for (const z of [-1.95, 1.95]) expect(planks((x, y, pz) => Math.abs(pz - z) < 0.2 && y > 2.95 && y < 3.4 && Math.abs(x) < 2.7)).toBe(36);
+  });
+
+  it("lays the loose straw at the big bale's foot, half in the ground, on a desktop; a phone draws none", () => {
+    // The coils at the bales' ends are pale too. The loose straw is what of it lies off the big bale: further from its axis (which
+    // runs 1.45 m up, turned a quarter of a radian) than its own radius, on the walker's side.
+    const straws = (phone: boolean) => {
+      const { position, color } = landmark("Jack Straw", phone).parts[0].geometry.attributes, pale = new THREE.Color(0xdcc079), out: number[][] = [];
+      const axis = new THREE.Vector3(Math.cos(0.25), 0, -Math.sin(0.25)), from = new THREE.Vector3();
+      for (let i = 0; i < position.count; i++) {
+        if (Math.abs(color.getX(i) - pale.r) + Math.abs(color.getY(i) - pale.g) + Math.abs(color.getZ(i) - pale.b) > 1e-4 || position.getZ(i) > -0.8) continue;
+        from.set(position.getX(i), position.getY(i) - 1.45, position.getZ(i));
+        if (from.addScaledVector(axis, -from.dot(axis)).length() > 1.95) out.push([position.getX(i), position.getY(i), position.getZ(i)]);
+      }
+      return out;
+    };
+    const loose = straws(false);
+    expect(loose.length).toBeGreaterThan(60);
+    expect(Math.min(...loose.map((p) => p[1]))).toBeLessThan(-0.1);
+    // Within 2.4 m of the bale's axis across the ground: its foot, where the ground has not fallen far.
+    for (const [x, , z] of loose) expect(Math.abs(z * Math.cos(0.25) + x * Math.sin(0.25))).toBeLessThan(2.4);
+    expect(straws(true)).toHaveLength(0);
+  });
+
+  it("keeps the tuning peg's key a flattened oval, glowing, and a phone's rail without its rope", () => {
+    const key = landmark("Tuning").parts.find((c) => c.material.emissive.getHex() !== 0) as Part;
+    const box = new THREE.Box3().setFromBufferAttribute(key.geometry.attributes.position), size = box.getSize(new THREE.Vector3());
+    expect(size.z).toBeLessThan(0.5 * size.x);
+    expect(size.y).toBeLessThan(0.9 * size.x);
+    const rope = (phone: boolean) => {
+      const { position, color } = landmark("C C Rider", phone).parts[0].geometry.attributes, string = new THREE.Color(0xcfc8b4);
+      let n = 0;
+      for (let i = 0; i < position.count; i++) if (position.getX(i) < -4 && Math.abs(color.getX(i) - string.r) + Math.abs(color.getY(i) - string.g) + Math.abs(color.getZ(i) - string.b) < 1e-4) n += 1;
+      return n;
+    };
+    expect(rope(false)).toBeGreaterThan(200);
+    expect(rope(true)).toBe(0);
+  });
+
   it("cost a few thousand triangles between them, and fewer on a phone", () => {
     const cost = (phone: boolean) => RICH.map((title) => triangles(landmark(title, phone).parts));
     const desktop = cost(false), phone = cost(true);

@@ -83,7 +83,7 @@ export function makeBuilders(phone) {
      falls away under its lower side. */
   const SUNK = 1.6;
   const BRASS = 0xb08a3c, TIMBER = 0x6b4e2e, DARK_TIMBER = 0x4a3520, ROOF = 0x3b2a1a, IRON = 0x55595c;
-  const STRAW = 0xc9a24a, PALE_STRAW = 0xdcc079, LEATHER = 0x8a5a34, STRING = 0xcfc8b4;
+  const STRAW = 0xc9a24a, PALE_STRAW = 0xdcc079, LEATHER = 0x8a5a34, STRAP = 0x6a4426, STRING = 0xcfc8b4;
 
   /* Tuning: a guitar's tuning peg, taller than a bear. A turned post on a stone footing, brass collars, the string wound round it,
      and its key, a flattened oval, amber and glowing. */
@@ -112,7 +112,8 @@ export function makeBuilders(phone) {
   function strawBales(g) {
     stand(g, bale(1.9, 3.6), 0, 1.9 - BALE_SUNK, 0, 0, 0.25, 0);
     stand(g, bale(1.15, 2.3), 2.9, 1.15 - BALE_SUNK, 1.5, 0, 1.2, 0);
-    if (!phone) for (let k = 0; k < 7; k++) put(g, new THREE.ConeGeometry(0.07, 0.9, 4), tone(PALE_STRAW), -1.6 + 0.75 * k, 0.12, 2.3 + 0.25 * Math.sin(k * 2.1), 1.35 + 0.15 * Math.cos(k * 1.7), k * 0.9, 0);
+    /* Loose straw along the big bale's foot, on the side the walker comes from, each stalk lying half in the ground. */
+    if (!phone) for (let k = 0; k < 6; k++) put(g, new THREE.ConeGeometry(0.07, 0.9, 4), tone(PALE_STRAW), -1.5 + 0.6 * k, 0.02, -1.5 - 0.25 * (-1.5 + 0.6 * k) + 0.12 * Math.sin(k * 2.1), 1.35 + 0.15 * Math.cos(k * 1.7), k * 0.9, 0);
     const fork = new THREE.Group();
     put(fork, new THREE.CylinderGeometry(0.06, 0.07, 3.2, 6), tone(TIMBER), 0, 1.6, 0);
     put(fork, new THREE.BoxGeometry(0.7, 0.08, 0.08), tone(IRON), 0, 0.05, 0);
@@ -159,8 +160,9 @@ export function makeBuilders(phone) {
     put(saddle, new THREE.SphereGeometry(0.12, 6, 5), tone(DARK_TIMBER), 0.6, 0.62, 0);
     for (const side of [-1, 1]) {
       put(saddle, new THREE.BoxGeometry(0.8, 0.6, 0.06), tone(0x7a5230), 0, -0.2, side * 0.47, side * 0.3);
-      put(saddle, new THREE.BoxGeometry(0.07, 1.0, 0.03), hide, 0.05, -0.72, side * 0.6, side * 0.3);
-      put(saddle, new THREE.TorusGeometry(0.15, 0.03, 4, 8), tone(IRON), 0.05, -1.3, side * 0.77, 0, Math.PI / 2);
+      /* A stirrup's strap hangs straight down from behind the skirt's lower edge, and the stirrup from the strap's foot. */
+      put(saddle, new THREE.BoxGeometry(0.07, 0.9, 0.03), tone(STRAP), 0.05, -0.85, side * 0.42);
+      put(saddle, new THREE.TorusGeometry(0.15, 0.03, 4, 8), tone(IRON), 0.05, -1.4, side * 0.42, 0, Math.PI / 2);
     }
     saddle.scale.setScalar(1.35);
     stand(g, saddle, 1.2, 2.2, 0.13, 0, 0.08, 0.03);
