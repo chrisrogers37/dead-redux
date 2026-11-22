@@ -50,7 +50,7 @@ const fake = vi.hoisted(() => {
       return this.set(s, s, s);
     }
   }
-  type Bear = { g: { position: Vec; rotation: { y: number } }; legs: { rotation: { x: number } }[]; phase: number };
+  type Bear = { g: { position: Vec; rotation: { y: number }; visible?: boolean }; legs: { rotation: { x: number } }[]; phase: number };
   type Stage = {
     light: { visible: boolean; intensity: number };
     rig: { show: Float32Array; mesh: { visible: boolean; renderOrder?: number } };
@@ -427,6 +427,7 @@ type Hill = {
   mode: string;
   near: { index: number; title: string; clear: boolean } | null;
   rung: number;
+  still: boolean;
   crowd: { drawn: number; dance: number; sit: number; parted: number };
   analysis: { source: string | null; weight: number };
   map: { step: number; bass: number; build: number; swell: number; bpm: number | null } | null;
@@ -962,10 +963,176 @@ describe("main.js's frames", () => {
         expect(fake.world.laidOut).toEqual(real);
       });
 
-      it("hands the path the show's own songs, the same array, where no landmark is built for another title", async () => {
+      it("places the show's own songs where no landmark is built for another title", async () => {
         await near("?pose=near-1");
         expect(fake.world.placed).toEqual(real);
       });
+    });
+  });
+
+  describe("the flash counter's hooks", () => {
+    // Stepped down by slow frames until a window finds no rung left: the foot of the tier's ladder.
+    const foot = (page: Awaited<ReturnType<typeof startWorld>>) => {
+      page.run(DESCENT_S, { ms: 50 });
+      for (let k = 0, rung = -1; k < 30 && hill().rung !== rung; k++) {
+        rung = hill().rung;
+        page.run((WINDOW * 50) / 1000, { ms: 50 });
+      }
+      return hill().rung;
+    };
+    const blank = () => {
+      fake.world.beats = NaN;
+      fake.world.posed = { beats: NaN, dance: NaN, rise: NaN, sit: NaN };
+      fake.world.thinned = null;
+    };
+
+    it("answer only on a preview: elsewhere ?still=1, ?rung=2 and a pose of four numbers change nothing", async () => {
+      blank();
+      const page = await startWorld({ playing: true, search: "?still=1&rung=2&pose=12,-30,1,0.1", hooks: false });
+      expect(page.mode()).toBe("descent");
+      page.run(1);
+      expect(page.mode()).toBe("descent");
+      expect(hill().still).toBe(false);
+      expect(hill().rung).toBe(0);
+      expect(hill().scale).toBe(1);
+      expect(fake.world.bears).toHaveLength(5);
+      expect(fake.world.bears.filter((b) => b.g.visible === false)).toEqual([]);
+      // The band is moved and the crowd dances, as on any page.
+      expect(Number.isNaN(fake.world.beats)).toBe(false);
+      expect(fake.world.posed.dance).toBeGreaterThan(0);
+    });
+
+    it("leaves the light alone under ?still=1: the bears hidden, the band never moved, the crowd posed standing still, and says so in its stats", async () => {
+      blank();
+      const page = await startWorld({ playing: true, search: "?still=1" });
+      expect(hill().still).toBe(true);
+      page.run(1);
+      expect(fake.world.bears).toHaveLength(5);
+      expect(fake.world.bears.filter((b) => b.g.visible !== false)).toEqual([]);
+      expect(fake.world.beats).toBeNaN();
+      expect(fake.world.posed).toEqual({ beats: 0, dance: 0, rise: 0, sit: 0 });
+      // The light itself plays on: the rig is lit as far as the show has the crowd dance, and its beams keep the figures' beat.
+      const [beats, lit] = fake.world.stage.rig.show;
+      expect(lit).toBe(1);
+      expect(beats).toBeGreaterThan(0);
+      // The same second without the hook moves the band and dances the crowd, and hides no bear.
+      blank();
+      const plain = await startWorld({ playing: true, search: "?pose=crowd" });
+      expect(hill().still).toBe(false);
+      plain.run(1);
+      expect(fake.world.bears.filter((b) => b.g.visible === false)).toEqual([]);
+      expect(fake.world.beats).toBeGreaterThan(0);
+      expect(fake.world.posed.beats).toBe(fake.world.beats);
+      expect(fake.world.posed.dance).toBe(1);
+    });
+
+    it("still sits the crowd where the track seats it under ?still=1, standing still as it sits", async () => {
+      blank();
+      const page = await startWorld({ playing: true, title: "Space", search: "?still=1" });
+      page.run(2);
+      expect(fake.world.posed).toEqual({ beats: 0, dance: 0, rise: 0, sit: 1 });
+    });
+
+    it("starts a rung down its ladder under ?rung=1, as a slow second would leave it: the first rung's render scale and thinned tufts, the whole crowd", async () => {
+      blank();
+      const page = await startWorld({ search: "?rung=1" });
+      const made = hill().crowd.drawn;
+      // Before any frame is drawn.
+      expect(hill().rung).toBe(1);
+      expect(hill().scale).toBe(0.8);
+      expect(fake.world.thinned).toBe(true);
+      page.run(0.1);
+      expect(hill().rung).toBe(1);
+      expect(hill().crowd.drawn).toBe(made);
+      expect(page.shown()).toHaveLength(5);
+    });
+
+    it("holds the rung it was asked for: slow frames that step any other world down leave it there", async () => {
+      // Without the hook, these frames take a world to the foot of its ladder (the test of the sun's shadow, below).
+      const page = await startWorld({ search: "?rung=1" });
+      expect(foot(page)).toBe(1);
+      expect(hill().scale).toBe(0.8);
+      expect(fake.world.sun.castShadow).toBe(true);
+    });
+
+    it("takes ?rung=N that many of the ladder's own steps, and stops at its foot where N is more than it has", async () => {
+      await startWorld({ search: "?rung=2" });
+      expect(hill().rung).toBe(2);
+      expect(hill().scale).toBe(0.64);
+      const deep = foot(await startWorld());
+      expect(deep).toBeGreaterThan(5);
+      await startWorld({ search: `?rung=${deep}` });
+      expect(hill().rung).toBe(deep);
+      expect(fake.world.sun.castShadow).toBe(false);
+      expect(fake.world.stage.light.visible).toBe(false);
+      await startWorld({ search: "?rung=99" });
+      expect(hill().rung).toBe(deep);
+    });
+
+    it.each(["?rung=0", "?rung=x", "?rung=1.5", "?rung=-1", "?rung=100", "?rung="])("starts at rung 0 under %s, which names no rung from 1 to 99, and steps down as any world does", async (search) => {
+      const page = await startWorld({ search });
+      expect(hill().rung).toBe(0);
+      expect(hill().scale).toBe(1);
+      expect(foot(page)).toBeGreaterThan(5);
+    });
+
+    it("leaves the draw-call sweep and reduced motion at rung 0, which both hold, whatever ?rung= asks", async () => {
+      await startWorld({ search: "?pose=sweep&rung=2" });
+      expect(hill().rung).toBe(0);
+      // The sweep's own frame, a twentieth of the size.
+      expect(hill().scale).toBe(0.05);
+      const page = await startWorld({ search: "?rung=2", reduced: true });
+      page.run(0.02);
+      expect(hill().rung).toBe(0);
+      expect(hill().scale).toBe(1);
+    });
+
+    // A spot on the island clear of the stage and of every bear, so the walk's own keep-out moves the visitor nowhere.
+    const SPOT = { x: 12.5, z: -30, heading: 1.2, pitch: 0.1 };
+
+    it("stands the visitor where four numbers say, ?pose=X,Z,HEADING,PITCH, in a walk with no descent and with the camera cut", async () => {
+      const page = await startWorld({ search: "?pose=12.5,-30,1.2,0.1" });
+      expect(page.mode()).toBe("walk");
+      page.run(0.02);
+      expect(page.mode()).toBe("walk");
+      expect(distance(SPOT, stage)).toBeGreaterThan(STAGE_REACH);
+      for (const b of fake.world.bears) expect(distance(SPOT, b.g.position)).toBeGreaterThan(BODY_REACH);
+      expect(page.stepped()).toEqual({ x: 12.5, z: -30, heading: 1.2 });
+      expect(fake.world.cut).toBe(true);
+      page.run(0.02);
+      expect(fake.world.cut).toBe(false);
+    });
+
+    it("looks from the visitor's eye there in first person: 3.2 m over the ground, along the heading, tilted by the pitch", async () => {
+      const page = await startWorld({ search: "?pose=12.5,-30,1.2,0.1", view: "first" });
+      page.run(0.02);
+      const eye = { x: 12.5, y: height(12.5, -30) + 3.2, z: -30 };
+      expectNear(fake.world.camera.position, eye);
+      expectNear(fake.world.camera.target, { x: eye.x - Math.sin(1.2) * Math.cos(0.1), y: eye.y + Math.sin(0.1), z: eye.z - Math.cos(1.2) * Math.cos(0.1) });
+    });
+
+    it("takes negative numbers, whole numbers, and a pitch at the 0.8 rad the look allows", async () => {
+      const page = await startWorld({ search: "?pose=-40,25,-2,-0.8" });
+      expect(page.mode()).toBe("walk");
+      page.run(0.02);
+      expect(page.stepped()).toEqual({ x: -40, z: 25, heading: -2 });
+    });
+
+    it.each([
+      ["three numbers", "1,2,3"],
+      ["a word among them", "1,2,3,x"],
+      ["five numbers", "1,2,3,4,5"],
+      ["a pitch past 0.8 rad up", "1,2,3,1.5"],
+      ["a pitch past 0.8 rad down", "1,2,3,-0.81"],
+      ["NaN", "NaN,1,2,3"],
+      ["an exponent", "1e3,0,0,0"],
+      ["a space", "1, 2,3,0"],
+      ["an empty number", "1,,3,0"],
+    ])("takes %s for no pose: the world opens on its descent", async (_what, pose) => {
+      const page = await startWorld({ search: `?pose=${pose}` });
+      expect(page.mode()).toBe("descent");
+      page.run(0.02);
+      expect(page.mode()).toBe("descent");
     });
   });
 

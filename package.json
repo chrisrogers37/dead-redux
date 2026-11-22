@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "fetch-shows": "npx tsx scripts/fetch-shows.ts",
+    "flash": "node scripts/flash/capture.mjs",
     "test": "vitest",
     "test:run": "vitest run"
   },

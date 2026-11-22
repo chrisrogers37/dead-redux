@@ -284,8 +284,22 @@ function start(gl) {
      landmark, or closer where another landmark would stand in the view, facing it and looking a little way up it (path.js nearStand);
      a `world:near` event ({ index }) stands it by another's, so the CI shoot sees every landmark of a show from one page. */
   const hook = hooks?.get("pose") ?? null;
-  const testPose = hook && Object.hasOwn(TEST_POSES, hook) ? TEST_POSES[hook] : null;
+  /* The flash counter's test hooks (scripts/flash), three more: this pose, and ?still=1 and ?rung=N below.
+     ?pose=X,Z,HEADING,PITCH, four plain numbers: the visitor stands there, as a named pose has them. A pitch past the 0.8 rad the
+     look allows, or anything else, is no pose. */
+  const four = /^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(hook ?? "");
+  const numberPose = four && Math.abs(Number(four[4])) <= 0.8
+    ? { x: Number(four[1]), z: Number(four[2]), heading: Number(four[3]), pitch: Number(four[4]) } : null;
+  const testPose = hook && Object.hasOwn(TEST_POSES, hook) ? TEST_POSES[hook] : numberPose;
   const sweep = hook === "sweep";
+  /* ?still=1: the light alone. The bears are hidden, the band is not moved and the crowd is posed standing still (it still sits where
+     the track seats it); the sky, the night, the rig and the lights are as they are. The flash counter's light-alone pass. */
+  const still = hooks?.get("still") === "1";
+  if (still) for (const b of bears) b.g.visible = false;
+  /* ?rung=N, N from 1 to 99: the world starts N rungs down its quality ladder (fewer if the ladder ends) and holds there, as a slow
+     device would after N slow seconds. The sweep and reduced motion, which hold rung 0, ignore it. */
+  const rungAsked = Number(/^\d{1,2}$/.exec(hooks?.get("rung") ?? "")?.[0] ?? 0);
+  const holdRung = rungAsked > 0 && !sweep && !reduced;
   const bearHook = hook === "snout" || hook === "pass" ? hook : null;
   let bearPose = bearHook;
   /* The test hook ?pose=landmark-K: from 30 m over song K's landmark, looking down with north up the screen, the bears standing where
@@ -423,10 +437,11 @@ function start(gl) {
 
   /* The downgrade (quality.js): every WINDOW frames the median frame time decides, and over SLOW_MS the world steps down a rung. The
      world's first DESCENT_S seconds are its load, and a window that holds a frame of them decides nothing, even when input cuts the
-     descent short or a test pose skips it. */
+     descent short or a test pose skips it. Under ?rung=N the windows are measured and step nothing down: the world holds the rung it
+     was asked for. */
   const sampler = frameSampler();
   function sample(dtMs) {
-    if (!sampler.add(dtMs, elapsed < DESCENT_S)) return;
+    if (!sampler.add(dtMs, elapsed < DESCENT_S) || holdRung) return;
     const next = stepDown(quality);
     if (!next) return;
     quality = next;
@@ -480,6 +495,8 @@ function start(gl) {
   const r3 = (v) => Math.round(v * 1000) / 1000;
   Object.defineProperties((window.__hill ??= {}), {
     tier: stat(() => tier), scale: stat(() => quality.scale), rung: stat(() => rung), trees: stat(() => trees.count),
+    /* Whether ?still=1 was heard: the flash counter reads it, so a world from before the hook never passes for the light alone. */
+    still: stat(() => still),
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
     frameMs: stat(() => Math.round(sampler.frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
     mode: stat(() => mode),
@@ -585,7 +602,7 @@ function start(gl) {
       const onset = onsetAt();
       figures = beatStep(figures, dt, tempo ?? FIGURES_BPM, tempo !== null && onset !== seenOnset ? (now - onset) / 1000 : null);
       seenOnset = onset;
-      stage.move(dt, elapsed, figures.beats, playing);
+      if (!still) stage.move(dt, elapsed, figures.beats, playing);
       dancing = toward(dancing, dances, dt / 0.8);
     } else {
       skyMat.uniforms.uTime.value = data.seed;
@@ -725,7 +742,8 @@ function start(gl) {
        camera looked. */
     const sits = crowdAt[index].sit ? 1 : 0;
     sitting = reduced ? sits : toward(sitting, sits, dt / SIT_S);
-    crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting);
+    if (still) crowd.pose(0, 0, 0, sitting);
+    else crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting);
     /* The rig's five numbers (rig.js): the figures' phase in eight beats; how far it is lit, as far as the crowd dances, so while a song
        plays, and under reduced motion at once while one plays, its beams still, and less as day breaks, when the sky's own light
        washes them out (night.js `beams`); how far its beams swing, as far as the crowd dances; the
@@ -781,6 +799,16 @@ function start(gl) {
     flora.sparse();
     applyQuality();
     document.addEventListener("world:pose", ({ detail }) => { Object.assign(walker, detail); cut = true; wake(); });
+  }
+  if (holdRung) {
+    /* ?rung=N: the ladder's own steps (quality.js stepDown), taken as the world starts; its frames then take no more (sample). */
+    for (let k = 0; k < rungAsked; k++) {
+      const next = stepDown(quality);
+      if (!next) break;
+      quality = next;
+      rung += 1;
+    }
+    applyQuality();
   }
   placeWalker();
   wake();
