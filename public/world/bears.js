@@ -70,8 +70,9 @@ function part(geo, paint) {
    the world keeps round a bear: its nose 2.36 m ahead of its centre and its arms, the widest of it, 1.45 m to either side, within the
    2.4 m and the 1.5 m the walk allows it (collide.js), and no part of it further than 1.98 m from its middle, which stands 0.4 m ahead
    of its centre, the reach the crowd parts round (crowd.js). bears.test.ts holds it to them. Its belly, its muzzle and the insides of
-   its ears, a ruff round its neck and its round tail stand apart from its fur (paler, or deeper on a pale bear); its nose and eyes are dark. Each limb stays in the group as a hidden mesh, where the gait swings it (stride) and
-   what reads the bear's meshes finds it (main.js's bearsInView); drawLegs draws them. */
+   its ears are paler than its fur; a ruff round its neck and its round tail stand apart from it, paler on a bear in a colour and a
+   shade deeper on a pale one; its nose and eyes are dark. Each limb stays in the group as a hidden mesh, where the gait swings it
+   (stride) and what reads the bear's meshes finds it (main.js's bearsInView); drawLegs draws them. */
 export function buildBear(scene, hue) {
   const fur = new THREE.Color(hue), pale = fur.clone().lerp(WHITE, 0.5), mix = new THREE.Color();
   /* The ruff and the tail stand apart from the fur: paler on a bear in a colour, and a shade deeper on a bear whose fur is near white
