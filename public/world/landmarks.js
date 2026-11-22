@@ -90,12 +90,13 @@ export function makeBuilders(phone) {
   function tuningPeg(g) {
     put(g, new THREE.CylinderGeometry(1.1, 1.3, 0.4 + SUNK, 8), stone, 0, 0.2 - SUNK / 2, 0);
     put(g, new THREE.CylinderGeometry(0.8, 1.0, 0.35, 8), stone, 0, 0.575, 0);
-    const turned = [[0.42, 0], [0.42, 0.5], [0.3, 0.8], [0.26, 2.6], [0.34, 2.9], [0.34, 3.3], [0.24, 3.6], [0.22, 5.2], [0.36, 5.5], [0.36, 5.8], [0.2, 6]];
+    const turned = [[0.42, 0], [0.42, 0.4], [0.3, 0.65], [0.26, 2], [0.34, 2.25], [0.34, 2.6], [0.24, 2.85], [0.22, 4.1], [0.36, 4.35], [0.36, 4.6], [0.2, 4.8]];
     put(g, new THREE.LatheGeometry(turned.map(([r, y]) => new THREE.Vector2(r, y)), phone ? 8 : 12), tone(TIMBER), 0, 0.75, 0);
-    for (const y of [3.85, 6.4]) put(g, new THREE.TorusGeometry(0.36, 0.07, 5, 12), tone(BRASS), 0, y, 0, Math.PI / 2);
-    for (let k = 0; k < (phone ? 3 : 6); k++) put(g, new THREE.TorusGeometry(0.29, 0.035, 4, 10), tone(STRING), 0, 4.45 + 0.11 * k, 0, Math.PI / 2 + 0.06);
-    put(g, new THREE.CylinderGeometry(0.14, 0.2, 0.7, 8), tone(BRASS), 0, 7.05, 0);
-    g.add(mesh(new THREE.SphereGeometry(1.2, 14, 10).scale(1, 0.82, 0.42), amber, 0, 8.2, 0));
+    for (const y of [3.2, 5.2]) put(g, new THREE.TorusGeometry(0.36, 0.07, 5, 12), tone(BRASS), 0, y, 0, Math.PI / 2);
+    for (let k = 0; k < (phone ? 3 : 6); k++) put(g, new THREE.TorusGeometry(0.29, 0.035, 4, 10), tone(STRING), 0, 3.75 + 0.11 * k, 0, Math.PI / 2 + 0.06);
+    put(g, new THREE.CylinderGeometry(0.14, 0.2, 0.7, 8), tone(BRASS), 0, 5.85, 0);
+    /* The key's top is 8 m up, as the ball's was: a phone's title plate stands just over it in the opening view. */
+    g.add(mesh(new THREE.SphereGeometry(1.2, 14, 10).scale(1, 0.82, 0.42), amber, 0, 7.0, 0));
   }
 
   /* A round bale of straw lying along x in its own frame: the coil showing at each end, and two bands of twine. */
@@ -106,19 +107,18 @@ export function makeBuilders(phone) {
     for (const x of [-long / 4, long / 4]) put(parts, new THREE.TorusGeometry(r + 0.02, 0.045, 4, phone ? 12 : 20), tone(DARK_TIMBER), x, 0, 0, 0, Math.PI / 2);
     return parts;
   }
-  /* Jack Straw: two bales, the small one against the big one, loose straw at their foot and a pitchfork stood in the big one. Each
+  /* Jack Straw: two bales, the small one against the big one, and a pitchfork leaning on the big one. Each
      bale lies BALE_SUNK m into the ground, as a heavy bale settles, which also keeps it on a slope's lower side. */
   const BALE_SUNK = 0.45;
   function strawBales(g) {
     stand(g, bale(1.9, 3.6), 0, 1.9 - BALE_SUNK, 0, 0, 0.25, 0);
     stand(g, bale(1.15, 2.3), 2.9, 1.15 - BALE_SUNK, 1.5, 0, 1.2, 0);
-    /* Loose straw along the big bale's foot, on the side the walker comes from, each stalk lying half in the ground. */
-    if (!phone) for (let k = 0; k < 6; k++) put(g, new THREE.ConeGeometry(0.07, 0.9, 4), tone(PALE_STRAW), -1.5 + 0.6 * k, 0.02, -1.5 - 0.25 * (-1.5 + 0.6 * k) + 0.12 * Math.sin(k * 2.1), 1.35 + 0.15 * Math.cos(k * 1.7), k * 0.9, 0);
+    /* The pitchfork leans on the big bale, on the side the walker comes from, its foot in the ground and its tines up. */
     const fork = new THREE.Group();
-    put(fork, new THREE.CylinderGeometry(0.06, 0.07, 3.2, 6), tone(TIMBER), 0, 1.6, 0);
-    put(fork, new THREE.BoxGeometry(0.7, 0.08, 0.08), tone(IRON), 0, 0.05, 0);
-    for (const x of [-0.3, 0, 0.3]) put(fork, new THREE.ConeGeometry(0.04, 0.8, 4), tone(IRON), x, -0.38, 0, Math.PI);
-    stand(g, fork, -0.7, 3.75 - BALE_SUNK, -0.2, 0.25, 0, -0.55);
+    put(fork, new THREE.CylinderGeometry(0.06, 0.07, 3.6, 6), tone(TIMBER), 0, 1.8, 0);
+    put(fork, new THREE.BoxGeometry(0.7, 0.08, 0.08), tone(IRON), 0, 3.6, 0);
+    for (const x of [-0.3, 0, 0.3]) put(fork, new THREE.ConeGeometry(0.045, 0.85, 4), tone(IRON), x, 4.05, 0);
+    stand(g, fork, -0.5, -0.35, -2.45, 0.36, 0.25, 0);
   }
 
   /* Dupree's Diamond Blues: a cut stone, its table up and its point down, held in four brass claws over a stepped stone foot. */
