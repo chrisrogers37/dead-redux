@@ -56,6 +56,8 @@ function torso() {
   return geo;
 }
 const INK = new THREE.Color(0x0b0b0d), WHITE = new THREE.Color(0xffffff);
+/* Fur whose relative luminance is over TRIM_OVER is near white; its ruff and tail are TRIM_DEEP of its colour. */
+const TRIM_OVER = 0.6, TRIM_DEEP = 0.68;
 
 /* A part of a bear's body, coloured by `paint`, which gives each vertex's colour from its place in the body. */
 function part(geo, paint) {
@@ -68,10 +70,13 @@ function part(geo, paint) {
    the world keeps round a bear: its nose 2.36 m ahead of its centre and its arms, the widest of it, 1.45 m to either side, within the
    2.4 m and the 1.5 m the walk allows it (collide.js), and no part of it further than 1.98 m from its middle, which stands 0.4 m ahead
    of its centre, the reach the crowd parts round (crowd.js). bears.test.ts holds it to them. Its belly, its muzzle and the insides of
-   its ears, a ruff round its neck and its round tail are paler; its nose and eyes are dark. Each limb stays in the group as a hidden mesh, where the gait swings it (stride) and
+   its ears, a ruff round its neck and its round tail stand apart from its fur (paler, or deeper on a pale bear); its nose and eyes are dark. Each limb stays in the group as a hidden mesh, where the gait swings it (stride) and
    what reads the bear's meshes finds it (main.js's bearsInView); drawLegs draws them. */
 export function buildBear(scene, hue) {
   const fur = new THREE.Color(hue), pale = fur.clone().lerp(WHITE, 0.5), mix = new THREE.Color();
+  /* The ruff and the tail stand apart from the fur: paler on a bear in a colour, and a shade deeper on a bear whose fur is near white
+     already (the visitor's), where paler would not show. */
+  const trim = 0.2126 * fur.r + 0.7152 * fur.g + 0.0722 * fur.b > TRIM_OVER ? fur.clone().multiplyScalar(TRIM_DEEP) : pale;
   const plain = (c) => () => c;
   const smooth = (edge0, edge1, x) => { const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0))); return t * t * (3 - 2 * t); };
   /* The belly: the front of the body, an oval 0.78 m to each side of its middle and 1.15 m above and below a point 2 m up. */
@@ -88,10 +93,11 @@ export function buildBear(scene, hue) {
     part(new THREE.SphereGeometry(0.2, 12, 8).scale(1.2, 0.85, 1).translate(0, 3.5, 2.16), plain(INK)),
     part(new THREE.SphereGeometry(0.11, 8, 6).translate(-0.42, 3.9, 1.73), plain(INK)),
     part(new THREE.SphereGeometry(0.11, 8, 6).translate(0.42, 3.9, 1.73), plain(INK)),
-    /* What shows from behind, where the walk's camera stands: a ruff round the neck, paler than the fur, standing a hand proud of the
-       shoulders, and a round tail. bears.test.ts holds both to showing: a ruff inside the body is no ruff. */
-    part(new THREE.TorusGeometry(1.0, 0.17, 5, 14).rotateX(Math.PI / 2 - 0.22).translate(0, 3.1, 0), plain(pale)),
-    part(new THREE.SphereGeometry(0.24, 8, 6).translate(0, 1.42, -1.02), plain(pale)),
+    /* What shows from behind, where the walk's camera stands: a ruff round the neck, standing a hand proud of the shoulders, round
+       enough to keep a round edge at the walk's distance, and a round tail. bears.test.ts holds both to showing: a ruff inside the
+       body is no ruff. */
+    part(new THREE.TorusGeometry(1.0, 0.17, 6, 28).rotateX(Math.PI / 2 - 0.22).translate(0, 3.1, 0), plain(trim)),
+    part(new THREE.SphereGeometry(0.24, 8, 6).translate(0, 1.42, -1.02), plain(trim)),
   ]), bodyMat);
   const legs = LIMBS.map(({ at: [x, y, z], scale: [sx, sy, sz] }) => {
     const leg = mesh(LEG, legMat, x, y, z);

@@ -55,12 +55,10 @@ describe("buildBear", () => {
     expect(Math.max(...vertices(bear).map(([, y]) => y))).toBeCloseTo(4.85, 2);
   });
 
-  it("shows its ruff and its tail: each stands out past the body it is on", () => {
+  it("shows its ruff and its tail: each stands out past the body it is on, the ruff round at its edge, both in a tone apart from the fur", () => {
     const bear = buildBear(new THREE.Scene(), 0xd4607a);
-    const body = vertices({ ...bear, g: bear.g }).slice(0, bear.body.geometry.attributes.position.count);
     const position = bear.body.geometry.attributes.position;
     const own = Array.from({ length: position.count }, (_, i) => [position.getX(i), position.getY(i), position.getZ(i)]);
-    expect(body.length).toBe(own.length);
     // At the neck the torso is 1.03 m to either side at its widest; the ruff stands past it, and no further than the arms do.
     const neck = own.filter(([, y]) => y > 2.9 && y < 3.3).map(([x]) => Math.abs(x));
     expect(Math.max(...neck)).toBeGreaterThan(1.1);
@@ -68,6 +66,30 @@ describe("buildBear", () => {
     // Behind the hips the torso's back stands 0.95 m behind the centre; the tail stands past it.
     const rump = own.filter(([x, y]) => Math.abs(x) < 0.3 && y > 1.15 && y < 1.7).map(([, , z]) => z);
     expect(Math.min(...rump)).toBeLessThan(-1.15);
+    // The ruff is a ring 1 m round the neck and 0.17 m thick, tipped 0.22 rad forward, 3.1 m up. Its corners stand at 28 places
+    // round the neck, so its edge reads round from where the walk's camera stands: at 14 it showed straight sides.
+    const tip = Math.PI / 2 - 0.22, onRuff = (x: number, y: number, z: number) => {
+      const up = y - 3.1, across = up * Math.cos(tip) + z * Math.sin(tip), along = -up * Math.sin(tip) + z * Math.cos(tip);
+      return Math.abs(Math.hypot(Math.hypot(x, across) - 1, along) - 0.17) < 1e-3 ? Math.atan2(across, x) : null;
+    };
+    const turns = own.map(([x, y, z]) => onRuff(x, y, z)).filter((turn): turn is number => turn !== null);
+    expect(new Set(turns.map((turn) => Math.round(((turn + 2 * Math.PI) % (2 * Math.PI)) * 100) % 628)).size).toBe(28);
+    // Paler than the fur on a bear in a colour, and a shade deeper on the visitor's, whose fur is near white: a quarter apart at least.
+    const light = (r: number, g: number, b: number) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    for (const hue of [0xd4607a, 0xd4a056, 0x78b070, 0x6898d0, 0x9a80c0, 0xeceae4]) {
+      const { body } = buildBear(new THREE.Scene(), hue), at = body.geometry.attributes.position, colour = body.geometry.attributes.color;
+      const fur = new THREE.Color(hue), furLight = light(fur.r, fur.g, fur.b);
+      let ruffs = 0;
+      for (let i = 0; i < at.count; i++) {
+        const tail = Math.abs(Math.hypot(at.getX(i), at.getY(i) - 1.42, at.getZ(i) + 1.02) - 0.24) < 1e-3;
+        if (onRuff(at.getX(i), at.getY(i), at.getZ(i)) === null && !tail) continue;
+        ruffs += 1;
+        const ratio = light(colour.getX(i), colour.getY(i), colour.getZ(i)) / furLight;
+        if (hue === 0xeceae4) expect(ratio).toBeLessThan(0.75);
+        else expect(ratio).toBeGreaterThan(1.25);
+      }
+      expect(ruffs).toBeGreaterThan(200);
+    }
   });
 
   it("is one mesh to draw and four hidden limbs: two arms, then two legs, an arm swinging with the leg across from it", () => {
