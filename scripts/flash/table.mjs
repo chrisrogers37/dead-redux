@@ -1,8 +1,10 @@
-// The counts as a PR's text gives them, from the result files capture.mjs wrote:
+// The counts as a PR's text gives them, from the result files capture.mjs wrote into a run's folder, or several runs':
 //
-//   node scripts/flash/table.mjs <OUT_DIR>
+//   node scripts/flash/table.mjs [--mixed] <run's folder> [<run's folder> ...]
 //
 // One row for each job and each grid, main's count beside the branch's. The table goes to stdout, what to know about it to stderr.
+// Rows whose branch worlds differ, or whose main worlds do, are refused: they are of different code, and a table of them would set
+// one PR's counts beside another's. --mixed prints them all the same, and says so.
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { pathToFileURL } from "url";
@@ -16,9 +18,27 @@ const cell = (j, grid) => {
   const r = j?.results.find((g) => g.grid.join() === grid);
   return r ? `${r.maxSwingsInASecond}, ${r.blocksAtLeast[5]}` : "–";
 };
+// A world as a reader tells it from another: the start of its hash, and where it came from.
+const worldName = (w) => `${w.hash.slice(0, 12)} (${w.from === "main" ? `main at ${w.commit.slice(0, 7)}` : w.from === "server" ? `the server's own, ${w.ref}` : `${w.ref}${w.commit ? ` at ${w.commit.slice(0, 7)}` : ""}${w.dirty ? ", changed since" : ""}`})`;
 
-/** The table of `rows`, capture.mjs's results, as Markdown, and what a reader must know before they compare its numbers. */
-export function tables(rows) {
+/**
+ * The table of `rows`, capture.mjs's results, as Markdown, with the worlds it is of and what a reader must know before they compare its
+ * numbers. It throws when the rows of a variant are of more than one world, unless `mixed` allows it.
+ */
+export function tables(rows, { mixed = false } = {}) {
+  const warnings = [], worlds = [];
+  // A result with no hash of its world is an earlier counter's: nothing says which code it counted.
+  const nameless = rows.filter((j) => !j.world?.hash);
+  if (nameless.length) throw new Error(`${nameless.length} of ${rows.length} results do not say which world they counted: they are of an earlier flash counter (${nameless.map((j) => j.tag ?? "untagged").join(", ")})`);
+  for (const variant of ["main", "branch"]) {
+    const of = new Map();
+    for (const j of rows.filter((row) => row.job.variant === variant)) of.set(j.world.hash, [...(of.get(j.world.hash) ?? []), j]);
+    worlds.push(...[...of.values()].map((jobs) => `${variant}: ${worldName(jobs[0].world)}`));
+    if (of.size < 2) continue;
+    const which = [...of.values()].map((jobs) => `${worldName(jobs[0].world)}: ${jobs.map((j) => j.tag).join(", ")}`).join("; ");
+    if (!mixed) throw new Error(`the ${variant} rows are of ${of.size} worlds, and one table would set counts of different code side by side: ${which}`);
+    warnings.push(`the ${variant} rows are of ${of.size} worlds: ${which}`);
+  }
   // A job's results on main and on the branch stand in one row: the group is the job without its variant.
   const groups = new Map();
   for (const j of rows) {
@@ -43,27 +63,28 @@ export function tables(rows) {
       out.push(`| ${device(j)} | ${j.job.rung} | ${j.job.window} (${j.window.name.split(":")[0]}) | ${j.job.pose} | ${j.job.still ? "light alone" : "whole frame"} | ${gridName(grid)} | ${cell(g.main, grid.join())} | ${cell(g.branch, grid.join())} |`);
     }
   }
-  const warnings = [];
   const renderers = [...new Set(rows.map((j) => j.world.renderer))];
   if (renderers.length > 1) warnings.push(`the rows come from ${renderers.length} renderers, and counts from different renderers are not comparable: ${renderers.join("; ")}`);
-  const errors = rows.reduce((a, j) => a + j.errors.length, 0);
-  if (errors) warnings.push(`${errors} page errors across the rows`);
-  const off = rows.reduce((a, j) => a + j.screenshotMatchesCanvas.over2, 0);
-  if (off) warnings.push(`${off} screenshots differ from the canvas by more than 2/255 at a checked point`);
-  return { markdown: out.join("\n"), warnings };
+  // A job whose frames could not be checked against the canvas finishes all the same: its count is of screenshots nothing vouches for.
+  const unchecked = rows.filter((j) => j.canvasCheck.unchecked > 0);
+  if (unchecked.length) warnings.push(`${unchecked.length} of ${rows.length} jobs have frames that were not checked against the canvas (the world draws them at another size than the screen's): ${unchecked.map((j) => j.tag).join(", ")}`);
+  return { markdown: out.join("\n"), worlds, warnings };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const dir = process.argv[2];
-  if (!dir) {
-    console.error("usage: node scripts/flash/table.mjs <OUT_DIR>");
+  const args = process.argv.slice(2), dirs = args.filter((arg) => arg !== "--mixed");
+  if (!dirs.length) {
+    console.error("usage: node scripts/flash/table.mjs [--mixed] <run's folder> [<run's folder> ...]");
     process.exit(2);
   }
-  const rows = readdirSync(dir).filter((n) => n.endsWith(".json")).map((n) => JSON.parse(readFileSync(join(dir, n), "utf8")));
-  const { markdown, warnings } = tables(rows);
-  console.log(markdown);
-  const heads = [...new Set(rows.map((j) => `${j.job.variant} ${(j.world.head ?? "?").slice(0, 7)}`))];
-  console.error(`${rows.length} runs; worlds: ${heads.join(", ")}; renderer: ${[...new Set(rows.map((j) => j.world.renderer))].join("; ")}; ` +
-    `screenshots checked against the canvas: ${rows.reduce((a, j) => a + j.screenshotMatchesCanvas.checked, 0)}`);
-  for (const w of warnings) console.error(`WARNING: ${w}`);
+  const rows = dirs.flatMap((dir) => readdirSync(dir).filter((n) => n.endsWith(".json")).map((n) => JSON.parse(readFileSync(join(dir, n), "utf8"))));
+  try {
+    const { markdown, worlds, warnings } = tables(rows, { mixed: args.includes("--mixed") });
+    console.log(markdown);
+    console.error(`${rows.length} jobs; ${worlds.join("; ")}; renderer: ${[...new Set(rows.map((j) => j.world.renderer))].join("; ")}`);
+    for (const w of warnings) console.error(`WARNING: ${w}`);
+  } catch (e) {
+    console.error(e.message);
+    process.exit(1);
+  }
 }

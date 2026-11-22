@@ -1,16 +1,21 @@
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SHELVES, SHELVES_COOKIE as PAGE_COOKIE, SHELVES_STORAGE as PAGE_STORAGE } from "../../src/components/world/shelves";
-import { jobUrl, launch, matrixJobs, parseJobs, readConfig, repoRoot, SHELVES_AWAY, SHELVES_COOKIE, SHELVES_STORAGE, tagOf, windowsFor } from "../flash/lib.mjs";
+import {
+  installPlates, jobUrl, launch, mainSha, matrixJobs, openPage, parseJobs, readConfig, repoRoot, runFolder, SHELVES_AWAY, SHELVES_COOKIE, SHELVES_STORAGE, STEPPER, tagOf,
+  windowsFor, worldFrom, worldHash,
+} from "../flash/lib.mjs";
 import { tables } from "../flash/table.mjs";
 import windows from "../flash/windows.json";
 
-// The flash counter's jobs, settings and table (scripts/flash). Importing lib.mjs here is itself a check: it runs no git, reads no
+// The flash counter's jobs, settings, page and table (scripts/flash). Importing lib.mjs here is itself a check: it runs no git, reads no
 // environment and loads no browser until one of its functions is called, so it imports where there is none of them.
 
 const DAY = "2026-10-20";
 const WINDOWS = windows[DAY].windows;
+const WORLD = join(repoRoot(), "public", "world");
 type Job = ReturnType<typeof parseJobs>[number];
 const job = (line: string): Job => {
   const jobs = parseJobs(line, WINDOWS);
@@ -26,8 +31,8 @@ describe("parseJobs", () => {
   });
 
   it("takes every key, and a pose that is a name or four numbers, whose limits are the world's to keep", () => {
-    expect(job("main S pose=12.5,-30,1.2,-0.1 view=390x844 dpr=2 tier=phone still=1 rung=3 grids=1,0+0,1")).toEqual({
-      variant: "main", window: "S", pose: "12.5,-30,1.2,-0.1", view: { width: 390, height: 844 }, dpr: 2, tier: "phone", still: true, rung: 3, grids: [[1, 0], [0, 1]],
+    expect(job("main S pose=12.5,-30,1.2,-0.1 view=390x844 dpr=2 tier=phone still=1 rung=99 grids=1,0+0,1")).toEqual({
+      variant: "main", window: "S", pose: "12.5,-30,1.2,-0.1", view: { width: 390, height: 844 }, dpr: 2, tier: "phone", still: true, rung: 99, grids: [[1, 0], [0, 1]],
     });
     // A pitch past what the world's look allows is the world's to refuse (main.js), and a job that asks it stops when the page loads.
     for (const pose of ["home", "stage", "near-3", "1,2,3,0.9"]) expect(job(`branch A pose=${pose} tier=tv dpr=1.5`)).toMatchObject({ pose, tier: "tv", dpr: 1.5 });
@@ -45,7 +50,8 @@ describe("parseJobs", () => {
     ["an unknown key", "main Q camera=crowd", '"camera=crowd" is none of'],
     ["a word that is no key=value", "main Q still", '"still" is none of'],
     ["a key twice", "main Q still=1 still=0", "still= is there twice"],
-    ["a rung that is no whole number from 0 to 99", "main Q rung=1.5", "rung=1.5"],
+    ["a rung that is no whole number", "main Q rung=1.5", "rung=1.5: a whole number from 0 to 99"],
+    ["a rung of 100, past the 99 the world's own hook takes", "main Q rung=100", "rung=100: a whole number from 0 to 99"],
     ["a frame of an odd width", "main Q view=801x500", "the frame 801x500 (the view times dpr) is not whole 2x2 blocks"],
     ["a frame that a pixel ratio leaves between pixels", "main Q view=801x500 dpr=1.5", "is not whole 2x2 blocks"],
     ["a view that is no size", "main Q view=800", "view=800 is no viewport"],
@@ -146,16 +152,16 @@ describe("windows.json", () => {
 });
 
 describe("readConfig", () => {
-  it("counts the fixed day at a local server, on the browser's own renderer, against origin/main, three jobs at a time, and keeps a job's result alone", () => {
+  it("counts the fixed day at a local server, on the browser's own renderer, against origin/main, two jobs at a time, and keeps a job's result alone", () => {
     expect(readConfig({})).toEqual({
-      siteUrl: "http://127.0.0.1:3000", day: DAY, outDir: join(tmpdir(), "dead-redux-flash"), gpu: "", worldDir: null, mainRef: "origin/main", parallel: 3, heat: false, stills: false,
+      siteUrl: "http://127.0.0.1:3000", day: DAY, outDir: join(tmpdir(), "dead-redux-flash"), gpu: "", worldDir: null, mainRef: "origin/main", parallel: 2, heat: false, stills: false,
     });
   });
 
   it("takes each setting from the environment", () => {
-    const out = join(tmpdir(), "elsewhere"), world = join(tmpdir(), "checkout", "public", "world");
-    expect(readConfig({ SITE_URL: "https://preview.test/", DAY: "2026-11-01", OUT_DIR: out, GPU: "metal", WORLD_DIR: world, MAIN_REF: "abc1234", PARALLEL: "1", HEAT: "1", STILLS: "1" })).toEqual({
-      siteUrl: "https://preview.test", day: "2026-11-01", outDir: out, gpu: "metal", worldDir: world, mainRef: "abc1234", parallel: 1, heat: true, stills: true,
+    const out = join(tmpdir(), "elsewhere");
+    expect(readConfig({ SITE_URL: "https://preview.test/", DAY: "2026-11-01", OUT_DIR: out, GPU: "metal", WORLD_DIR: WORLD, MAIN_REF: "abc1234", PARALLEL: "1", HEAT: "1", STILLS: "1" })).toEqual({
+      siteUrl: "https://preview.test", day: "2026-11-01", outDir: out, gpu: "metal", worldDir: WORLD, mainRef: "abc1234", parallel: 1, heat: true, stills: true,
     });
   });
 
@@ -165,17 +171,54 @@ describe("readConfig", () => {
     expect(readConfig({ STILLS: "1" })).toMatchObject({ heat: false, stills: true });
   });
 
-  it("keeps a count's files out of the repo: an OUT_DIR in it, or the repo itself, is refused", () => {
-    expect(() => readConfig({ OUT_DIR: join(repoRoot(), "scripts", "flash", "out") })).toThrow("is inside the repo");
-    expect(() => readConfig({ OUT_DIR: repoRoot() })).toThrow("is inside the repo");
-    // A folder beside the repo is outside it, though its path starts with the repo's.
-    expect(readConfig({ OUT_DIR: `${repoRoot()}-flash` }).outDir).toBe(`${repoRoot()}-flash`);
+  describe("keeps a count's files out of the repo", () => {
+    const made: string[] = [];
+    afterEach(() => { for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+
+    it("refuses an OUT_DIR in the repo, and the repo itself", () => {
+      expect(() => readConfig({ OUT_DIR: join(repoRoot(), "scripts", "flash", "out") })).toThrow("is inside the repo");
+      expect(() => readConfig({ OUT_DIR: repoRoot() })).toThrow("is inside the repo");
+      // A folder beside the repo is outside it, though its path starts with the repo's.
+      expect(readConfig({ OUT_DIR: `${repoRoot()}-flash` }).outDir).toBe(`${repoRoot()}-flash`);
+    });
+
+    it("refuses one that reaches the repo through a link, as a path through a Mac's /tmp does", () => {
+      const dir = mkdtempSync(join(tmpdir(), "flash-link-"));
+      made.push(dir);
+      symlinkSync(repoRoot(), join(dir, "repo"));
+      expect(() => readConfig({ OUT_DIR: join(dir, "repo", "out") })).toThrow("is inside the repo");
+      expect(() => readConfig({ OUT_DIR: join(dir, "repo", "not", "made", "yet") })).toThrow("is inside the repo");
+      expect(readConfig({ OUT_DIR: join(dir, "out", "not", "made", "yet") }).outDir).toBe(join(dir, "out", "not", "made", "yet"));
+    });
   });
 
-  it("refuses a day that is no date, and a count of jobs that is none", () => {
+  it("refuses, before any browser starts, a setting that would fail every job late or count what was not meant", () => {
+    // A renderer it has no flags for would count on the software renderer under another's name.
+    for (const gpu of ["Metal", "METAL", "1", "vulkan"]) expect(() => readConfig({ GPU: gpu })).toThrow(`GPU=${gpu}: metal, or unset`);
+    // An address without a scheme is no address the browser can open.
+    for (const url of ["localhost:3000", "preview.test", "ftp://preview.test", "//preview.test"]) expect(() => readConfig({ SITE_URL: url })).toThrow(`SITE_URL=${url} is no address`);
+    expect(readConfig({ SITE_URL: "http://localhost:3000" }).siteUrl).toBe("http://localhost:3000");
     expect(() => readConfig({ DAY: "today" })).toThrow("DAY=today");
     expect(() => readConfig({ PARALLEL: "0" })).toThrow("PARALLEL=0");
     expect(() => readConfig({ PARALLEL: "two" })).toThrow("PARALLEL=two");
+  });
+
+  it("refuses a WORLD_DIR that holds no main.js, and says where the world is when it is given a checkout's root", () => {
+    expect(() => readConfig({ WORLD_DIR: join(tmpdir(), "no-such-checkout") })).toThrow("holds no main.js: it is a checkout's public/world");
+    expect(() => readConfig({ WORLD_DIR: join(tmpdir(), "no-such-checkout") })).not.toThrow("did you mean");
+    expect(() => readConfig({ WORLD_DIR: repoRoot() })).toThrow(`holds no main.js: it is a checkout's public/world; did you mean ${WORLD}`);
+    expect(readConfig({ WORLD_DIR: WORLD }).worldDir).toBe(WORLD);
+  });
+});
+
+describe("runFolder", () => {
+  it("names a run's own folder by when it started and what it ran, so no run writes into another's", () => {
+    const at = new Date("2026-11-22T16:45:10.250Z");
+    expect(runFolder(at, "matrix", "quick")).toBe("20261122-164510-quick");
+    expect(runFolder(at, "matrix", "standard")).toBe("20261122-164510-standard");
+    expect(runFolder(at, "jobs", "/some/where/jobs.txt")).toBe("20261122-164510-jobs");
+    expect(runFolder(at, "one", "main Q")).toBe("20261122-164510-one");
+    expect(runFolder(new Date("2026-11-22T16:45:11Z"), "one", "main Q")).not.toBe(runFolder(at, "one", "main Q"));
   });
 });
 
@@ -193,6 +236,273 @@ describe("launch", () => {
   });
 });
 
+describe("the world a job counts", () => {
+  it("has a hash of its modules as served, whatever order they came in", () => {
+    const hash = worldHash([["main.js", "a"], ["rig.js", "b"]]);
+    expect(hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(worldHash([["rig.js", "b"], ["main.js", "a"]])).toBe(hash);
+  });
+
+  it("has another hash for a module changed by a byte, renamed, added, or with its text moved into the next", () => {
+    const hash = worldHash([["main.js", "ab"], ["rig.js", "c"]]);
+    for (const other of [
+      [["main.js", "aB"], ["rig.js", "c"]],
+      [["main.js", "ab"], ["rigs.js", "c"]],
+      [["main.js", "ab"], ["rig.js", "c"], ["sky.js", ""]],
+      [["main.js", "a"], ["rig.js", "bc"]],
+      [["main.js", "ab"]],
+    ]) expect(worldHash(other)).not.toBe(hash);
+    // One module whose text spells out another's name and text is not the two modules.
+    expect(worldHash([["main.js", "rig.jsc"]])).not.toBe(worldHash([["main.js", ""], ["rig.js", "c"]]));
+  });
+
+  it("says where it came from: main's commit, a checkout's world with its commit and whether the folder has changed since, or the server", () => {
+    const config = { siteUrl: "https://preview.test", mainRef: "origin/main", mainCommit: "c27c328c6edad881146e743042bdbc6409f86fac", worldDir: null as string | null };
+    expect(worldFrom("main", { ...config, worldDir: WORLD })).toEqual({ from: "main", ref: "origin/main", commit: config.mainCommit, dirty: false });
+    expect(worldFrom("branch", config)).toEqual({ from: "server", ref: "https://preview.test", commit: null, dirty: null });
+    const checkout = worldFrom("branch", { ...config, worldDir: WORLD });
+    expect(checkout).toMatchObject({ from: "WORLD_DIR", ref: WORLD });
+    expect(checkout.commit).toBe(mainSha("HEAD"));
+    expect(typeof checkout.dirty).toBe("boolean");
+    // A folder in no checkout has a hash and no commit.
+    expect(worldFrom("branch", { ...config, worldDir: tmpdir() })).toEqual({ from: "WORLD_DIR", ref: tmpdir(), commit: null, dirty: null });
+  });
+
+  it("resolves MAIN_REF to a commit, and says how to fetch one that names none", () => {
+    expect(mainSha("HEAD")).toMatch(/^[0-9a-f]{40}$/);
+    expect(() => mainSha("no-such-ref")).toThrow("MAIN_REF=no-such-ref names no commit in this repo");
+    // A tree or a file is no commit.
+    expect(() => mainSha("HEAD:public")).toThrow("names no commit");
+  });
+});
+
+describe("the virtual clock (STEPPER)", () => {
+  // A page as the stepper finds it: a clock that runs on whenever it is read, and animation frames the browser calls when it likes.
+  const page = () => {
+    let real = 5000.25;
+    const browserFrames: (() => void)[] = [], errors: string[] = [];
+    const performance = { now: () => (real += 7.3) };
+    const window = {
+      requestAnimationFrame: (callback: () => void) => browserFrames.push(callback),
+      cancelAnimationFrame: () => {},
+    } as unknown as {
+      requestAnimationFrame: (callback: (time: number) => void) => number;
+      cancelAnimationFrame: (id: number) => void;
+      __stepper: { step(k?: number): number; pump(): number; present<T>(after?: () => T): Promise<T | null>; queued(): number; steps(): number; now(): number };
+    };
+    new Function("window", "performance", "console", STEPPER)(window, performance, { error: (message: string) => errors.push(message) });
+    // The browser draws a frame: every real animation frame asked for so far is called.
+    const draw = () => browserFrames.splice(0).map((callback) => callback()).length;
+    return { window, performance, stepper: window.__stepper, browserFrames, errors, draw };
+  };
+  const FRAME = 1000 / 60;
+
+  it("stands still until a step, and moves a sixtieth of a second a step: 60 steps are one second", () => {
+    const { performance, stepper } = page();
+    const start = performance.now();
+    expect(performance.now()).toBe(start);
+    expect(stepper.now()).toBe(start);
+    expect(stepper.steps()).toBe(0);
+    stepper.step();
+    expect(performance.now() - start).toBeCloseTo(FRAME, 9);
+    stepper.step(59);
+    expect(stepper.steps()).toBe(60);
+    // A clock at 30 frames a second, or at the browser's own pace, would stand elsewhere.
+    expect(performance.now() - start).toBeCloseTo(1000, 9);
+    expect(stepper.now()).toBe(performance.now());
+  });
+
+  it("runs a frame the page asked for at the next step and no sooner, once, with the clock's time, and never hands it to the browser", () => {
+    const { window, performance, stepper, browserFrames } = page();
+    const times: number[] = [];
+    window.requestAnimationFrame((time) => times.push(time));
+    expect(stepper.queued()).toBe(1);
+    expect(browserFrames).toHaveLength(0);
+    expect(times).toEqual([]);
+    expect(stepper.step()).toBe(1);
+    expect(times).toEqual([performance.now()]);
+    expect(stepper.step()).toBe(0);
+    expect(times).toHaveLength(1);
+  });
+
+  it("runs a loop that asks for its next frame once a step: a frame asked for within a frame waits for the next", () => {
+    const { window, stepper } = page();
+    const times: number[] = [];
+    const loop = (time: number) => { times.push(time); window.requestAnimationFrame(loop); };
+    window.requestAnimationFrame(loop);
+    expect(stepper.step(5)).toBe(5);
+    expect(times).toHaveLength(5);
+    times.slice(1).forEach((time, k) => expect(time - times[k]).toBeCloseTo(FRAME, 9));
+  });
+
+  it("drops a frame that is cancelled, and runs the others", () => {
+    const { window, stepper } = page();
+    const ran: string[] = [];
+    window.requestAnimationFrame(() => ran.push("first"));
+    const second = window.requestAnimationFrame(() => ran.push("second"));
+    window.requestAnimationFrame(() => ran.push("third"));
+    window.cancelAnimationFrame(second);
+    expect(stepper.step()).toBe(2);
+    expect(ran).toEqual(["first", "third"]);
+  });
+
+  it("runs the frames waiting without moving the clock on a pump", () => {
+    const { window, performance, stepper } = page();
+    const start = performance.now();
+    let ran = 0;
+    window.requestAnimationFrame(() => { ran += 1; });
+    expect(stepper.pump()).toBe(1);
+    expect(ran).toBe(1);
+    expect(performance.now()).toBe(start);
+    expect(stepper.steps()).toBe(0);
+  });
+
+  it("presents one frame inside a frame of the browser's: the clock moves a sixtieth, the page's frame runs, then what was asked is read, and it answers two browser frames later", async () => {
+    const { window, performance, stepper, draw } = page();
+    const start = performance.now();
+    const order: string[] = [];
+    window.requestAnimationFrame((time) => order.push(`frame at ${(time - start).toFixed(3)}`));
+    let answered: string | null = null;
+    const presented = stepper.present(() => { order.push("read"); return "what was read"; }).then((value) => { answered = value; });
+    // Nothing runs until the browser draws.
+    expect(order).toEqual([]);
+    expect(stepper.steps()).toBe(0);
+    expect(draw()).toBe(1);
+    // A present that ran the page's frame without moving the clock would leave the world where it was: nothing would swing.
+    expect(stepper.steps()).toBe(1);
+    expect(performance.now() - start).toBeCloseTo(FRAME, 9);
+    expect(order).toEqual([`frame at ${FRAME.toFixed(3)}`, "read"]);
+    await Promise.resolve();
+    expect(answered).toBeNull();
+    expect(draw()).toBe(1);
+    await Promise.resolve();
+    expect(answered).toBeNull();
+    expect(draw()).toBe(1);
+    await presented;
+    expect(answered).toBe("what was read");
+    // One frame, and no more, however many of the browser's it took.
+    expect(stepper.steps()).toBe(1);
+  });
+
+  it("runs the rest of a frame's callbacks when one throws, and says so", () => {
+    const { window, stepper, errors } = page();
+    let ran = 0;
+    window.requestAnimationFrame(() => { throw new Error("a frame fell over"); });
+    window.requestAnimationFrame(() => { ran += 1; });
+    expect(stepper.step()).toBe(2);
+    expect(ran).toBe(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("stepper: Error: a frame fell over");
+  });
+});
+
+describe("the plates the page draws (installPlates)", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+  type Box = { x: number; y: number; width: number; height: number };
+  // A plate as the page has it: its box, its text, and whether the browser says it is seen, asked the way the count asks.
+  const plate = (box: Box, text: string, seen = true) => ({
+    getBoundingClientRect: () => box,
+    innerText: text,
+    checkVisibility: (how: { checkOpacity?: boolean; checkVisibilityCSS?: boolean }) => seen && how.checkOpacity === true && how.checkVisibilityCSS === true,
+  });
+  const read = (plates: ReturnType<typeof plate>[]) => {
+    const window = {} as { __plates: () => { x: number; y: number; w: number; h: number; text: string }[] };
+    vi.stubGlobal("window", window);
+    vi.stubGlobal("document", { querySelectorAll: (selector: string) => (selector === ".plate" ? plates : []) });
+    installPlates();
+    return window.__plates();
+  };
+
+  it("gives each drawn plate's box in CSS px and the start of its text on one line", () => {
+    expect(read([plate({ x: 24.5, y: 24, width: 300.25, height: 64 }, "  Dead\n Redux \t 1986-07-04 "), plate({ x: 0, y: 400, width: 800, height: 100 }, "x".repeat(80))])).toEqual([
+      { x: 24.5, y: 24, w: 300.25, h: 64, text: "Dead Redux 1986-07-04" },
+      { x: 0, y: 400, w: 800, h: 100, text: "x".repeat(50) },
+    ]);
+  });
+
+  it("leaves out a plate the page does not draw: one hidden or faded out, and one with no width or no height", () => {
+    // A plate that is on the page and not seen covers nothing, and masking it would leave part of the world uncounted; one that is
+    // seen and taken for hidden would be counted as the world.
+    const box = { x: 10, y: 10, width: 100, height: 40 };
+    expect(read([plate(box, "hidden", false), plate({ ...box, width: 0 }, "no width"), plate({ ...box, height: 0 }, "no height"), plate(box, "drawn")]).map((p) => p.text)).toEqual(["drawn"]);
+  });
+});
+
+describe("openPage", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+  // A browser that opens nothing and keeps what it was asked: the context's options, its cookies and init scripts, and what the page
+  // listens for and routes.
+  type Handler = (event: unknown) => void;
+  type Route = { request: () => { url: () => string }; fulfill: (answer: { status: number; body: string }) => { status: number; body: string } };
+  const browser = () => {
+    const asked = { options: {} as Record<string, unknown>, cookies: [] as Record<string, string>[], scripts: [] as [unknown, unknown][], on: {} as Record<string, Handler>, routes: [] as [(url: URL) => boolean, (route: Route) => unknown][] };
+    const page = { on: (event: string, handler: Handler) => { asked.on[event] = handler; }, route: async (matches: (url: URL) => boolean, handler: (route: Route) => unknown) => { asked.routes.push([matches, handler]); } };
+    const context = { addCookies: async (cookies: Record<string, string>[]) => { asked.cookies.push(...cookies); }, addInitScript: async (script: unknown, arg?: unknown) => { asked.scripts.push([script, arg]); }, newPage: async () => page };
+    return { asked, browser: { newContext: async (options: Record<string, unknown>) => { asked.options = options; return context; } } };
+  };
+  const SITE = "https://preview.test";
+  // A run that counts the server's own world.
+  const SERVER = { siteUrl: SITE, mainCommit: null, worldDir: null as string | null };
+
+  it("opens the job's frame: its viewport and pixel ratio, with a phone's touch for the phone's tier only", async () => {
+    const desktop = browser(), phone = browser();
+    await openPage(desktop.browser, job("branch Q dpr=1.5"), SERVER);
+    expect(desktop.asked.options).toEqual({ viewport: { width: 800, height: 500 }, deviceScaleFactor: 1.5 });
+    await openPage(phone.browser, job("branch Q tier=phone view=390x844 dpr=2"), SERVER);
+    expect(phone.asked.options).toEqual({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+  });
+
+  it("puts the HUD's three shelves away, by the page's cookie for the server and its storage key for the page's script", async () => {
+    // Without them the panels stand in the frame, and a count is of the world less a third of it.
+    const { asked, browser: fake } = browser();
+    await openPage(fake, job("branch Q"), SERVER);
+    expect(asked.cookies).toEqual([{ name: PAGE_COOKIE, value: SHELVES.join(","), url: SITE }]);
+    const stored = new Map<string, string>();
+    vi.stubGlobal("localStorage", { setItem: (key: string, value: string) => stored.set(key, value) });
+    for (const [script, arg] of asked.scripts) if (typeof script === "function" && arg !== undefined) script(arg);
+    expect([...stored]).toEqual([[PAGE_STORAGE, SHELVES.join(",")]]);
+  });
+
+  it("installs the virtual clock and the plate reader before the page's own scripts", async () => {
+    const { asked, browser: fake } = browser();
+    await openPage(fake, job("branch Q"), SERVER);
+    expect(asked.scripts.map(([script]) => script)).toContain(STEPPER);
+    expect(asked.scripts.map(([script]) => script)).toContain(installPlates);
+  });
+
+  it("gathers every world module the page is served, by name, and the page's errors but for the archive's", async () => {
+    const { asked, browser: fake } = browser();
+    const { modules, errors } = await openPage(fake, job("branch Q"), SERVER);
+    const response = (path: string, status: number, text: string) => asked.on.response({ url: () => SITE + path, status: () => status, text: async () => text });
+    response("/world/main.js", 200, "main");
+    response("/world/rig.js?v=2", 200, "rig");
+    response("/world/gone.js", 404, "not found");
+    response("/world/deep/x.js", 200, "elsewhere");
+    response("/maps/1986-07-04.json", 200, "{}");
+    response("/_next/static/world/main.js", 200, "the page's own");
+    expect(await Promise.all(modules.values())).toEqual([["main.js", "main"], ["rig.js", "rig"]]);
+    asked.on.pageerror({ message: "boom" });
+    asked.on.console({ type: () => "error", text: () => "Failed to load resource: https://archive.org/x.mp3" });
+    asked.on.console({ type: () => "error", text: () => "the world fell over" });
+    asked.on.console({ type: () => "log", text: () => "a note" });
+    expect(errors).toEqual(["pageerror: boom", "console.error: the world fell over"]);
+  });
+
+  it("leaves the server's own world alone, and serves a checkout's public/world in its place: its modules, and a 404 for one it lacks", async () => {
+    const own = browser();
+    await openPage(own.browser, job("branch Q"), SERVER);
+    expect(own.asked.routes).toEqual([]);
+    const { asked, browser: fake } = browser();
+    await openPage(fake, job("branch Q"), { ...SERVER, worldDir: WORLD });
+    expect(asked.routes).toHaveLength(1);
+    const [matches, serve] = asked.routes[0];
+    expect(["/world/main.js", "/world/deep/x.js", "/maps/x.json", "/world/main.css"].map((path) => matches(new URL(SITE + path)))).toEqual([true, false, false, false]);
+    const ask = (path: string) => serve({ request: () => ({ url: () => SITE + path }), fulfill: (answer) => answer }) as { status: number; body: string };
+    expect(ask("/world/main.js")).toMatchObject({ status: 200, body: readFileSync(join(WORLD, "main.js"), "utf8") });
+    expect(ask("/world/no-such-module.js")).toMatchObject({ status: 404, body: "not in WORLD_DIR" });
+  });
+});
+
 describe("the shelves", () => {
   it("are put away by the page's own cookie and storage key, all three by the page's names for them", () => {
     // The count hides the HUD by these. A name that changed in shelves.ts and not in lib.mjs would leave the HUD out, in the frame
@@ -204,15 +514,18 @@ describe("the shelves", () => {
 });
 
 describe("tables", () => {
+  const METAL = "ANGLE (Apple, ANGLE Metal Renderer: Apple M4, Unspecified Version)";
+  const MAIN = { hash: "a".repeat(64), from: "main", ref: "origin/main", commit: "c27c328c6edad881146e743042bdbc6409f86fac", dirty: false };
+  const BRANCH = { hash: "b".repeat(64), from: "WORLD_DIR", ref: "/checkout/public/world", commit: "d774c43000000000000000000000000000000000", dirty: false };
   // A result as capture.mjs writes one, with what the table reads: `most` swings at the worst block of each grid, and `at5` blocks at 5
   // or more.
-  const row = (line: string, counts: [number, number][], renderer = "ANGLE (Apple, ANGLE Metal Renderer: Apple M4, Unspecified Version)") => {
+  const row = (line: string, counts: [number, number][], world: Partial<typeof MAIN & { renderer: string }> = {}) => {
     const j = job(line), phone = j.tier === "phone";
     const frame = { width: j.view.width * j.dpr, height: j.view.height * j.dpr };
     return {
-      job: j, window: WINDOWS[j.window as keyof typeof WINDOWS], frame,
-      world: { tier: phone ? "phone" : "desktop", renderer, bufferW: phone ? 332 : frame.width, bufferH: phone ? 717 : frame.height, head: "c27c328c6edad881146e743042bdbc6409f86fac" },
-      errors: [] as string[], screenshotMatchesCanvas: { checked: 10, over2: 0 },
+      tag: tagOf(j), job: j, window: WINDOWS[j.window as keyof typeof WINDOWS], frame,
+      world: { ...(j.variant === "main" ? MAIN : BRANCH), tier: phone ? "phone" : "desktop", renderer: METAL, bufferW: phone ? 332 : frame.width, bufferH: phone ? 717 : frame.height, ...world },
+      canvasCheck: phone ? { checked: 0, unchecked: 10, worst: 0 } : { checked: 10, unchecked: 0, worst: 0 },
       results: j.grids.map((grid, k) => ({ grid, maxSwingsInASecond: counts[k][0], blocksAtLeast: { 5: counts[k][1] } })),
     };
   };
@@ -221,13 +534,14 @@ describe("tables", () => {
     "|---|---|---|---|---|---|---|---|",
   ];
 
-  it("puts main's count beside the branch's for the same job, a row a grid", () => {
-    const { markdown, warnings } = tables([row("branch S dpr=1.5 still=1", [[4, 0], [5, 1]]), row("main S dpr=1.5 still=1", [[4, 0], [6, 1]])]);
+  it("puts main's count beside the branch's for the same job, a row a grid, and names the two worlds", () => {
+    const { markdown, worlds, warnings } = tables([row("branch S dpr=1.5 still=1", [[4, 0], [5, 1]]), row("main S dpr=1.5 still=1", [[4, 0], [6, 1]])]);
     expect(markdown.split("\n")).toEqual([
       ...HEAD,
       "| desktop, 1.5×: 1200×750 | 0 | S (Seeks through the night) | crowd | light alone | even | 4, 0 | 4, 0 |",
       "| desktop, 1.5×: 1200×750 | 0 | S (Seeks through the night) | crowd | light alone | moved 1 px right, 1 px down | 6, 1 | 5, 1 |",
     ]);
+    expect(worlds).toEqual(["main: aaaaaaaaaaaa (main at c27c328)", "branch: bbbbbbbbbbbb (/checkout/public/world at d774c43)"]);
     expect(warnings).toEqual([]);
   });
 
@@ -248,15 +562,49 @@ describe("tables", () => {
     ]);
   });
 
-  it("warns when its rows come from two renderers, whose counts are not comparable, of page errors, and of screenshots that were not the frame just drawn", () => {
-    const software = row("main S", [[5, 2], [6, 1]], "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device), SwiftShader driver)");
-    const two = tables([row("branch S", [[5, 2], [5, 1]]), software]).warnings;
-    expect(two).toHaveLength(1);
-    expect(two[0]).toContain("the rows come from 2 renderers, and counts from different renderers are not comparable");
-    expect(two[0]).toContain("SwiftShader");
-    const bad = row("branch S", [[5, 2], [5, 1]]);
-    bad.errors.push("pageerror: x");
-    bad.screenshotMatchesCanvas.over2 = 3;
-    expect(tables([bad]).warnings).toEqual(["1 page errors across the rows", "3 screenshots differ from the canvas by more than 2/255 at a checked point"]);
+  it("refuses rows whose branch worlds differ, or whose main worlds do, and names each world and its jobs", () => {
+    // One PR's quick set read with another's standard set would print the other's counts as this branch's.
+    const other = { hash: "c".repeat(64), ref: "/another/public/world", commit: "e145cb0000000000000000000000000000000000", dirty: true };
+    const mixed = [row("branch S", [[5, 2], [5, 1]]), row("branch Q", [[2, 0], [2, 0]], other), row("main S", [[5, 2], [6, 1]])];
+    expect(() => tables(mixed)).toThrow("the branch rows are of 2 worlds, and one table would set counts of different code side by side: " +
+      "bbbbbbbbbbbb (/checkout/public/world at d774c43): branch_S_crowd_800x500_x1_auto_whole_rung0_g00+11; " +
+      "cccccccccccc (/another/public/world at e145cb0, changed since): branch_Q_crowd_800x500_x1_auto_whole_rung0_g00+11");
+    expect(() => tables([row("main S", [[5, 2], [6, 1]]), row("main Q", [[2, 0], [2, 0]], { hash: "d".repeat(64), commit: "f20c256000000000000000000000000000000000" })])).toThrow("the main rows are of 2 worlds");
+    // A checkout that was changed between two runs is two worlds, though its commit is one: the hash tells them, not the commit.
+    expect(() => tables([row("branch S", [[5, 2], [5, 1]]), row("branch Q", [[2, 0], [2, 0]], { hash: "c".repeat(64), dirty: true })])).toThrow("the branch rows are of 2 worlds");
+    // And the same modules are one world, whatever commit or folder they were read from.
+    expect(tables([row("branch S", [[5, 2], [5, 1]]), row("branch Q", [[2, 0], [2, 0]], { ref: "/another/public/world", commit: "e145cb0000000000000000000000000000000000" })]).worlds).toHaveLength(1);
+    // Told to, it prints them, and says what it has mixed.
+    const { markdown, worlds, warnings } = tables(mixed, { mixed: true });
+    expect(markdown.split("\n")).toHaveLength(2 + 4);
+    expect(worlds).toHaveLength(3);
+    expect(warnings).toEqual([expect.stringContaining("the branch rows are of 2 worlds: bbbbbbbbbbbb")]);
+  });
+
+  it("refuses a result that does not say which world it counted, as an earlier counter's does not", () => {
+    const old = { ...row("branch Q", [[2, 0], [2, 0]]), world: { tier: "desktop", renderer: METAL } };
+    expect(() => tables([row("branch S", [[5, 2], [5, 1]]), old as unknown as ReturnType<typeof row>])).toThrow(
+      "1 of 2 results do not say which world they counted: they are of an earlier flash counter (branch_Q_crowd_800x500_x1_auto_whole_rung0_g00+11)");
+  });
+
+  it("tells a server's own world, and a folder in no checkout, by their hashes alone", () => {
+    const { worlds } = tables([
+      row("branch S", [[5, 2], [5, 1]], { from: "server", ref: "https://preview.test", commit: null as unknown as string, dirty: null as unknown as boolean }),
+      row("main S", [[5, 2], [5, 1]]),
+    ]);
+    expect(worlds).toEqual(["main: aaaaaaaaaaaa (main at c27c328)", "branch: bbbbbbbbbbbb (the server's own, https://preview.test)"]);
+    expect(tables([row("branch S", [[5, 2], [5, 1]], { commit: null as unknown as string })]).worlds).toEqual(["branch: bbbbbbbbbbbb (/checkout/public/world)"]);
+  });
+
+  it("warns when its rows come from two renderers, whose counts are not comparable", () => {
+    const { warnings } = tables([row("branch S", [[5, 2], [5, 1]]), row("main S", [[5, 2], [6, 1]], { renderer: "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device), SwiftShader driver)" })]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("the rows come from 2 renderers, and counts from different renderers are not comparable");
+    expect(warnings[0]).toContain("SwiftShader");
+  });
+
+  it("warns of the jobs whose frames nothing checked against the canvas, by name", () => {
+    const { warnings } = tables([row("branch S dpr=1.5", [[5, 2], [5, 1]]), row("branch S tier=phone view=390x844 dpr=2", [[5, 2], [5, 1]])]);
+    expect(warnings).toEqual(["1 of 2 jobs have frames that were not checked against the canvas (the world draws them at another size than the screen's): branch_S_crowd_390x844_x2_phone_whole_rung0_g00+11"]);
   });
 });

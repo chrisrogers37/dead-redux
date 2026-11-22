@@ -69,7 +69,7 @@ The test hooks, `?at=`, `?t=`, `?stats=1`, `?day=`, `?sleep=`, `?lookup=`, `?pos
 
 `?pose=near-K` stands the visitor on the path beside song K's landmark, facing it (`nearStand` in `public/world/path.js`), and `?as=K:Title` builds song K's landmark as a song of that title would have it. With them the shoot takes a still of every landmark of the fixed day, and then of every other kind of landmark, on a desktop and a phone (`.github/screenshots/near.mjs`). `scripts/__tests__/near-landmarks.test.ts` holds those titles to the builders' table, so a new kind of landmark gets a still there.
 
-`?still=1`, `?rung=N` and a `?pose=` of four numbers, `X,Z,HEADING,PITCH`, are the flash counter's: the light alone in the frame, the world N rungs down its quality ladder and held there, and the visitor anywhere (`public/world/main.js`; `main.test.ts`).
+`?still=1`, `?rung=N` and a `?pose=` of four numbers, `X,Z,HEADING,PITCH`, are the flash counter's (`public/world/main.js`; `main.test.ts`). `?still=1` stills the figures and nothing else: the bears are hidden, the band is not moved and the crowd is posed standing still, while the rig and the lights, the sky, the sea, the tufts in the wind, the fireflies and the landmarks' moving parts move as ever. `?rung=N` starts the world N rungs down its quality ladder and holds it there. The four numbers stand the visitor anywhere a walker may stand.
 
 ## The daily pick
 
