@@ -124,6 +124,9 @@ export function makeBuilders(phone) {
     }
     return geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   };
+  /* A loose stone lies with its middle LOOSE of its radius under the landmark's ground, so most of it is in the ground, it still
+     shows on the level, and a slope's lower side seldom shows under it. */
+  const LOOSE = -0.55;
   const GREY = 0x7d7a74, PALE_STONE = 0xa9a59c, MOSS = 0x55663f, SNOW = 0xeceae4, BASALT = 0x4a3a30, PINE = 0x33503a;
 
   /* My Brother Esau: two standing stones, brothers. The elder is the taller and the rougher, with moss on him; the younger leans
@@ -132,7 +135,7 @@ export function makeBuilders(phone) {
     put(g, rock(1.2, 1, 0.14, 5).scale(1, 2.75, 0.85), tone(0x8e8a82, true), -1.35, 3.3 - SUNK, 0, 0, 0.3, -0.07);
     put(g, rock(1.0, 1, 0.1, 6).scale(0.95, 2.45, 0.8), tone(GREY, true), 1.3, 2.45 - SUNK * 0.75, 0.1, 0, -0.4, 0.11);
     for (const [x, y, z, r] of [[-2.3, 2.4, 0.2, 0.42], [-0.55, 3.6, 0.35, 0.36], [-1.5, 1.2, 0.85, 0.5], [-1.9, 4.4, -0.3, 0.3]].slice(0, phone ? 2 : 4)) put(g, rock(r, 0, 0.18, 7).scale(1, 0.55, 1), tone(MOSS, true), x, y, z);
-    for (const [x, z, r] of [[-0.1, 1.3, 0.4], [0.5, -1.2, 0.5], [2.6, 0.9, 0.35], [-2.9, -0.8, 0.45], [2.4, -1.0, 0.3]].slice(0, phone ? 2 : 5)) put(g, rock(r, 0, 0.2, 8 + Math.round(r * 10)).scale(1, 0.7, 1), tone(PALE_STONE, true), x, 0.1 * r - 0.25, z);
+    for (const [x, z, r] of [[-0.1, 1.3, 0.5], [0.5, -1.2, 0.6], [2.6, 0.9, 0.45], [-2.9, -0.8, 0.55], [2.4, -1.0, 0.42]].slice(0, phone ? 2 : 5)) put(g, rock(r, 0, 0.2, 8 + Math.round(r * 10)).scale(1, 1.1, 1), tone(PALE_STONE, true), x, LOOSE * r, z);
   }
 
   /* Touch Of Grey: a great boulder with a pale vein through it, and two lesser ones against it. */
@@ -157,7 +160,7 @@ export function makeBuilders(phone) {
     return parts;
   };
 
-  /* Cold Rain And Snow: a peak with snow on its top, lying lower down its north side, and pines at its foot. */
+  /* Cold Rain And Snow: a peak with snow on its top, lying lower down one side, and pines at its foot. */
   function snowPeak(g) {
     const snowline = (x, y, z) => (y > 4.3 - 0.9 * roll(Math.round(x * 2), 0, Math.round(z * 2), 21) - 0.25 * z ? SNOW : y > 2.2 && roll(x, y, z, 22) > 0.6 ? PALE_STONE : 0x8e8a82);
     put(g, peak(3.2, 7.4, 0.13, 20, snowline), painted, 0, 0, 0);
@@ -167,9 +170,10 @@ export function makeBuilders(phone) {
   /* Fire On The Mountain: a dark peak, burnt at its top, and the fire on it. The flame stands on the mountain's top, 5 m up, with its
      base at its own origin, so a swell grows it up and out from there. */
   function fireMountain(g) {
-    const burnt = (x, y, z) => (y > 4.1 ? 0x2a1d18 : roll(x, y, z, 31) > 0.72 ? 0x5e4a3c : BASALT);
+    /* By a face's middle: a phone's peak has fewer rings, and its top faces' middles lie 4.07 m up. */
+    const burnt = (x, y, z) => (y > 3.9 ? 0x2a1d18 : roll(x, y, z, 31) > 0.72 ? 0x5e4a3c : BASALT);
     put(g, peak(2.5, 5.2, 0.14, 30, burnt), painted, 0, 0, 0);
-    for (const [x, z, r] of [[2.3, 1.0, 0.5], [-2.2, 1.4, 0.4], [1.2, -2.2, 0.35]].slice(0, phone ? 1 : 3)) put(g, rock(r, 0, 0.2, 32).scale(1, 0.7, 1), tone(0x3b2e27, true), x, 0.05, z);
+    for (const [x, z, r] of [[2.3, 1.0, 0.6], [-2.2, 1.4, 0.5], [1.2, -2.2, 0.45]].slice(0, phone ? 1 : 3)) put(g, rock(r, 0, 0.2, 32).scale(1, 1.1, 1), tone(0x3b2e27, true), x, LOOSE * r, z);
     /* The flame is main's one cone: three tongues in one mesh were counted at 5 swings a second at one block through the song's
        peak, where the one cone counts 3. */
     const f = mesh(new THREE.ConeGeometry(1, 2.4, 6).translate(0, 1.2, 0), new THREE.MeshLambertMaterial({ color: 0xff7a2a, emissive: 0xff7a2a, emissiveIntensity: 0.8 }), 0, 5, 0);
@@ -192,16 +196,17 @@ export function makeBuilders(phone) {
     return parts;
   };
   /* Samson And Delilah: the temple as he brings it down. One column stands; the other is pushed over and broken, its upper drums
-     fallen, and the lintel has slipped from it, one end still on the standing column's capital. */
+     fallen, and the lintel has slipped from it: it leans from the standing column's capital down to the broken shaft. */
   function templePillars(g) {
     stand(g, column(6), -1.6, 0, 0);
     stand(g, column(3.4, false), 1.6, 0, 0, 0, 0, -0.2);
     const flute = tone(PALE_STONE, true);
-    put(g, new THREE.CylinderGeometry(0.5, 0.55, 1.5, 10), flute, 3.4, 0.42, 0.9, 0.2, 0.5, Math.PI / 2);
-    put(g, new THREE.CylinderGeometry(0.48, 0.5, 1.1, 10), flute, 3.0, 0.4, -1.3, Math.PI / 2 - 0.1, 0, 0.35);
-    put(g, new THREE.CylinderGeometry(0.78, 0.52, 0.32, 10), flute, 4.3, 0.1, -0.2, 0.5, 0, 0.9);
-    put(g, new THREE.BoxGeometry(4.6, 0.6, 1.0), stone, 0.35, 4.85, 0.05, 0, 0.06, -0.5);
-    if (!phone) for (const [x, z, r] of [[2.2, 1.6, 0.3], [0.6, -1.4, 0.25], [3.9, -1.5, 0.22], [-0.2, 1.5, 0.2]]) put(g, rock(r, 0, 0.22, 41).scale(1, 0.75, 1), tone(0x8e8a82, true), x, 0.05, z);
+    put(g, new THREE.CylinderGeometry(0.5, 0.55, 1.5, 10), flute, 3.4, 0.2, 0.9, 0.2, 0.5, Math.PI / 2);
+    put(g, new THREE.CylinderGeometry(0.48, 0.5, 1.1, 10), flute, 3.0, 0.15, -1.3, Math.PI / 2 - 0.1, 0, 0.35);
+    put(g, new THREE.CylinderGeometry(0.78, 0.52, 0.32, 10), flute, 4.3, -0.05, -0.2, 0.5, 0, 0.9);
+    /* The lintel: its upper end lies on the standing capital's edge and its lower on the broken shaft's top, in neither. */
+    put(g, new THREE.BoxGeometry(4.6, 0.6, 1.0), stone, 0.68, 4.76, 0.05, 0, 0.06, -0.875);
+    if (!phone) for (const [x, z, r] of [[2.2, 1.6, 0.42], [0.6, -1.4, 0.36], [3.9, -1.5, 0.34], [-0.2, 1.5, 0.3]]) put(g, rock(r, 0, 0.22, 41).scale(1, 1.1, 1), tone(0x8e8a82, true), x, LOOSE * r, z);
   }
 
   /* Tuning: a guitar's tuning peg, taller than a bear. A turned post on a stone footing, brass collars, the string wound round it,
