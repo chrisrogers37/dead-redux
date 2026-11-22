@@ -51,8 +51,9 @@ const NEAR_SHORT = 14, NEAR_CLOSER = [11, 8], NEAR_CLEAR = 4, NEAR_AIM = 4;
 /* Where ?pose=near-K stands the visitor: on the path, `short` metres in a straight line from where landmark k really stands, which may be
    off its song's point (placeLandmarks), found by stepping back along the path from that point, the first song's round the loop's
    closing. A landmark that already stands that far or further from its song's point is seen from the point. Where another landmark
-   stands in the view from there, the visitor stands closer, at the first of NEAR_CLOSER that clears it, or the last. It faces the
-   landmark and looks NEAR_AIM m up it. Null where there is no landmark k, or the path never gets `short` metres from it. */
+   stands in the view from there, the visitor stands closer, at the first of NEAR_CLOSER that clears it, or the last, and `clear` says
+   whether the view is clear in the end. It faces the landmark and looks NEAR_AIM m up it, no steeper than the walk's own tilt goes
+   (0.8 rad, main.js). Null where there is no landmark k, or the path never gets `short` metres from it. */
 export function nearStand({ at, curveLength }, landmarkU, landmarks, k, short = NEAR_SHORT) {
   const to = landmarks[k]?.position;
   if (!to) return null;
@@ -82,7 +83,8 @@ export function nearStand({ at, curveLength }, landmarkU, landmarks, k, short = 
     if (closer >= short || !blocked(p)) break;
     p = spot(closer);
   }
-  return { x: p.x, z: p.z, heading: Math.atan2(p.x - to.x, p.z - to.z), pitch: Math.atan2(to.y + NEAR_AIM - p.y - FIRST_EYE, gap(p)) };
+  const pitch = Math.atan2(to.y + NEAR_AIM - p.y - FIRST_EYE, gap(p));
+  return { x: p.x, z: p.z, heading: Math.atan2(p.x - to.x, p.z - to.z), pitch: Math.max(-0.8, Math.min(0.8, pitch)), clear: !blocked(p) };
 }
 
 /* The bears' line: `side` metres to the left of the path. On the inside of a left bend it is drawn in so it never turns tighter than
