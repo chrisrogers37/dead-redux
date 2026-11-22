@@ -164,8 +164,8 @@ describe("the landmarks built of many parts", () => {
           expect(box.min.y).toBeGreaterThan(-1.65);
           for (let i = 0; i < position.count; i++) expect(position.getY(i) > -1.5 && position.getY(i) < 0.05).toBe(false);
         }
-        // No taller than two bears over the ground, about as long as the rail was, and no wider than 7 m.
-        expect(box.max.y).toBeLessThan(9.7);
+        // No taller than the shapes they replace (the ball on its pole, 8 m), about as long as the rail was, and no wider than 7 m.
+        expect(box.max.y).toBeLessThanOrEqual(8);
         expect(size.x).toBeLessThan(10.6);
         expect(size.z).toBeLessThan(7);
       }
@@ -234,32 +234,33 @@ describe("the landmarks built of many parts", () => {
     for (const z of [-1.95, 1.95]) expect(planks((x, y, pz) => Math.abs(pz - z) < 0.2 && y > 2.95 && y < 3.4 && Math.abs(x) < 2.7)).toBe(36);
   });
 
-  it("lays the loose straw at the big bale's foot, half in the ground, on a desktop; a phone draws none", () => {
-    // The coils at the bales' ends are pale too. The loose straw is what of it lies off the big bale: further from its axis (which
-    // runs 1.45 m up, turned a quarter of a radian) than its own radius, on the walker's side.
-    const straws = (phone: boolean) => {
-      const { position, color } = landmark("Jack Straw", phone).parts[0].geometry.attributes, pale = new THREE.Color(0xdcc079), out: number[][] = [];
+  it("leans the pitchfork on the big bale with its tines up, clear of the bale, where they show", () => {
+    for (const phone of [false, true]) {
+      // The fork's iron: its bar and three tines. The big bale's axis runs 1.45 m up, turned a quarter of a radian; it is 1.9 m thick.
+      const { position, color } = landmark("Jack Straw", phone).parts[0].geometry.attributes, iron = new THREE.Color(0x55595c);
       const axis = new THREE.Vector3(Math.cos(0.25), 0, -Math.sin(0.25)), from = new THREE.Vector3();
+      let n = 0, top = -Infinity;
       for (let i = 0; i < position.count; i++) {
-        if (Math.abs(color.getX(i) - pale.r) + Math.abs(color.getY(i) - pale.g) + Math.abs(color.getZ(i) - pale.b) > 1e-4 || position.getZ(i) > -0.8) continue;
+        if (Math.abs(color.getX(i) - iron.r) + Math.abs(color.getY(i) - iron.g) + Math.abs(color.getZ(i) - iron.b) > 1e-4) continue;
+        n += 1;
+        top = Math.max(top, position.getY(i));
         from.set(position.getX(i), position.getY(i) - 1.45, position.getZ(i));
-        if (from.addScaledVector(axis, -from.dot(axis)).length() > 1.95) out.push([position.getX(i), position.getY(i), position.getZ(i)]);
+        expect(from.addScaledVector(axis, -from.dot(axis)).length()).toBeGreaterThan(1.9);
       }
-      return out;
-    };
-    const loose = straws(false);
-    expect(loose.length).toBeGreaterThan(60);
-    expect(Math.min(...loose.map((p) => p[1]))).toBeLessThan(-0.1);
-    // Within 2.4 m of the bale's axis across the ground: its foot, where the ground has not fallen far.
-    for (const [x, , z] of loose) expect(Math.abs(z * Math.cos(0.25) + x * Math.sin(0.25))).toBeLessThan(2.4);
-    expect(straws(true)).toHaveLength(0);
+      expect(n).toBe(36 + 3 * 24);
+      // The tines' tips stand over the bale's top, 3.35 m up.
+      expect(top).toBeGreaterThan(3.6);
+    }
   });
 
   it("keeps the tuning peg's key a flattened oval, glowing, and a phone's rail without its rope", () => {
-    const key = landmark("Tuning").parts.find((c) => c.material.emissive.getHex() !== 0) as Part;
+    const key = landmark("Tuning").parts.find((c) => c.material.emissive.getHex() !== 0) as Part & { position: { y: number } };
     const box = new THREE.Box3().setFromBufferAttribute(key.geometry.attributes.position), size = box.getSize(new THREE.Vector3());
     expect(size.z).toBeLessThan(0.5 * size.x);
     expect(size.y).toBeLessThan(0.9 * size.x);
+    // Its top stands no higher than main's ball did, 8 m up: on a phone the title plate hangs just over that in the opening view.
+    expect(key.position.y + box.max.y).toBeLessThanOrEqual(8);
+    expect(key.position.y + box.max.y).toBeGreaterThan(7.8);
     const rope = (phone: boolean) => {
       const { position, color } = landmark("C C Rider", phone).parts[0].geometry.attributes, string = new THREE.Color(0xcfc8b4);
       let n = 0;
