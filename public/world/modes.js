@@ -1,33 +1,37 @@
 /* eslint-disable */
-import { BODY_REACH, keepOut } from "./collide.js";
+import { BODY_REACH, keepOut, TREE_REACH } from "./collide.js";
 import { BOUND, STAGE_COLUMN, STAGE_REACH } from "./ground.js";
 
 /* Where a walk starts, with no three import so that vitest can load it. A walk is the visitor's own: their bear stands where the
    walker does. Every other camera (the descent, attract, follow and lean-back's drift) walks the bear in its place in the bears' line,
    so leaving one would leave the bear there; instead a walk starts where the bear last stood in a walk. A spot is { x, z, heading }.
    `limits` is what a walk's frame keeps the walker to (walkLimits): within `bound` of the island's centre, out of the reach
-   `stageReach` round each column in `stages`, the stage's, and out of the reach `bearReach` round each of the bears' spots, `bears`
-   (collide.js). */
+   `stageReach` round each column in `stages`, the stage's, out of the reach `treeReach` round each of the trees' feet, `trees`, and
+   out of the reach `bearReach` round each of the bears' spots, `bears` (collide.js). */
 
-/* The limits of the world's walk: within BOUND of the island's centre, out of STAGE_REACH round the stage's column (ground.js), and
-   out of BODY_REACH round each of `bears` (collide.js). `bears` is held, not copied: it is the bears' live spots, which a walk reads
-   when it begins and which the downgrade truncates in place. */
-export function walkLimits(bears) {
-  return { bound: BOUND, stages: [STAGE_COLUMN], stageReach: STAGE_REACH, bears, bearReach: BODY_REACH };
+/* The limits of the world's walk: within BOUND of the island's centre, out of STAGE_REACH round the stage's column (ground.js), out
+   of TREE_REACH round each of `trees`, where a tree stands (trees.js), and out of BODY_REACH round each of `bears` (collide.js).
+   `bears` and `trees` are held, not copied: `bears` is the bears' live spots, which a walk reads when it begins and which the
+   downgrade truncates in place. */
+export function walkLimits(bears, trees = []) {
+  return { bound: BOUND, stages: [STAGE_COLUMN], stageReach: STAGE_REACH, trees, treeReach: TREE_REACH, bears, bearReach: BODY_REACH };
 }
 
 /* Whether a walker may stand at `p`. */
-export function fits(p, { bound, stages, stageReach, bears, bearReach }) {
+export function fits(p, { bound, stages, stageReach, trees, treeReach, bears, bearReach }) {
   return Math.hypot(p.x, p.z) <= bound + 1e-9 && stages.every((s) => Math.hypot(p.x - s.x, p.z - s.z) >= stageReach - 1e-9) &&
-    bears.every((b) => Math.hypot(p.x - b.x, p.z - b.z) >= bearReach - 1e-9);
+    trees.every((t) => Math.hypot(p.x - t.x, p.z - t.z) >= treeReach - 1e-9) && bears.every((b) => Math.hypot(p.x - b.x, p.z - b.z) >= bearReach - 1e-9);
 }
 
 /* Moves `p` where each frame of a walk keeps the walker (main.js): back within the bound on the same bearing, then out of the stage's
-   reach, then out of the bears', so the bears have the last word. keepOut reads `p.heading` to break a tie on a centre (collide.js). */
-export function confine(p, { bound, stages, stageReach, bears, bearReach }) {
+   reach, then out of the trees', then out of the bears', so the bears have the last word. No tree stands near enough to the stage, to
+   the bound or to the bears' line for one of those to push a walker back into a trunk (trees.js). keepOut reads `p.heading` to break
+   a tie on a centre (collide.js). */
+export function confine(p, { bound, stages, stageReach, trees, treeReach, bears, bearReach }) {
   const d = Math.hypot(p.x, p.z);
   if (d > bound) { p.x *= bound / d; p.z *= bound / d; }
   keepOut(p, stages, stageReach);
+  keepOut(p, trees, treeReach);
   keepOut(p, bears, bearReach);
 }
 

@@ -20,7 +20,7 @@ One file: `npx vitest run src/lib/__tests__/quality.test.ts`. The dev server sen
 - `src/components/world/WorldHome.tsx`: the page around the world, its HUD, and the script tag that loads the world.
 - `src/components/player/`: the audio player.
 - `src/lib/`: the daily pick, the Relisten look-up, the site's address (`site.ts`), the sitemap's and the feed's entries (`feeds.ts`), the policy and the import map.
-- `public/world/*.js`: the world, as plain ES modules outside the bundle. They import only each other and three.js.
+- `public/world/*.js`: the world, as plain ES modules outside the bundle. They import only each other and three.js. `trees.js` is the groves.
 - `public/maps/<show date>.json`: one map per show.
 - `data/shows.json`: the catalog. `data/pick-schedule.json`: every date's show.
 - `scripts/`: the catalog refresh and the Maps workflow's scripts.
@@ -48,7 +48,7 @@ One file: `npx vitest run src/lib/__tests__/quality.test.ts`. The dev server sen
 ## Draw calls and the quality tiers
 
 - Each tier has a draw-call budget a frame: desktop 70, phone 45, TV 60 (`CALL_BUDGET` in `.github/screenshots/assets.mjs`; `scripts/__tests__/screenshot-assets.test.ts`). The shoot fails when a shot's frame goes over, or the peak of its walk across the island (`?pose=sweep`) does.
-- What repeats draws as one instanced or merged mesh: the crowd, the bears' legs, the rig's beams and the still landmarks (`crowd.js`, `bears.js`, `rig.js`, `landmarks.js`).
+- What repeats draws as one instanced or merged mesh: the crowd, the bears' legs, the rig's beams, the still landmarks, and the trees, all of a kind as one (`crowd.js`, `bears.js`, `rig.js`, `landmarks.js`, `trees.js`). A phone's trees add under 5,000 triangles to a frame (`trees.test.ts`).
 - The tier, desktop, phone or TV, is picked once at load (`pickTier` in `public/world/quality.js`), or by `?tier=`. It sets the render scale, the ground's grid, the sky's octaves, the bears, the field of view, shadows and the crowd (`BUDGETS`).
 - When the median of a 60-frame window is over 34 ms, the world steps down one rung, and never back up: the render scale down to half, then shadows, the sky's octaves, half the crowd, the bears, the stage light, the rig (`stepDown`; `quality.test.ts`). Windows drawn while the world loads don't count.
 
@@ -57,9 +57,17 @@ One file: `npx vitest run src/lib/__tests__/quality.test.ts`. The dev server sen
 - People are faceless, flat figures, never anyone's likeness (#121). The band is six flat-black, unlit silhouettes (`stage.js`); the crowd's figures are dark and faceless (`crowd.js`).
 - The rig's beams are added light. They draw in three's opaque list, before the crowd (render order 1, then 2), and write no depth, so a figure in front of a beam stays dark from every camera (`draw-order.test.ts`, `rig.test.ts`, `main.test.ts`).
 
+## The trees
+
+- A trunk is solid. A walk keeps `TREE_REACH`, 2.65 m, from the middle of every tree's foot and slides round it (`collide.js`, `modes.js`; `modes.test.ts`), and no two trees stand so near that a walk cannot pass between them (`MIN_APART`; `trees.test.ts`).
+- The walk's camera never hangs in a trunk or a crown: each tree gives its boom a column for its trunk and one, with a `base`, for its crown (`boom.js`, `collide.js`; `boom.test.ts`, `trees.test.ts`). There are 6.5 m of air under every crown over the ground a walker stands on (`CROWN_BASE`).
+- Where a tree may not stand is a list of rules, each with its own test (`RULES` in `trees.js`; `trees.test.ts`): the path, the bears' line, 6 m round each landmark's outline, the crowd's ground, the stage, and every camera's way (`cameraWays`), the view of each landmark from `?pose=near-K` among them. A new camera or fixed view adds its way there; a tree that stands in a view moves by a rule, never the camera.
+- The trees are the same on every visit, and a tier that draws fewer draws the first of a tier's that draws more (`placeTrees`; `trees.test.ts`).
+
 ## Motion and flashes
 
 - Under `prefers-reduced-motion` the world holds still. It draws a frame only for an input or a change of state, or while a control is held, always at full quality (`main.js`; `main.test.ts`). The shoot takes two reduced-motion stills of the home page and two of `?pose=crowd`, and fails when a pair differs (`compare.mjs`).
+- The trees' crowns sway by the sky's own time, which stands still under reduced motion: 0.25 m at a crown's top at the most, the quicker of the two waves once in 5.2 s (`SWAY` in `trees.js`; `trees.test.ts`, `main.test.ts`).
 - The light show's bar is at most 6 swings of 10 % in relative luminance in any second at any 2×2-pixel block, which is 3 flashes. #128 and #140 measured the light show against it, by render, and their PR text holds the counts. No test or CI job counts flashes, so a change that speeds a light's rise or fall, or adds a fast swing in brightness, is measured the same way before it merges.
 
 ## Test hooks

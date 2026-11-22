@@ -35,20 +35,39 @@ export const BODY_REACH = 3.9;
 /* The stage is solid to the third-person camera as well: it stands for a column, a vertical cylinder `r` round (x, z) from the ground
    up to `top`. How far the line from `o` along the unit direction `d` goes before it enters one, through its side or, falling from
    above, through its top; Infinity if it never does, or if the column stands around `o`. From outside, the side's two crossings lie
-   both ahead or both behind, and straight up meets neither. */
-export function enterColumn(o, d, { x, z, r, top }) {
+   both ahead or both behind, and straight up meets neither.
+   A tree's crown is a column that starts at `base`, over the ground, and not on it (trees.js): a line enters it through its side
+   between `base` and `top`, through its top, or, rising, through its underside, as from a point under it. */
+export function enterColumn(o, d, { x, z, r, top, base = -Infinity }) {
   const ox = o.x - x, oz = o.z - z, c = ox * ox + oz * oz - r * r;
   const a = d.x * d.x + d.z * d.z, b = ox * d.x + oz * d.z, q = b * b - a * c;
-  if (a < 1e-9 || c < 0 || q < 0) return Infinity;
+  if (c < 0) {
+    /* Under a crown: the line meets its underside if it is still under it when it has risen that far. */
+    if (o.y >= base || d.y <= 0) return Infinity;
+    const t = (base - o.y) / d.y;
+    return c + 2 * b * t + a * t * t <= 0 ? t : Infinity;
+  }
+  if (a < 1e-9 || q < 0) return Infinity;
   const w = Math.sqrt(q), t0 = (-b - w) / a, t1 = (-b + w) / a;
   if (t0 < 0) return Infinity;
-  if (o.y + d.y * t0 <= top) return t0;
-  return o.y + d.y * t1 <= top ? (top - o.y) / d.y : Infinity;
+  const y0 = o.y + d.y * t0, y1 = o.y + d.y * t1;
+  if (y0 < base) return y1 >= base ? (base - o.y) / d.y : Infinity;
+  if (y0 <= top) return t0;
+  return y1 <= top ? (top - o.y) / d.y : Infinity;
 }
 
 /* A landmark stands clear of the bears' line when, seen from above, every point of the line keeps CLEAR from all of it: a bear's
    half-width, 1.5 m (bears.js), and a quarter metre more. */
 export const CLEAR = 1.75;
+
+/* The widest a tree's trunk stands from the middle of its foot, as high as a bear is tall: no more than the widest crown's 4 m by the
+   fifth of it a trunk is across its half at its sunk foot, and what a lean carries it over by that height (trees.js). */
+export const TRUNK_R_MAX = 0.9;
+/* How near a walk comes to the middle of a trunk's foot: a bear's half-width and a quarter metre (CLEAR) outside the widest trunk. Its
+   bark is then at least 1.75 m from the walker's middle, clear of the first-person view's near plane (0.5 m). Two such reaches, 5.3 m,
+   fit between any two trees (trees.js MIN_APART, 6.5 m), so a walk passes between any two trunks with 1.2 m to spare and slides
+   round any one of them. */
+export const TREE_REACH = TRUNK_R_MAX + CLEAR;
 
 /* The convex hull of points [x, z], counter-clockwise: a landmark's outline seen from above (path.js). */
 export function hull(points) {

@@ -47,6 +47,9 @@ export function offTracks(x, z, room) {
 const CROWD_ROOM = 4.5;
 /* How far from the setlist's path anything grows, and the side of the squares its points are sorted into (no less than that). */
 const LOOP_ROOM = 2.2, LOOP_SQUARE = 4;
+/* How far from the middle of a tree's foot anything grows or lies: the widest trunk (collide.js TRUNK_R_MAX) and the widest stone's
+   reach. */
+export const TRUNK_ROOM = 2.2;
 /* The stage's light on the water: its colour at its fullest, as the screen shows it, and where it lies, from SHINE_OUT m past the stage's
    centre out to sea along the stage's axis, SHINE_LONG m along it and SHINE_WIDE m across. The shore stands 25 m past the stage. */
 const SHINE = [0.4, 0.25, 0.1], SHINE_OUT = 36, SHINE_LONG = 30, SHINE_WIDE = 28;
@@ -276,10 +279,12 @@ export function landColour(x, y, z, ny, out) {
 
 /* The ground (a grid of the tier's size, coloured by vertex, with the ring road and the lightning path worn into it) and the sea,
    then what grows, lies and flies on the land (flora.js), then the caves' pools and lights. `loop` is the setlist's path as points
-   [x, z] every couple of metres, which nothing grows on. It returns the caves, the flora and `shade`, which draws a look of the night
-   on the island at a time: the water's colour, the light lying on it and its swell, the stage's glow on the ground (buildSea,
-   takesPool), the wind in the tufts, and the fireflies. */
-export function buildIsland(scene, grid, phone, loop = []) {
+   [x, z] every couple of metres, which nothing grows on, and `trunks` the trees' (trees.js trunkIndex), whose `near(x, z, r)` is
+   whether a trunk stands within `r` m: nothing grows or lies within TRUNK_ROOM of one. It returns the caves, the flora, `lit`, which has
+   a material take the stage's glow as the ground does, and `shade`, which draws a look of the night on the island at a time: the
+   water's colour, the light lying on it and its swell, the stage's glow on the ground (buildSea, takesPool), the wind in the tufts,
+   and the fireflies. */
+export function buildIsland(scene, grid, phone, loop = [], trunks = { near: () => false }) {
   const ground = new THREE.PlaneGeometry(260, 260, grid, grid);
   ground.rotateX(-Math.PI / 2);
   const pos = ground.attributes.position;
@@ -300,8 +305,8 @@ export function buildIsland(scene, grid, phone, loop = []) {
   /* What grows and lies on the land (flora.js): as many tufts and stones as the tier's ground is fine, thickest on a desktop's (a
      grid of 80 or more), thinner on a TV's and fewer than half as thick on a phone's, whose frame is small and whose every triangle
      costs it more. Each stands on the ground as its mesh draws it and takes the stage's glow as the ground does, and none of them
-     stands on a track or on the setlist's path, where the bears walk and the lit bands lie. No tuft grows on the crowd's ground;
-     stones lie there as anywhere. */
+     stands on a track, on the setlist's path, where the bears walk and the lit bands lie, or in a tree's trunk. No tuft grows on the
+     crowd's ground; stones lie there as anywhere. */
   const thick = phone ? 0.6 : grid >= 80 ? 1.0 : 0.8;
   /* The path's points by the square of LOOP_SQUARE m each lies in, so a place is tried against the few points near it and not
      against the whole path. */
@@ -319,10 +324,11 @@ export function buildIsland(scene, grid, phone, loop = []) {
     }
     return true;
   };
+  const lit = (material) => takesPool(material, uPool);
   const flora = buildFlora(scene, { tufts: Math.round(grid * grid * thick), stones: Math.round(grid * (phone ? 2.5 : 4)), flies: Math.round(grid * (phone ? 8 : 14)),
     extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6], surface: surfaceOf(grid),
-    colour: landColour, lit: (material) => takesPool(material, uPool),
-    clear: (x, z) => offTracks(x, z, FEATHER + 0.4) && offLoop(x, z), trodden: (x, z) => onCrowdGround(x, z, CROWD_ROOM) });
+    colour: landColour, lit,
+    clear: (x, z) => offTracks(x, z, FEATHER + 0.4) && offLoop(x, z) && !trunks.near(x, z, TRUNK_ROOM), trodden: (x, z) => onCrowdGround(x, z, CROWD_ROOM) });
 
   /* The caves light for Drums (left) and Space (right): a pool on each floor and, but on a phone, a light inside. */
   const caves = CAVES.map(([cx, cz]) => {
@@ -343,5 +349,5 @@ export function buildIsland(scene, grid, phone, loop = []) {
   /* A look of the night on the island at a time: the sea's, the wind in the tufts at the same time, and the fireflies, which come out
      as far as the night is dark and `calm` (1 when the music is quiet, 0 at its loudest) lets them. */
   const shade = (look, time = 0, calm = 1) => { sea(look, time); flora.wind(time); flora.glow(look.dark * look.dark * (0.35 + 0.65 * calm)); };
-  return { caves, shade, flora };
+  return { caves, shade, flora, lit };
 }

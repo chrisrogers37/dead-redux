@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { listenerAt } from "../../../public/world/audio.js";
-import { BODY_REACH } from "../../../public/world/collide.js";
+import { BODY_REACH, TREE_REACH } from "../../../public/world/collide.js";
 import { BOUND, STAGE, STAGE_COLUMN, STAGE_POSE, STAGE_REACH } from "../../../public/world/ground.js";
 import { bindInput, REACH } from "../../../public/world/input.js";
 import {
@@ -21,8 +21,8 @@ const stage = { x: STAGE[0], z: STAGE[1] };
 type Point = { x: number; z: number };
 type Spot = Point & { heading: number };
 type Walker = Spot & { pitch: number };
-// The tests keep a walker to the world's own limits (walkLimits, public/world/modes.js), with the bears each one gives.
-const limits = (bears: Point[] = []) => walkLimits(bears);
+// The tests keep a walker to the world's own limits (walkLimits, public/world/modes.js), with the bears and the trees each one gives.
+const limits = (bears: Point[] = [], trees: Point[] = []) => walkLimits(bears, trees);
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.z - b.z);
 const spotOf = (w: Spot): Spot => ({ x: w.x, z: w.z, heading: w.heading });
 
@@ -119,11 +119,15 @@ describe("keepSpot", () => {
 });
 
 describe("walkLimits", () => {
-  it("holds the bears it is given, not a copy, with the stage's column and the world's reaches", () => {
-    const bears = [{ x: -20, z: 30 }];
-    expect(walkLimits(bears).bears).toBe(bears);
-    expect(walkLimits(bears)).toEqual({ bound: BOUND, stages: [STAGE_COLUMN], stageReach: STAGE_REACH, bears, bearReach: BODY_REACH });
+  it("holds the bears and the trees it is given, not copies, with the stage's column and the world's reaches", () => {
+    const bears = [{ x: -20, z: 30 }], trees = [{ x: 40, z: 60 }];
+    expect(walkLimits(bears, trees).bears).toBe(bears);
+    expect(walkLimits(bears, trees).trees).toBe(trees);
+    expect(walkLimits(bears, trees)).toEqual({ bound: BOUND, stages: [STAGE_COLUMN], stageReach: STAGE_REACH, trees, treeReach: TREE_REACH, bears, bearReach: BODY_REACH });
     expect(walkLimits(bears).stages[0]).toBe(STAGE_COLUMN);
+    // A world told of no trees has none.
+    expect(walkLimits(bears).trees).toEqual([]);
+    expect(TREE_REACH).toBe(2.65);
   });
 });
 
@@ -158,6 +162,48 @@ describe("confine", () => {
     expect(distance(p, stage)).toBeLessThan(STAGE_REACH);
   });
 
+  it("moves a walker in a trunk's reach out onto it, on the line from the trunk's middle, and leaves one on the reach where it stands", () => {
+    const tree = { x: -30, z: 40 };
+    for (let k = 0; k < 8; k++) {
+      const a = (k * Math.PI) / 4 + 0.1;
+      const p: Spot = { x: tree.x + 1.1 * Math.cos(a), z: tree.z + 1.1 * Math.sin(a), heading: 0.4 };
+      confine(p, limits([], [tree]));
+      expect(p.x).toBeCloseTo(tree.x + TREE_REACH * Math.cos(a), 9);
+      expect(p.z).toBeCloseTo(tree.z + TREE_REACH * Math.sin(a), 9);
+      const on = { ...p };
+      confine(p, limits([], [tree]));
+      expect(p).toEqual(on);
+    }
+  });
+
+  it("slides a held walk round a trunk: it never comes inside the reach, keeps to it while the trunk is in its way, and goes on past", () => {
+    const tree = { x: 0, z: 0 }, lim = limits([], [tree]);
+    // Walking along +x, a metre to one side of the trunk's middle, 0.2 m a frame as the walk's pace is.
+    const p: Spot = { x: -8, z: 1, heading: -Math.PI / 2 };
+    let touched = 0;
+    for (let f = 0; f < 120; f++) {
+      p.x += 0.2;
+      confine(p, lim);
+      expect(distance(p, tree)).toBeGreaterThanOrEqual(TREE_REACH - 1e-9);
+      if (distance(p, tree) < TREE_REACH + 1e-9) touched += 1;
+    }
+    // It was held on the reach for a good many frames, went round on the side it came in on, and ended well past the trunk.
+    expect(touched).toBeGreaterThan(10);
+    expect(p.z).toBeGreaterThanOrEqual(1);
+    expect(p.x).toBeGreaterThan(8);
+  });
+
+  it("gives the bears the last word over a tree too: a walker in a trunk's reach and a bear's ends on the bear's", () => {
+    // No tree stands this near the bears' line in the world (trees.js); the order holds all the same.
+    const tree = { x: 10, z: 10 }, bear = { x: 10 + TREE_REACH + 1, z: 10 };
+    const p: Spot = { x: 10.5, z: 10, heading: 0 };
+    confine(p, limits([bear], [tree]));
+    expect(distance(p, bear)).toBeCloseTo(BODY_REACH, 9);
+    expect(distance(p, tree)).toBeLessThan(TREE_REACH);
+    expect(fits(p, limits([bear], [tree]))).toBe(false);
+    expect(fits(p, limits([bear]))).toBe(true);
+  });
+
   it("steps a walker right on a bear's centre back against its heading", () => {
     const bear = { x: -20, z: 30 };
     const p: Spot = { ...bear, heading: 0.7 };
@@ -185,6 +231,18 @@ describe("fits", () => {
   // holds.
   const second = { ...STAGE_COLUMN, x: STAGE_COLUMN.x - 3 * STAGE_REACH };
   const twoColumns = { ...limits(), stages: [STAGE_COLUMN, second] };
+
+  it("keeps a walker out of every trunk's reach, and lets it stand on one", () => {
+    const trees = [{ x: -30, z: 40 }, { x: 20, z: 70 }], lim = limits([], trees);
+    for (const tree of trees) {
+      expect(fits({ x: tree.x + TREE_REACH - 0.01, z: tree.z }, lim)).toBe(false);
+      expect(fits({ x: tree.x, z: tree.z - TREE_REACH + 0.01 }, lim)).toBe(false);
+      expect(fits({ x: tree.x + TREE_REACH, z: tree.z }, lim)).toBe(true);
+      expect(fits({ x: tree.x + TREE_REACH + 0.01, z: tree.z }, lim)).toBe(true);
+    }
+    // The same spot with no trees.
+    expect(fits({ x: trees[0].x, z: trees[0].z }, limits())).toBe(true);
+  });
 
   it("keeps a walker out of each column's reach, not only out of one's", () => {
     // Half a reach from one column's centre, on the side away from the other.

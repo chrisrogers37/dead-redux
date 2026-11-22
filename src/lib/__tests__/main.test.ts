@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BODY_REACH } from "../../../public/world/collide.js";
-import { BOUND, height, STAGE, STAGE_REACH } from "../../../public/world/ground.js";
+import { BODY_REACH, TREE_REACH } from "../../../public/world/collide.js";
+import { BOUND, height, STAGE, STAGE_COLUMN, STAGE_REACH } from "../../../public/world/ground.js";
 import { DEAD, REACH } from "../../../public/world/input.js";
 import { DESCENT_S } from "../../../public/world/modes.js";
 import { DEEP, HOUR_RATE, lookAt, newLook } from "../../../public/world/night.js";
@@ -10,7 +10,7 @@ import { WINDOW } from "../../../public/world/quality.js";
 // public/world/main.js runs here as a page runs it, frame by frame, with the modules it imports: what keeps a walk in bounds (confine,
 // with the limits walkLimits builds from the bears' live spots), where attract puts the camera (postPose), and what the show's map does
 // (maps.js, beat.js and audio.js's mappings; the analyser hears nothing here, since no AudioContext is made). three, and the modules
-// that import it (the island, the path and its landmarks, the bears, the visitor's bear, the crowd, the sky and the stage), are played
+// that import it (the island, the trees, the path and its landmarks, the bears, the visitor's bear, the crowd, the sky and the stage), are played
 // by stand-ins, with what the frames here use: a desktop's, in either view. The stand-ins keep these tests on main.js alone, and fast,
 // frame by frame. They draw nothing, and keep what the tests read: where each bear stands, where the visitor's bear steps, where the
 // camera stands and looks and its near plane, the sun's shadow, the stage light, the flame's size, the sky's drop, the figures' beat
@@ -75,7 +75,22 @@ const fake = vi.hoisted(() => {
     keptY: NaN,
     // The landmarks the path places, one a song (none unless a test gives some); where ?pose=near-K stands the visitor by song k's,
     // which a test sets; and whether the last frame told the third-person camera's boom to cut.
-    landmarks: [] as { position: Point3 }[],
+    landmarks: [] as { position: Point3; rotation: { y: number } }[],
+    // The trees (trees.js). Where the stand-in stands them, which a test gives; what main.js gave it to place them by, and what to
+    // reckon the cameras' ways by; each time they were built, and with what; the order the trees and the island were made in; what
+    // the island was told of the trunks; and the time of the wind in them, as the last frame set it.
+    treeSpots: [] as Point[],
+    treesAsked: [] as { count: number; loop: unknown[]; line: number[][]; landmarks: { x: number; z: number; rot: number; poly: unknown }[]; eyes: unknown; views: unknown }[],
+    waysAsked: [] as { line: unknown; height: unknown; stands: { x: number; z: number; to: number[]; d: number }[] }[],
+    treesBuilt: [] as { spots: Point[]; lit: unknown; phone: boolean }[],
+    made: [] as string[],
+    trunks: undefined as unknown,
+    wind: NaN,
+    // The columns the walk's camera keeps out of: the array the visitor's bear was built with, what it held at the last boom, and each
+    // time the trees were asked for those near a place, as [x, z, how many the array held then].
+    boomColumns: undefined as unknown as unknown[],
+    columnsAtBoom: [] as unknown[],
+    columnAsks: [] as number[][],
     nearSpot: (k: number) => ({ x: k, z: 0, heading: 0, pitch: 0, clear: true }),
     cut: false,
     // The songs' titles the path was last asked to lay out, and those it was asked to place landmarks for.
@@ -155,6 +170,9 @@ const fake = vi.hoisted(() => {
   }
   // How far a third-person view turns down to keep the visitor's bear in the frame (avatar.js's turnDown).
   const TURN = 0.05;
+  // The stand-ins' own: the light the island hands on, a landmark's outline, the cameras' ways, the trunks' index and a tree's column.
+  const LIT = (material: unknown) => material, OUTLINE = [[0, 0], [1, 0], [0, 1]], WAYS = { eyes: [[1, 2, 3]], views: [{ from: [0, 0], to: [1, 1], half: 5 }] };
+  const TRUNKS = { near: () => false }, TREE_COLUMN = { x: 0, z: 0, r: 1, top: 9 };
   const three = {
     WebGLRenderer: class {
       shadowMap = (world.shadowMap = { enabled: false, autoUpdate: true, needsUpdate: false });
@@ -175,7 +193,29 @@ const fake = vi.hoisted(() => {
   };
   const modules = {
     // The island draws the night's look on its sea and its ground itself (island.js), which the frames here do not read.
-    island: { buildIsland: () => ({ caves: [], shade: (_look: unknown, time: number, calm: number) => { world.tide = time; world.calm = calm; }, flora: { thin: (half: boolean) => { world.thinned = half; }, sparse: () => { world.sparse = true; } } }) },
+    island: {
+      buildIsland: (_scene: unknown, _grid: number, _phone: boolean, _loop: unknown, trunks: unknown) => {
+        world.made.push("island");
+        world.trunks = trunks;
+        return { caves: [], shade: (_look: unknown, time: number, calm: number) => { world.tide = time; world.calm = calm; }, flora: { thin: (half: boolean) => { world.thinned = half; }, sparse: () => { world.sparse = true; } }, lit: LIT };
+      },
+    },
+    // The trees stand where a test puts them and draw nothing; what main.js gives them and takes from them is kept.
+    trees: {
+      TARGET: { desktop: 100, tv: 75, phone: 45 },
+      cameraWays: (ask: (typeof world.waysAsked)[number]) => { world.waysAsked.push(ask); return WAYS; },
+      placeTrees: (ask: (typeof world.treesAsked)[number]) => { world.made.push("places"); world.treesAsked.push(ask); return world.treeSpots; },
+      trunkIndex: (spots: Point[]) => ({ ...TRUNKS, spots }),
+      buildTrees: (_scene: unknown, spots: Point[], { lit, phone }: { lit: unknown; phone: boolean }) => {
+        world.made.push("trees");
+        world.treesBuilt.push({ spots, lit, phone });
+        return {
+          count: spots.length,
+          wind: (time: number) => { world.wind = time; },
+          columns: (x: number, z: number, into: unknown[]) => { world.columnAsks.push([x, z, into.length]); into.push(TREE_COLUMN); return into; },
+        };
+      },
+    },
     path: {
       // The loop, where the walker stands before a frame puts it in its place in the bears' line.
       buildPath: () => ({ at: () => new Vec(), tangentAt: () => new Vec(1, 0, 0) }),
@@ -191,6 +231,8 @@ const fake = vi.hoisted(() => {
       // Where ?pose=near-K stands the visitor. path.js's own answer is tested with path.js; here song k's is the spot a test names, and a
       // song with no landmark has none.
       nearStand: (_path: unknown, _landmarkU: unknown, landmarks: unknown[], k: number) => (landmarks[k] ? world.nearSpot(k) : null),
+      // A landmark's outline from above, the same for each here.
+      outline: () => OUTLINE,
       buildSegues: () => {},
       buildWalkLine: () => world.line,
     },
@@ -220,7 +262,7 @@ const fake = vi.hoisted(() => {
       },
     },
     avatar: {
-      buildAvatar: () => ({
+      buildAvatar: (_scene: unknown, _landmarks: unknown, { columns }: { columns: unknown[] }) => ({
         g: { visible: true },
         head: new Vec(),
         top: new Vec(),
@@ -231,6 +273,8 @@ const fake = vi.hoisted(() => {
         // The third-person camera's boom, which here only looks at the walker.
         boom: (_camera: Camera, walker: Point, _dt: number, cut: boolean) => {
           world.cut = cut;
+          world.boomColumns = columns;
+          world.columnsAtBoom = [...columns];
           return new Vec(walker.x, 0, walker.z);
         },
         settle: () => {},
@@ -309,11 +353,12 @@ const fake = vi.hoisted(() => {
       }),
     },
   };
-  return { world, three, modules, TURN };
+  return { world, three, modules, TURN, LIT, OUTLINE, WAYS, TREE_COLUMN };
 });
 
 vi.mock("three", () => fake.three);
 vi.mock("../../../public/world/island.js", () => fake.modules.island);
+vi.mock("../../../public/world/trees.js", () => fake.modules.trees);
 vi.mock("../../../public/world/path.js", () => fake.modules.path);
 vi.mock("../../../public/world/landmarks.js", () => fake.modules.landmarks);
 vi.mock("../../../public/world/bears.js", () => fake.modules.bears);
@@ -404,9 +449,10 @@ type Hud = { plate?: number | null; away?: boolean; stick?: number | null; hint?
 // `run` hands main.js, each `ms` long (a frame adds at most 50 ms of world time), calling `each` after each one. `playing` starts the
 // show playing; `routing` is how it sounds ("webaudio" through the world's graph, "plain" in plain stereo); `search` is the page's
 // query, on a preview, or anywhere else with `hooks` false; `reduced` asks for reduced motion; `title` names the track, the first of
-// `songs`, each with one of the `landmarks`; `view` is "third" or "first" person; and a day with no `recording` has no tracks. A page
+// `songs`, each with one of the `landmarks`; `trees` is where the trees stand; `view` is "third" or "first" person; and a day with no
+// `recording` has no tracks. A page
 // with a map waits until the world has read it.
-async function startWorld({ playing = false, routing = "webaudio", search = "", hooks = true, reduced = false, map = null as object | null, title = TRACK.title, songs = 1, landmarks = [] as { position: Point3 }[], view = "third", recording = true, screen = DESKTOP, hud = {} as Hud } = {}) {
+async function startWorld({ playing = false, routing = "webaudio", search = "", hooks = true, reduced = false, map = null as object | null, title = TRACK.title, songs = 1, landmarks = [] as { position: Point3; rotation: { y: number } }[], trees = [] as Point[], view = "third", recording = true, screen = DESKTOP, hud = {} as Hud } = {}) {
   let now = 0;
   let queued: FrameRequestCallback | null = null;
   const container = Object.assign(new EventTarget(), {
@@ -470,6 +516,13 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
   vi.stubGlobal("MutationObserver", class { observe() {} });
   fake.world.line = LINE;
   fake.world.landmarks = landmarks;
+  fake.world.treeSpots = trees;
+  fake.world.treesAsked = [];
+  fake.world.waysAsked = [];
+  fake.world.treesBuilt = [];
+  fake.world.made = [];
+  fake.world.columnAsks = [];
+  fake.world.columnsAtBoom = [];
   fake.world.meshes = [];
   fake.world.onset = null;
   fake.world.keyTurned = false;
@@ -602,12 +655,117 @@ describe("main.js's frames", () => {
     expect(fake.world.sparse).toBe(true);
   });
 
+  describe("the trees", () => {
+    // A point `a` m along the bears' line and `c` m to one side of it.
+    const off = (a: number, c: number) => { const p = LINE.at(a); return { x: p.x + c * toCentre.z, z: p.z - c * toCentre.x }; };
+    const landmarks = [40.6, 60.3].map((d, k) => ({ position: { ...off(d, 7), y: 0 }, rotation: { y: 0.3 + k } }));
+
+    it("are placed once, the tier's count of them, by the bears' line, the landmarks' outlines and the cameras' ways, and stand before the island is built round them", async () => {
+      fake.world.nearSpot = (k) => ({ x: 10 + k, z: 20 + k, heading: 0, pitch: 0, clear: true });
+      const trees = [off(15, 20)];
+      await startWorld({ trees, songs: 2, landmarks });
+      // Places first, since what grows on the island keeps out of the trunks; then the island; then the trees, with the island's light.
+      expect(fake.world.made).toEqual(["places", "island", "trees"]);
+      const [asked] = fake.world.treesAsked;
+      expect(asked.count).toBe(100);
+      // The bears' line, a point every metre of its 200 m, as [x, z].
+      expect(asked.line).toHaveLength(200);
+      expect(asked.line[37]).toEqual([LINE.at(37).x, LINE.at(37).z]);
+      // Each landmark: where it stands, how it is turned, and its outline.
+      expect(asked.landmarks).toEqual(landmarks.map((g) => ({ x: g.position.x, z: g.position.z, rot: g.rotation.y, poly: fake.OUTLINE })));
+      // The cameras' ways, reckoned from the line, the ground, where the visitor stands by each landmark to see it, and how far along
+      // the line the bears stand as its song begins: the stand-in lays the songs out a tenth of the loop apart from its middle, and the
+      // line here is 100 m to the loop.
+      expect(asked.eyes).toBe(fake.WAYS.eyes);
+      expect(asked.views).toBe(fake.WAYS.views);
+      expect(fake.world.waysAsked).toHaveLength(1);
+      expect(fake.world.waysAsked[0].line).toBe(LINE);
+      expect((fake.world.waysAsked[0].height as typeof height)(31.7, -27.5)).toBe(height(31.7, -27.5));
+      expect(fake.world.waysAsked[0].stands).toEqual(landmarks.map((g, k) => ({ x: 10 + k, z: 20 + k, to: [g.position.x, g.position.z], d: expect.closeTo(50 + 10 * k, 9) })));
+      // The island is told of the trunks, and the trees take its light; a desktop's are not a phone's.
+      expect((fake.world.trunks as { spots: unknown }).spots).toBe(trees);
+      expect(fake.world.treesBuilt).toEqual([{ spots: trees, lit: fake.LIT, phone: false }]);
+      expect(fake.world.treesBuilt[0].spots).toBe(trees);
+      expect((hill() as unknown as { trees: number }).trees).toBe(1);
+    });
+
+    it("are as many as the tier draws: a phone's 45, built as a phone's", async () => {
+      await startWorld({ screen: { width: 390, height: 844, touch: true } });
+      expect(hill().tier).toBe("phone");
+      expect(fake.world.treesAsked[0].count).toBe(45);
+      expect(fake.world.treesBuilt[0].phone).toBe(true);
+      // A day with no recording has no landmarks, and trees all the same.
+      await startWorld({ recording: false });
+      expect(fake.world.treesAsked[0].landmarks).toEqual([]);
+      expect(fake.world.waysAsked[0].stands).toEqual([]);
+      expect(fake.world.made).toEqual(["places", "island", "trees"]);
+    });
+
+    it("are solid to a walk: a step sideways into a trunk stops TREE_REACH from its middle, on the line to it", async () => {
+      // One to either side of the visitor's place in the line, 15 m along it, 20 m off.
+      const page = await startWorld({ trees: [off(15, 20), off(15, -20)] });
+      page.run(DESCENT_S + 0.1);
+      expect(along(page.stepped())).toBeCloseTo(15, 9);
+      const tree = (p: Point) => Math.min(distance(p, off(15, 20)), distance(p, off(15, -20)));
+      page.hold("KeyE", 3, () => expect(tree(page.stepped())).toBeGreaterThan(TREE_REACH - 1e-9));
+      expect(page.mode()).toBe("walk");
+      expect(Math.abs(across(page.stepped()))).toBeCloseTo(20 - TREE_REACH, 9);
+      expect(along(page.stepped())).toBeCloseTo(15, 9);
+      // The same walk with no tree there goes on by.
+      const open = await startWorld();
+      open.run(DESCENT_S + 0.1);
+      open.hold("KeyE", 3);
+      expect(Math.abs(across(open.stepped()))).toBeGreaterThan(30);
+    });
+
+    it("are solid to the walk's camera: each frame of a walk in third person the boom has the stage's column and the columns of the trees near the visitor, and no more", async () => {
+      const page = await startWorld({ search: "?pose=stage" });
+      page.run(0.2);
+      expect(page.mode()).toBe("walk");
+      // The same array the visitor's bear was built with, refilled: ten frames on it holds two, not twelve.
+      expect(fake.world.columnsAtBoom).toEqual([STAGE_COLUMN, fake.TREE_COLUMN]);
+      expect(fake.world.columnsAtBoom[1]).toBe(fake.TREE_COLUMN);
+      expect(fake.world.boomColumns).toHaveLength(2);
+      expect(fake.world.columnAsks).toHaveLength(10);
+      // Each ask is for the trees near where the visitor stands, with the stage's column alone in the array.
+      for (const ask of fake.world.columnAsks) expect(ask).toEqual([page.stepped().x, page.stepped().z, 1]);
+      page.hold("ArrowUp", 0.2);
+      expect(fake.world.columnAsks.at(-1)).toEqual([page.stepped().x, page.stepped().z, 1]);
+      expect(fake.world.boomColumns).toHaveLength(2);
+      // In first person there is no boom, and with the bears no walk: neither asks.
+      const first = await startWorld({ search: "?pose=stage", view: "first" });
+      first.run(0.2);
+      expect(fake.world.columnAsks).toEqual([]);
+      const attract = await afterDescent();
+      attract.run(0.2);
+      expect(fake.world.columnAsks).toEqual([]);
+    });
+
+    it("sway by the sky's own time, which stands still under reduced motion", async () => {
+      const page = await startWorld();
+      page.run(1);
+      expect(fake.world.wind).toBeCloseTo(1, 9);
+      expect(fake.world.wind).toBe(fake.world.sky.uniforms.uTime.value);
+      page.run(1);
+      expect(fake.world.wind).toBeCloseTo(2, 9);
+      const still = await startWorld({ reduced: true });
+      still.run(0.02);
+      // The page's seed, as the sky's time is there.
+      const at = fake.world.wind;
+      expect(at).toBe(7);
+      expect(at).toBe(fake.world.sky.uniforms.uTime.value);
+      // A held key keeps the frames coming, and the wind where it was.
+      still.hold("ArrowUp", 1);
+      expect(fake.world.wind).toBe(at);
+    });
+  });
+
   describe("?pose=near-K", () => {
     // Four songs' landmarks, each 7 m to one side of the bears' line, about 20 m apart along it and none a whole number of metres along;
     // and where the visitor stands by song k's: about 14 m short of it along the line, out of every bear's reach, facing a way of its own
     // and looking up a little, with a clear view.
     const beside = (d: number) => { const p = LINE.at(d); return { x: p.x + 7 * toCentre.z, y: p.y, z: p.z - 7 * toCentre.x }; };
-    const landmarks = [40.6, 60.3, 80.9, 100.1].map((d) => ({ position: beside(d) }));
+    const landmarks = [40.6, 60.3, 80.9, 100.1].map((d, k) => ({ position: beside(d), rotation: { y: 0.3 * k } }));
     const spot = (k: number) => ({ ...beside(26 + 20 * k), heading: 0.5 + k, pitch: 0.12, clear: k !== 3 });
     const near = (search: string, options = {}) => {
       fake.world.nearSpot = spot;
