@@ -359,8 +359,8 @@ describe("the rough-hewn landmarks", () => {
     for (const phone of [false, true]) {
       for (const title of ROUGH) {
         const box = bounds(landmark(title, phone).g), size = box.getSize(new THREE.Vector3());
-        // A column's base and the standing stones go 1.6 m under, a peak 1 m, and the great boulder lies 0.6 m into the ground.
-        const under: Record<string, number> = { "My Brother Esau": -1.5, "Touch Of Grey": -0.55, "Cold Rain And Snow": -0.99, "Fire On The Mountain": -0.99, "Samson And Delilah": -1.55 };
+        // A column's base and the standing stones go 1.6 m under, a peak 2 m, and the great boulder lies 0.6 m into the ground.
+        const under: Record<string, number> = { "My Brother Esau": -1.5, "Touch Of Grey": -0.55, "Cold Rain And Snow": -1.99, "Fire On The Mountain": -1.99, "Samson And Delilah": -1.55 };
         expect(box.min.y).toBeLessThan(under[title]);
         expect(box.min.y).toBeGreaterThan(-2.1);
         expect(box.max.y).toBeLessThan(9.2);
@@ -399,7 +399,29 @@ describe("the rough-hewn landmarks", () => {
     }
     expect(standing).toBeGreaterThan(5.9);
     expect(fallen).toBeGreaterThan(150);
-    expect(fallenTop).toBeGreaterThan(0.6);
+    // The capital lies on the drums: the heap's top is over the higher drum's, 0.67 m up.
+    expect(fallenTop).toBeGreaterThan(0.8);
+  });
+
+  it("gives a peak a round rim of eleven sides a metre under its ground, on a phone as on a desktop, and carries its foot straight on down a metre more", () => {
+    for (const [title, r] of [["Cold Rain And Snow", 3], ["Fire On The Mountain", 2.2]] as const) {
+      for (const phone of [false, true]) {
+        const { position } = stillOf(title, phone)[0].geometry.attributes, rim = new Set<string>(), foot = new Set<string>();
+        for (let i = 0; i < position.count; i++) {
+          // A corner's place to the millimetre, with no minus on a nought: the cone's seam closes at 0 and at a hair under it.
+          const mm = (v: number) => Math.round(v * 1e3) / 1e3 + 0;
+          const out = Math.hypot(position.getX(i), position.getZ(i)), y = position.getY(i), key = `${mm(position.getX(i))},${mm(position.getZ(i))}`;
+          // The rim, the peak's outline from above: every corner at the rim's depth is on it or at the middle, and none anywhere
+          // stands further out.
+          expect(out).toBeLessThanOrEqual(r + 1e-4);
+          if (Math.abs(y + 1) < 1e-4 && out > 0.1) { expect(out).toBeCloseTo(r, 4); rim.add(key); }
+          // The skirt's foot, 2 m under: straight below the rim, so a slope's lower side shows stone and no daylight.
+          if (Math.abs(y + 2) < 1e-4 && out > 0.1) { expect(out).toBeCloseTo(r, 4); foot.add(key); }
+        }
+        expect(rim.size).toBe(11);
+        expect(foot).toEqual(rim);
+      }
+    }
   });
 
   it("keep inside the outline of the shapes they replace, on a desktop and on a phone, so each stands where its song's point is, and at the one place on both", () => {

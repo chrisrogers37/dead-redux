@@ -152,12 +152,14 @@ export function makeBuilders(phone) {
   }
 
   /* A little mountain, its foot at its own ground: a cone of eleven sides, rough but for its tip and its rim, painted by `colour`.
-     It goes on PEAK_SUNK m under a slope, where its rim is `r` m out and round: the rim is the peak's outline from above, the same
-     on a phone, whose peak has fewer rings. */
-  const PEAK_SUNK = 1;
+     It widens for PEAK_SUNK m under its ground to a rim `r` m out and round, which is the peak's outline from above, the same on
+     a phone, whose peak has fewer rings. From the rim a skirt of the same eleven sides goes straight on down PEAK_SKIRT m more,
+     so on a slope the rim does not hang in the air on the lower side, and the outline is no wider for it. */
+  const PEAK_SUNK = 1, PEAK_SKIRT = 1;
   const peak = (r, tall, rough, salt, colour) => {
     const cone = new THREE.ConeGeometry(r, tall + PEAK_SUNK, 11, phone ? 4 : 6).translate(0, (tall - PEAK_SUNK) / 2, 0);
-    return paint(roughen(cone, rough, salt, (x, y) => y > tall - 0.05 || y < 0.05 - PEAK_SUNK), colour);
+    const skirt = new THREE.CylinderGeometry(r, r, PEAK_SKIRT, 11).translate(0, -PEAK_SUNK - PEAK_SKIRT / 2, 0);
+    return mergeGeometries([paint(roughen(cone, rough, salt, (x, y) => y > tall - 0.05 || y < 0.05 - PEAK_SUNK), colour), paint(skirt, colour)]);
   };
   /* A pine in its own frame: a trunk and three skirts of boughs. */
   const pine = (tall) => {
@@ -215,7 +217,7 @@ export function makeBuilders(phone) {
     put(g, new THREE.CylinderGeometry(0.7, 0.48, 0.3, 10), flute, 0.15, 0.78, 0.05, 0.32, 0, 0.2);
     /* The lintel: its upper end lies on the standing capital's edge and its lower on the broken shaft's top, in neither. */
     put(g, new THREE.BoxGeometry(4.6, 0.6, 1.0), stone, 0.68, 4.76, 0.05, 0, 0.06, -0.875);
-    if (!phone) for (const [x, z, r] of [[-0.75, 0.5, 0.26], [0.95, -0.55, 0.24], [-0.6, -0.55, 0.22]]) put(g, rock(r, 0, 0.22, 41).scale(1, 1.1, 1), tone(0x8e8a82, true), x, LOOSE * r, z);
+    if (!phone) for (const [x, z, r] of [[-0.72, 0.5, 0.26], [0.7, 0.52, 0.24], [-0.6, -0.55, 0.22]]) put(g, rock(r, 0, 0.22, 41).scale(1, 1.1, 1), tone(0x8e8a82, true), x, LOOSE * r, z);
   }
 
   /* Tuning: a guitar's tuning peg, taller than a bear. A turned post on a stone footing, brass collars, the string wound round it,
