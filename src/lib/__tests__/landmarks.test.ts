@@ -440,6 +440,8 @@ describe("the rough-hewn landmarks", () => {
     let near = Infinity, far = 0;
     for (let i = 0; i < position.count; i++) {
       if (Math.abs(color.getX(i) - grey.r) + Math.abs(color.getY(i) - grey.g) + Math.abs(color.getZ(i) - grey.b) > 1e-4) continue;
+      // A lesser boulder against it, at (-2.7, 0.2, 1.9), wears the same grey: its corners are left out.
+      if (Math.hypot(position.getX(i) + 2.7, position.getY(i) - 0.2, position.getZ(i) - 1.9) < 1.2) continue;
       const out = Math.hypot(position.getX(i), (position.getY(i) - 1.75) / 0.82, position.getZ(i) / 0.92);
       if (out > 3.5) continue;
       near = Math.min(near, out); far = Math.max(far, out);
