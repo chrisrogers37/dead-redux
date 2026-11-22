@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
 import { makeBuilders, mergeLandmarks, mergeStill, mesh } from "../../../public/world/landmarks.js";
+import { buildPath, buildWalkLine, layout, placeLandmarks } from "../../../public/world/path.js";
+import { readFileSync } from "fs";
 
 type Part = { isMesh?: boolean; material: { vertexColors: boolean; flatShading: boolean; emissive: { getHex(): number } }; geometry: { index: unknown; attributes: Record<string, { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number }> } };
 type Build = (g: unknown) => void;
@@ -357,11 +359,12 @@ describe("the rough-hewn landmarks", () => {
     for (const phone of [false, true]) {
       for (const title of ROUGH) {
         const box = bounds(landmark(title, phone).g), size = box.getSize(new THREE.Vector3());
-        // A peak, a column's base and the standing stones go 1.6 m under; the great boulder lies 0.7 m into the ground.
-        expect(box.min.y).toBeLessThan(title === "Touch Of Grey" ? -0.6 : -1.55);
+        // A column's base and the standing stones go 1.6 m under, a peak 1 m, and the great boulder lies 0.6 m into the ground.
+        const under: Record<string, number> = { "My Brother Esau": -1.5, "Touch Of Grey": -0.55, "Cold Rain And Snow": -0.99, "Fire On The Mountain": -0.99, "Samson And Delilah": -1.55 };
+        expect(box.min.y).toBeLessThan(under[title]);
         expect(box.min.y).toBeGreaterThan(-2.1);
         expect(box.max.y).toBeLessThan(9.2);
-        expect(Math.max(size.x, size.z)).toBeLessThan(8.6);
+        expect(Math.max(size.x, size.z)).toBeLessThan(6.1);
       }
     }
   });
@@ -385,17 +388,48 @@ describe("the rough-hewn landmarks", () => {
     for (let i = 0; i < normal.count; i += 3) for (const k of [1, 2]) expect(Math.abs(normal.getX(i) - normal.getX(i + k)) + Math.abs(normal.getY(i) - normal.getY(i + k)) + Math.abs(normal.getZ(i) - normal.getZ(i + k))).toBeLessThan(1e-6);
   });
 
-  it("stands one of the temple's columns to its capital, 6 m up, and breaks the other, with its drums and the slipped lintel on the ground and against the first", () => {
-    const { position } = stillOf("Samson And Delilah")[0].geometry.attributes;
-    let standing = -Infinity, broken = -Infinity;
+  it("stands one of the temple's columns to its capital, 6 m up, and breaks the other, its drums and its capital fallen between the two", () => {
+    const { position, color } = stillOf("Samson And Delilah")[0].geometry.attributes, flute = new THREE.Color(0xa9a59c);
+    let standing = -Infinity, fallen = 0, fallenTop = -Infinity;
     for (let i = 0; i < position.count; i++) {
       // The standing column is at x -1.6 and the broken one at 1.6, each within 0.9 m of its own line at its foot.
       if (Math.abs(position.getX(i) + 1.6) < 0.9 && Math.abs(position.getZ(i)) < 0.9) standing = Math.max(standing, position.getY(i));
-      if (position.getX(i) > 3.2) broken = Math.max(broken, position.getY(i));
+      // Between the two columns' bases lie the fluted pieces that fell: two drums and the capital on them, under a bear's knee.
+      if (Math.abs(position.getX(i)) < 0.74 && position.getY(i) < 1.3 && Math.abs(color.getX(i) - flute.r) + Math.abs(color.getY(i) - flute.g) + Math.abs(color.getZ(i) - flute.b) < 1e-4) { fallen += 1; fallenTop = Math.max(fallenTop, position.getY(i)); }
     }
     expect(standing).toBeGreaterThan(5.9);
-    // Past the broken column lie only its fallen drums and its capital, no higher than a bear's knee.
-    expect(broken).toBeLessThan(1.2);
+    expect(fallen).toBeGreaterThan(150);
+    expect(fallenTop).toBeGreaterThan(0.6);
+  });
+
+  it("keep inside the outline of the shapes they replace, on a desktop and on a phone, so each stands where its song's point is, and at the one place on both", () => {
+    // How far each reaches from its own middle, seen from above: the slabs 2.09 m, the dodecahedron and the cone 3 m, the fire's
+    // cone 2.2 m, the pillars and their lintel 2.82 m.
+    const reach: Record<string, number> = { "My Brother Esau": 2.09, "Touch Of Grey": 3, "Cold Rain And Snow": 3, "Fire On The Mountain": 2.2, "Samson And Delilah": 2.82 };
+    for (const phone of [false, true]) {
+      for (const title of ROUGH) {
+        let far = 0;
+        for (const part of landmark(title, phone).parts.filter((c) => c.isMesh) as (Part & { position: { x: number; z: number } })[]) {
+          const { position } = part.geometry.attributes;
+          for (let i = 0; i < position.count; i++) far = Math.max(far, Math.hypot(position.getX(i) + part.position.x, position.getZ(i) + part.position.z));
+        }
+        expect(far).toBeLessThanOrEqual(reach[title] + 0.001);
+      }
+    }
+    // The pinned show (1986-07-04, set 2 from track 7, where Cold Rain And Snow stands on the summit between two stretches of the
+    // bears' line): its landmarks placed as main.js places them, on both tiers.
+    const map = JSON.parse(readFileSync(new URL("../../../public/maps/1986-07-04.json", import.meta.url), "utf8")) as { tracks: { title: string; playingDuration: number }[] };
+    const tracks = map.tracks.map((t) => ({ title: t.title, duration: t.playingDuration }));
+    const path = buildPath(), landmarkU = layout(tracks, 7, path), line = buildWalkLine(path, 7);
+    const stood = (phone: boolean) => placeLandmarks(new THREE.Scene(), path, tracks, true, makeBuilders(phone), landmarkU, line) as { position: { x: number; z: number } }[];
+    const desktop = stood(false), phone = stood(true);
+    for (const i of [5, 6, 7, 8, 9]) {
+      expect(ROUGH.some((title) => tracks[i].title.startsWith(title))).toBe(true);
+      const point = path.at(landmarkU[i]);
+      // No further from its song's point than the plain shape stood: a metre at the most, on the summit.
+      expect(Math.hypot(desktop[i].position.x - point.x, desktop[i].position.z - point.z)).toBeLessThanOrEqual(1.001);
+      expect(Math.hypot(desktop[i].position.x - phone[i].position.x, desktop[i].position.z - phone[i].position.z)).toBeLessThan(0.01);
+    }
   });
 
   it("leans the lintel from the standing column's capital to the broken shaft's top: it lies on both and in neither", () => {
@@ -453,15 +487,15 @@ describe("the rough-hewn landmarks", () => {
         }
       }
     }
-    // The great boulder's own corners, about its middle 1.75 m up: no ball.
+    // The great boulder's own corners, about its middle 1.55 m up: no ball.
     const { position, color } = stillOf("Touch Of Grey")[0].geometry.attributes, grey = new THREE.Color(0x7d7a74);
     let near = Infinity, far = 0;
     for (let i = 0; i < position.count; i++) {
       if (Math.abs(color.getX(i) - grey.r) + Math.abs(color.getY(i) - grey.g) + Math.abs(color.getZ(i) - grey.b) > 1e-4) continue;
-      // A lesser boulder against it, at (-2.7, 0.2, 1.9), wears the same grey: its corners are left out.
-      if (Math.hypot(position.getX(i) + 2.7, position.getY(i) - 0.2, position.getZ(i) - 1.9) < 1.2) continue;
-      const out = Math.hypot(position.getX(i), (position.getY(i) - 1.75) / 0.82, position.getZ(i) / 0.92);
-      if (out > 3.5) continue;
+      // A lesser boulder against it, at (-2, 0.15, 1.1), wears the same grey: its corners are left out.
+      if (Math.hypot(position.getX(i) + 2, position.getY(i) - 0.15, position.getZ(i) - 1.1) < 0.9) continue;
+      const out = Math.hypot(position.getX(i), (position.getY(i) - 1.55) / 0.85, position.getZ(i) / 0.94);
+      if (out > 2.9) continue;
       near = Math.min(near, out); far = Math.max(far, out);
     }
     expect(far / near).toBeGreaterThan(1.1);
