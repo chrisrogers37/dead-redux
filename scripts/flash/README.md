@@ -46,23 +46,36 @@ node scripts/flash/table.mjs /tmp/flash-quick
 A job line is `<variant> <window> [key=value ...]`, and `#` starts a comment.
 
 - The variant is `branch` or `main`. `branch` counts the server's own world, or the world in `WORLD_DIR`. `main` counts the world modules of `MAIN_REF`, read from git and served to the page in the server's place. Only `public/world/*.js` is swapped: the page around the world is the server's in both.
-- The keys, with what each is when left out: `pose=crowd` (a named test pose, `home` for the page's own opening, or four numbers `x,z,heading,pitch`), `view=800x500` (CSS px), `dpr=1`, `tier=` (the page's own pick, or `phone` or `tv`), `still=0`, `rung=0` (the world starts that many rungs down its quality ladder and holds there), `grids=0,0+1,1` and `patch=` (below).
+- The keys, with what each is when left out: `pose=crowd` (a named test pose, `home` for the page's own opening, or four numbers `x,z,heading,pitch`), `view=800x500` (CSS px), `dpr=1`, `tier=` (the page's own pick, or `phone` or `tv`), `still=0`, `rung=0` (the world starts that many rungs down its quality ladder and holds there) and `grids=0,0+1,1`.
+- A job stops, and says why, when the world it counts does not know what it was asked: a pose the world does not take, or `still=1` or a rung on a world from before those hooks. Until main has them, that is every `main` job with either.
+- An experiment that needs a changed world counts a scratch checkout: change its `public/world`, and name it as `WORLD_DIR`.
 
 The settings come from the environment:
 
 | | default | |
 |---|---|---|
 | `SITE_URL` | `http://127.0.0.1:3000` | The site |
-| `GPU` | unset | `metal` renders on a Mac's GPU. Unset, the browser picks its own renderer: for the shoot's headless Chromium that is SwiftShader, in software, and slow |
+| `GPU` | unset | `metal` renders on a Mac's GPU. Otherwise the browser picks its own renderer: for the shoot's headless Chromium that is SwiftShader, in software, and slow. Each result names its renderer |
 | `MAIN_REF` | `origin/main` | The commit whose world the variant `main` counts |
 | `WORLD_DIR` | unset | A checkout's `public/world`, counted as `branch` whatever tree the server runs |
-| `OUT_DIR` | `dead-redux-flash` in the system's temp folder | Where the results go. A folder inside the repo is refused |
+| `OUT_DIR` | `dead-redux-flash` in the system's temp folder | Where the output goes. A folder inside the repo is refused |
 | `DAY` | `2026-10-20` | The day, which must have windows in `windows.json` |
-| `PARALLEL` | `3` | Jobs at once. The seeks on a phone hold about 2 GB a job |
-| `STILLS` | unset | `1` keeps a still of every 30th frame, about half a megabyte each: 28 MB for the seeks on the desktop |
+| `PARALLEL` | `3` | Jobs at once |
+| `HEAT` | unset | `1` writes a heat map of each grid's counts and of its ranges |
+| `STILLS` | unset | `1` keeps a still of every 30th frame |
 | `PLAYWRIGHT_BROWSERS_PATH` | Playwright's own | Where Playwright finds its browser |
 
-Each job writes `<tag>.json` and a heat map of each grid's counts and ranges under `OUT_DIR`, and with `STILLS=1` its stills in `stills/<tag>/`. The tag names every field of the job, so two jobs never share a file. On an M4 Mac's GPU the seeks take about 6 minutes and a 12 s window about 2.5 as a browser's only job, about 9 and 4 with two jobs at a time, and the quick set 13 minutes at two at a time.
+On an M4 Mac's GPU the seeks take 6 to 7 minutes and a 12 s window 2.5 to 3.5 as a browser's only job, and the quick set about 13 minutes at two jobs at a time. The script counts as the frames arrive and keeps a second of them, so a long window takes no more memory than a short one: about half a gigabyte for a job on the desktop.
+
+### What a job writes
+
+The script's first line says where: `OUT_DIR`. The tag in each file's name holds every field of the job, so two jobs never share a file.
+
+- `<tag>.json`, always, about 25 KB. It holds the job and its page, the world's tier, renderer and commit, the plates that were masked, the page's errors, and for each grid the counts: the most swings in a second by both readings, how many blocks reach each count from 1 to 8, the histogram, and the twelve busiest blocks (`top`, the first of them also as `worst`). A block has its place on its grid, the frame its busiest second starts at, its swings, and its luminance through the 62 frames that end at that second's last swing (`trace`, from `traceFromFrame`).
+- With `HEAT=1`, four PNGs a job, a block a pixel: about 0.4 MB for the seeks on the desktop.
+- With `STILLS=1`, a PNG of every 30th frame in `stills/<tag>/`: about half a megabyte each, 28 MB for the seeks on the desktop.
+
+Nothing clears `OUT_DIR`: `rm -r` it when the PR's text has its numbers.
 
 ## The two sets
 
@@ -75,26 +88,7 @@ A PR whose change shows best from somewhere else adds its own job lines: a pose 
 
 For each window, the worst block's count on main and on the branch, from the same machine and the same renderer, with the device, the rung, the pose and the pass: `table.mjs` prints that table from a folder of results, and warns when its rows come from more than one renderer. Counts from different renderers are not comparable.
 
-The bar is held on the light alone: never over 6, and no worse than main at the same block in the same frames. A result's `worst` and `top` give each block's place, the frame its busiest second starts at, its swings and its luminance frame by frame (`trace`).
+The bar is held on the light alone: never over 6, and no worse than main at the same block in the same frames.
 
-The whole frame counts motion too: the edge of a dancing figure or a walking bear against the light swings a block, which is no flash of the light show. It reads over 6 on main: as this was written, 17 on the even grid through the seeks from behind the crowd and 7 in Space, on the desktop at 1.5. So the whole frame is held to main's: no worse at the worst block, and the PR says where any new blocks at 5 or more lie.
-
-## The known baseline
-
-On main's world, with the light alone, the seeks from behind the crowd count:
-
-- on the desktop at 1.5 and rung 0, 4 on the even grid, 5 with the grid 1 px down, and 6 at one block at the stage with the grid moved 1 px right and 1 px down: block (608, 324) of that grid, frames 166 to 216, a second after the seek to Drums;
-- on the phone tier, 5 on the even grid.
-
-#169 counted these, and its text holds the table. This counter found the 4 and the 6 again on main at `c27c328`, at the same blocks in the same frames, and the phone's 5 at the same place on that world with the test hooks added. The 6 is at the bar, not over it, and it is main's: a change is held to adding nothing to it.
-
-#169 also counted 5 on the even grid for the desktop a rung down, on main as it was then (`f20c256`). Main at `c27c328` counts 4 there, by `rung=1` and by the patch #169 stepped the world down with alike.
-
-## Patches
-
-`patch=<name>` changes a world module's text before the page loads it, for a one-off experiment a test hook does not cover. `PATCHES` in `lib.mjs` holds them, each a text that must be in its module exactly once and what takes its place, so a patch that the world has moved away from fails instead of counting something else.
-
-- `glow` holds the fireflies at full glow whatever the night and the music.
-- `still-before-hooks` is the light alone for a world from before `?still=1`. `still=1` on such a world stops the job, since it would count the whole frame and call it the light. It goes once main's world has the hook.
-
-A count with a patch is not comparable with one without, and neither set has one.
+- **Main is no clean sheet.** Main's own light show has counted exactly 6 at one block at the stage, in the seeks with the grid moved (#169). A branch is held to main's count at the same block in the same frames, and to adding nothing to it.
+- **The whole frame counts motion too.** The edge of a dancing figure or a walking bear against the light swings a block, which is no flash of the light show, and the whole frame reads well over 6 on main. It is held to main's and not to 6: no worse at the worst block, and the PR says where any new blocks at 5 or more lie.

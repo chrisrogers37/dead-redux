@@ -14,6 +14,7 @@ export const FPS = 60;
 export const repoRoot = () => resolve(fileURLToPath(new URL("../../", import.meta.url)));
 
 // Playwright and pngjs, from the shoot's own packages (.github/screenshots), as the shoot has them: the root package.json has neither.
+// The require from there is deliberate: one copy of the browser's driver serves the shoot and the count, and CI's tests install none.
 export function loadPlaywright() {
   const require = createRequire(new URL("../../.github/screenshots/", import.meta.url));
   return { chromium: require("playwright").chromium, PNG: require("pngjs").PNG };
@@ -24,17 +25,15 @@ export function readConfig(env) {
   const outDir = resolve(env.OUT_DIR || join(tmpdir(), "dead-redux-flash"));
   const within = relative(repoRoot(), outDir);
   if (within === "" || (!within.startsWith("..") && !isAbsolute(within))) throw new Error(`OUT_DIR ${outDir} is inside the repo: a count's files stay out of it`);
-  const gpu = env.GPU || "";
-  if (gpu !== "" && gpu !== "metal") throw new Error(`GPU=${gpu}: metal, or unset for the browser's own renderer`);
   const day = env.DAY || "2026-10-20";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error(`DAY=${day} is no date`);
   const parallel = Number(env.PARALLEL || 3);
   if (!Number.isInteger(parallel) || parallel < 1) throw new Error(`PARALLEL=${env.PARALLEL} is no count of jobs`);
-  // A job's stills are half a megabyte each, 28 MB for the seeks on a desktop: none is kept unless STILLS=1 asks.
-  if (!["", "0", "1"].includes(env.STILLS ?? "")) throw new Error(`STILLS=${env.STILLS}: 1 keeps a still of every 30th frame, and unset or 0 keeps none`);
+  // A job writes its result, a few kilobytes. Its heat maps (HEAT=1) and its stills (STILLS=1), which are megabytes, are kept on asking.
   return {
-    siteUrl: (env.SITE_URL || "http://127.0.0.1:3000").replace(/\/+$/, ""), day, outDir, gpu,
-    worldDir: env.WORLD_DIR ? resolve(env.WORLD_DIR) : null, mainRef: env.MAIN_REF || "origin/main", parallel, stills: env.STILLS === "1",
+    siteUrl: (env.SITE_URL || "http://127.0.0.1:3000").replace(/\/+$/, ""), day, outDir, gpu: env.GPU || "",
+    worldDir: env.WORLD_DIR ? resolve(env.WORLD_DIR) : null, mainRef: env.MAIN_REF || "origin/main", parallel,
+    heat: env.HEAT === "1", stills: env.STILLS === "1",
   };
 }
 
@@ -45,32 +44,11 @@ export function windowsFor(day) {
   return all[day];
 }
 
-// One-off changes to a world module, each [text in the module exactly once, what takes its place], by the module's file name. A job
-// asks for one by name (patch=). A patch is an experiment: a count with one is not comparable with one without, and none is in a matrix.
-export const PATCHES = {
-  // The fireflies held at full glow whatever the night and the music: the most they can add.
-  glow: { "island.js": [["flora.glow(look.dark * look.dark * (0.35 + 0.65 * calm));", "flora.glow(1.0);"]] },
-  // The light alone, for a world from before ?still=1: what the hook does, as the counts before it did it (#128, "Two passes"). The
-  // bears are hidden, the band is never moved and the crowd is posed standing still. It goes once main's world has the hook.
-  "still-before-hooks": { "main.js": [
-    ["const bears = buildBears(scene, budget.bears);", "const bears = buildBears(scene, budget.bears); for (const b of bears) b.g.visible = false;"],
-    ["stage.move(dt, elapsed, figures.beats, playing);", "/* still: the band is not moved */"],
-    ["crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting);", "crowd.pose(0, 0, 0, sitting);"],
-  ] },
-};
-export function patched(name, source, patches) {
-  let out = source;
-  for (const [from, to] of patches) {
-    if (out.split(from).length !== 2) throw new Error(`patch: "${from}" is in ${name} ${out.split(from).length - 1} times`);
-    out = out.replace(from, to);
-  }
-  return out;
-}
-
 // What a job line may set, and what each is when the line leaves it out.
-const DEFAULTS = { pose: "crowd", view: "800x500", dpr: "1", tier: "", still: "0", rung: "0", grids: "0,0+1,1", patch: "" };
-const NUMBER = "-?\\d+(?:\\.\\d+)?";
-const FOUR = new RegExp(`^(${NUMBER}),(${NUMBER}),(${NUMBER}),(${NUMBER})$`);
+const DEFAULTS = { pose: "crowd", view: "800x500", dpr: "1", tier: "", still: "0", rung: "0", grids: "0,0+1,1" };
+// A pose is a name, or four numbers for ?pose=X,Z,HEADING,PITCH. Which names and which numbers are a pose is the world's to say
+// (main.js): a job whose pose the world does not take stops when the page has loaded.
+const POSE = /^(?:[a-z]+(?:-\d+)?|-?\d+(?:\.\d+)?(?:,-?\d+(?:\.\d+)?){3})$/;
 
 // The jobs a text names, one a line: <variant> <window> [key=value ...], with # starting a comment. The variant is `branch` (the
 // server's world, or WORLD_DIR's) or `main` (the world modules of MAIN_REF); the window is one of `windows`. The keys:
@@ -81,7 +59,6 @@ const FOUR = new RegExp(`^(${NUMBER}),(${NUMBER}),(${NUMBER}),(${NUMBER})$`);
 //   still=0          1 for the light alone (?still=1)
 //   rung=0           how many rungs down its quality ladder the world starts and holds (?rung=N)
 //   grids=0,0+1,1    the grids of 2x2 blocks counted, each by how many px it stands right and down of the frame's corner
-//   patch=           a name in PATCHES
 export function parseJobs(text, windows) {
   const jobs = [];
   for (const [n, raw] of text.split("\n").entries()) {
@@ -99,8 +76,7 @@ export function parseJobs(text, windows) {
       seen.add(key);
       given[key] = pair.slice(eq + 1);
     }
-    const four = FOUR.exec(given.pose);
-    if (four ? Math.abs(Number(four[4])) > 0.8 : !/^[a-z]+(?:-\d+)?$/.test(given.pose)) fail(`pose=${given.pose} is no pose: a name, home, or x,z,heading,pitch with the pitch within 0.8 rad`);
+    if (!POSE.test(given.pose)) fail(`pose=${given.pose} is no pose: a name, home, or four numbers x,z,heading,pitch`);
     const size = /^(\d+)x(\d+)$/.exec(given.view);
     if (!size || Number(size[1]) < 1 || Number(size[2]) < 1) fail(`view=${given.view} is no viewport: WIDTHxHEIGHT in CSS px`);
     const view = { width: Number(size[1]), height: Number(size[2]) };
@@ -114,10 +90,9 @@ export function parseJobs(text, windows) {
     if (!/^\d{1,2}$/.test(given.rung)) fail(`rung=${given.rung}: a whole number from 0 to 99`);
     const grids = given.grids.split("+");
     if (grids.some((g) => !/^[01],[01]$/.test(g)) || new Set(grids).size !== grids.length) fail(`grids=${given.grids}: one or more of 0,0 1,0 0,1 1,1, joined by +`);
-    if (given.patch !== "" && !Object.hasOwn(PATCHES, given.patch)) fail(`no patch "${given.patch}": there is ${Object.keys(PATCHES).join(", ")}`);
     jobs.push({
       variant, window, pose: given.pose, view, dpr, tier: given.tier, still: given.still === "1", rung: Number(given.rung),
-      grids: grids.map((g) => g.split(",").map(Number)), patch: given.patch,
+      grids: grids.map((g) => g.split(",").map(Number)),
     });
   }
   return jobs;
@@ -130,7 +105,7 @@ export const jobUrl = (siteUrl, day, job) => `${siteUrl}/${day}?drive=map` + (jo
 // A file-safe name from every field that tells one job from another, so two jobs never share a result.
 export const tagOf = (job) => [
   job.variant, job.window, job.pose, `${job.view.width}x${job.view.height}`, `x${job.dpr}`, job.tier || "auto", job.still ? "still" : "whole",
-  `rung${job.rung}`, `g${job.grids.map(([x, y]) => `${x}${y}`).join("+")}`, ...(job.patch ? [`patch-${job.patch}`] : []),
+  `rung${job.rung}`, `g${job.grids.map(([x, y]) => `${x}${y}`).join("+")}`,
 ].join("_").replace(/[^A-Za-z0-9._+-]/g, "~");
 
 // The two sets of jobs, as job lines. `quick`, for a first look: Space and the seeks from behind the crowd on a desktop, the whole
@@ -150,11 +125,10 @@ export function matrixJobs(name) {
   throw new Error(`no matrix "${name}": quick or standard`);
 }
 
-// The browser. GPU=metal renders on a Mac's GPU; without it the browser picks its own renderer.
-export const launchArgs = (gpu) => (gpu === "metal" ? ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] : []);
+// The browser. GPU=metal renders on a Mac's GPU; otherwise the browser picks its own renderer, which each result names.
 export function launch(chromium, gpu) {
-  if (!gpu) console.warn("GPU is unset: the browser picks its renderer, and counts from different renderers are not comparable");
-  return chromium.launch({ args: launchArgs(gpu) });
+  if (gpu !== "metal") console.warn("GPU is not metal: the browser picks its renderer, and counts from different renderers are not comparable");
+  return chromium.launch({ args: gpu === "metal" ? ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] : [] });
 }
 
 // The stepper, installed before any of the page's scripts. performance.now() is a virtual clock that only a step moves, and
@@ -209,45 +183,55 @@ export function headOf(worldDir) {
 
 // Serves the world's modules to the page in the server's place: for the variant "main" the ref's, from git, and a module the ref lacks
 // is a 404; for "branch" those of `worldDir`, a checkout's public/world, so what is counted is that checkout's world whatever tree the
-// server runs, or with no `worldDir` the server's own. `patches` change modules by name; with neither `worldDir` nor a ref, a patched
-// module's text is this checkout's.
-export async function routeWorld(page, variant, { mainRef, worldDir = null, patches = null }, served) {
-  const files = variant === "main" ? new Map(mainWorld(mainRef)) : new Map();
-  const dir = variant === "main" ? null : worldDir;
-  if (dir) for (const name of readdirSync(dir)) if (name.endsWith(".js")) files.set(name, readFileSync(join(dir, name), "utf8"));
-  for (const [name, edits] of Object.entries(patches ?? {})) {
-    if ((variant === "main" || dir) && !files.has(name)) throw new Error(`patch: ${name} is not in ${dir ?? mainRef}`);
-    files.set(name, patched(name, files.get(name) ?? readFileSync(join(repoRoot(), "public/world", name), "utf8"), edits));
-  }
-  if (variant !== "main" && !files.size) return;
+// server runs, or with no `worldDir` the server's own, which is not routed at all. An experiment that needs a changed world counts a
+// scratch checkout as `worldDir`.
+export async function routeWorld(page, variant, { mainRef, worldDir = null }) {
+  if (variant !== "main" && !worldDir) return;
+  const files = variant === "main" ? mainWorld(mainRef) : new Map(readdirSync(worldDir).filter((name) => name.endsWith(".js")).map((name) => [name, readFileSync(join(worldDir, name), "utf8")]));
   await page.route((url) => /^\/world\/[^/]+\.js$/.test(url.pathname), (route) => {
     const name = new URL(route.request().url()).pathname.replace("/world/", "");
-    if (variant !== "main" && !files.has(name)) return dir ? route.fulfill({ status: 404, contentType: "text/plain", body: "not in WORLD_DIR" }) : route.continue();
-    served.push(name);
-    if (!files.has(name)) return route.fulfill({ status: 404, contentType: "text/plain", body: "not on main" });
+    if (!files.has(name)) return route.fulfill({ status: 404, contentType: "text/plain", body: variant === "main" ? "not on main" : "not in WORLD_DIR" });
     return route.fulfill({ status: 200, contentType: "text/javascript", body: files.get(name), headers: { "cache-control": "no-store" } });
   });
 }
 
-// A page for a job: its viewport and pixel ratio, a phone's touch for the phone's tier, the stepper, and the world's modules routed.
+// The HUD's shelves, put away so that the whole of the world's frame is counted: the page's cookie and its storage key, and the
+// names of its three shelves. They are the page's own (src/components/world/shelves.ts), and flash-lib.test.ts holds them to it: a
+// name that changed there and not here would leave the HUD out, in the counted frame.
+export const SHELVES_COOKIE = "dead-redux-shelves", SHELVES_STORAGE = "dead-redux:shelves", SHELVES_AWAY = "title,actions,player";
+
+// The HUD's plates as the page draws them now, each drawn one's box in CSS px and the start of its text: window.__plates(), which the
+// count reads before, in and after every frame, so one test says what is drawn.
+function installPlates() {
+  window.__plates = () => [...document.querySelectorAll(".plate")].flatMap((el) => {
+    const r = el.getBoundingClientRect();
+    if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) || r.width <= 0 || r.height <= 0) return [];
+    return [{ x: r.x, y: r.y, w: r.width, h: r.height, text: el.innerText.replace(/\s+/g, " ").trim().slice(0, 50) }];
+  });
+}
+export const readPlates = (page) => page.evaluate(() => window.__plates());
+
+// A page for a job: its viewport and pixel ratio, a phone's touch for the phone's tier, the shelves put away, the stepper, the plate
+// reader, and the world's modules routed.
 export async function openPage(browser, job, { siteUrl, mainRef, worldDir }) {
   const context = await browser.newContext({ viewport: job.view, deviceScaleFactor: job.dpr, ...(job.tier === "phone" ? { hasTouch: true, isMobile: true } : {}) });
-  // The HUD's panels put away (the cookie the page reads on the server), so the whole of the world's frame is counted.
-  await context.addCookies([{ name: "dead-redux-shelves", value: "title,actions,player", url: siteUrl }]);
-  await context.addInitScript(() => {
+  // The cookie is what the server renders the shelves by, and the storage what the page's script reads.
+  await context.addCookies([{ name: SHELVES_COOKIE, value: SHELVES_AWAY, url: siteUrl }]);
+  await context.addInitScript(([key, away]) => {
     try {
-      localStorage.setItem("dead-redux:shelves", "title,actions,player");
+      localStorage.setItem(key, away);
     } catch {
       // A page with no storage keeps the cookie's word.
     }
-  });
+  }, [SHELVES_STORAGE, SHELVES_AWAY]);
   await context.addInitScript(STEPPER);
+  await context.addInitScript(installPlates);
   const page = await context.newPage();
-  const errors = [], served = [];
+  const errors = [];
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
   page.on("console", (m) => { if (m.type() === "error" && !/archive\.org|ERR_ABORTED|favicon/.test(m.text())) errors.push(`console.error: ${m.text().slice(0, 300)}`); });
-  await routeWorld(page, job.variant, { mainRef, worldDir, patches: job.patch ? PATCHES[job.patch] : null }, served);
-  return { context, page, errors, served };
+  await routeWorld(page, job.variant, { mainRef, worldDir });
+  return { context, page, errors };
 }
 
 // Hides the dev server's own indicator, which is no part of the site.
@@ -262,5 +246,3 @@ export const cue = (page, index, position, playing = true) => page.evaluate(([i,
   document.dispatchEvent(new CustomEvent("player:track", { detail: { index: i, position: p } }));
   document.querySelector("main").dataset.state = on ? "playing" : "paused";
 }, [index, position, playing]);
-
-export const hill = (page) => page.evaluate(() => JSON.parse(JSON.stringify(window.__hill ?? null)));

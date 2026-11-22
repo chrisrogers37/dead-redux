@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyse, blockLuminance, LIN, lum, mostWithin, platesMask, swingsOf, THRESHOLD } from "../flash/analyse.mjs";
+import { analyse, blockLuminance, counter, LIN, lum, mostWithin, platesMask, swingsOf, THRESHOLD } from "../flash/analyse.mjs";
 
 // The flash counter's arithmetic. A block's luminance is a uint16, relative luminance times 65535, so the bar's 10 % is 6553.5: a
 // change of 6554 is a swing and one of 6553 is not.
@@ -68,47 +68,180 @@ describe("mostWithin", () => {
   });
 });
 
-describe("analyse", () => {
+// The count of a run, taken both ways: kept whole (`analyse`, as every count before was made) and as its frames arrive (`counter`, as
+// capture.mjs counts, which keeps a second of frames and never the run). The two must agree in everything.
+const counted = (L: Uint16Array, frames: number, bw: number, bh: number, mask: Uint8Array, fps = 60) => {
+  const whole = analyse(L, frames, bw, bh, mask, fps), live = counter(bw, bh, fps), n = bw * bh;
+  for (let f = 0; f < frames; f++) live.add((out: Uint16Array, base: number) => out.set(L.subarray(f * n, (f + 1) * n), base));
+  expect(live.result(mask)).toEqual(whole);
+  return whole;
+};
+
+describe("the count of a run, kept whole and as its frames arrive", () => {
   // A frame of 3 by 2 blocks, 130 frames long: every block steady at 1000 but those a test names, which take `value(frame)`.
   const BW = 3, BH = 2, FRAMES = 130;
-  const film = (blocks: Record<number, (f: number) => number>) => {
-    const L = new Uint16Array(FRAMES * BW * BH).fill(1000);
-    for (const [b, value] of Object.entries(blocks)) for (let f = 0; f < FRAMES; f++) L[f * BW * BH + Number(b)] = value(f);
+  const film = (blocks: Record<number, (f: number) => number>, frames = FRAMES) => {
+    const L = new Uint16Array(frames * BW * BH).fill(1000);
+    for (const [b, value] of Object.entries(blocks)) for (let f = 0; f < frames; f++) L[f * BW * BH + Number(b)] = value(f);
     return L;
   };
   const flash = (f: number) => (f % 2 ? TENTH : 0);
   const none = new Uint8Array(BW * BH);
+  // A block's luminance as a result shows it: a share of white, to four places.
+  const shown = (v: number) => Math.round((v / 65535) * 10000) / 10000;
 
   it("reports the block that flashes every frame as the worst, at its own place: 61 swings in a second, 60 by the strict reading", () => {
-    const result = analyse(film({ 4: flash }), FRAMES, BW, BH, none);
+    const result = counted(film({ 4: flash }), FRAMES, BW, BH, none);
     expect(result.maxSwingsInASecond).toBe(61);
     expect(result.maxSwingsInASecondStrict).toBe(60);
     // Block 4 of a grid 3 wide is the second column of the second row, whose corner is 2 px in and 2 px down.
-    expect(result.worst).toMatchObject({ bx: 1, by: 1, x: 2, y: 2, mostInASecond: 61, runStartsAtFrame: 1, swingsInWindow: FRAMES - 1 });
-    expect(result.worst!.trace.slice(0, 3)).toEqual([0, 0.1, 0]);
-    expect(result).toMatchObject({ unmaskedBlocks: 6, maskedBlocks: 0, blocksWithAnySwing: 1, totalSwings: FRAMES - 1 });
-    expect((result.blocksAtLeast as Record<number, number>)[5]).toBe(1);
+    expect(result.worst).toMatchObject({ bx: 1, by: 1, x: 2, y: 2, mostInASecond: 61, mostInASecondStrict: 60, runStartsAtFrame: 1, swingsInWindow: FRAMES - 1 });
+    expect(result.worst!.swings.slice(0, 3)).toEqual([[1, 1], [2, -1], [3, 1]]);
+    expect(result).toMatchObject({ unmaskedBlocks: 6, maskedBlocks: 0, totalSwings: FRAMES - 1 });
+    expect(result.blocksAtLeast).toMatchObject({ 1: 1, 5: 1, 8: 1 });
+    expect(result.top).toHaveLength(1);
     expect(result.maps.perBlock[4]).toBe(61);
   });
 
   it("counts nothing at a masked block: the same flash under a plate reports 0, with one block masked", () => {
     // A mask that is read and then ignored would report 61 here.
     const mask = Uint8Array.from([0, 0, 0, 0, 1, 0]);
-    const result = analyse(film({ 4: flash }), FRAMES, BW, BH, mask);
+    const result = counted(film({ 4: flash }), FRAMES, BW, BH, mask);
     expect(result.maxSwingsInASecond).toBe(0);
     expect(result.worst).toBeNull();
-    expect(result).toMatchObject({ unmaskedBlocks: 5, maskedBlocks: 1, blocksWithAnySwing: 0, totalSwings: 0 });
+    expect(result.top).toEqual([]);
+    expect(result).toMatchObject({ unmaskedBlocks: 5, maskedBlocks: 1, totalSwings: 0 });
+    expect(result.blocksAtLeast).toMatchObject({ 1: 0 });
   });
 
   it("puts a block that never moves 10 % in the histogram's bin 0, and one that swings twice a second in bin 2", () => {
     // Block 0 flickers by 9 %; block 2 rises at frame 10 and falls at frame 40, once.
-    const result = analyse(film({ 0: (f) => (f % 2 ? 5900 : 0), 2: (f) => (f >= 10 && f < 40 ? 30000 : 1000) }), FRAMES, BW, BH, none);
+    const result = counted(film({ 0: (f) => (f % 2 ? 5900 : 0), 2: (f) => (f >= 10 && f < 40 ? 30000 : 1000) }), FRAMES, BW, BH, none);
     expect(result.histogramOfMostInASecond[0]).toBe(5);
     expect(result.histogramOfMostInASecond[2]).toBe(1);
     expect(result.maxSwingsInASecond).toBe(2);
-    expect(result.worst).toMatchObject({ bx: 2, by: 0, runStartsAtFrame: 10 });
-    // The widest range is that block's too, in relative luminance.
-    expect(result.largestRange).toMatchObject({ bx: 2, by: 0, range: 0.443 });
+    // Its range is the whole run's, in relative luminance: 29000 of 65535.
+    expect(result.worst).toMatchObject({ bx: 2, by: 0, runStartsAtFrame: 10, range: 0.443 });
+    expect(result.maps.range[2]).toBeCloseTo(29000 / 65535, 6);
+  });
+
+  it("ranks the blocks by their busiest second, then by the strict reading, then by their swings in the run, and lists the first twelve", () => {
+    // 14 blocks in a row. Each swings at every `gap`th frame from frame 1: the tighter the gap, the more swings in a second. The
+    // block at 3 swings twice only, at frames 1 and 41.
+    const bw = 14, frames = 200, L = new Uint16Array(frames * bw).fill(1000);
+    const gaps = [60, 3, 12, 40, 5, 20, 2, 30, 8, 150, 4, 1, 100, 61];
+    gaps.forEach((gap, b) => { for (let f = 0; f < frames; f++) L[f * bw + b] = Math.floor((f + gap - 1) / gap) % 2 && (b !== 3 || f <= gap) ? 30000 : 1000; });
+    const result = counted(L, frames, bw, 1, new Uint8Array(bw));
+    // A gap of g frames fits floor(60 / g) + 1 swings in a second, and floor(59 / g) + 1 by the strict reading. The gaps of 40 and 60
+    // both fit two, and by the strict reading 40 fits two and 60 one: so the block at 3 stands before the block at 0, though it comes
+    // later and swings twice in the run to the other's four. The gaps of 61, 100 and 150 fit one by both; 61 swings four times in the
+    // run and the others twice, so it is the twelfth.
+    expect(result.top.map((t) => t.bx)).toEqual([11, 6, 1, 10, 4, 8, 2, 5, 7, 3, 0, 13]);
+    expect(result.top.map((t) => t.mostInASecond)).toEqual([61, 31, 21, 16, 13, 8, 6, 4, 3, 2, 2, 1]);
+    expect(result.top.map((t) => t.mostInASecondStrict)).toEqual([60, 30, 20, 15, 12, 8, 5, 3, 2, 2, 1, 1]);
+    expect(result.top.map((t) => t.swingsInWindow).slice(9)).toEqual([2, 4, 4]);
+    expect(result.worst).toEqual(result.top[0]);
+    expect(result.histogramOfMostInASecond).toEqual([0, 3, 2, 1, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 4]);
+    expect(result.maxSwingsInASecondStrict).toBe(60);
+    expect(result.blocksAtLeast).toEqual({ 1: 14, 2: 11, 3: 9, 4: 8, 5: 7, 6: 7, 7: 6, 8: 6 });
+    // Every swing of the run: floor(198 / g) + 1 for each gap, and two for the block at 3.
+    expect(result.totalSwings).toBe(199 + 100 + 67 + 50 + 40 + 25 + 17 + 10 + 7 + 2 + 4 + 4 + 2 + 2);
+  });
+
+  it("shows a block's luminance through its busiest second and the frame before it: the 62 frames that end at that second's last swing", () => {
+    // Block 1 swings at frames 100, 110, 150, 200 and 205. Its first second of three is 100 to 150; 150 to 205 holds three too, and
+    // the first stands.
+    const high = (f: number) => (f >= 100 && f < 110) || (f >= 150 && f < 200) || f >= 205;
+    const result = counted(film({ 1: (f) => (high(f) ? 20000 : 1000) }, 260), 260, BW, BH, none);
+    expect(result.worst).toMatchObject({ bx: 1, by: 0, mostInASecond: 3, runStartsAtFrame: 100, swingsInWindow: 5, traceFromFrame: 89 });
+    expect(result.worst!.swings).toEqual([[100, 1], [110, -1], [150, 1], [200, -1], [205, 1]]);
+    expect(result.worst!.trace).toEqual([...Array(11).fill(shown(1000)), ...Array(10).fill(shown(20000)), ...Array(40).fill(shown(1000)), shown(20000)]);
+  });
+
+  it("shows the run from its first frame where the busiest second ends within the run's first 62", () => {
+    const result = counted(film({ 3: (f) => (f === 2 || f === 4 ? 20000 : 1000) }, 70), 70, BW, BH, none);
+    expect(result.worst).toMatchObject({ bx: 0, by: 1, mostInASecond: 4, runStartsAtFrame: 2, traceFromFrame: 0 });
+    expect(result.worst!.trace).toEqual([1000, 1000, 20000, 1000, 20000, 1000].map(shown));
+  });
+
+  it("counts a second by the frames a second it is told, and shows that many frames and two more", () => {
+    // At 10 frames a second, swings at frames 5, 15 and 16. By the cautious reading 5 and 15 are two in a second, and 15 and 16 two
+    // more: the first stands. By the strict reading, 9 frames apart, only 15 and 16 are.
+    const result = counted(film({ 0: (f) => ((f >= 5 && f < 15) || f >= 16 ? 20000 : 1000) }, 40), 40, BW, BH, none, 10);
+    expect(result.worst).toMatchObject({ mostInASecond: 2, mostInASecondStrict: 2, runStartsAtFrame: 5, traceFromFrame: 4 });
+    expect(result.worst!.trace).toHaveLength(12);
+  });
+});
+
+describe("the count as the frames arrive", () => {
+  // The same numbers on every run: a linear congruential generator.
+  const random = (seed: number) => () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32;
+  const clamp = (v: number) => Math.max(0, Math.min(65535, Math.round(v)));
+  // Series that try the count: what each block does through a run of `frames`, by its kind.
+  const KINDS: ((rnd: () => number, frames: number) => (f: number) => number)[] = [
+    // Steady.
+    (rnd) => { const v = clamp(rnd() * 65535); return () => v; },
+    // A walk of small steps, and one of steps near the threshold.
+    (rnd) => { let v = rnd() * 65535; return () => (v = clamp(v + (rnd() - 0.5) * 1500)); },
+    (rnd) => { let v = rnd() * 65535; return () => (v = clamp(v + (rnd() - 0.5) * 16000)); },
+    // A square wave of exactly 10 %, at a period of 1 to 40 frames, and one a 65535th short of it, which never swings.
+    (rnd) => { const base = clamp(rnd() * 50000), period = 1 + Math.floor(rnd() * 40); return (f) => base + (Math.floor(f / period) % 2 ? TENTH : 0); },
+    (rnd) => { const base = clamp(rnd() * 50000), period = 1 + Math.floor(rnd() * 40); return (f) => base + (Math.floor(f / period) % 2 ? TENTH - 1 : 0); },
+    // A flash every frame through a stretch of the run, quiet before it and after: the stretch may open the run or close it.
+    (rnd, frames) => { const from = Math.floor(rnd() * frames * 0.8), to = from + 1 + Math.floor(rnd() * 150); return (f) => (f >= from && f < to && f % 2 ? 40000 : 20000); },
+    // Swings exactly 60 frames apart, and 61: either side of a second's edge.
+    (rnd) => { const gap = rnd() < 0.5 ? 60 : 61, off = Math.floor(rnd() * 30); return (f) => (Math.floor((f + off) / gap) % 2 ? 30000 : 10000); },
+    // A slow rise and fall, a tenth in 5 to 80 frames.
+    (rnd) => { const slope = TENTH / (5 + rnd() * 75), half = 30 + Math.floor(rnd() * 120); return (f) => clamp(10000 + slope * (half - Math.abs((f % (2 * half)) - half))); },
+    // Noise over the whole range, and noise that straddles the threshold about a level.
+    (rnd) => () => clamp(rnd() * 65535),
+    (rnd) => { const base = 20000 + clamp(rnd() * 20000); return () => clamp(base + (rnd() < 0.5 ? -1 : 1) * (TENTH / 2 + Math.floor(rnd() * 5) - 2)); },
+    // Two bursts of the same count, a while apart: the first is the busiest second, and its frames are the ones shown.
+    (rnd, frames) => { const a = 5 + Math.floor(rnd() * 60), b = a + 100 + Math.floor(rnd() * (frames - a - 130)), n = 2 + Math.floor(rnd() * 8); return (f) => ((f >= a && f < a + n) || (f >= b && f < b + n) ? (f % 2 ? 50000 : 5000) : 5000); },
+    // Bursts that grow: each has one swing more than the last, so the frames kept are replaced time after time.
+    () => (f) => (f % 70 < 2 + 2 * Math.floor(f / 70) && f % 2 ? 60000 : 30000),
+    // Black to white and back at the range's ends, at any period.
+    (rnd) => { const period = 1 + Math.floor(rnd() * 90); return (f) => (Math.floor(f / period) % 2 ? 65535 : 0); },
+    // A swing in the run's first frames, and one in its last.
+    (rnd, frames) => { const late = rnd() < 0.5; return (f) => ((late ? f >= frames - 1 - Math.floor(rnd() * 2) : f === 1) ? 40000 : 10000); },
+  ];
+  const series = (seed: number, bw: number, bh: number, frames: number) => {
+    const n = bw * bh, L = new Uint16Array(frames * n), rnd = random(seed);
+    for (let b = 0; b < n; b++) {
+      const value = KINDS[Math.floor(rnd() * KINDS.length)](rnd, frames);
+      for (let f = 0; f < frames; f++) L[f * n + b] = value(f);
+    }
+    return { L, mask: Uint8Array.from({ length: n }, () => (rnd() < 0.1 ? 1 : 0)) };
+  };
+
+  it.each([1, 2, 3, 4])("equals the count of the run kept whole, on 480 blocks through 7 s of every kind of series (seed %i)", (seed) => {
+    const bw = 24, bh = 20, frames = 420, { L, mask } = series(seed, bw, bh, frames);
+    const result = counted(L, frames, bw, bh, mask);
+    // The series do swing: the test would hold of a counter that counted nothing on a run that held nothing.
+    expect(result.maxSwingsInASecond).toBe(61);
+    expect((result.blocksAtLeast as Record<number, number>)[1]).toBeGreaterThan(200);
+    expect(result.top).toHaveLength(12);
+    expect(result.maskedBlocks).toBeGreaterThan(20);
+  });
+
+  it("equals it on a run shorter than the second of frames it keeps, on one of a single frame, and at another frame rate", () => {
+    for (const [frames, fps] of [[1, 60], [2, 60], [40, 60], [62, 60], [63, 60], [300, 24], [300, 7]]) {
+      const { L, mask } = series(9 + frames + fps, 16, 10, frames);
+      counted(L, frames, 16, 10, mask, fps);
+    }
+  });
+
+  it("holds no more for a long run than for a short one: a second of frames a grid, and each block's swings", () => {
+    // 3 blocks through 100 s: a run kept whole would be 6000 frames, and the count takes them one at a time.
+    const live = counter(3, 1), frames = 6000;
+    for (let f = 0; f < frames; f++) live.add((out: Uint16Array, base: number) => out.set([1000, f % 600 < 20 && f % 2 ? 30000 : 1000, 5 * f], base));
+    const result = live.result(new Uint8Array(3));
+    // Block 1 flashes through the first 20 frames of every 10 s: 20 swings in a second, first from frame 1 to frame 20.
+    expect(result.worst).toMatchObject({ bx: 1, mostInASecond: 20, runStartsAtFrame: 1, swingsInWindow: 200, traceFromFrame: 0 });
+    expect(result.worst!.trace).toHaveLength(21);
+    // Block 2 rises by 5 a frame, a tenth every 1311 frames: one swing, and a range of 29995.
+    expect(result.top[1]).toMatchObject({ bx: 2, mostInASecond: 1, runStartsAtFrame: 1311, traceFromFrame: 1250, range: 0.458 });
+    expect(result.top[1].trace).toHaveLength(62);
   });
 });
 
@@ -151,29 +284,16 @@ describe("blockLuminance", () => {
     // Byte 100 is 12.7 % in relative luminance: a swing where a block holds all four pixels, a quarter of one where it holds one.
     expect(lum(100, 100, 100)).toBeGreaterThan(0.12);
     const frames = [frame([], 0), frame(MIDDLE, 100), frame([], 0)];
-    const counted = (ox: number, oy: number) => {
+    const swings = (ox: number, oy: number) => {
       const bw = Math.floor((W - ox) / 2), bh = Math.floor((W - oy) / 2), L = new Uint16Array(frames.length * bw * bh);
       frames.forEach((rgba, f) => blockLuminance(rgba, W, bw, bh, ox, oy, L, f * bw * bh));
-      return analyse(L, frames.length, bw, bh, new Uint8Array(bw * bh)).totalSwings;
+      return counted(L, frames.length, bw, bh, new Uint8Array(bw * bh)).totalSwings;
     };
-    expect(counted(0, 0)).toBe(0);
-    expect(counted(1, 1)).toBe(2);
+    expect(swings(0, 0)).toBe(0);
+    expect(swings(1, 1)).toBe(2);
     // Moved one way only, a block holds two of the four pixels: half of 12.7 %, no swing.
-    expect(counted(1, 0)).toBe(0);
-    expect(counted(0, 1)).toBe(0);
-  });
-
-  it("sums the luminance of the blocks a mask leaves, and of them all without one", () => {
-    const rgba = frame([[0, 0], [1, 0], [0, 1], [1, 1], [2, 2], [3, 2], [2, 3], [3, 3]], 255);
-    const out = new Uint16Array(4);
-    const all = blockLuminance(rgba, W, 2, 2, 0, 0, out, 0);
-    expect(all.count).toBe(4);
-    expect(all.sum).toBeCloseTo(2, 12);
-    const masked = blockLuminance(rgba, W, 2, 2, 0, 0, out, 0, Uint8Array.from([1, 0, 0, 0]));
-    expect(masked.count).toBe(3);
-    expect(masked.sum).toBeCloseTo(1, 12);
-    // A masked block's luminance is written all the same: the mask is applied when the swings are counted.
-    expect([...out]).toEqual([65535, 0, 0, 65535]);
+    expect(swings(1, 0)).toBe(0);
+    expect(swings(0, 1)).toBe(0);
   });
 });
 
@@ -188,22 +308,22 @@ describe("platesMask", () => {
 
   it("masks the blocks within 2 px of a plate's box, and no others", () => {
     // The plate covers px 6 to 9 across and 8 to 9 down; with 2 px all round, 4 to 11 and 6 to 11: blocks 2 to 5 and 3 to 5.
-    const mask = platesMask([{ x: 6, y: 8, w: 4, h: 2, drawn: true }], 10, 10, 1);
+    const mask = platesMask([{ x: 6, y: 8, w: 4, h: 2 }], 10, 10, 1);
     expect(marked(mask)).toEqual(span(2, 5, 3, 5));
   });
 
   it("measures a plate in device pixels: half the box at twice the pixel ratio masks the same blocks", () => {
-    expect(marked(platesMask([{ x: 3, y: 4, w: 2, h: 1, drawn: true }], 10, 10, 2))).toEqual(span(2, 5, 3, 5));
+    expect(marked(platesMask([{ x: 3, y: 4, w: 2, h: 1 }], 10, 10, 2))).toEqual(span(2, 5, 3, 5));
   });
 
   it("takes in the pixels a box's fractional edge touches", () => {
     // From 6.5 to 10.5 px across: px 6 to 10, and with the pad 4 to 12, so one block further right.
-    expect(marked(platesMask([{ x: 6.5, y: 8, w: 4, h: 2, drawn: true }], 10, 10, 1))).toEqual(span(2, 6, 3, 5));
+    expect(marked(platesMask([{ x: 6.5, y: 8, w: 4, h: 2 }], 10, 10, 1))).toEqual(span(2, 6, 3, 5));
   });
 
-  it("masks by the pad it is given, keeps to the frame at its edges, and leaves out a plate that is not drawn", () => {
-    expect(marked(platesMask([{ x: 6, y: 8, w: 4, h: 2, drawn: true }], 10, 10, 1, 0))).toEqual(span(3, 4, 4, 4));
-    expect(marked(platesMask([{ x: 0, y: 0, w: 1, h: 1, drawn: true }, { x: 19, y: 19, w: 5, h: 5, drawn: true }], 10, 10, 1))).toEqual([...span(0, 1, 0, 1), ...span(8, 9, 8, 9)]);
-    expect(marked(platesMask([{ x: 6, y: 8, w: 4, h: 2, drawn: false }], 10, 10, 1))).toEqual([]);
+  it("masks by the pad it is given, and keeps to the frame at its edges", () => {
+    expect(marked(platesMask([{ x: 6, y: 8, w: 4, h: 2 }], 10, 10, 1, 0))).toEqual(span(3, 4, 4, 4));
+    expect(marked(platesMask([{ x: 0, y: 0, w: 1, h: 1 }, { x: 19, y: 19, w: 5, h: 5 }], 10, 10, 1))).toEqual([...span(0, 1, 0, 1), ...span(8, 9, 8, 9)]);
+    expect(marked(platesMask([], 10, 10, 1))).toEqual([]);
   });
 });

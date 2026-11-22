@@ -9,8 +9,7 @@ import { pathToFileURL } from "url";
 import { tagOf } from "./lib.mjs";
 
 const WINDOWS = ["A", "B", "C", "Q", "D", "S"];
-const device = (j) => `${j.loaded.tier}, ${j.devicePixelRatio}×: ${j.frame.width}×${j.frame.height}` +
-  (j.loaded.canvas.bufferW === j.frame.width ? "" : `, drawn at ${j.loaded.canvas.bufferW}×${j.loaded.canvas.bufferH}`);
+const device = (j) => `${j.world.tier}, ${j.job.dpr}×: ${j.frame.width}×${j.frame.height}` + (j.world.bufferW === j.frame.width ? "" : `, drawn at ${j.world.bufferW}×${j.world.bufferH}`);
 const gridName = ([ox, oy]) => (ox || oy ? `moved ${ox} px right, ${oy} px down` : "even");
 // A result's count on a grid: the most swings at one block in any second, and how many blocks reach 5.
 const cell = (j, grid) => {
@@ -25,10 +24,10 @@ export function tables(rows) {
   for (const j of rows) {
     const key = tagOf({ ...j.job, variant: "" });
     if (!groups.has(key)) groups.set(key, { main: null, branch: null });
-    groups.get(key)[j.variant] = j;
+    groups.get(key)[j.job.variant] = j;
   }
   // A desktop before a phone, a higher rung after a lower, the windows in the night's order, then the pose and the pass.
-  const order = (g) => { const j = g.main ?? g.branch; return [j.loaded.tier === "desktop" ? 0 : 1, j.frame.width, j.rung, WINDOWS.indexOf(j.window), j.job.pose, j.job.still ? 1 : 0, j.patch ?? ""]; };
+  const order = (g) => { const j = g.main ?? g.branch; return [j.world.tier === "desktop" ? 0 : 1, j.frame.width, j.job.rung, WINDOWS.indexOf(j.job.window), j.job.pose, j.job.still ? 1 : 0]; };
   const sorted = [...groups.values()].sort((a, b) => {
     const x = order(a), y = order(b);
     for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
@@ -40,13 +39,12 @@ export function tables(rows) {
   ];
   for (const g of sorted) {
     const j = g.main ?? g.branch;
-    const pass = (j.job.still ? "light alone" : "whole frame") + (j.patch ? `, patch ${j.patch}` : "");
     for (const grid of j.job.grids) {
-      out.push(`| ${device(j)} | ${j.rung} | ${j.window} (${j.name.split(":")[0]}) | ${j.job.pose} | ${pass} | ${gridName(grid)} | ${cell(g.main, grid.join())} | ${cell(g.branch, grid.join())} |`);
+      out.push(`| ${device(j)} | ${j.job.rung} | ${j.job.window} (${j.window.name.split(":")[0]}) | ${j.job.pose} | ${j.job.still ? "light alone" : "whole frame"} | ${gridName(grid)} | ${cell(g.main, grid.join())} | ${cell(g.branch, grid.join())} |`);
     }
   }
   const warnings = [];
-  const renderers = [...new Set(rows.map((j) => `${j.loaded.renderer} (GPU=${j.gpu})`))];
+  const renderers = [...new Set(rows.map((j) => j.world.renderer))];
   if (renderers.length > 1) warnings.push(`the rows come from ${renderers.length} renderers, and counts from different renderers are not comparable: ${renderers.join("; ")}`);
   const errors = rows.reduce((a, j) => a + j.errors.length, 0);
   if (errors) warnings.push(`${errors} page errors across the rows`);
@@ -64,8 +62,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const rows = readdirSync(dir).filter((n) => n.endsWith(".json")).map((n) => JSON.parse(readFileSync(join(dir, n), "utf8")));
   const { markdown, warnings } = tables(rows);
   console.log(markdown);
-  const heads = [...new Set(rows.map((j) => `${j.variant} ${(j.worldHead ?? "?").slice(0, 7)}`))];
-  console.error(`${rows.length} runs; worlds: ${heads.join(", ")}; renderer: ${[...new Set(rows.map((j) => j.loaded.renderer))].join("; ")}; ` +
+  const heads = [...new Set(rows.map((j) => `${j.job.variant} ${(j.world.head ?? "?").slice(0, 7)}`))];
+  console.error(`${rows.length} runs; worlds: ${heads.join(", ")}; renderer: ${[...new Set(rows.map((j) => j.world.renderer))].join("; ")}; ` +
     `screenshots checked against the canvas: ${rows.reduce((a, j) => a + j.screenshotMatchesCanvas.checked, 0)}`);
   for (const w of warnings) console.error(`WARNING: ${w}`);
 }
