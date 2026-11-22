@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { figureGeometry, partingOptions } from "../../../public/world/crowd.js";
 import { FACING, height, STAGE, STAGE_COLUMN } from "../../../public/world/ground.js";
-import { crowdPlan, isBetweenSongs, isDrums, isNotASong, isSpace, isTuning, parting, PERSON, seats, songsOf } from "../../../public/world/seats.js";
+import { crowdPlan, isBetweenSongs, isDrums, isNotASong, isSpace, isTuning, onCrowdGround, parting, PERSON, seats, songsOf } from "../../../public/world/seats.js";
 
 type Seat = { x: number; z: number; r: number; sit: boolean };
 type Plan = { dance: boolean; sit: boolean };
@@ -364,5 +364,35 @@ describe("parting", () => {
     parted.ahead(camera, aside);
     expect(aside[6]).toBeGreaterThanOrEqual(atSeat[6] - 1e-9);
     expect(aside[7]).toBeGreaterThanOrEqual(atSeat[7] - 1e-9);
+  });
+});
+
+describe("the crowd's ground", () => {
+  it("holds every seat, and not the stage, the hill behind the crowd or the ground to the stage's sides and back", () => {
+    for (const seat of seats({ path: [], line: [], landmarks: [] }) as { x: number; z: number }[]) expect(onCrowdGround(seat.x, seat.z)).toBe(true);
+    // A point `far` m from the stage's centre and `off` radians from its axis.
+    const at = (far: number, off: number): [number, number] => [STAGE[0] + far * Math.sin(FACING + off), STAGE[1] + far * Math.cos(FACING + off)];
+    expect(onCrowdGround(...at(5, 0))).toBe(false);
+    expect(onCrowdGround(...at(12, 0))).toBe(false);
+    expect(onCrowdGround(...at(30, 0))).toBe(true);
+    expect(onCrowdGround(...at(54, 0.8))).toBe(true);
+    expect(onCrowdGround(...at(58, 0))).toBe(false);
+    expect(onCrowdGround(...at(30, 1.1))).toBe(false);
+    expect(onCrowdGround(...at(30, Math.PI))).toBe(false);
+    // The sections' own shape: the back rows are narrower than the wings, and the front rows narrower still.
+    expect(onCrowdGround(...at(50, 0.95))).toBe(false);
+    expect(onCrowdGround(...at(40, 0.95))).toBe(true);
+    expect(onCrowdGround(...at(14.5, 0.9))).toBe(false);
+  });
+
+  it("is wider by the room asked, all round", () => {
+    const at = (far: number, off: number): [number, number] => [STAGE[0] + far * Math.sin(FACING + off), STAGE[1] + far * Math.cos(FACING + off)];
+    expect(onCrowdGround(...at(56.5, 0), 2)).toBe(true);
+    expect(onCrowdGround(...at(57.5, 0), 2)).toBe(false);
+    expect(onCrowdGround(...at(12, 0), 2)).toBe(true);
+    expect(onCrowdGround(...at(11, 0), 2)).toBe(false);
+    // 2 m round the arc at 30 m is 1/15 rad.
+    expect(onCrowdGround(...at(30, 1.06), 2)).toBe(true);
+    expect(onCrowdGround(...at(30, 1.08), 2)).toBe(false);
   });
 });
