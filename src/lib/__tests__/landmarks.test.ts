@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
+import { hull, standClear } from "../../../public/world/collide.js";
 import { height } from "../../../public/world/ground.js";
-import { makeBuilders, mergeLandmarks, mergeStill, mesh, STONE_KINDS, stoneKind, titleHash } from "../../../public/world/landmarks.js";
+import { makeBuilders, mergeLandmarks, mergeStill, mesh, songKey, STONE_KINDS, stoneKind, titleHash } from "../../../public/world/landmarks.js";
 import { buildPath, buildWalkLine, layout, placeLandmarks } from "../../../public/world/path.js";
 import { readdirSync, readFileSync } from "fs";
 
@@ -562,18 +563,18 @@ describe("the standing stones", () => {
   });
   const tiers = [builders(false), builders(true)], falls = (title: string) => !tiers[0].table.some(([re]) => re.test(title));
   const fallers = [...new Set(shows.flatMap(({ tracks }) => tracks.map((t) => t.title).filter(falls)))];
-  // The kinds in the order of a title's kind, and a kind's titles in the maps.
+  // The kinds in the order of a title's kind.
   const MENHIR = 0, SLAB = 1, SPLIT = 2, CAIRN = 3, TRILITHON = 4, PAIR = 5, STELE = 6, BOULDER = 7, KINDS = [0, 1, 2, 3, 4, 5, 6, 7];
-  const real = (kind: number) => fallers.filter((title) => stoneKind(title) === kind);
-  // Songs no show has played, forty of each kind, the first that a count to 4,000 finds: a new map comes every day, and a title is
-  // its stone's every roll, so what is said of a stone is held to these too. Each bar below also held for 3,000 of a kind when it
-  // was set.
+  // Songs no show has played, forty of each kind, the first that a count to 4,000 finds. A title is its stone's every roll, so these
+  // are as good a draw as the maps' own, and they never change. What is said of a kind's shape is said of these (`of`), each bar set
+  // with room and tried on 3,000 of the kind: a new map, which comes every day, cannot turn such a test red by a roll. What holds of
+  // every stone by the way it is built is held to the maps' titles too (EVERY).
   const UNPLAYED = KINDS.map((): string[] => []);
   for (let n = 0; n < 4000 && UNPLAYED.some((titles) => titles.length < 40); n++) {
     const title = `A Song No Show Has Played ${n}`, titles = UNPLAYED[stoneKind(title)];
     if (titles.length < 40) titles.push(title);
   }
-  const of = (kind: number) => [...real(kind), ...UNPLAYED[kind]], EVERY = [...fallers, ...UNPLAYED.flat()];
+  const of = (kind: number) => UNPLAYED[kind], EVERY = [...fallers, ...UNPLAYED.flat()];
   // The plain block the stones replace: 1.6 m across the path, 1.2 m along it, 4.5 m tall, and a foot's depth.
   const BLOCK = { x: 0.8, z: 0.6, top: 4.5 }, SUNK = -1.6;
 
@@ -592,7 +593,7 @@ describe("the standing stones", () => {
       piece.low = Math.min(piece.low, y); piece.high = Math.max(piece.high, y); piece.x0 = Math.min(piece.x0, x); piece.x1 = Math.max(piece.x1, x);
       piece.z0 = Math.min(piece.z0, z); piece.z1 = Math.max(piece.z1, z); piece.corners.push(i);
     }
-    return [...pieces.values()].sort((a, b) => a.low - b.low);
+    return [...pieces.values()].sort((p, q) => p.low - q.low || p.x0 - q.x0);
   };
   // A title's stone on a tier, built once for every test that reads it, with its pieces.
   type Stone = { parts: Part[]; position: Corners; color: Corners; pieces: Piece[]; faces: number };
@@ -606,14 +607,15 @@ describe("the standing stones", () => {
     }
     return stones.get(key) as Stone;
   };
-  // A piece that comes down to the ground, and one laid on another.
+  // A piece that comes down to the ground, and one that stands or lies on another.
   const grounded = (piece: Piece) => piece.low < 0.15;
   // The span across the path of a piece's corners between two heights, and its breadth and middle.
-  const across = (position: Corners, piece: Piece, from: number, to: number) => {
+  type Span = { x0: number; x1: number };
+  const across = (position: Corners, piece: Piece, from: number, to: number): Span => {
     const xs = piece.corners.filter((i) => position.getY(i) >= from && position.getY(i) <= to).map((i) => position.getX(i));
     return { x0: Math.min(...xs), x1: Math.max(...xs) };
   };
-  const breadth = (span: { x0: number; x1: number }) => span.x1 - span.x0, middle = (span: { x0: number; x1: number }) => (span.x0 + span.x1) / 2;
+  const breadth = (span: Span) => span.x1 - span.x0, middle = (span: Span) => (span.x0 + span.x1) / 2;
   // A piece's foot: the ring of corners 1.6 m under the ground. Its middle is the middle of the piece's own ground.
   const footOf = (position: Corners, piece: Piece) => across(position, piece, -2, -1.5);
   // How squared a piece's foot is: for each corner of its foot's ring that stands off both of the foot's middle lines, how far out it
@@ -628,8 +630,9 @@ describe("the standing stones", () => {
   };
   // The highest corner among some.
   const tipOf = (position: Corners, corners: number[]) => corners.reduce((best, i) => (position.getY(i) > position.getY(best) ? i : best));
-  // How much stone is in a piece, in cubic metres, reckoned from its faces as they are wound: a piece built inside out gives less
-  // than nothing. And its least face, in square metres.
+  // A piece's faces, one at a time, as three points and what is reckoned from them: how much stone is in the piece, in cubic metres,
+  // from its faces as they are wound (a piece built inside out gives less than nothing); its least face, in square metres; and
+  // which way a face looks.
   const [a, b, c] = [0, 1, 2].map(() => new THREE.Vector3());
   const face = (position: Corners, corners: number[], n: number) => { a.fromBufferAttribute(position, corners[n]); b.fromBufferAttribute(position, corners[n + 1]); c.fromBufferAttribute(position, corners[n + 2]); };
   const volumeOf = (position: Corners, piece: Piece) => {
@@ -642,6 +645,36 @@ describe("the standing stones", () => {
     for (let n = 0; n < piece.corners.length; n += 3) { face(position, piece.corners, n); least = Math.min(least, b.sub(a).cross(c.sub(a)).length() / 2); }
     return least;
   };
+  // Where the upright line through (x, z) meets a piece's faces: the highest such place (`top`) or the lowest, or none.
+  const meets = (position: Corners, piece: Piece, x: number, z: number, top: boolean) => {
+    let best = top ? -Infinity : Infinity;
+    for (let n = 0; n < piece.corners.length; n += 3) {
+      face(position, piece.corners, n);
+      const w0 = (b.x - x) * (c.z - z) - (c.x - x) * (b.z - z), w1 = (c.x - x) * (a.z - z) - (a.x - x) * (c.z - z), w2 = (a.x - x) * (b.z - z) - (b.x - x) * (a.z - z), w = w0 + w1 + w2;
+      if (Math.abs(w) < 1e-12 || ((w0 < 0 || w1 < 0 || w2 < 0) && (w0 > 0 || w1 > 0 || w2 > 0))) continue;
+      const y = (w0 * a.y + w1 * b.y + w2 * c.y) / w;
+      best = top ? Math.max(best, y) : Math.min(best, y);
+    }
+    return best;
+  };
+  // How far a piece is into the one under it, where the two meet: straight under each corner of the upper one, how far the lower
+  // one's top stands over that corner; and straight over each corner of the lower one, how far it stands over the upper one's
+  // underside; and the most of all those. Nothing or less, and the upper one floats: the two do not touch anywhere.
+  const into = (position: Corners, upper: Piece, lower: Piece) => {
+    let most = -Infinity;
+    for (const i of upper.corners) most = Math.max(most, meets(position, lower, position.getX(i), position.getZ(i), true) - position.getY(i));
+    for (const i of lower.corners) most = Math.max(most, position.getY(i) - meets(position, upper, position.getX(i), position.getZ(i), false));
+    return most;
+  };
+  // Where a piece is cut by the level `y`: its span across the path there, or null where it does not reach that height.
+  const sliced = (position: Corners, piece: Piece, y: number): Span | null => {
+    const xs: number[] = [];
+    for (let n = 0; n < piece.corners.length; n += 3) {
+      face(position, piece.corners, n);
+      for (const [p, q] of [[a, b], [b, c], [c, a]]) if ((p.y - y) * (q.y - y) < 0) xs.push(p.x + ((q.x - p.x) * (y - p.y)) / (q.y - p.y));
+    }
+    return xs.length ? { x0: Math.min(...xs), x1: Math.max(...xs) } : null;
+  };
   // A face's colour, as the tone it was painted from.
   const TONES = { grey: 0x7d7a74, pale: 0xa9a59c, bluestone: 0x6f7782, sandstone: 0x9a8c74 }, MOSS = 0x55663f, LICHEN = 0xa9a45c;
   const isTone = (color: Corners, i: number, hex: number) => { const tone = new THREE.Color(hex); return Math.abs(color.getX(i) - tone.r) + Math.abs(color.getY(i) - tone.g) + Math.abs(color.getZ(i) - tone.b) < 1e-4; };
@@ -649,15 +682,69 @@ describe("the standing stones", () => {
   // A piece's own tone: the commonest of the four on its corners.
   const toneOf = (color: Corners, piece: Piece) => Object.entries(TONES).map(([name, hex]) => ({ name, hex, n: piece.corners.filter((i) => isTone(color, i, hex)).length })).sort((p, q) => q.n - p.n)[0];
 
-  it("gives a title its own number: the same for a song however its title is cased or marked, so a song has one stone", () => {
-    expect(titleHash("Deal")).toBe(titleHash("Deal"));
-    expect(titleHash("deal")).toBe(titleHash("Deal"));
-    expect(titleHash("Deal ->")).toBe(titleHash("Deal"));
-    expect(titleHash("Me And My Uncle ->")).toBe(titleHash("Me and My Uncle"));
-    expect(titleHash("Deal")).not.toBe(titleHash("Loser"));
+  // The world's own path and the bears' line, and the highest the ground stands over a landmark's own ground under the old block's
+  // outline, wherever on the path the block would stand: at every quarter metre of the path, where standClear puts the block, the
+  // ground under its outline and its inside every 0.2 m. A stone is inside that outline, so no show can put the ground higher against
+  // one. It is 0.85 m; on the maps' own stands it is 0.75 m.
+  const path = buildPath(), line = buildWalkLine(path, 7);
+  let rise: number | null = null;
+  const highestGround = () => {
+    if (rise !== null) return rise;
+    const pts: [number, number][] = [], outline = hull([[-BLOCK.x, -BLOCK.z], [BLOCK.x, -BLOCK.z], [BLOCK.x, BLOCK.z], [-BLOCK.x, BLOCK.z]]);
+    for (let d = 0; d < line.length; d += 0.25) { const p = line.at(d); pts.push([p.x, p.z]); }
+    rise = 0;
+    for (let d = 0; d < path.curveLength; d += 0.25) {
+      const u = d / path.curveLength, point = path.at(u), t = path.tangentAt(u), turn = Math.atan2(t.x, t.z), cos = Math.cos(turn), sin = Math.sin(turn);
+      const s = standClear(point.x, point.z, turn, outline, pts), own = height(s.x, s.z);
+      for (let x = -BLOCK.x; x <= BLOCK.x + 1e-9; x += 0.2) for (let z = -BLOCK.z; z <= BLOCK.z + 1e-9; z += 0.2) rise = Math.max(rise, height(s.x + x * cos + z * sin, s.z - x * sin + z * cos) - own);
+    }
+    return rise;
+  };
+
+  it("gives a song one name however its title is written: an accent, a capital, a leading \"the\", a dropped g and a segue mark change nothing", () => {
+    // The three songs the maps write two ways, which had two stones each.
+    for (const [one, other] of [["The Other One", "Other One>"], ["Throwing Stones", "Throwin' Stones >"], ["Promised Land", "The Promised Land"]]) {
+      expect(songKey(one), one).toBe(songKey(other));
+      expect(titleHash(one), one).toBe(titleHash(other));
+      expect(falls(one) && falls(other), one).toBe(true);
+    }
+    expect(songKey("Se\u00f1or")).toBe("senor");
+    expect(songKey("Sen\u0303or")).toBe("senor");
+    expect(songKey("Deal ->")).toBe("deal");
+    expect(songKey("Goin\u2019 Down The Road")).toBe("goingdowntheroad");
+    // Only a leading "the", and only a g dropped at a word's end: these are other songs, or other words.
+    expect(songKey("Them Belly Full")).toBe("thembellyfull");
+    expect(songKey("On The Road Again")).toBe("ontheroadagain");
+    expect(songKey("Ain't It Crazy")).toBe("aintitcrazy");
+    expect(songKey("Rain")).toBe("rain");
+    // A digit counts: a show's numbered pieces are different songs.
+    expect(songKey("Seastones 3 - Track 4")).not.toBe(songKey("Seastones 3 - Track 5"));
     // A title with no letter or digit, or none at all, is the empty one's.
-    expect(titleHash("???")).toBe(titleHash(""));
+    expect(songKey("???")).toBe("");
     expect(titleHash(undefined)).toBe(titleHash(""));
+  });
+
+  it("gives no two different songs in the maps one name: titles that share a name are one song, word for word", () => {
+    // A title as a reader would take it, worked out apart from the world's own rule: its words, accents and capitals aside, with a
+    // leading "the" left out, run together, and "ing" read as "in" wherever it comes. Every title in every map, with a landmark of
+    // its own or not.
+    const words = (title: string) => {
+      const all = title.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/[^a-z0-9'\u2019]+/).filter((word) => /[a-z0-9]/.test(word));
+      return (all[0] === "the" ? all.slice(1) : all).join("").replace(/['\u2019]/g, "").replace(/ing/g, "in");
+    };
+    const named = new Map<string, Set<string>>();
+    for (const { tracks } of shows) for (const { title } of tracks) named.set(songKey(title), (named.get(songKey(title)) ?? new Set()).add(words(title)));
+    const mixed = [...named].filter(([, readings]) => readings.size > 1).map(([name, readings]) => `${name}: ${[...readings].join(", ")}`);
+    expect(mixed).toEqual([]);
+    // And the rule does join titles: fewer names than titles written with letters and digits alone, by a few.
+    const spelt = new Set(shows.flatMap(({ tracks }) => tracks.map((t) => t.title.toLowerCase().replace(/[^a-z0-9]/g, ""))));
+    expect(named.size).toBeLessThan(spelt.size);
+    expect(named.size).toBeGreaterThan(0.9 * spelt.size);
+  });
+
+  it("gives a title its own number, and its kind from it", () => {
+    expect(titleHash("Deal")).toBe(titleHash("deal"));
+    expect(titleHash("Deal")).not.toBe(titleHash("Loser"));
     expect(STONE_KINDS).toBe(8);
     for (const title of [...fallers, ""]) {
       const h = titleHash(title), kind = stoneKind(title);
@@ -666,21 +753,22 @@ describe("the standing stones", () => {
     }
   });
 
-  it("spreads the songs over the eight kinds: each is used, none by more than a quarter of the titles, and a show of eight such songs has three kinds or more", () => {
-    // 240 titles in the 38 maps of 2026-11-22: 21 to 36 of a kind.
-    expect(fallers.length).toBeGreaterThanOrEqual(240);
+  it("spreads the songs over the eight kinds: each is used, none by more than a quarter of the songs, and the shows of eight such songs or more have five kinds each on the average", () => {
+    // 179 songs under 240 titles in the 38 maps of 2026-11-22: 16 to 27 of a kind.
+    const songs = new Map(fallers.map((title) => [songKey(title), stoneKind(title)]));
+    expect(songs.size).toBeGreaterThanOrEqual(179);
     for (const kind of KINDS) {
-      expect(real(kind).length).toBeGreaterThan(0);
-      expect(real(kind).length).toBeLessThanOrEqual(fallers.length / 4);
+      const n = [...songs.values()].filter((k) => k === kind).length;
+      expect(n).toBeGreaterThan(0);
+      expect(n).toBeLessThanOrEqual(songs.size / 4);
       // And of 4,000 songs no show has played, forty are of each kind long before the count ends: the tests below have them.
       expect(UNPLAYED[kind], `kind ${kind}`).toHaveLength(40);
     }
-    // A show's songs are few and a new map comes every day, so the bar for one show is three kinds, where the maps so far have four
-    // or more: eight songs drawn evenly land on two kinds or fewer once in 2,500 shows.
-    for (const { show, tracks } of shows) {
-      const titles = tracks.map((t) => t.title).filter(falls);
-      if (titles.length >= 8) expect(new Set(titles.map(stoneKind)).size, show).toBeGreaterThanOrEqual(3);
-    }
+    // A show's songs are few, and one show of eight may land on three kinds by a roll: so the bar is the mean over the shows, which
+    // no one show can move far. It is 6.2 over the 31 such shows; a hash that clustered would give two or three.
+    const kinds = shows.map(({ tracks }) => tracks.map((t) => t.title).filter(falls)).filter((titles) => titles.length >= 8).map((titles) => new Set(titles.map(stoneKind)).size);
+    expect(kinds.length).toBeGreaterThanOrEqual(31);
+    expect(kinds.reduce((sum, n) => sum + n, 0) / kinds.length).toBeGreaterThan(5);
   });
 
   it("keeps every stone inside the block it replaces, whatever its title: no corner passes the block's faces, on a desktop or a phone", () => {
@@ -696,7 +784,7 @@ describe("the standing stones", () => {
     }
   });
 
-  it("builds every stone as one still mesh whose pieces are closed, with their faces outward and none of no area, each standing 1.6 m into the ground or laid well up on another", () => {
+  it("builds every stone as one still mesh whose pieces are closed, with their faces outward and none of no area, each standing 1.6 m into the ground or on another piece that does", () => {
     for (const phone of [false, true]) {
       for (const title of EVERY) {
         const { parts, position, pieces } = stone(title, phone), where = `"${title}"${phone ? " on a phone" : ""}`;
@@ -704,17 +792,21 @@ describe("the standing stones", () => {
         expect(parts, where).toHaveLength(1);
         expect(parts[0].material.emissive.getHex(), where).toBe(0);
         // Closed, edge for edge, each edge used once each way: a piece with a face missing, or built of faces that do not meet, is
-        // open. The split stone's halves are closed so too, with the faces that folding left without area taken out of them.
+        // open, and two pieces that shared a corner would use an edge twice.
         expect(openEdges(position, true), where).toEqual([]);
         for (const piece of pieces) {
-          // A piece that comes down to the ground goes on down 1.6 m: none ends where a slope's lower side would show under it. A
-          // piece laid on another starts over any ground that rises against the stone, which is 0.75 m at the most (the slopes' test).
+          // A piece that comes down to the ground goes on down 1.6 m: none ends where a slope's lower side would show under it.
           if (grounded(piece)) expect(piece.low, where).toBeCloseTo(SUNK, 5);
-          else expect(piece.low, where).toBeGreaterThan(0.85);
+          // Any other stands or lies on the pieces under it and touches one of them: straight under some corner of it, or over
+          // one of theirs, the two meet. One that floated would give less than nothing here; one sunk a hand deep, too much.
+          else {
+            const most = Math.max(...pieces.filter((under) => under.low < piece.low - 1e-6).map((under) => into(position, piece, under)));
+            if (most < -1e-4 || most > 0.2) expect.fail(`${where}: a piece that begins ${piece.low} m up is ${most} m into what is under it`);
+          }
           // Its faces look outward: there is stone in it, 0.02 cubic metres or more down to the least stone of a cairn.
           expect(volumeOf(position, piece), where).toBeGreaterThan(0.02);
-          // And no face is a line or a point: a face folded to nothing would still be drawn. The least face of 48,000 stones is a
-          // tenth of a square centimetre, in a split stone; the bar is a thousandth of that.
+          // And no face is a line or a point: a face folded to nothing would still be drawn. The least face of 48,000 stones is two
+          // square centimetres, in a split stone; the bar is far under that.
           expect(leastFace(position, piece), where).toBeGreaterThan(1e-8);
         }
       }
@@ -732,7 +824,7 @@ describe("the standing stones", () => {
 
   it("builds eight kinds that are eight, each made the same way for every title, and a title's stone the same on every visit", () => {
     // How a kind is made: its triangles on a desktop and on a phone, and its pieces. Every title of a kind shares it; no two kinds do.
-    const made = KINDS.map((kind) => new Set(of(kind).map((title) => `${stone(title).faces}/${stone(title, true).faces}/${stone(title).pieces.length}`)));
+    const made = KINDS.map((kind) => new Set(EVERY.filter((title) => stoneKind(title) === kind).map((title) => `${stone(title).faces}/${stone(title, true).faces}/${stone(title).pieces.length}`)));
     for (const ways of made) expect(ways.size).toBe(1);
     expect(new Set(made.map((ways) => [...ways][0])).size).toBe(8);
     // Built again, corner for corner and colour for colour.
@@ -750,8 +842,8 @@ describe("the standing stones", () => {
 
   it("makes two songs' stones of one kind differ: in their corners, in their height, in which way they turn, and in their tone", () => {
     for (const kind of KINDS) {
-      const titles = real(kind), shapes = new Set<string>(), tops = new Set<number>(), tones = new Set<string>(), turns = new Set<number>();
-      for (const title of titles) {
+      const shapes = new Set<string>(), tops = new Set<number>(), tones = new Set<string>(), turns = new Set<number>();
+      for (const title of of(kind)) {
         const { position, color, pieces } = stone(title), all = pieces.flatMap((piece) => piece.corners);
         shapes.add([0, 17, 34, 51].map((i) => cornerKey(position, i)).join(";"));
         tops.add(Math.round(Math.max(...pieces.map((piece) => piece.high)) * 100));
@@ -759,23 +851,23 @@ describe("the standing stones", () => {
         // Which way it turns: the side of the block's middle that its highest corner stands on.
         turns.add(Math.sign(position.getX(tipOf(position, all))));
       }
-      // No two songs' alike (a song under two spellings is one song), and several heights among them; each kind has stones of at
-      // least three of the four tones.
-      expect(shapes.size, `kind ${kind}`).toBe(new Set(titles.map(titleHash)).size);
-      expect(shapes.size, `kind ${kind}`).toBeGreaterThan(10);
+      // Forty songs, forty shapes, or all but one or two; several heights among them, and all four tones.
+      expect(shapes.size, `kind ${kind}`).toBeGreaterThanOrEqual(38);
       expect(tops.size, `kind ${kind}`).toBeGreaterThanOrEqual(4);
-      expect(tones.size, `kind ${kind}`).toBeGreaterThanOrEqual(3);
-      // The cairn's top stone, the boulder and the lintel stand over the middle; every other kind turns both ways.
-      if (![CAIRN, TRILITHON, BOULDER].includes(kind)) expect([...turns].sort(), `kind ${kind}`).toEqual([-1, 1]);
+      expect(tones.size, `kind ${kind}`).toBe(4);
+      // The cairn's top stone and the boulder stand over the middle; every other kind turns both ways.
+      if (![CAIRN, BOULDER].includes(kind)) expect([...turns].sort(), `kind ${kind}`).toEqual([-1, 1]);
     }
   });
 
   it("paints a stone in its tone, with faces a shade darker and lighter, and moss and lichen in patches over its foot", () => {
-    // Where a face's middle lies, to half a metre: the patches' own grain.
+    // Where a face's middle lies, to half a metre: the patches' own grain. The shares are of all the maps' stones' faces together:
+    // one stone may be half overgrown by a roll, and a new map's must not turn this red.
     const seen = new Set<string>(), faced = new Set<string>(), overgrown = new Set<string>();
+    let toned = 0, shaded = 0, grown = 0, all = 0;
     for (const title of fallers) {
       const { position, color, faces } = stone(title);
-      let toned = 0, shaded = 0, grown = 0;
+      all += faces;
       for (let i = 0; i < position.count; i += 3) {
         const [x, y, z] = [position.getX, position.getY, position.getZ].map((get) => (get.call(position, i) + get.call(position, i + 1) + get.call(position, i + 2)) / 3);
         const cell = `${Math.round(x * 2)},${Math.round(y * 1.6)},${Math.round(z * 2)}`;
@@ -788,17 +880,57 @@ describe("the standing stones", () => {
         overgrown.add(cell);
         grown += 1;
         // Nothing grows on a face whose middle is under 0.3 m: the foot is in the ground.
-        expect(y, `${title}: ${growth}`).toBeGreaterThanOrEqual(0.3);
+        if (y < 0.3) expect.fail(`"${title}": ${growth} on a face ${y} m up`);
       }
-      // A stone shows its own tone and shades of it, and what grows on it never covers it (at most 51 % of its faces, as measured).
-      expect(toned, title).toBeGreaterThan(0.1 * faces);
-      expect(shaded, title).toBeGreaterThan(0.1 * faces);
-      expect(grown, title).toBeLessThan(0.7 * faces);
     }
+    // Of every face of every stone: about two in five are the stone's own tone, as many a shade of it, and one in six overgrown.
+    expect(toned / all).toBeGreaterThan(0.3);
+    expect(shaded / all).toBeGreaterThan(0.3);
+    expect(grown / all).toBeGreaterThan(0.08);
+    expect(grown / all).toBeLessThan(0.3);
     expect([...seen].sort()).toEqual(["bluestone", "grey", "lichen", "moss", "pale", "sandstone"]);
     // The patches lie where the title has them, not at the same places on every stone: on one stone or another something grows
     // nearly everywhere a face lies, where patches that every stone shared would cover a quarter of those places.
     expect(overgrown.size).toBeGreaterThan(0.8 * faced.size);
+  });
+
+  it("clears the ground: a split stone's root and a stele's step are at one height, over the highest ground the path can put under a stone, and a laid stone begins over it too", () => {
+    // 0.85 m is the highest: on the steep climb, under the old block's far corner. A new map can put a stone anywhere on the path.
+    const ground = highestGround();
+    expect(ground).toBeGreaterThan(0.8);
+    expect(ground).toBeLessThan(0.9);
+    const roots = new Set<number>(), steps = new Set<number>();
+    for (const phone of [false, true]) {
+      for (const title of EVERY) {
+        const { position, pieces } = stone(title, phone), kind = stoneKind(title);
+        // The split stone's root: where its two halves begin, which is where its foot ends. To a tenth of a millimetre.
+        if (kind === SPLIT) for (const y of [pieces[1].low, pieces[2].low, pieces[0].high]) roots.add(Math.round(y * 1e4) / 1e4);
+        // The stele's step: its lowest level over the foot's ring.
+        if (kind === STELE) steps.add(Math.round(Math.min(...pieces[0].corners.map((i) => position.getY(i)).filter((y) => y > SUNK + 1e-3)) * 1e4) / 1e4);
+        // A piece that lies or stands on another begins over the ground, with a hand to spare.
+        for (const piece of pieces) if (!grounded(piece) && piece.low < ground + 0.08) expect.fail(`"${title}"${phone ? " on a phone" : ""}: a piece begins ${piece.low} m up, where the ground can stand ${ground} m`);
+      }
+    }
+    // One height for every split stone's root and every stele's step, whatever the stone's own height: a hand over the ground's.
+    expect(roots.size).toBe(1);
+    expect([...steps]).toEqual([...roots]);
+    expect([...roots][0]).toBeGreaterThan(ground + 0.08);
+    expect([...roots][0]).toBeLessThan(ground + 0.3);
+  });
+
+  it("settles every laid stone the one depth into what it is laid on, wherever on it it lands: a cairn's stones, a boulder, and a lintel in the upright it meets last", () => {
+    // How far one is into the other where they meet, to a tenth of a millimetre. A stone set by the other's highest corner, or
+    // moved to its place after it was let down, would lie at a different depth on every stone, or float.
+    const depths = new Set<number>(), to = (depth: number) => depths.add(Math.round(depth * 1e4) / 1e4);
+    for (const phone of [false, true]) {
+      for (const title of of(CAIRN)) { const { position, pieces } = stone(title, phone); pieces.slice(1).forEach((piece, k) => to(into(position, piece, pieces[k]))); }
+      for (const title of of(BOULDER)) { const { position, pieces } = stone(title, phone); to(into(position, pieces[1], pieces[0])); }
+      for (const title of of(TRILITHON)) { const { position, pieces } = stone(title, phone); to(Math.min(into(position, pieces[2], pieces[0]), into(position, pieces[2], pieces[1]))); }
+    }
+    expect(depths.size).toBe(1);
+    // Three centimetres or more, so it is seated; under a hand, so it is not sunk in.
+    expect([...depths][0]).toBeGreaterThan(0.03);
+    expect([...depths][0]).toBeLessThan(0.1);
   });
 
   it("stands a menhir tall, broad at the belly and narrowing to a point that stands off to one side", () => {
@@ -833,39 +965,68 @@ describe("the standing stones", () => {
     }
   });
 
-  it("splits the split stone: two halves that stand on one foot and lean apart, the crack shut at the ground and open above with matching faces, one half a little the shorter", () => {
+  it("splits the split stone from its top to its root and no further: one stone at 0.9 m, a crack 4 cm wide or more at 1.2 m and a hand and a half at 2.5 m, the halves leaning apart with matching pale faces, one a little the shorter", () => {
     for (const phone of [false, true]) {
       for (const title of of(SPLIT)) {
-        const { position, pieces } = stone(title, phone);
-        // Two halves, each a closed piece down to its foot.
-        expect(pieces, title).toHaveLength(2);
-        expect(pieces.every(grounded)).toBe(true);
-        const [left, right] = [...pieces].sort((p, q) => p.x0 - q.x0), lower = Math.min(left.high, right.high);
-        // The crack between two heights: from the left half's corners to the right's, and the line down the middle of it.
-        const gap = (from: number, to: number) => across(position, right, from, to).x0 - across(position, left, from, to).x1;
-        const line = (from: number, to: number) => (across(position, right, from, to).x0 + across(position, left, from, to).x1) / 2;
-        const foot = footOf(position, right).x1 - footOf(position, left).x0, top = across(position, right, 0.75 * lower, 9).x1 - across(position, left, 0.75 * lower, 9).x0;
-        // One foot: to 0.45 m over the ground the halves meet with no crack between them. They lie a hair into each other there, so
-        // that no face of one lies in a face of the other.
-        expect(gap(-2, 0.45), title).toBeLessThan(0);
-        expect(gap(-2, 0.45), title).toBeGreaterThan(-0.05);
-        // Over three quarters of the way up the shorter half the sky shows through: a crack a fifth as wide as the stone or more,
-        // and narrower than the halves beside it.
-        expect(gap(0.75 * lower, 9), title).toBeGreaterThan(0.2 * top);
-        expect(gap(0.75 * lower, 9), title).toBeLessThan(0.4 * top);
-        // The inner faces match: the crack's middle up there stands over the crack at the foot.
-        expect(Math.abs(line(0.75 * lower, 9) - line(-2, 0.45)), title).toBeLessThan(0.05 * top);
-        // They lean apart: together the halves are a fifth broader up there than their one foot is, or more.
-        expect(top, title).toBeGreaterThan(1.2 * foot);
-        // One half stands over the other by a little: more than a twentieth of its height and less than a fifth, where the pair's
+        const { position, color, pieces } = stone(title, phone);
+        // A foot, down to its own foot in the ground, and two halves that begin where it ends.
+        expect(pieces, title).toHaveLength(3);
+        const foot = pieces[0], [left, right] = pieces.slice(1).sort((p, q) => p.x0 - q.x0);
+        expect(grounded(foot) && !grounded(left) && !grounded(right), title).toBe(true);
+        // The halves stand on the foot's top ring, corner for corner: each corner of a half's own foot that is out at the stone's
+        // side, not drawn back to the crack, is within a centimetre of a corner of the foot's top. So the stone's sides run on
+        // from the foot into the halves with no step.
+        const rim = foot.corners.filter((i) => position.getY(i) > foot.high - 1e-3).map((i) => [position.getX(i), position.getZ(i)]);
+        for (const half of [left, right]) {
+          const out = half.corners.filter((i) => position.getY(i) < half.low + 1e-3 && Math.abs(position.getX(i) - (half === left ? half.x1 : half.x0)) > 0.25);
+          expect(out.length, title).toBeGreaterThan(3);
+          for (const i of out) expect(Math.min(...rim.map(([x, z]) => Math.hypot(x - position.getX(i), z - position.getZ(i)))), title).toBeLessThan(0.01);
+        }
+        // The crack at a height: from the left half to the right across the level there, or none where the halves do not reach.
+        const crack = (y: number) => { const l = sliced(position, left, y), r = sliced(position, right, y); return l && r ? { wide: r.x0 - l.x1, at: (r.x0 + l.x1) / 2, across: r.x1 - l.x0 } : null; };
+        // Shut under the root: at 0.3, 0.6 and 0.9 m the stone is its foot alone, one solid, with no half there and no crack.
+        for (const y of [0.3, 0.6, 0.9]) {
+          expect(crack(y), `${title} at ${y} m`).toBeNull();
+          expect(sliced(position, foot, y), `${title} at ${y} m`).not.toBeNull();
+        }
+        // Open over it, and opening as it rises: 4 cm or more at 1.2 m, and five times that at 2.5 m, where the sky shows through.
+        const low = crack(1.2), high = crack(2.5);
+        if (!low || !high) { expect.fail(`${title}: no halves at 1.2 m or at 2.5 m`); continue; }
+        expect(low.wide, title).toBeGreaterThan(0.04);
+        expect(low.wide, title).toBeLessThan(0.09);
+        expect(high.wide, title).toBeGreaterThan(0.25);
+        expect(high.wide, title).toBeLessThan(0.45);
+        // The inner faces match: the crack's middle at 2.5 m stands over its middle at 1.2 m.
+        expect(Math.abs(high.at - low.at), title).toBeLessThan(0.05);
+        // The halves lean apart: over three quarters of the way up the shorter one they are together a sixth broader than the
+        // foot they stand on is in the ground, or more.
+        const shorter = Math.min(left.high, right.high);
+        expect(across(position, right, 0.75 * shorter, 9).x1 - across(position, left, 0.75 * shorter, 9).x0, title).toBeGreaterThan(1.15 * breadth(footOf(position, foot)));
+        // One half stands over the other by a little: more than a twentieth of the taller and less than a fifth, where the pair's
         // tall stone is twice its short one.
-        expect(Math.abs(left.high - right.high), title).toBeGreaterThan(0.05 * lower);
-        expect(Math.abs(left.high - right.high), title).toBeLessThan(0.2 * lower);
+        const taller = Math.max(left.high, right.high);
+        expect(Math.abs(left.high - right.high), title).toBeGreaterThan(0.05 * taller);
+        expect(Math.abs(left.high - right.high), title).toBeLessThan(0.2 * taller);
+        // Where the stone broke it is paler, and clean: each half's faces that look across the crack at the other are one tone,
+        // lighter than the stone's own, with no grain and nothing growing on them. Its outer faces are of several tones.
+        const own = new THREE.Color(toneOf(color, foot).hex);
+        for (const [half, toward] of [[left, 1], [right, -1]] as const) {
+          const broken = new Set<string>(), outer = new Set<string>();
+          for (let n = 0; n < half.corners.length; n += 3) {
+            face(position, half.corners, n);
+            const mid = (a.y + b.y + c.y) / 3, looks = b.sub(a).cross(c.sub(a)).normalize().x * toward, i = half.corners[n];
+            if (mid < 1.2) continue;
+            (looks > 0.9 ? broken : looks < 0 ? outer : new Set<string>()).add(`${color.getX(i).toFixed(4)},${color.getY(i).toFixed(4)},${color.getZ(i).toFixed(4)}`);
+            if (looks > 0.9 && color.getX(i) < 1.05 * own.r) expect.fail(`${title}: a broken face no paler than the stone`);
+          }
+          expect(broken.size, title).toBe(1);
+          expect(outer.size, title).toBeGreaterThan(1);
+        }
       }
     }
   });
 
-  it("piles the cairn: a great stone in the ground and four or more on it, each resting in the one under, smaller than it, and none afloat", () => {
+  it("piles the cairn: a great stone in the ground and four or more on it, each resting in the one under where the two meet, smaller than it and laid to the other side of it", () => {
     for (const title of of(CAIRN)) {
       // A phone's pile has a stone fewer, and never more.
       expect(stone(title, true).pieces.length, title).toBeLessThanOrEqual(stone(title).pieces.length);
@@ -874,28 +1035,31 @@ describe("the standing stones", () => {
         expect(pieces.length, title).toBeGreaterThanOrEqual(5);
         expect(pieces.map(grounded)).toEqual([true, ...pieces.slice(1).map(() => false)]);
         const tones = new Set<string>();
+        // Where a stone lies across the path: the mean of its corners.
+        const lies = pieces.map((piece) => piece.corners.reduce((sum, i) => sum + position.getX(i), 0) / piece.corners.length);
         pieces.forEach((piece, k) => {
           for (const [name, hex] of Object.entries(TONES)) if (piece.corners.some((i) => isTone(color, i, hex))) tones.add(name);
           if (k === 0) return;
-          const under = pieces[k - 1], into = under.high - piece.low;
-          // Its lowest corner is a little way into the one under: over it would be afloat, and half way through it would be sunk in.
-          expect(into, `${title}: stone ${k}`).toBeGreaterThan(0);
-          expect(into, `${title}: stone ${k}`).toBeLessThan((piece.high - piece.low) / 2);
-          // Smaller than the one under, with less stone in it, and over it: its middle within the other's breadth.
+          const under = pieces[k - 1], rests = into(position, piece, under);
+          // It rests in the one under it: where the two meet, one is 3 cm or more into the other, and under a hand. A stone set
+          // by the other's highest corner alone would float over the rest of it.
+          expect(rests, `${title}: stone ${k}`).toBeGreaterThan(0.03);
+          expect(rests, `${title}: stone ${k}`).toBeLessThan(0.1);
+          // Smaller than the one under, with less stone in it.
           expect(volumeOf(position, piece), `${title}: stone ${k}`).toBeLessThan(volumeOf(position, under));
-          expect(middle(piece)).toBeGreaterThan(under.x0);
-          expect(middle(piece)).toBeLessThan(under.x1);
+          // And laid to the other side of the one under from where that one was laid: the pile leans this way and that.
+          if (k > 1) expect((lies[k] - lies[k - 1]) * (lies[k - 1] - lies[k - 2]), `${title}: stone ${k}`).toBeLessThan(k > 2 ? -0.005 : 0);
         });
-        // The pile is of stones of several tones: all four are there, though moss may cover the least of them.
-        expect(tones.size, title).toBeGreaterThanOrEqual(3);
+        // The pile is of stones of several tones: all four are there, though moss and shade may cover the least of them.
+        expect(tones.size, title).toBeGreaterThanOrEqual(2);
       }
     }
   });
 
-  it("builds the trilithon: two uprights with a doorway between them, and a lintel that lies on both and overhangs them before and behind", () => {
+  it("builds the trilithon: two uprights with a doorway between them and a lintel that lies in the top of each, tilted as their tops are, and overhangs them before and behind", () => {
     for (const phone of [false, true]) {
       for (const title of of(TRILITHON)) {
-        const { pieces } = stone(title, phone);
+        const { position, pieces } = stone(title, phone);
         expect(pieces, title).toHaveLength(3);
         expect(pieces.map(grounded)).toEqual([true, true, false]);
         const [left, right] = pieces.slice(0, 2).sort((p, q) => p.x0 - q.x0), lintel = pieces[2];
@@ -904,17 +1068,20 @@ describe("the standing stones", () => {
         // The lintel reaches over both uprights' middles, a thick stone a quarter as deep as it is long.
         expect(lintel.x0).toBeLessThan(middle(left));
         expect(lintel.x1).toBeGreaterThan(middle(right));
-        expect(lintel.high - lintel.low, title).toBeGreaterThan(0.25 * breadth(lintel));
         for (const upright of [left, right]) {
-          // It lies a little way into the top of each upright, and under half its own depth: on neither does it float.
-          expect(upright.high - lintel.low, title).toBeGreaterThan(0);
-          expect(upright.high - lintel.low, title).toBeLessThan(0.5 * (lintel.high - lintel.low));
+          // It lies in the top of each upright: where the two meet, one is 3 cm or more into the other, and under a hand and a half.
+          // On neither does it float, and neither's top is lost in it.
+          expect(into(position, lintel, upright), title).toBeGreaterThan(0.03);
+          expect(into(position, lintel, upright), title).toBeLessThan(0.14);
           // And it stands out past each, before it and behind.
           expect(lintel.z1, title).toBeGreaterThan(upright.z1);
           expect(lintel.z0, title).toBeLessThan(upright.z0);
         }
-        // One upright is a little the taller.
-        expect(Math.abs(left.high - right.high), title).toBeGreaterThan(0.01 * lintel.low);
+        // One upright is the taller, and it shows: the lintel's top over it is higher than over the other, by most of the difference.
+        const over = (upright: Piece) => Math.max(...lintel.corners.filter((i) => Math.abs(position.getX(i) - middle(upright)) < 0.3).map((i) => position.getY(i)));
+        const [tall, short] = left.high > right.high ? [left, right] : [right, left];
+        expect(tall.high - short.high, title).toBeGreaterThan(0.1);
+        expect(over(tall) - over(short), title).toBeGreaterThan(0.6 * (tall.high - short.high));
       }
     }
   });
@@ -939,8 +1106,8 @@ describe("the standing stones", () => {
     }
   });
 
-  it("works the stele: squared, on a foot a step wider whose step is at one height whatever the stele's, with a band cut round it, a collar and a pointed cap", () => {
-    const steps = new Set<number>(), tops = new Set<number>();
+  it("works the stele: squared, on a foot a step wider, with a band cut round it, a collar and a pointed cap, its cuts paler", () => {
+    const tops = new Set<number>();
     for (const phone of [false, true]) {
       for (const title of of(STELE)) {
         const { position, color, pieces } = stone(title, phone);
@@ -959,14 +1126,13 @@ describe("the standing stones", () => {
         // Squared: every level is four corners, or two rings of four where a step or a cut is level; its top is one corner, a point.
         for (const ring of rings.slice(1, -1)) expect([4, 8], `${title} at ${ring.y}`).toContain(ring.n);
         expect(rings[rings.length - 1].n, title).toBe(1);
+        tops.add(rings[rings.length - 1].y);
         // Four levels hold two rings, one standing inside the other: the foot's step, the band's foot and its top, and the collar's
         // foot, in that order up the stone.
         const double = rings.filter((ring) => ring.n === 8);
         expect(double, title).toHaveLength(4);
         for (const level of double) expect(level.out, `${title} at ${level.y}`).toBeGreaterThan(1.05 * level.inn);
-        const [step, bandFoot, bandTop, collar] = double;
-        steps.add(step.y);
-        tops.add(rings[rings.length - 1].y);
+        const [, bandFoot, bandTop, collar] = double;
         // The band is cut in, and narrow: across it the stele is as wide at its top as at its foot, and it is under a tenth of the
         // stele's height.
         expect(Math.abs(bandFoot.inn - bandTop.inn), title).toBeLessThan(0.05 * bandFoot.inn);
@@ -983,22 +1149,20 @@ describe("the standing stones", () => {
         expect(pale.some((y) => y > overCollar.y), title).toBe(true);
       }
     }
-    // Every stele's step is at the one height, though the steles are of several: on a slope the ground comes up the foot and
-    // never over the step (the slopes' test).
-    expect(steps.size).toBe(1);
+    // The steles are of several heights, though their step is at the one (the test of the ground).
     expect(tops.size).toBeGreaterThan(3);
   });
 
-  it("balances the boulder: a great round stone at rest on the top of a narrow one, about twice its breadth", () => {
+  it("balances the boulder: a great round stone at rest in the top of a narrow one, about twice its breadth", () => {
     for (const phone of [false, true]) {
       for (const title of of(BOULDER)) {
         const { position, pieces } = stone(title, phone);
         expect(pieces, title).toHaveLength(2);
         const [stand, boulder] = pieces;
         expect(grounded(stand)).toBe(true);
-        // It rests a little way into the stand's top, and under a quarter of its own height.
-        expect(stand.high - boulder.low, title).toBeGreaterThan(0);
-        expect(stand.high - boulder.low, title).toBeLessThan(0.25 * (boulder.high - boulder.low));
+        // It rests in the stand's top: where the two meet, one is 3 cm or more into the other, and under a hand.
+        expect(into(position, boulder, stand), title).toBeGreaterThan(0.03);
+        expect(into(position, boulder, stand), title).toBeLessThan(0.1);
         // The stand narrows as it rises, and the boulder is about twice as broad as the stand's top (1.9 to 2.6 times) and broader
         // than its foot.
         const foot = breadth(footOf(position, stand)), neck = breadth(across(position, stand, 0.8 * stand.high, stand.high));
@@ -1012,7 +1176,6 @@ describe("the standing stones", () => {
   // Every show placed as main.js places it, on both tiers, with no second set: the maps do not hold where set 2 begins, and a stone
   // is the same wherever along the path its song falls. Each show is placed once for both tests below.
   type Stood = { g: { position: { x: number; y: number; z: number }; rotation: { y: number }; children: Part[] }; off: number };
-  const path = buildPath(), line = buildWalkLine(path, 7);
   const place = (tracks: { title: string; duration: number }[], phone: boolean, block = false): Stood[] => {
     const made = makeBuilders(phone), landmarkU = layout(tracks, null, path);
     // The plain block that main builds for every such song.
@@ -1027,33 +1190,36 @@ describe("the standing stones", () => {
     return placings.get(key) as Stood[];
   };
   const everyStone = (visit: (stood: Stood, title: string, phone: boolean, where: string, block: () => Stood) => void) => {
-    let stones = 0;
+    let n = 0;
     for (const { show, tracks } of shows) for (const phone of [false, true]) {
       let blocks: Stood[] | null = null;
       placed(show, tracks, phone).forEach((stood, i) => {
         if (!falls(tracks[i].title)) return;
-        stones += 1;
+        n += 1;
         visit(stood, tracks[i].title, phone, `${show}, song ${i}, "${tracks[i].title}"${phone ? " on a phone" : ""}`, () => (blocks ??= place(tracks, phone, true))[i]);
       });
     }
-    return stones;
+    return n;
   };
 
   it("stands each stone where its song's title has it, and no further from its song's point than the plain block stood, in every show", () => {
-    const stones = everyStone((stood, title, phone, where, block) => {
+    const n = everyStone((stood, title, phone, where, block) => {
       // The stone placed is the title's own: path.js hands the standing stone the title.
       if (triangles(stood.g.children) !== stone(title, phone).faces) expect.fail(`${where}: not its title's stone`);
       if (stood.off > block().off + 0.001) expect.fail(`${where}: ${stood.off} m from its song's point, where the block stood ${block().off} m`);
     });
     // 426 such songs in the 38 maps, placed on both tiers.
-    expect(stones).toBeGreaterThanOrEqual(2 * 426);
+    expect(n).toBeGreaterThanOrEqual(2 * 426);
   });
 
-  it("stands level on sloping ground with no foot in the air and nothing of it buried, in every show", () => {
+  it("stands level on sloping ground, in every show: no foot in the air, no laid stone buried, and the ground under a stele's step or a split stone's root never up to it", () => {
     let steepest = 0, shallowest = Infinity;
+    const under = { step: 0, root: 0 };
     everyStone(({ g }, title, phone, where) => {
       const { position } = g.children[0].geometry.attributes, cos = Math.cos(g.rotation.y), sin = Math.sin(g.rotation.y);
-      const laid = new Set(stone(title, phone).pieces.filter((piece) => !grounded(piece)).flatMap((piece) => piece.corners));
+      const { pieces } = stone(title, phone), kind = stoneKind(title), laid = new Set(pieces.filter((piece) => !grounded(piece)).flatMap((piece) => piece.corners));
+      // A stele's step is its lowest level over its foot's ring; a split stone's root is where its halves begin.
+      const step = kind === STELE ? Math.min(...pieces[0].corners.map((i) => position.getY(i)).filter((y) => y > SUNK + 1e-3)) : null, root = kind === SPLIT ? pieces[1].low : null;
       for (let n = 0; n < position.count; n++) {
         const x = position.getX(n), y = position.getY(n), z = position.getZ(n);
         // The ground under the corner, against the stone's own: the landmark is turned about the vertical and stands level.
@@ -1064,14 +1230,19 @@ describe("the standing stones", () => {
           shallowest = Math.min(shallowest, ground - y);
           if (y > ground - 0.5) expect.fail(`${where}: a foot ${ground - y} m under the ground beneath it`);
         }
-        // No corner of a stone laid on another is in the ground, and nothing 0.85 m up a stone or higher: the stele's step, the
-        // cairn's first joint and the boulder all stay in sight on the slope's upper side.
-        if ((laid.has(n) || y >= 0.85) && y <= ground) expect.fail(`${where}: a corner ${y} m up it lies ${ground - y} m in the ground`);
+        // No corner of a piece that lies or stands on another is in the ground.
+        if (laid.has(n) && y <= ground) expect.fail(`${where}: a corner ${y} m up it lies ${ground - y} m in the ground`);
+        // Under each corner of a stele's step, and of a split stone's root, the ground is under that corner: the step stays in
+        // sight on the slope's upper side, and the crack ends in the air.
+        if (step !== null && Math.abs(y - step) < 1e-3) { under.step = Math.max(under.step, ground); if (ground >= step) expect.fail(`${where}: the ground stands ${ground} m under its step, ${step} m up`); }
+        if (root !== null && Math.abs(y - root) < 1e-3) { under.root = Math.max(under.root, ground); if (ground >= root) expect.fail(`${where}: the ground stands ${ground} m under its root, ${root} m up`); }
       }
     });
     // The test has seen real slopes: somewhere the ground stands half a metre over or under a stone's own within its outline, and
-    // the shallowest foot is still most of a metre down.
+    // 0.4 m under a corner of a stele's step and of a split stone's root; the shallowest foot is still most of a metre down.
     expect(steepest).toBeGreaterThan(0.5);
+    expect(under.step).toBeGreaterThan(0.3);
+    expect(under.root).toBeGreaterThan(0.3);
     expect(shallowest).toBeGreaterThan(0.5);
     expect(shallowest).toBeLessThan(1.4);
   });

@@ -99,8 +99,9 @@ describe("the near stills", () => {
           expect(stand.clear, which).toBe(true);
           expect(gap(stand, to), which).toBeCloseTo(14, 6);
         }
-        // One of the stones is on a slope and seen from below, a third of a radian up or more, where its lower side shows.
-        if (table === stoneTitles) expect(Math.max(...views.map(({ stand }) => stand.pitch))).toBeGreaterThan(0.33);
+        // The cairn's own still is the one on the climb: it is seen from below, a third of a radian up or more, where a stone's
+        // lower side shows. The cairn is the fourth of the kinds.
+        if (table === stoneTitles) expect(views[stoneTitles.findIndex(([, title]) => stoneKind(title) === 3)].stand.pitch, `the cairn${phone ? " on a phone" : ""}`).toBeGreaterThan(0.33);
       }
     }
   });

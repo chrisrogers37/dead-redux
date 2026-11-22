@@ -54,11 +54,15 @@ export function mergeLandmarks(scene, landmarks, keep) {
   scene.add(new THREE.Mesh(mergeGeometries(parts), vertexColoured));
 }
 
-/* A title's number, 0 to 2^32. The rule: only the title's letters and digits count, in lower case, so a capital, a space or a segue
-   mark changes nothing, and "Deal" and "Deal ->" are one song. It is FNV-1a over those, then mixed so the low bits spread. Never
-   Math.random: a song has the same stone every day. */
+/* A song's name as its stone is picked by, so that one song has one stone however a show's taper wrote it. The rule, in order: an
+   accent is dropped from its letter ("Señor" is "senor"); capitals are lowered; a leading "the" is dropped ("The Other One" is
+   "Other One"); a dropped g is put back, "in'" at a word's end read as "ing" ("Throwin' Stones" is "Throwing Stones"); and then
+   only letters and digits count, so a space, a comma or a segue mark changes nothing ("Deal" and "Deal ->" are one song). */
+export const songKey = (title) => String(title ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/^\s*the\s+/, "").replace(/in['\u2019](?![a-z])/g, "ing").replace(/[^a-z0-9]/g, "");
+/* A title's number, 0 to 2^32: FNV-1a over its song's name (songKey), then mixed so the low bits spread. Never Math.random: a song
+   has the same stone every day. */
 export const titleHash = (title) => {
-  const s = String(title ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const s = songKey(title);
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
   h ^= h >>> 15;
@@ -410,8 +414,12 @@ export function makeBuilders(phone) {
      ring reaches no further than its middle's offset + its half-width x (1 + its roughness), across the path (0.8 m at the most)
      and along it (0.6 m); a boulder, its radius x (1 + its roughness) x its scale, + how far off the middle it is laid. None is
      taller than the menhir and the stele, whose tips are 4.5 m up at their full height.
-     A foot goes SUNK under the ground, as every landmark's does, and a stone laid on another starts 0.9 m up or more: under a
-     stone's corners the ground stands up to 0.75 m over its own, or under it, on the steepest stands. */
+     A foot goes SUNK under the ground, as every landmark's does. A landmark stands level, and on a slope the ground climbs its
+     upper side: under a stone's corners it stands up to 0.75 m over the stone's own ground on the maps' steepest stand, and under
+     the block's outline up to 0.85 m at the steepest place on the path. CLEAR is over both, with a hand to spare: nothing of a
+     stone but its plain foot is under it. A split stone's crack ends there, a stele's step is there, and a stone laid on another
+     is over it. */
+  const CLEAR = 0.95;
   const BLUESTONE = 0x6f7782, SANDSTONE = 0x9a8c74, LICHEN = 0xa9a45c;
   /* A tone a little darker or lighter; and a stone's tones, worked out once for each of the four: its own, a shade darker and a
      shade lighter for its faces' grain, and two paler ones, for a face where it has broken and for one a mason has cut. */
@@ -438,10 +446,13 @@ export function makeBuilders(phone) {
      those of the ring under it, so the faces between lean both ways and no ring shows as a level line; each corner stands in or
      out from its ring's middle by up to `rough` of its distance, and, above the foot, up or down by a part of the gap to the next
      ring. `square` over 2 squares the section's corners. A `worked` stone's rings are level and stand corner over corner instead,
-     so its faces are upright and its steps flat. The top closes on `tip` and the foot on its own middle. */
-  const hewn = (rings, tip, sides, rough, salt, square = 2, worked = false) => {
-    const P = rings.map(([y, rx, rz, cx = 0, cz = 0, slant = 0], j) => {
-      const gap = Math.min(j ? y - rings[j - 1][0] : 0, j < rings.length - 1 ? rings[j + 1][0] - y : Math.abs(tip[1] - y));
+     so its faces are upright and its steps flat. The top closes on `tip` and the foot on its own middle.
+     `from` and `to` hew a part of the stone, between two of its rings: the part closes level on each of those, and the ring two
+     parts share is the same in both, corner for corner, so one stands on the other with no step between them. */
+  const hewn = (rings, tip, sides, rough, salt, square = 2, worked = false, from = 0, to = rings.length - 1) => {
+    const whole = to === rings.length - 1, middle = ([y, , , cx = 0, cz = 0]) => [cx, y, cz];
+    const P = rings.slice(from, to + 1).map(([y, rx, rz, cx = 0, cz = 0, slant = 0], n) => {
+      const j = from + n, gap = Math.min(n ? y - rings[j - 1][0] : 0, j < to ? rings[j + 1][0] - y : whole ? Math.abs(tip[1] - y) : 0);
       return Array.from({ length: sides }, (_, i) => {
         const a = ((i + (worked ? 0.5 : (j % 2) / 2)) / sides) * 2 * Math.PI, s = Math.sin(a), c = Math.cos(a), k = 1 - rough + 2 * rough * roll(i, j, 0, salt);
         const x = cx + rx * k * Math.sign(s) * Math.abs(s) ** (2 / square);
@@ -449,14 +460,14 @@ export function makeBuilders(phone) {
       });
     });
     const corners = [], face = (...three) => corners.push(...three.flat());
-    for (let j = 0; j < P.length - 1; j++) {
+    for (let k = 0; k < P.length - 1; k++) {
       for (let i = 0; i < sides; i++) {
-        const A = P[j], B = P[j + 1], n = (i + 1) % sides;
-        if (worked || j % 2) { face(A[i], A[n], B[n]); face(A[i], B[n], B[i]); } else { face(A[i], A[n], B[i]); face(A[n], B[n], B[i]); }
+        const A = P[k], B = P[k + 1], n = (i + 1) % sides;
+        if (worked || (from + k) % 2) { face(A[i], A[n], B[n]); face(A[i], B[n], B[i]); } else { face(A[i], A[n], B[i]); face(A[n], B[n], B[i]); }
       }
     }
-    const foot = P[0], top = P[P.length - 1], under = [rings[0][3] ?? 0, rings[0][0], rings[0][4] ?? 0];
-    for (let i = 0; i < sides; i++) { face(top[i], top[(i + 1) % sides], tip); face(foot[(i + 1) % sides], foot[i], under); }
+    const foot = P[0], top = P[P.length - 1], over = whole ? tip : middle(rings[to]), under = middle(rings[from]);
+    for (let i = 0; i < sides; i++) { face(top[i], top[(i + 1) % sides], over); face(foot[(i + 1) % sides], foot[i], under); }
     return new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(corners, 3));
   };
   /* A kind's rings, and its tip, as a title's stone has them: turned `turn` (1, or -1 for the other way), and `tall` of their
@@ -465,16 +476,43 @@ export function makeBuilders(phone) {
   const point = ([x, y, z], turn, tall) => [x * turn, y * tall, z];
   /* A shape is a hewn stone's numbers: its rings and its tip, its sides on a desktop and on a phone, the ring a phone leaves out
      (`fine`, where it leaves one out), its roughness and its section's squareness. This hews it for the tier, turned and as tall
-     as told, and is the one place where a phone's stone is made the coarser. */
-  const hewnAs = ({ rings, tip, sides, fine, rough, square }, turn, tall, salt) =>
-    hewn(stood(phone ? rings.filter((_, j) => j !== fine) : rings, turn, tall), point(tip, turn, tall), sides[phone ? 1 : 0], rough, salt, square);
-  /* A stone laid on another goes LAP down into it from `top`, wherever its own lowest corner is, at (x, z). Gives its own top. */
-  const LAP = 0.08;
-  const rest = (geo, top, x = 0, z = 0) => {
-    geo.computeBoundingBox();
-    const lift = top - LAP - geo.boundingBox.min.y, newTop = geo.boundingBox.max.y + lift;
-    geo.translate(x, lift, z);
-    return newTop;
+     as told, and is the one place where a phone's stone is made the coarser. `from` and `to` are the heights of two of its rings,
+     for a part of it. */
+  const hewnAs = ({ rings, tip, sides, fine, rough, square }, turn, tall, salt, from, to) => {
+    const kept = stood(phone ? rings.filter((_, j) => j !== fine) : rings, turn, tall), at = (y) => (y === undefined ? undefined : kept.findIndex((ring) => ring[0] === y));
+    return hewn(kept, point(tip, turn, tall), sides[phone ? 1 : 0], rough, salt, square, false, at(from), at(to));
+  };
+  /* A stone's heights where `base` is at the one height for every title and the stone over it is as tall as its title has it:
+     over `base` they are stretched so that `top` comes to `tall` of `top`. */
+  const above = (base, top, tall) => (y) => (y <= base ? y : base + ((y - base) * (top * tall - base)) / (top - base));
+  /* Where the upright line through (x, z) meets a shape's faces: the highest such place (`top`), or the lowest. */
+  const meets = (geo, x, z, top) => {
+    const p = geo.attributes.position;
+    let best = top ? -Infinity : Infinity;
+    for (let i = 0; i < p.count; i += 3) {
+      const x0 = p.getX(i) - x, z0 = p.getZ(i) - z, x1 = p.getX(i + 1) - x, z1 = p.getZ(i + 1) - z, x2 = p.getX(i + 2) - x, z2 = p.getZ(i + 2) - z;
+      const w0 = x1 * z2 - x2 * z1, w1 = x2 * z0 - x0 * z2, w2 = x0 * z1 - x1 * z0, w = w0 + w1 + w2;
+      if (Math.abs(w) < 1e-12 || ((w0 < 0 || w1 < 0 || w2 < 0) && (w0 > 0 || w1 > 0 || w2 > 0))) continue;
+      const y = (w0 * p.getY(i) + w1 * p.getY(i + 1) + w2 * p.getY(i + 2)) / w;
+      best = top ? Math.max(best, y) : Math.min(best, y);
+    }
+    return best;
+  };
+  /* How far a shape can come straight down before it touches the one under it: the least way from a corner of either to the
+     other's face over or under it. */
+  const fall = (upper, lower) => {
+    const u = upper.attributes.position, l = lower.attributes.position;
+    let least = Infinity;
+    for (let i = 0; i < u.count; i++) least = Math.min(least, u.getY(i) - meets(lower, u.getX(i), u.getZ(i), true));
+    for (let i = 0; i < l.count; i++) least = Math.min(least, meets(upper, l.getX(i), l.getZ(i), false) - l.getY(i));
+    return least;
+  };
+  /* A stone laid on others, at (x, z): it comes straight down until it has touched every one of them, and settles LAP further.
+     So it lies in each stone it is laid on, wherever on them it lands, and none is left with air under it. */
+  const LAP = 0.05;
+  const rest = (geo, unders, x = 0, z = 0) => {
+    geo.translate(x, 0, z);
+    return geo.translate(0, -Math.max(...unders.map((under) => fall(geo, under))) - LAP, 0);
   };
   /* A boulder with a flat face up and one down, to lie in a pile: an icosahedron's faces come in level pairs once one is turned up. */
   const FACE_UP = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 1, 1).normalize(), new THREE.Vector3(0, 1, 0));
@@ -501,94 +539,85 @@ export function makeBuilders(phone) {
   const menhir = (g, of) => plain(g, of, PLAIN.menhir, 0);
   /* 1. A leaning slab. */
   const leaningSlab = (g, of) => plain(g, of, PLAIN.slab, 1);
-  /* 2. A split stone: one stone cracked from its top to its foot, its two halves leaning apart from the one foot. The crack is shut
-     for ROOT m over the ground and opens from there, with the sky through it; the halves' inner faces match, and the lesser half is
-     a little the shorter. Each half is the whole stone with every corner past the cleft drawn back to it, so the halves' outsides
-     are one stone's and their insides the break's. Where the crack is shut the halves lie SEAM into each other, so that no face of
-     one lies in a face of the other. The whole stone reaches 0.73 x 1.07 = 0.781 m across and 0.52 x 1.07 = 0.556 m along, and
-     drawing a corner back takes it no further out. */
-  const SPLIT = { rings: [[-SUNK, 0.52, 0.5], [0.3, 0.54, 0.52], [1.4, 0.62, 0.52], [2.5, 0.7, 0.48], [3.25, 0.73, 0.42]], tip: [0, 3.55, 0], sides: [7, 5], fine: 2, rough: 0.07 };
-  const ROOT = 0.5, SEAM = 0.004, CLEFT = (y) => 0.09 * Math.max(0, y - ROOT) - SEAM, LESSER = 0.9;
+  /* 2. A split stone: one stone cracked from its top down to ROOT, where its two halves begin, a hair apart, and lean away from each
+     other as they rise, with the sky between them. Under ROOT it is one solid, with no face inside it, and ROOT is CLEAR, so the
+     crack ends over the ground on any slope. The halves' inner faces match, paler where the stone broke, and the lesser half is
+     a little the shorter. Each half is the whole upper stone with every corner past the cleft drawn straight back to it, so the
+     halves' outsides are one stone's and their insides the break's, the whole depth of the stone. They stand on the foot's top
+     ring corner for corner, drawn in by INSET, a hair: so the foot and the two halves are three solids, no corner of one on
+     another's. The whole stone reaches 0.73 x 1.07 = 0.781 m across and 0.52 x 1.07 = 0.556 m along, and drawing a corner back
+     takes it no further out. */
+  const ROOT = CLEAR, HAIR = 0.002, CLEFT = (y) => HAIR + 0.105 * Math.max(0, y - ROOT), LESSER = 0.9, INSET = 0.995;
+  const SPLIT = { rings: [[-SUNK, 0.52, 0.5], [0.3, 0.54, 0.52], [ROOT, 0.59, 0.52], [1.7, 0.64, 0.52], [2.5, 0.7, 0.48], [3.25, 0.73, 0.42]], tip: [0, 3.55, 0], sides: [7, 5], fine: 3, rough: 0.07 };
   function splitStone(g, of) {
-    const off = 0.06 * of.turn;
+    /* Over the root it is as tall as its title has it. */
+    const up = above(ROOT, SPLIT.tip[1], of.tall), off = 0.06 * of.turn;
+    const whole = { ...SPLIT, rings: SPLIT.rings.map(([y, ...ring]) => [up(y), ...ring]), tip: [0, up(SPLIT.tip[1]), 0] };
+    piece(g, of.tones, of.salt(2), (salt) => hewnAs(whole, of.turn, 1, salt, -SUNK, ROOT));
     for (const side of [-1, 1]) {
       const lesser = side === of.turn;
       piece(g, of.tones, of.salt(2), (salt) => {
-        const whole = hewnAs(SPLIT, of.turn, of.tall, salt).attributes.position, half = [];
-        /* A corner past the cleft is drawn back to it. At the foot every such corner would lie on one line, and the faces between
-           them have no area: there they are all drawn to the one point of it. */
-        const corner = (i) => {
-          const x = whole.getX(i), y = whole.getY(i), edge = off + side * CLEFT(y), past = side * (x - edge) < 0;
-          return [past ? edge : x, lesser && y > 0 ? y * LESSER : y, past && y < 0.01 - SUNK ? 0 : whole.getZ(i)];
-        };
-        /* A face left with two corners at one place is no face, and is left out: the faces round it close on each other. */
-        for (let i = 0; i < whole.count; i += 3) {
-          const face = [corner(i), corner(i + 1), corner(i + 2)];
-          if (!face.some((a, k) => a.every((v, n) => v === face[(k + 1) % 3][n]))) half.push(...face.flat());
+        const half = hewnAs(whole, of.turn, 1, salt, ROOT), pos = half.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          const y = pos.getY(i), root = y < ROOT + 0.001, edge = off + side * CLEFT(y);
+          /* The middle its foot's faces meet at is the whole stone's: it is moved into the half, a hand from the cleft, or the
+             faces from it to the corners drawn back along the root would have no area. */
+          const middle = root && pos.getX(i) === 0 && pos.getZ(i) === 0, x = pos.getX(i) * (root ? INSET : 1);
+          pos.setXYZ(i, middle ? edge + side * 0.2 : side * (x - edge) < 0 ? edge : x, lesser ? ROOT + (y - ROOT) * LESSER : y, pos.getZ(i) * (root ? INSET : 1));
         }
-        return new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(half, 3));
-      }, (x, y) => (y > ROOT && Math.abs(x - off) < CLEFT(lesser ? y / LESSER : y) + 0.04 ? of.tones.broken : null));
+        return half;
+      }, (x, y) => (y > ROOT && Math.abs(x - off) < CLEFT(lesser ? ROOT + (y - ROOT) / LESSER : y) + 0.04 ? of.tones.broken : null));
     }
   }
-  /* 3. A cairn: a great stone in the ground and five lesser ones piled on it, each smaller than the one under and a little off
-     its middle (a phone's, four). Each of them has a tone of its own. The great stone reaches 0.73 x 1.08 = 0.788 m across and
-     0.53 x 1.08 = 0.572 m along; the largest laid on it, 0.06 + 0.62 x 1.1 = 0.742 m and 0.04 + 0.8 x 0.62 x 1.1 = 0.586 m. */
-  const CAIRN_FOOT = { rings: [[-SUNK, 0.7, 0.5], [0.2, 0.73, 0.53], [0.9, 0.6, 0.45]], tip: [0.05, 1.02, 0], sides: [6, 5], rough: 0.08 };
+  /* 3. A cairn: a great stone in the ground and five lesser ones piled on it, each smaller than the one under and laid to the
+     other side of it, so the pile leans this way and that (a phone's, four). Each of them has a tone of its own. The great stone
+     reaches 0.73 x 1.08 = 0.788 m across and 0.53 x 1.08 = 0.572 m along; the largest laid on it, 0.06 + 0.62 x 1.1 = 0.742 m
+     and 0.04 + 0.8 x 0.62 x 1.1 = 0.586 m. Its top is 1.1 m up, so the first stone laid on it lies over CLEAR. */
+  const CAIRN_FOOT = { rings: [[-SUNK, 0.7, 0.5], [0.2, 0.73, 0.53], [0.98, 0.6, 0.45]], tip: [0.05, 1.1, 0], sides: [6, 5], rough: 0.08 };
   function cairn(g, of) {
-    piece(g, of.tones, of.salt(4), (salt) => hewnAs(CAIRN_FOOT, of.turn, 1, salt));
-    let top = CAIRN_FOOT.tip[1];
+    let under = piece(g, of.tones, of.salt(4), (salt) => hewnAs(CAIRN_FOOT, of.turn, 1, salt)).geometry;
     [0.62, 0.54, 0.45, 0.36, 0.27].slice(0, phone ? 4 : 5).forEach((r, k) => {
-      piece(g, STONE_TONES[(STONE_TONES.indexOf(of.tones) + k + 1) & 3], of.salt(5 + k), (salt) => {
-        const laid = flatRock(r, 0.1, salt).rotateY(k * 2.1 + of.turn).scale(1, 0.72 * of.tall, 0.8);
-        top = rest(laid, top, (k % 2 ? -0.06 : 0.06) * of.turn, k % 2 ? 0.04 : -0.04);
-        return laid;
-      });
+      const laid = (salt) => rest(flatRock(r, 0.1, salt).rotateY(k * 2.1 + of.turn).scale(1, 0.72 * of.tall, 0.8), [under], (k % 2 ? -0.06 : 0.06) * of.turn, k % 2 ? 0.04 : -0.04);
+      under = piece(g, STONE_TONES[(STONE_TONES.indexOf(of.tones) + k + 1) & 3], of.salt(5 + k), laid).geometry;
     });
   }
-  /* 4. A trilithon: two upright slabs, one a little the broader and the shorter, with a lintel laid across them that overhangs them
-     before and behind, and the sky through the doorway, which faces the walker. The lintel lies LAP into the shorter upright's
-     top and so deeper into the taller's. An upright reaches 0.525 + 0.26 x 1.05 = 0.798 m across and 0.43 x 1.05 = 0.452 m
-     along; the lintel, hewn standing and laid over with its length across the path, 0.79 m to its ends and 0.55 x 1.06 = 0.583 m
-     along. */
+  /* 4. A trilithon: two upright slabs, one the broader and the shorter, with a lintel laid across them that overhangs them before
+     and behind, and the sky through the doorway, which faces the walker. The lintel lies on both: it is tilted as their tops
+     are, the shorter upright's end the lower, so the taller upright shows. An upright reaches 0.525 + 0.26 x 1.05 = 0.798 m
+     across and 0.43 x 1.05 = 0.452 m along. The lintel is hewn standing and laid over, its length across the path, and tilted
+     0.146 rad at the most a title gives it: its tip, 0.79 m out on its middle line, then reaches 0.79 x 0.989 = 0.782 m across,
+     and its end ring, 0.74 m out and 0.27 x 1.06 = 0.286 m off that line, 0.74 x 0.989 + 0.286 x 0.146 = 0.774 m; along, it
+     reaches 0.55 x 1.06 = 0.583 m. */
   const LINTEL = { rings: [[-0.74, 0.27, 0.52], [0, 0.3, 0.55], [0.74, 0.27, 0.52]], tip: [0, 0.79, 0], sides: [6, 5], fine: 1, rough: 0.06, square: 3.5 };
   function trilithon(g, of) {
-    let top = Infinity;
-    for (const side of [-1, 1]) {
-      /* Each stands on its own side; the title's turn says which is the broader and the shorter. */
-      const wide = side === of.turn ? 0.26 : 0.24, tall = side === of.turn ? 2.95 : 3.05;
-      const upright = { rings: [[-SUNK, wide, 0.42, side * 0.525], [0.3, wide, 0.43, side * 0.525], [1.6, wide - 0.01, 0.42, side * 0.52], [tall, wide - 0.03, 0.4, side * 0.51]], tip: [side * 0.51, tall + 0.03, 0], sides: [6, 5], fine: 2, rough: 0.05, square: 3.5 };
-      piece(g, of.tones, of.salt(6 + side), (salt) => hewnAs(upright, 1, of.tall, salt));
-      top = Math.min(top, upright.tip[1] * of.tall);
-    }
-    piece(g, of.tones, of.salt(8), (salt) => {
-      const lintel = hewnAs(LINTEL, 1, 1, salt).rotateZ(Math.PI / 2);
-      rest(lintel, top);
-      return lintel;
+    /* Each upright stands on its own side; the title's turn says which is the broader and the shorter. */
+    const uprights = [-1, 1].map((side) => {
+      const lesser = side === of.turn, wide = lesser ? 0.26 : 0.24, tall = lesser ? 2.9 : 3.05;
+      return { rings: [[-SUNK, wide, 0.42, side * 0.525], [0.3, wide, 0.43, side * 0.525], [1.6, wide - 0.01, 0.42, side * 0.52], [tall, wide - 0.03, 0.4, side * 0.51]], tip: [side * 0.51, tall + 0.03, 0], sides: [6, 5], fine: 2, rough: 0.05, square: 3.5 };
     });
+    const [left, right] = uprights.map((upright, k) => piece(g, of.tones, of.salt(5 + 2 * k), (salt) => hewnAs(upright, 1, of.tall, salt)).geometry);
+    const tilt = Math.atan2((uprights[1].tip[1] - uprights[0].tip[1]) * of.tall, uprights[1].tip[0] - uprights[0].tip[0]);
+    piece(g, of.tones, of.salt(8), (salt) => rest(hewnAs(LINTEL, 1, 1, salt).rotateZ(Math.PI / 2 + tilt), [left, right]));
   }
   /* 5. A pair: two plain stones. */
   const stonePair = (g, of) => { plain(g, of, PLAIN.elder, 9); plain(g, of, PLAIN.younger, 10); };
   /* 6. A stele: a worked stone, squared, on a foot a step wider, narrowing as it rises to a collar and a pointed cap, with a band
-     cut round it. The cuts are paler. Its foot's step is STEP up whatever the stele's height, so the ground on a slope's upper
-     side comes up the foot and never over the step. Widest at the step, where it has settled 0.03 x 0.9 m to one side:
-     0.62 x 1.02 + 0.027 = 0.659 m across, and 0.48 x 1.02 = 0.490 m along. */
-  const STEP = 0.9, STELE_TOP = 4.5;
+     cut round it. The cuts are paler. Its foot's step is STEP up whatever the stele's height, and STEP is CLEAR, so the ground on
+     a slope's upper side comes up the foot and never over the step. Widest at the step, where it has settled 0.03 x 0.95 m to
+     one side: 0.62 x 1.02 + 0.029 = 0.661 m across, and 0.48 x 1.02 = 0.490 m along. */
+  const STEP = CLEAR, STELE_TOP = 4.5;
   function stele(g, of) {
     const rings = [[-SUNK, 0.62, 0.48], [STEP, 0.62, 0.48], [STEP, 0.47, 0.4], [2.8, 0.4, 0.34], [2.8, 0.34, 0.29], [3.0, 0.34, 0.29], [3.0, 0.39, 0.33], [3.82, 0.36, 0.31], [3.82, 0.43, 0.37], [4.0, 0.43, 0.37]];
     /* Over the step it is as tall as its title has it, and it has settled a little to one side. */
-    const up = (y) => (y <= STEP ? y : STEP + ((y - STEP) * (STELE_TOP * of.tall - STEP)) / (STELE_TOP - STEP)), lean = (y) => 0.03 * of.turn * Math.max(0, y);
+    const up = above(STEP, STELE_TOP, of.tall), lean = (y) => 0.03 * of.turn * Math.max(0, y);
     const cut = (x, y) => ((y > up(2.8) && y < up(3.0)) || y > up(4.0) ? of.tones.cut : null);
     piece(g, of.tones, of.salt(11), (salt) => hewn(rings.map(([y, rx, rz]) => [up(y), rx, rz, lean(up(y))]), [lean(up(STELE_TOP)), up(STELE_TOP), 0], 4, 0.02, salt, Infinity, true), cut);
   }
   /* 7. A balanced boulder: a great round stone at rest on a narrow one that stands in the ground. The boulder reaches
      0.03 + 0.7 x 1.09 = 0.793 m across and 0.76 x 0.7 x 1.09 = 0.580 m along. */
   function balancedBoulder(g, of) {
-    plain(g, of, PLAIN.stand, 12);
-    piece(g, of.tones, of.salt(13), (salt) => {
-      const boulder = rock(0.7, 1, 0.09, salt).rotateY(of.turn).scale(1, 1.2 * of.tall, 0.76);
-      rest(boulder, PLAIN.stand.tip[1] * of.tall, 0.03 * of.turn, 0);
-      return boulder;
-    });
+    const stand = plain(g, of, PLAIN.stand, 12).geometry;
+    piece(g, of.tones, of.salt(13), (salt) => rest(rock(0.7, 1, 0.09, salt).rotateY(of.turn).scale(1, 1.2 * of.tall, 0.76), [stand], 0.03 * of.turn, 0));
   }
   /* The kinds, in the order of a title's kind (stoneKind), and the title's own stone. */
   const STONES = [menhir, leaningSlab, splitStone, cairn, trilithon, stonePair, stele, balancedBoulder];
