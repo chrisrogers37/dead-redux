@@ -629,6 +629,7 @@ const reread = (file) => () => console.log(`reread ${file}: the page navigated w
 
 // Logs the page's render stats (window.__hill) for a shot, or for a recording after each control it holds; null on a page without them.
 // A frame over its tier's draw-call budget is a failure, and so is a first-person frame where a bear comes inside the near plane.
+// Returns the stats.
 const logStats = async (page, file) => {
   const stats = await evaluateAcrossNavigation(page, () => JSON.stringify(window.__hill ?? null), reread(file));
   console.log(`stats ${file} ${stats}`);
@@ -636,6 +637,7 @@ const logStats = async (page, file) => {
   for (const failure of [callsFailure(parsed), nearFailure(parsed)]) {
     if (failure) failures.push(`${file}: ${failure}`);
   }
+  return parsed;
 };
 
 // The HUD's shelves, by their tabs' names (src/components/world/shelves.ts).
@@ -969,14 +971,14 @@ try {
         const file = `${device}-${step.shot}.png`;
         await page.screenshot({ path: join(outDir, file), fullPage: true, clip });
         console.log(`${file}  ${url}  ${step.near !== undefined ? `near ${step.near}` : selector ?? `press ${step.press}`}`);
-        await logStats(page, file);
-        await logPage(page, file);
-        if (step.boxes) await logBoxes(page, file);
-        // A near still of the wrong song fails the run: the page says which song the visitor stands by.
+        const stats = await logStats(page, file);
+        // A near still of the wrong song fails the run: the stats say which song the visitor stands by. Its page plays nothing, so the
+        // player's lines are left out: each read of the page waits on a frame, and a software renderer's frame is a third of a second.
         if (step.near !== undefined) {
-          const failure = standFailure(await page.evaluate(() => window.__hill?.near ?? null), step);
+          const failure = standFailure(stats?.near ?? null, step);
           if (failure) failures.push(`${file}: ${failure}`);
-        }
+        } else await logPage(page, file);
+        if (step.boxes) await logBoxes(page, file);
         // The follow-up shot shows the page after it has been playing for a while.
         if (step.later) {
           await page.waitForTimeout(step.later.ms);
