@@ -250,6 +250,23 @@ describe("the landmarks built of many parts", () => {
       expect(n).toBe(36 + 3 * 24);
       // The tines' tips stand over the bale's top, 3.35 m up.
       expect(top).toBeGreaterThan(3.6);
+      // Its shaft, the one timber part here, leans on the bale and does not pass through it: the line between the middles of its
+      // two ends keeps the bale's radius and its own from the bale's axis. Its foot is in the ground.
+      const timber = new THREE.Color(0x6b4e2e), shaft: InstanceType<typeof THREE.Vector3>[] = [];
+      for (let i = 0; i < position.count; i++) if (Math.abs(color.getX(i) - timber.r) + Math.abs(color.getY(i) - timber.g) + Math.abs(color.getZ(i) - timber.b) < 1e-4) shaft.push(new THREE.Vector3(position.getX(i), position.getY(i), position.getZ(i)));
+      expect(shaft.length).toBeGreaterThan(30);
+      const middle = (points: InstanceType<typeof THREE.Vector3>[]) => points.reduce((sum, point) => sum.add(point), new THREE.Vector3()).divideScalar(points.length);
+      const half = (Math.min(...shaft.map((point) => point.y)) + Math.max(...shaft.map((point) => point.y))) / 2;
+      const foot = middle(shaft.filter((point) => point.y < half)), head = middle(shaft.filter((point) => point.y >= half));
+      let nearest = Infinity;
+      for (let k = 0; k <= 100; k++) {
+        from.copy(foot).lerp(head, k / 100);
+        from.y -= 1.45;
+        nearest = Math.min(nearest, from.addScaledVector(axis, -from.dot(axis)).length());
+      }
+      expect(nearest).toBeGreaterThan(1.9 + 0.05);
+      expect(nearest).toBeLessThan(1.9 + 0.2);
+      expect(Math.min(...shaft.map((point) => point.y))).toBeLessThan(-0.3);
     }
   });
 
