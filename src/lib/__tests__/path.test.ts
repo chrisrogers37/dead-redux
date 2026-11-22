@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildPath, layout } from "../../../public/world/path.js";
+import { FIRST_EYE, height } from "../../../public/world/ground.js";
+import { buildPath, layout, nearStand } from "../../../public/world/path.js";
 
-const { pointU } = buildPath();
+const path = buildPath();
+const { pointU } = path;
 // A show of twelve five-minute tracks: the titles given by index, and "Song i" at every other index.
 const show = (titles: Record<number, string>) => Array.from({ length: 12 }, (_, i) => ({ title: titles[i] ?? `Song ${i}`, duration: 300 }));
 // Where track i stands between pins (ia, ua) and (ib, ub): tracks as long as each other stand evenly spaced.
@@ -30,5 +32,121 @@ describe("layout", () => {
     expect(u).toHaveLength(13);
     expect(u[9]).toBe(pointU(13));
     expect(u[5]).toBeCloseTo(between(5, [0, 0], [9, pointU(13)]), 12);
+  });
+});
+
+describe("?pose=near-K: where the visitor stands by a landmark", () => {
+  const { at, tangentAt, curveLength } = path;
+  // A show of twelve songs, and its landmarks where their songs' points are, but for those `moved` names: [index, metres to the right
+  // of the path].
+  const u = layout(show({ 5: "Drums", 9: "Space" }), 3, path);
+  const landmarks = (moved: Record<number, number> = {}) => u.slice(0, 12).map((v: number, k: number) => {
+    const p = at(v), t = tangentAt(v), l = Math.hypot(t.x, t.z), off = moved[k] ?? 0;
+    return { position: { x: p.x - (t.z / l) * off, y: p.y, z: p.z + (t.x / l) * off } };
+  });
+  type Spot = { x: number; z: number };
+  const gap = (a: Spot, b: Spot) => Math.hypot(a.x - b.x, a.z - b.z);
+  // Which spot in the 60 m of path before `from` lies nearest `stand`, by 1 cm steps: how far off the path that leaves it, and how far
+  // back along the path it is.
+  const onPath = (stand: Spot, from: number) => {
+    let off = Infinity, back = 0;
+    for (let d = 0; d <= 60; d += 0.01) { const g = gap(at(from - d / curveLength), stand); if (g < off) { off = g; back = d; } }
+    return { off, back };
+  };
+  // That the view from `stand` is turned to the landmark, and passes 4 m up it from the first-person eye over the ground there.
+  const faces = (stand: Spot & { heading: number; pitch: number }, to: Spot & { y: number }, label: string) => {
+    const d = gap(stand, to);
+    // The world's forward is (-sin heading, -cos heading) (main.js).
+    expect(-Math.sin(stand.heading), label).toBeCloseTo((to.x - stand.x) / d, 9);
+    expect(-Math.cos(stand.heading), label).toBeCloseTo((to.z - stand.z) / d, 9);
+    expect(height(stand.x, stand.z) + FIRST_EYE + d * Math.tan(stand.pitch), label).toBeCloseTo(to.y + 4, 9);
+  };
+
+  it("stands 14 m in a straight line from the landmark, on the path behind its song's point, with the view on it", () => {
+    const all = landmarks();
+    // The twelve stand 30 m and more apart here, so none stands in another's view.
+    for (const k of [1, 3, 5, 7, 9, 11]) {
+      const stand = nearStand(path, u, all, k)!;
+      expect(gap(stand, all[k].position), `song ${k}`).toBeCloseTo(14, 6);
+      // On the path, and behind the song's point, as the walker comes to it: 14 m back along it or more, since a path bends.
+      const { off, back } = onPath(stand, u[k]);
+      expect(off, `song ${k}`).toBeLessThan(0.01);
+      expect(back, `song ${k}`).toBeGreaterThanOrEqual(13.99);
+      expect(back, `song ${k}`).toBeLessThan(30);
+      faces(stand, all[k].position, `song ${k}`);
+    }
+  });
+
+  it("looks down at a landmark that stands lower than the eye, and up at one that stands higher", () => {
+    const all = landmarks();
+    all[3].position.y -= 6;
+    all[7].position.y += 6;
+    const low = nearStand(path, u, all, 3)!, high = nearStand(path, u, all, 7)!;
+    expect(low.pitch).toBeLessThan(-0.2);
+    expect(high.pitch).toBeGreaterThan(0.2);
+    faces(low, all[3].position, "low");
+    faces(high, all[7].position, "high");
+  });
+
+  it("faces a landmark that stands off its song's point, 14 m from where it stands, not from the point", () => {
+    const all = landmarks({ 4: 9 });
+    const stand = nearStand(path, u, all, 4)!;
+    expect(gap(stand, all[4].position)).toBeCloseTo(14, 6);
+    expect(gap(stand, at(u[4]))).not.toBeCloseTo(14, 1);
+    expect(onPath(stand, u[4]).off).toBeLessThan(0.01);
+    faces(stand, all[4].position, "moved");
+  });
+
+  it("steps back round the loop's closing for the first song, whose point is the trailhead", () => {
+    expect(u[0]).toBe(0);
+    const all = landmarks(), stand = nearStand(path, u, all, 0)!;
+    expect(gap(stand, all[0].position)).toBeCloseTo(14, 6);
+    const { off, back } = onPath(stand, 0);
+    expect(off).toBeLessThan(0.01);
+    expect(back).toBeGreaterThanOrEqual(13.99);
+  });
+
+  it("sees a landmark that already stands 14 m or more from its song's point from that point", () => {
+    const all = landmarks({ 6: 16 }), stand = nearStand(path, u, all, 6)!, p = at(u[6]);
+    expect(stand.x).toBe(p.x);
+    expect(stand.z).toBe(p.z);
+    expect(gap(stand, all[6].position)).toBeCloseTo(16, 6);
+  });
+
+  it("stands closer where another landmark stands in the view: 11 m, then 8 m, and 8 m where nothing clears it", () => {
+    // Another landmark on the line of sight from 14 m, `ahead` metres in front of the eye and `aside` metres off the line.
+    const withOne = (ahead: number, aside: number) => {
+      const all = landmarks(), from = nearStand(path, u, all, 8)!, to = all[8].position, d = gap(from, to);
+      const fx = (to.x - from.x) / d, fz = (to.z - from.z) / d;
+      all.push({ position: { x: from.x + fx * ahead - fz * aside, y: to.y, z: from.z + fz * ahead + fx * aside } });
+      return { all, to };
+    };
+    // 2 m in front of the eye at 14 m: from 11 m it stands behind the eye.
+    let { all, to } = withOne(2, 0);
+    expect(gap(nearStand(path, u, all, 8)!, to)).toBeCloseTo(11, 6);
+    // 5 m in front: still in the view from 11 m, behind the eye from 8 m.
+    ({ all, to } = withOne(5, 0));
+    expect(gap(nearStand(path, u, all, 8)!, to)).toBeCloseTo(8, 6);
+    // 10 m in front, 4 m short of the landmark: in every view, and the closest is taken.
+    ({ all, to } = withOne(10, 0));
+    expect(gap(nearStand(path, u, all, 8)!, to)).toBeCloseTo(8, 6);
+    // 3.9 m off the line of sight is in the view, and 4.5 m is not; nor is one behind the eye, or past the landmark.
+    ({ all, to } = withOne(2, 3.9));
+    expect(gap(nearStand(path, u, all, 8)!, to)).toBeCloseTo(11, 6);
+    for (const [ahead, aside] of [[2, 4.5], [-3, 0], [17, 0]]) {
+      ({ all, to } = withOne(ahead, aside));
+      expect(gap(nearStand(path, u, all, 8)!, to), `${ahead} m ahead, ${aside} m aside`).toBeCloseTo(14, 6);
+    }
+    // Wherever it stands, the view is on the landmark.
+    ({ all, to } = withOne(5, 0));
+    const stand = nearStand(path, u, all, 8)!;
+    faces(stand, to, "closer");
+  });
+
+  it("stands nowhere for a song the show does not have, or by a landmark the path never gets far enough from", () => {
+    const all = landmarks();
+    for (const k of [12, 99, -1, 1.5, Number.NaN]) expect(nearStand(path, u, all, k), `song ${k}`).toBeNull();
+    // A distance no path reaches: the search ends once it has gone the loop round.
+    expect(nearStand(path, u, all, 3, 1e6)).toBeNull();
   });
 });

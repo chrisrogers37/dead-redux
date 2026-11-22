@@ -66,6 +66,8 @@ One file: `npx vitest run src/lib/__tests__/quality.test.ts`. The dev server sen
 
 The test hooks, `?at=`, `?t=`, `?stats=1`, `?day=`, `?sleep=`, `?lookup=`, `?pose=` and `?drive=`, answer only on Vercel previews. The server reads the switch, never a `NEXT_PUBLIC_` variable (`src/lib/test-hooks.ts`; `test-hooks.test.ts`). `?tier=` works anywhere.
 
+`?pose=near-K` stands the visitor on the path beside song K's landmark, facing it (`nearStand` in `public/world/path.js`). The shoot takes such a still of every landmark of the fixed day, on a desktop and a phone, and of every other kind of landmark on four more days (`.github/screenshots/near.mjs`). `scripts/__tests__/near-landmarks.test.ts` holds that table to the maps and to the builders' table, so a new kind of landmark gets a still there.
+
 ## The daily pick
 
 - The site's day turns at midnight `America/New_York` (`src/lib/site-day.ts`; `site-day.test.ts`).

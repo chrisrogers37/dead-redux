@@ -1,6 +1,6 @@
 /* eslint-disable */
 import * as THREE from "three";
-import { G, height, TRAILHEAD } from "./ground.js";
+import { FIRST_EYE, G, height, TRAILHEAD } from "./ground.js";
 import { hull, standClear } from "./collide.js";
 import { isDrums, isSpace } from "./seats.js";
 
@@ -40,6 +40,49 @@ export function layout(tracks, set2Start, { pointU }) {
   }
   landmarkU.push(1);
   return landmarkU;
+}
+
+/* The test hook ?pose=near-K (main.js) stands the visitor NEAR_SHORT m short of a landmark, in a straight line, or one of the NEAR_CLOSER
+   distances where another landmark would stand in the view: within NEAR_CLEAR m of the line of sight. The first-person view is centred
+   NEAR_AIM m up the landmark, which at 14 m keeps the foot and the top of a 12 m landmark in a desktop's frame, and a flat one, lying
+   downhill, in it too. */
+const NEAR_SHORT = 14, NEAR_CLOSER = [11, 8], NEAR_CLEAR = 4, NEAR_AIM = 4;
+
+/* Where ?pose=near-K stands the visitor: on the path, `short` metres in a straight line from where landmark k really stands, which may be
+   off its song's point (placeLandmarks), found by stepping back along the path from that point, the first song's round the loop's
+   closing. A landmark that already stands that far or further from its song's point is seen from the point. Where another landmark
+   stands in the view from there, the visitor stands closer, at the first of NEAR_CLOSER that clears it, or the last. It faces the
+   landmark and looks NEAR_AIM m up it. Null where there is no landmark k, or the path never gets `short` metres from it. */
+export function nearStand({ at, curveLength }, landmarkU, landmarks, k, short = NEAR_SHORT) {
+  const to = landmarks[k]?.position;
+  if (!to) return null;
+  const gap = (p) => Math.hypot(p.x - to.x, p.z - to.z);
+  const step = 0.25 / curveLength;
+  /* The spot on the path `away` metres from the landmark, behind its song's point. */
+  const spot = (away) => {
+    let near = landmarkU[k], far = near;
+    for (let n = 1; gap(at(far)) < away; n++) {
+      if (n * step >= 1) return null;
+      near = far;
+      far = landmarkU[k] - n * step;
+    }
+    /* Between the last step inside `away` and the first one out of it, the spot that is `away` from the landmark. */
+    for (let i = 0; near !== far && i < 40; i++) { const mid = (near + far) / 2; if (gap(at(mid)) < away) near = mid; else far = mid; }
+    return at(far);
+  };
+  /* Whether another landmark stands in the view from p: between the eye and this landmark, within NEAR_CLEAR m of the line of sight. */
+  const blocked = (p) => landmarks.some(({ position: q }, j) => {
+    if (j === k) return false;
+    const dx = to.x - p.x, dz = to.z - p.z, t = ((q.x - p.x) * dx + (q.z - p.z) * dz) / (dx * dx + dz * dz);
+    return t > 0 && t < 1 && Math.hypot(q.x - p.x - dx * t, q.z - p.z - dz * t) < NEAR_CLEAR;
+  });
+  let p = spot(short);
+  if (!p) return null;
+  for (const closer of NEAR_CLOSER) {
+    if (closer >= short || !blocked(p)) break;
+    p = spot(closer);
+  }
+  return { x: p.x, z: p.z, heading: Math.atan2(p.x - to.x, p.z - to.z), pitch: Math.atan2(to.y + NEAR_AIM - p.y - FIRST_EYE, gap(p)) };
 }
 
 /* The bears' line: `side` metres to the left of the path. On the inside of a left bend it is drawn in so it never turns tighter than
