@@ -164,14 +164,18 @@ export function launch(chromium, gpu) {
 // requestAnimationFrame queues onto a virtual frame that only a step runs, so every frame the world draws is one this script asked for,
 // exactly 1/60 s of the world's time after the last. step(n) runs n frames in a row (nothing is presented between them);
 // present() runs one inside a real animation frame, as a display would, and resolves two real frames later, once it is on screen.
+// Date.now() follows the virtual clock from the moment the page opened, in whole milliseconds. Nothing else is virtual: timers, new
+// Date() and CSS animations keep the machine's time, which the page's own scripts need. So the world's modules keep to
+// performance.now and the animation frame, and scripts/__tests__/flash-lib.test.ts holds them to it.
 export const STEPPER = `(() => {
   const perf = performance;
   const realNow = perf.now.bind(perf);
   const realRaf = window.requestAnimationFrame.bind(window);
-  const base = realNow();
+  const base = realNow(), opened = Date.now();
   let n = 0, vnow = base, nextId = 1;
   const queue = new Map();
   perf.now = () => vnow;
+  Date.now = () => opened + Math.floor(vnow - base);
   window.requestAnimationFrame = (cb) => { const id = nextId++; queue.set(id, cb); return id; };
   window.cancelAnimationFrame = (id) => { queue.delete(id); };
   const run = (advance) => {

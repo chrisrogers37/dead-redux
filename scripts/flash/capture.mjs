@@ -17,7 +17,7 @@ import { cue, FPS, hideDevIndicator, jobUrl, launch, loadPlaywright, mainSha, ma
 import { tables } from "./table.mjs";
 
 const SETTLE_S = 12, WARM_FRAMES = 60;
-// The lead-in: a second of frames before each window. They set every block's state and are not counted (analyse.mjs).
+// The lead-in: a second of frames before each window. They set every block's state and count for nothing else (analyse.mjs).
 const LEAD = FPS;
 // Blocks within this many px of a plate's box are masked with it (a plate's edge is antialiased over a fraction of a pixel).
 const PAD = 2;
@@ -127,6 +127,9 @@ async function run(browser, PNG, config, day, job) {
     // it stood at the first frame, since a count from a camera that moved is a count of motion.
     const asked = job.pose.includes(",") ? job.pose.split(",").map(Number) : null;
     let stand = asked && { x: asked[0], z: asked[1], heading: asked[2], pitch: asked[3] };
+    // Whether the pose was held to its place through the count: not asked of the page's own opening, and not possible where the world
+    // does not say where the visitor stands, which is a world from before window.__hill.walker.
+    let poseHeld = job.pose === "home" ? null : true;
     for (let f = -LEAD; f < nFrames; f++) {
       const cueNow = win.cues?.find(([at]) => Math.round(at * FPS) === f);
       if (cueNow) await cue(page, cueNow[1], cueNow[2]);
@@ -148,6 +151,10 @@ async function run(browser, PNG, config, day, job) {
       if (errors.length) stop(`frame ${f}: the page reported an error: ${errors[0]}`);
       if (job.pose !== "home") {
         if (asked && !read.walker) stop("a pose of four numbers was asked, and this world does not say where the visitor stands (window.__hill.walker)");
+        if (!read.walker && poseHeld) {
+          poseHeld = false;
+          console.warn(`WARNING ${tag}: nothing checks that the visitor stood still at pose=${job.pose} through this count: the world does not say where they stand (it is from before window.__hill.walker).`);
+        }
         stand ??= read.walker;
         const w = read.walker;
         if (w && (Math.hypot(w.x - stand.x, w.z - stand.z) > STAND_SLACK || Math.abs(w.heading - stand.heading) > LOOK_SLACK || Math.abs(w.pitch - stand.pitch) > LOOK_SLACK)) {
@@ -190,7 +197,7 @@ async function run(browser, PNG, config, day, job) {
     const out = {
       tag, job, url, day: config.day, show: day.show, window: win, frame: FRAME, frames: nFrames, leadIn: LEAD, fps: FPS, threshold: THRESHOLD,
       world: { hash: worldHash(served), modules: served.length, ...worldFrom(job.variant, config), tier: world.tier, scale: world.scale, renderer: world.renderer, bufferW: canvas.bufferW, bufferH: canvas.bufferH },
-      canvasCheck: check, platesMasked, seconds: Math.round((Date.now() - t0) / 1000),
+      canvasCheck: check, poseHeld, platesMasked, seconds: Math.round((Date.now() - t0) / 1000),
       results,
     };
     await writeFile(join(config.runDir, `${tag}.json`), JSON.stringify(out));

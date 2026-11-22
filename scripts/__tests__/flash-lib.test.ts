@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "fs";
+import { execFileSync } from "child_process";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -254,6 +255,44 @@ describe("the world a job counts", () => {
     ]) expect(worldHash(other)).not.toBe(hash);
     // One module whose text spells out another's name and text is not the two modules.
     expect(worldHash([["main.js", "rig.jsc"]])).not.toBe(worldHash([["main.js", ""], ["rig.js", "c"]]));
+    // Nor is it where the text holds the very byte that parts a name from its text, and so spells out the next module whole: each
+    // text is taken by its length.
+    expect(worldHash([["main.js", "a" + "rig.js\0" + "c"]])).not.toBe(worldHash([["main.js", "a"], ["rig.js", "c"]]));
+  });
+
+  describe("in a checkout", () => {
+    const made: string[] = [];
+    afterEach(() => { for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+    // A checkout with one commit: a world of one module, and a page beside it.
+    const checkout = () => {
+      const dir = mkdtempSync(join(tmpdir(), "flash-checkout-"));
+      made.push(dir);
+      const git = (...args: string[]) => execFileSync("git", ["-C", dir, "-c", "user.name=flash", "-c", "user.email=flash@example.test", "-c", "commit.gpgsign=false", ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+      mkdirSync(join(dir, "public", "world"), { recursive: true });
+      mkdirSync(join(dir, "src"));
+      writeFileSync(join(dir, "public", "world", "main.js"), "export const world = 1;\n");
+      writeFileSync(join(dir, "src", "page.tsx"), "export const page = 1;\n");
+      git("init", "-q");
+      git("add", ".");
+      git("commit", "-q", "-m", "a world");
+      return { dir, world: join(dir, "public", "world"), commit: git("rev-parse", "HEAD").trim() };
+    };
+    const from = (world: string) => worldFrom("branch", { siteUrl: "https://preview.test", mainRef: "origin/main", mainCommit: "", worldDir: world });
+
+    it("says the world's folder has changed since its commit when a module in it is edited or added, and not when anything else in the checkout is", () => {
+      const { dir, world, commit } = checkout();
+      expect(from(world)).toEqual({ from: "WORLD_DIR", ref: world, commit, dirty: false });
+      // The page round the world is no part of the world a job counts: the tree is dirty, and the world's folder is as committed.
+      writeFileSync(join(dir, "src", "page.tsx"), "export const page = 2;\n");
+      writeFileSync(join(dir, "notes.txt"), "not tracked\n");
+      expect(from(world).dirty).toBe(false);
+      writeFileSync(join(world, "rig.js"), "export const rig = 1;\n");
+      expect(from(world).dirty).toBe(true);
+      rmSync(join(world, "rig.js"));
+      expect(from(world).dirty).toBe(false);
+      writeFileSync(join(world, "main.js"), "export const world = 2;\n");
+      expect(from(world).dirty).toBe(true);
+    });
   });
 
   it("says where it came from: main's commit, a checkout's world with its commit and whether the folder has changed since, or the server", () => {
@@ -279,9 +318,11 @@ describe("the world a job counts", () => {
 describe("the virtual clock (STEPPER)", () => {
   // A page as the stepper finds it: a clock that runs on whenever it is read, and animation frames the browser calls when it likes.
   const page = () => {
-    let real = 5000.25;
+    let real = 5000.25, wall = 1_795_000_000_123;
     const browserFrames: (() => void)[] = [], errors: string[] = [];
     const performance = { now: () => (real += 7.3) };
+    // The page's Date, of which the stepper takes over `now`: the wall's clock, which runs on too.
+    const date = { now: () => (wall += 11) };
     const window = {
       requestAnimationFrame: (callback: () => void) => browserFrames.push(callback),
       cancelAnimationFrame: () => {},
@@ -290,10 +331,10 @@ describe("the virtual clock (STEPPER)", () => {
       cancelAnimationFrame: (id: number) => void;
       __stepper: { step(k?: number): number; pump(): number; present<T>(after?: () => T): Promise<T | null>; queued(): number; steps(): number; now(): number };
     };
-    new Function("window", "performance", "console", STEPPER)(window, performance, { error: (message: string) => errors.push(message) });
+    new Function("window", "performance", "console", "Date", STEPPER)(window, performance, { error: (message: string) => errors.push(message) }, date);
     // The browser draws a frame: every real animation frame asked for so far is called.
     const draw = () => browserFrames.splice(0).map((callback) => callback()).length;
-    return { window, performance, stepper: window.__stepper, browserFrames, errors, draw };
+    return { window, performance, date, stepper: window.__stepper, browserFrames, errors, draw };
   };
   const FRAME = 1000 / 60;
 
@@ -310,6 +351,24 @@ describe("the virtual clock (STEPPER)", () => {
     // A clock at 30 frames a second, or at the browser's own pace, would stand elsewhere.
     expect(performance.now() - start).toBeCloseTo(1000, 9);
     expect(stepper.now()).toBe(performance.now());
+  });
+
+  it("moves Date.now with it, in whole milliseconds from the moment the page opened: a world that kept time by it would keep the same time", () => {
+    const { date, stepper } = page();
+    const opened = date.now();
+    // The wall's clock ran on 11 ms at each reading, and the stepper read it once as the page opened: the day and the hour are the
+    // real ones. Now it stands until a step.
+    expect(opened).toBe(1_795_000_000_123 + 11);
+    expect(date.now()).toBe(opened);
+    stepper.step();
+    expect(date.now()).toBe(opened + 16);
+    stepper.step(2);
+    expect(date.now()).toBe(opened + 50);
+    stepper.step(57);
+    expect(date.now()).toBe(opened + 1000);
+    // A pump runs the frames waiting and moves neither clock.
+    stepper.pump();
+    expect(date.now()).toBe(opened + 1000);
   });
 
   it("runs a frame the page asked for at the next step and no sooner, once, with the clock's time, and never hands it to the browser", () => {
@@ -393,6 +452,35 @@ describe("the virtual clock (STEPPER)", () => {
     expect(ran).toBe(1);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain("stepper: Error: a frame fell over");
+  });
+});
+
+describe("the world's clock", () => {
+  // Where a module's text reads the machine's clock or sets a timer, as [line, what]. `new Date(value)` reads none: it makes a date of
+  // the value it is given.
+  const CLOCKS: [RegExp, string][] = [
+    [/\bDate\s*\.\s*now\b/, "Date.now"],
+    [/\bnew\s+Date\b(?!\s*\(\s*[^\s)])/, "new Date()"],
+    [/\bsetTimeout\b/, "setTimeout"],
+    [/\bsetInterval\b/, "setInterval"],
+    [/\bperformance\s*\.\s*timeOrigin\b/, "performance.timeOrigin"],
+  ];
+  const wallClocks = (text: string) => text.split("\n").flatMap((line, k) => CLOCKS.filter(([pattern]) => pattern.test(line)).map(([, what]) => `line ${k + 1}: ${what}`));
+
+  it("is the one the flash counter drives, in every module of public/world: none reads the wall's clock or sets a timer", () => {
+    const found = readdirSync(WORLD).filter((name) => name.endsWith(".js")).flatMap((name) => wallClocks(readFileSync(join(WORLD, name), "utf8")).map((use) => `public/world/${name}, ${use}`));
+    expect(found, "The flash counter's virtual clock is the animation clock: performance.now and requestAnimationFrame, with Date.now following it. " +
+      "Timers, new Date() and performance.timeOrigin keep the machine's time, so a world that moves by one of them is counted wrongly, and no check " +
+      "of the counter's sees it: the review of #173 counted 18 swings where there were 6. Keep the world on performance.now and the frame's own " +
+      "time, or extend STEPPER in scripts/flash/lib.mjs first, with a test.").toEqual([]);
+  });
+
+  it("is told from a wall clock by this test: each way of reading one is found, and making a date of a value is not", () => {
+    expect(wallClocks("const t = Date.now();\nconst d = new Date();\nsetTimeout(tick, 16);\nconst id = window.setInterval(tick, 16);\nconst t0 = performance.timeOrigin;"))
+      .toEqual(["line 1: Date.now", "line 2: new Date()", "line 3: setTimeout", "line 4: setInterval", "line 5: performance.timeOrigin"]);
+    expect(wallClocks("const now = Date . now ( );\nconst d = new Date;\nconst e = new Date( );\nconst f = new  Date().getTime();")).toEqual(["line 1: Date.now", "line 2: new Date()", "line 3: new Date()", "line 4: new Date()"]);
+    // What the world may do: read the animation clock, and make a date of a value (maps.js checks a map's date so).
+    expect(wallClocks("const t = performance.now();\nreturn !isNaN(time) && new Date(time).toISOString().slice(0, 10) === value;\nconst d = new Date( 2026, 10, 22 );\nconst updated = map.date;")).toEqual([]);
   });
 });
 
@@ -581,6 +669,18 @@ describe("tables", () => {
     expect(warnings).toEqual([expect.stringContaining("the branch rows are of 2 worlds: bbbbbbbbbbbb")]);
   });
 
+  it("prints every result of a job when told to mix, each by its world's hash, and drops none", () => {
+    // Two runs of the seeks on the branch, of two worlds, and one on main: the branch's cell holds both counts.
+    const other = { hash: "c".repeat(64), ref: "/another/public/world" };
+    const { markdown } = tables([row("branch S grids=0,0", [[6, 14]]), row("branch S grids=0,0", [[18, 116]], other), row("main S grids=0,0", [[6, 14]])], { mixed: true });
+    expect(markdown.split("\n").slice(2)).toEqual([
+      "| desktop, 1×: 800×500 | 0 | S (Seeks through the night) | crowd | whole frame | even | 6, 14 | 6, 14 (bbbbbbbbbbbb); 18, 116 (cccccccccccc) |",
+    ]);
+    // The same job run twice on one world says its count once where the two agree, and both where they do not.
+    expect(tables([row("branch S grids=0,0", [[6, 14]]), row("branch S grids=0,0", [[6, 14]])]).markdown.split("\n")[2]).toContain("| – | 6, 14 |");
+    expect(tables([row("branch S grids=0,0", [[6, 14]]), row("branch S grids=0,0", [[7, 14]])]).markdown.split("\n")[2]).toContain("| – | 6, 14 (bbbbbbbbbbbb); 7, 14 (bbbbbbbbbbbb) |");
+  });
+
   it("refuses a result that does not say which world it counted, as an earlier counter's does not", () => {
     const old = { ...row("branch Q", [[2, 0], [2, 0]]), world: { tier: "desktop", renderer: METAL } };
     expect(() => tables([row("branch S", [[5, 2], [5, 1]]), old as unknown as ReturnType<typeof row>])).toThrow(
@@ -603,8 +703,19 @@ describe("tables", () => {
     expect(warnings[0]).toContain("SwiftShader");
   });
 
-  it("warns of the jobs whose frames nothing checked against the canvas, by name", () => {
+  it("warns of the jobs whose frames nothing checked against the canvas, by name: one frame unchecked is enough", () => {
     const { warnings } = tables([row("branch S dpr=1.5", [[5, 2], [5, 1]]), row("branch S tier=phone view=390x844 dpr=2", [[5, 2], [5, 1]])]);
     expect(warnings).toEqual(["1 of 2 jobs have frames that were not checked against the canvas (the world draws them at another size than the screen's): branch_S_crowd_390x844_x2_phone_whole_rung0_g00+11"]);
+    const one = row("branch Q dpr=1.5", [[2, 0], [2, 0]]);
+    one.canvasCheck = { checked: 780, unchecked: 1, worst: 0 };
+    expect(tables([one]).warnings).toEqual([expect.stringContaining("1 of 1 jobs have frames that were not checked against the canvas")]);
+  });
+
+  it("warns of the jobs that could not check their pose stood still, by name: a world from before it said where the visitor stands", () => {
+    const held = row("branch S dpr=1.5", [[5, 2], [5, 1]]), unheld = { ...row("main S dpr=1.5", [[5, 2], [5, 1]]), poseHeld: false }, opening = { ...row("branch Q dpr=1.5 pose=home", [[2, 0], [2, 0]]), poseHeld: null };
+    expect(tables([{ ...held, poseHeld: true }, opening]).warnings).toEqual([]);
+    expect(tables([{ ...held, poseHeld: true }, unheld, opening]).warnings).toEqual([
+      "1 of 3 jobs could not check that the visitor stood still at their pose (their world is from before window.__hill.walker): main_S_crowd_800x500_x1.5_auto_whole_rung0_g00+11",
+    ]);
   });
 });
