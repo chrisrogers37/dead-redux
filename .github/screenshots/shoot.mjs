@@ -851,15 +851,10 @@ try {
       height: options.viewport.height * MAX_SCREENS,
     };
 
-    for (const { path, shots, steps, end, devices, ready, sweep, failAudio, status, served, whole } of PAGES) {
-      // The TV device is for lean-back, so it shoots the home page and only the other pages that name it.
-      if (device === "tv" && path !== "/" && !devices?.includes("tv")) {
-        continue;
-      }
-      // A page may name the devices that shoot it; a device without WebGL, and the phone on its side, shoot only the pages that do.
-      if (devices ? !devices.includes(device) : BY_NAME.has(device)) {
-        continue;
-      }
+    // The pages this device shoots. The TV device is for lean-back, so it shoots the home page and only the other pages that name it. A
+    // page may name the devices that shoot it; a device without WebGL, and the phone on its side, shoot only the pages that do.
+    const pages = PAGES.filter(({ path, devices }) => (device !== "tv" || path === "/" || devices?.includes("tv")) && (devices ? devices.includes(device) : !BY_NAME.has(device)));
+    for (const [k, { path, shots, steps, end, ready, sweep, failAudio, status, served, whole }] of pages.entries()) {
       const url = pageUrl(path, device);
       if (failAudio) await page.route(isTrackAudio, (route) => route.abort());
       const response = await open(page, url);
@@ -893,7 +888,7 @@ try {
           document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
         });
       }
-      // A page shot whole is in first person with the shelves away, until its steps are done.
+      // A page shot whole is in first person with the shelves away, until its steps are done. After a page shot whole it is so already.
       if (whole) await showWhole(page, true, `${device} ${path}`);
       // A sweep that cannot finish fails the run at the end, so the shots after it are still taken.
       if (sweep) await sweepWalk(page, device, sweep).catch((error) => failures.push(`sweep ${device}: ${error.message}`));
@@ -1018,7 +1013,8 @@ try {
           if (routed) failures.push(`${laterFile}: ${routed}`);
         }
       }
-      if (whole) await showWhole(page, false, `${device} ${path}, after its steps`);
+      // The view and the shelves are handed back to the page after, unless it is shot whole too: they would only be put away again.
+      if (whole && !pages[k + 1]?.whole) await showWhole(page, false, `${device} ${path}, after its steps`);
 
       if (end) {
         // The last screen, as a visitor who scrolled to the bottom sees it.

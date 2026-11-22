@@ -156,6 +156,26 @@ describe("?pose=near-K: where the visitor stands by a landmark", () => {
     faces(stand, to, "closer");
   });
 
+  it("stands back from a long landmark: 8 m from its furthest reach where that is more than 14 m, and 6 m and 4 m at the closer stands", () => {
+    // As placeLandmarks marks one: how far the landmark reaches from its own middle, seen from above.
+    const reaching = (reach: number) => { const all = landmarks() as { position: { x: number; y: number; z: number }; userData?: { reach: number } }[]; all[8].userData = { reach }; return all; };
+    for (const [reach, away] of [[0, 14], [3, 14], [6, 14], [6.5, 14.5], [9.22, 17.22]]) {
+      const all = reaching(reach);
+      expect(gap(nearStand(path, u, all, 8)!, all[8].position), `a reach of ${reach} m`).toBeCloseTo(away, 6);
+    }
+    // With another landmark in the view from the first stand: the closer stands keep their own room.
+    const blockedAt = (reach: number, ahead: number) => {
+      const all = reaching(reach), from = nearStand(path, u, all, 8)!, to = all[8].position, d = gap(from, to);
+      all.push({ position: { x: from.x + ((to.x - from.x) / d) * ahead, y: to.y, z: from.z + ((to.z - from.z) / d) * ahead } });
+      return gap(nearStand(path, u, all, 8)!, to);
+    };
+    expect(blockedAt(0, 2)).toBeCloseTo(11, 6);
+    // A reach of 7 m: 15 m, then 13 m, then 11 m.
+    expect(blockedAt(7, 1)).toBeCloseTo(13, 6);
+    expect(blockedAt(0, 5)).toBeCloseTo(8, 6);
+    expect(blockedAt(7, 3.5)).toBeCloseTo(11, 6);
+  });
+
   it("stands nowhere for a song the show does not have, or by a landmark the path never gets far enough from", () => {
     const all = landmarks();
     for (const k of [12, 99, -1, 1.5, Number.NaN]) expect(nearStand(path, u, all, k), `song ${k}`).toBeNull();

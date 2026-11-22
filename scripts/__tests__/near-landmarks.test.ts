@@ -17,7 +17,7 @@ const kindOf = (title: string) => BUILDERS.findIndex(([rule]) => rule.test(title
 const nameOf = (kind: number) => (kind < 0 ? "the standing stone" : (BUILDERS[kind][0].source ?? (BUILDERS[kind][0].test as { name: string }).name));
 // The fixed day's show as its map has it: its songs, and how long each plays.
 const map = JSON.parse(readFileSync(join(__dirname, "../../public/maps/1986-07-04.json"), "utf8")) as { tracks: { title: string; playingDuration: number }[] };
-const as = AS_TITLES as [number, string][];
+const as = AS_TITLES as [number, string, string?][];
 type Step = { near: number; title: string; shot: string };
 type Page = { path: string; devices: string[]; whole: boolean; shots: string[]; steps: Step[] };
 const [own, others] = nearPages() as Page[];
@@ -48,16 +48,16 @@ describe("the near stills", () => {
     expect(asKinds).toContain(-1);
   });
 
-  it("builds each other kind at a song's point of its own, and at neither cave's, where Drums and Space are pinned", () => {
+  it("builds each other kind at a song's point of its own: at neither cave's, where Drums and Space are pinned, nor the first song's, under its column of light", () => {
     const indexes = as.map(([index]) => index);
     expect(new Set(indexes).size).toBe(indexes.length);
     for (const index of indexes) {
-      expect(Number.isInteger(index) && index >= 0 && index < FIXED_TITLES.length, `song ${index}`).toBe(true);
+      expect(Number.isInteger(index) && index > 0 && index < FIXED_TITLES.length, `song ${index}`).toBe(true);
       expect(isDrums(FIXED_TITLES[index]) || isSpace(FIXED_TITLES[index]), `song ${index}`).toBe(false);
     }
   });
 
-  it("has a clear view of every landmark it shoots, on a desktop and a phone, and of each other kind from 14 m", () => {
+  it("has a clear view of every landmark it shoots, on a desktop and a phone, from 14 m or as far as a long one asks", () => {
     // The world's own path, bears' line and landmarks for the fixed day (set 2 opens with song 7), as main.js builds them.
     const path = buildPath(), line = buildWalkLine(path, 7);
     const songs = map.tracks.map((t) => ({ title: t.title, duration: t.playingDuration }));
@@ -68,7 +68,13 @@ describe("the near stills", () => {
         const landmarks = placeLandmarks(new Scene(), path, tracks, true, makeBuilders(phone), u, line);
         return shot.map((k) => ({ k, stand: nearStand(path, u, landmarks, k)!, to: landmarks[k].position }));
       };
-      for (const { k, stand } of stands(songs, songs.map((_, k) => k))) expect(stand.clear, `song ${k}${phone ? " on a phone" : ""}`).toBe(true);
+      const own = stands(songs, songs.map((_, k) => k));
+      for (const { k, stand } of own) expect(stand.clear, `song ${k}${phone ? " on a phone" : ""}`).toBe(true);
+      // The road's slab is 18 m long and reaches 9.2 m from its middle: the visitor stands 8 m back from that, not 14 m from the middle,
+      // where its near end would be under the frame. No other landmark here is so long, and one, Touch Of Grey's, is seen from 11 m.
+      const far = own.filter(({ stand, to }) => gap(stand, to) > 14.001).map(({ k, stand, to }) => [FIXED_TITLES[k], Math.round(gap(stand, to) * 10) / 10]);
+      expect(far).toEqual([["Goin' Down The Road Feeling Bad ->", 17.2]]);
+      expect(own.filter(({ stand, to }) => gap(stand, to) < 13.999).map(({ k }) => FIXED_TITLES[k])).toEqual(["Touch Of Grey"]);
       const built = songs.map((t, k) => ({ ...t, title: as.find(([index]) => index === k)?.[1] ?? t.title }));
       for (const { k, stand, to } of stands(built, as.map(([index]) => index))) {
         expect(stand.clear, `song ${k} as another${phone ? " on a phone" : ""}`).toBe(true);
@@ -91,8 +97,13 @@ describe("the near stills", () => {
     expect(url.pathname).toBe("/2026-10-20");
     expect(url.searchParams.get("pose")).toBe(`near-${as[0][0]}`);
     expect(url.searchParams.getAll("as")).toEqual(as.map(([index, title]) => `${index}:${title}`));
-    expect(others.steps).toEqual(as.map(([index, title]) => ({ near: index, title, shot: `fixed-as-${slug(title)}` })));
+    // A still's own name is the shoot's, not the page's: the hook is given the title alone.
+    expect(url.searchParams.getAll("as").some((value) => value.includes("standing"))).toBe(false);
+    expect(others.steps).toEqual(as.map(([index, title, name]) => ({ near: index, title, shot: `fixed-as-${name ?? slug(title)}` })));
     expect(others.steps.find((s) => s.title === "Ripple")?.shot).toBe("fixed-as-ripple");
+    // The standing stone's still is named for what it shows, not for the song that happens to have no landmark of its own.
+    const stone = others.steps.filter((s) => kindOf(s.title) < 0);
+    expect(stone.map((s) => s.shot)).toEqual(["fixed-as-standing-stone"]);
   });
 
   it("shoots both pages whole, on a desktop and a phone, and gives every still its own name: 64 in all", () => {
