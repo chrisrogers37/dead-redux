@@ -109,11 +109,13 @@ describe("the stored shelves", () => {
     expect(cookies).toEqual([cookieFor("title,player"), cookieFor("title,player"), CLEARED]);
   });
 
-  it("leaves the cookie as it is where the request's cookie named what storage holds", () => {
+  it("leaves the cookie alone where every shelf is out and the request named none, and writes it afresh on each load while a shelf is away, so it lasts from the last visit and not from the last press on a tab", () => {
     matchShelvesCookie("");
+    expect(cookies).toEqual([]);
     stored.set("dead-redux:shelves", "actions");
     matchShelvesCookie("actions");
-    expect(cookies).toEqual([]);
+    matchShelvesCookie("actions");
+    expect(cookies).toEqual([cookieFor("actions"), cookieFor("actions")]);
   });
 
   it("hears another tab's move through the storage event", () => {

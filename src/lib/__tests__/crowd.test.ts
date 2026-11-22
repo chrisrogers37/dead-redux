@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
-import { buildCrowd, figureGeometry, FOLD, FOOT, HAIR, HAT, LEG, partingOptions, SEAT, SHOULDER_X, SHOULDER_Y, TALL } from "../../../public/world/crowd.js";
+import { buildCrowd, DROP, figureGeometry, FOLD, FOOT, HAIR, HAT, LEG, partingOptions, SEAT, SHOULDER_X, SHOULDER_Y, TALL } from "../../../public/world/crowd.js";
 import { FACING, height, STAGE, STAGE_COLUMN } from "../../../public/world/ground.js";
 import { buildPath, buildWalkLine } from "../../../public/world/path.js";
 import { keepOuts, PERSON } from "../../../public/world/seats.js";
@@ -210,6 +210,15 @@ describe("the figure, as figureGeometry builds it", () => {
   });
 });
 
+describe("the crowd's shader", () => {
+  it("tips a seated figure's foot toe-down as the ground falls ahead of its seat, about the foot's own heel, and leaves it flat standing", () => {
+    const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
+    crowd.mesh.material.onBeforeCompile(shader);
+    // rot turns [forward, up] counter-clockwise, so a fall ahead (aFig.w over 0) turns the toe down; `sit` is 0 standing.
+    expect(shader.vertexShader).toContain("if (aLeg > 1.5) transformed.zy = foot + rot(transformed.zy, -sit * atan(clamp(aFig.w, -0.1200, 0.3000), 0.3600));");
+  });
+});
+
 describe("the crowd's seats on the hill", () => {
   it("tells each figure how far the ground falls from its seat to where its seated feet rest, ahead of it the way it faces, in its own units", () => {
     const fig = crowd.mesh.geometry.getAttribute("aFig");
@@ -222,6 +231,9 @@ describe("the crowd's seats on the hill", () => {
       forward.set(0, 0, 1).applyQuaternion(turn).multiplyScalar(FOOT[0] * size.z);
       const fall = (height(at.x, at.z) - height(at.x + forward.x, at.z + forward.z)) / size.y;
       expect(fig.getW(i)).toBeCloseTo(fall, 5);
+      // The hill never falls or rises further ahead of a seat than the feet are let to follow.
+      expect(fig.getW(i)).toBeGreaterThanOrEqual(DROP[0]);
+      expect(fig.getW(i)).toBeLessThanOrEqual(DROP[1]);
       if (fall > 0.02) falls += 1;
     }
     // The figures face the stage, down the hill: for most of them the ground falls away ahead.
