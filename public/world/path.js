@@ -166,7 +166,9 @@ export function placeLandmarks(scene, { at, tangentAt }, tracks, hasShow, { BUIL
     const t = tangentAt(landmarkU[i]);
     g.rotation.y = Math.atan2(t.x, t.z);
     const b = BUILDERS.find(([re]) => re.test(tracks[i].title));
-    (b ? b[1] : standingStone)(g, tracks[i].title);
+    /* A song with a landmark of its own gets it; any other, its title's standing stone. */
+    if (b) b[1](g);
+    else standingStone(g, tracks[i].title);
     const s = standClear(p.x, p.z, g.rotation.y, outline(g, moving), pts);
     g.position.set(s.x, height(s.x, s.z), s.z);
     scene.add(g);
