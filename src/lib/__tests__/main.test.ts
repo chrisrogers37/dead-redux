@@ -805,7 +805,7 @@ describe("main.js's frames", () => {
         expect(fake.world.laidOut).toEqual(real);
       });
 
-      it("hands the path the show's own songs, the same array, where no landmark is built for another title", async () => {
+      it("places the show's own songs where no landmark is built for another title", async () => {
         await near("?pose=near-1");
         expect(fake.world.placed).toEqual(real);
       });
