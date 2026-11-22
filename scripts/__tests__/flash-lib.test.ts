@@ -464,13 +464,17 @@ describe("the world's clock", () => {
     [/\bsetTimeout\b/, "setTimeout"],
     [/\bsetInterval\b/, "setInterval"],
     [/\bperformance\s*\.\s*timeOrigin\b/, "performance.timeOrigin"],
+    // The sound's own clock (an AudioContext's, a media element's) and work the browser fits in when it is idle.
+    [/\bcurrentTime\b/, "currentTime"],
+    [/\brequestIdleCallback\b/, "requestIdleCallback"],
   ];
   const wallClocks = (text: string) => text.split("\n").flatMap((line, k) => CLOCKS.filter(([pattern]) => pattern.test(line)).map(([, what]) => `line ${k + 1}: ${what}`));
 
   it("is the one the flash counter drives, in every module of public/world: none reads the wall's clock or sets a timer", () => {
     const found = readdirSync(WORLD).filter((name) => name.endsWith(".js")).flatMap((name) => wallClocks(readFileSync(join(WORLD, name), "utf8")).map((use) => `public/world/${name}, ${use}`));
-    expect(found, "The flash counter's virtual clock is the animation clock: performance.now and requestAnimationFrame, with Date.now following it. " +
-      "Timers, new Date() and performance.timeOrigin keep the machine's time, so a world that moves by one of them is counted wrongly, and no check " +
+    expect(found, "The flash counter's virtual clock is the animation clock: performance.now and requestAnimationFrame, with Date.now following it " +
+      "under the counter only (on the site Date.now is the wall's clock, so the world keeps off it too). Timers, new Date(), performance.timeOrigin, " +
+      "the sound's currentTime and idle callbacks keep the machine's time, so a world that moves by one of them is counted wrongly, and no check " +
       "of the counter's sees it: the review of #173 counted 18 swings where there were 6. Keep the world on performance.now and the frame's own " +
       "time, or extend STEPPER in scripts/flash/lib.mjs first, with a test.").toEqual([]);
   });
@@ -478,6 +482,7 @@ describe("the world's clock", () => {
   it("is told from a wall clock by this test: each way of reading one is found, and making a date of a value is not", () => {
     expect(wallClocks("const t = Date.now();\nconst d = new Date();\nsetTimeout(tick, 16);\nconst id = window.setInterval(tick, 16);\nconst t0 = performance.timeOrigin;"))
       .toEqual(["line 1: Date.now", "line 2: new Date()", "line 3: setTimeout", "line 4: setInterval", "line 5: performance.timeOrigin"]);
+    expect(wallClocks("const beat = context.currentTime * bpm;\nrequestIdleCallback(build);")).toEqual(["line 1: currentTime", "line 2: requestIdleCallback"]);
     expect(wallClocks("const now = Date . now ( );\nconst d = new Date;\nconst e = new Date( );\nconst f = new  Date().getTime();")).toEqual(["line 1: Date.now", "line 2: new Date()", "line 3: new Date()", "line 4: new Date()"]);
     // What the world may do: read the animation clock, and make a date of a value (maps.js checks a map's date so).
     expect(wallClocks("const t = performance.now();\nreturn !isNaN(time) && new Date(time).toISOString().slice(0, 10) === value;\nconst d = new Date( 2026, 10, 22 );\nconst updated = map.date;")).toEqual([]);

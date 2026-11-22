@@ -7,7 +7,7 @@
 //
 // A run may open with a lead-in: `lead` frames from before the window that is counted. They set each block's state and count for
 // nothing else: a swing is counted when it completes in the window, measured from a turn in the lead-in or the window. A turn older
-// than the lead-in is not known, and the block is measured from the lead-in's first frames in its place. The window's first frame is
+// than the lead-in is not known, and the block is measured from its least and its greatest since the lead-in's first frame in its place. The window's first frame is
 // frame 0, and a lead-in's frames are numbered back from it, -1 the last.
 
 export const THRESHOLD = 0.1;
