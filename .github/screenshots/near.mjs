@@ -14,15 +14,17 @@ export const FIXED_TITLES = [
   "Drums ->", "Space ->", "Gimme Some Lovin' ->", "Goin' Down The Road Feeling Bad ->", "Turn On Your Lovelight", "U.S. Blues",
 ];
 
-// The kinds of landmark the fixed day's show lacks, as [song's index, title]: on a second load of the fixed day, each of these songs'
-// landmarks is built as a song of that title would have it (?as=K:Title, public/world/main.js), at its own song's point. The last is
-// a song with no landmark of its own. With the fixed day's own nineteen, these show every row of the builders' table
-// (public/world/landmarks.js), which scripts/__tests__/near-landmarks.test.ts holds them to. The points are ones where the view is
-// clear from 14 m: the test checks that too.
+// The kinds of landmark the fixed day's show lacks, as [song's index, title, the still's name where the title is not it]: on a second
+// load of the fixed day, each of these songs' landmarks is built as a song of that title would have it (?as=K:Title,
+// public/world/main.js), at its own song's point. The last is a song with no landmark of its own: the standing stone. With the fixed
+// day's own nineteen, these show every row of the builders' table (public/world/landmarks.js), which
+// scripts/__tests__/near-landmarks.test.ts holds them to. The points are ones where the view is clear from 14 m, which the test checks
+// too, and none is the first song's, where the playing song's column of light stands until the show moves on. The standing stone
+// has the last song's point, where it stands against the sky.
 export const AS_TITLES = [
-  [0, "Terrapin Station"], [1, "Morning Dew"], [2, "Sugar Magnolia"], [3, "Dark Star"], [4, "Box Of Rain"], [5, "Playin' In The Band"],
-  [7, "Truckin'"], [8, "Eyes Of The World"], [9, "Not Fade Away"], [10, "One More Saturday Night"], [11, "Scarlet Begonias"], [12, "Ripple"],
-  [15, "China Cat Sunflower"],
+  [1, "Morning Dew"], [2, "Sugar Magnolia"], [3, "Dark Star"], [4, "Box Of Rain"], [5, "Playin' In The Band"], [7, "Truckin'"],
+  [8, "Eyes Of The World"], [9, "Not Fade Away"], [10, "One More Saturday Night"], [11, "Scarlet Begonias"], [12, "Ripple"],
+  [17, "Terrapin Station"], [18, "China Cat Sunflower", "standing-stone"],
 ];
 
 // How many frames the world draws after a move before its still is taken: the one that draws the cut, with the bears in their places,
@@ -37,7 +39,7 @@ const nearPage = (songs, prefix, as = []) => ({
   devices: ["desktop", "phone"],
   whole: true,
   shots: [],
-  steps: songs.map(([index, title]) => ({ near: index, title, shot: `${prefix}-${slug(title)}` })),
+  steps: songs.map(([index, title, name = slug(title)]) => ({ near: index, title, shot: `${prefix}-${name}` })),
 });
 
 // The shoot's pages for the near stills: the fixed day's own landmarks, then the other kinds.
