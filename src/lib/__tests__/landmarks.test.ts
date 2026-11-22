@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
 import { makeBuilders, mergeLandmarks, mergeStill, mesh } from "../../../public/world/landmarks.js";
+import { buildPath, buildWalkLine, layout, placeLandmarks } from "../../../public/world/path.js";
+import { readFileSync } from "fs";
 
 type Part = { isMesh?: boolean; material: { vertexColors: boolean; flatShading: boolean; emissive: { getHex(): number } }; geometry: { index: unknown; attributes: Record<string, { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number }> } };
 type Build = (g: unknown) => void;
@@ -314,6 +316,235 @@ describe("the landmarks built of many parts", () => {
       const a = landmark(title).parts[0].geometry.attributes.position, b = landmark(title).parts[0].geometry.attributes.position;
       expect(a.count).toBe(b.count);
       for (let i = 0; i < a.count; i += 37) expect([a.getX(i), a.getY(i), a.getZ(i)]).toEqual([b.getX(i), b.getY(i), b.getZ(i)]);
+    }
+  });
+});
+
+describe("the rough-hewn landmarks", () => {
+  // The five built of rough stone, by a title of each.
+  const ROUGH = ["My Brother Esau", "Touch Of Grey", "Cold Rain And Snow", "Fire On The Mountain", "Samson And Delilah"];
+  const stillOf = (title: string, phone = false) => landmark(title, phone).parts.filter((c) => c.isMesh && c.material.emissive.getHex() === 0);
+  // How many of a mesh's faces are in a colour, and the lowest and highest of them.
+  const faces = (part: Part, hex: number) => {
+    const { position, color } = part.geometry.attributes, tone = new THREE.Color(hex);
+    let n = 0, low = Infinity, high = -Infinity;
+    for (let i = 0; i < position.count; i += 3) {
+      if (Math.abs(color.getX(i) - tone.r) + Math.abs(color.getY(i) - tone.g) + Math.abs(color.getZ(i) - tone.b) > 1e-4) continue;
+      n += 1;
+      low = Math.min(low, position.getY(i), position.getY(i + 1), position.getY(i + 2));
+      high = Math.max(high, position.getY(i), position.getY(i + 1), position.getY(i + 2));
+    }
+    return { n, low, high };
+  };
+
+  it("are each one still mesh, on a desktop and on a phone, and the fire its flame and its light besides", () => {
+    for (const phone of [false, true]) {
+      for (const title of ROUGH) {
+        const { parts, moving } = landmark(title, phone);
+        expect(stillOf(title, phone)).toHaveLength(1);
+        if (title !== "Fire On The Mountain") { expect(parts).toHaveLength(1); continue; }
+        // The flame swells with the music from its own base, 5 m up; its light is a desktop's and a TV's.
+        const swell = moving.find((m) => (m as { kind?: string }).kind === "swell") as { obj: Part & { position: { y: number } } };
+        expect(parts).toContain(swell.obj);
+        expect(swell.obj.position.y).toBe(5);
+        expect(new THREE.Box3().setFromBufferAttribute(swell.obj.geometry.attributes.position).min.y).toBeCloseTo(0, 6);
+        expect(swell.obj.material.emissive.getHex()).toBe(0xff7a2a);
+        expect(moving.filter((m) => (m as { kind?: string }).kind === "flame")).toHaveLength(phone ? 0 : 1);
+        expect(parts).toHaveLength(phone ? 2 : 3);
+      }
+    }
+  });
+
+  it("stand in the ground, so none shows daylight under it on a slope, and keep near the size of the shapes they replace", () => {
+    for (const phone of [false, true]) {
+      for (const title of ROUGH) {
+        const box = bounds(landmark(title, phone).g), size = box.getSize(new THREE.Vector3());
+        // A column's base and the standing stones go 1.6 m under, a peak 2 m, and the great boulder lies 0.6 m into the ground.
+        const under: Record<string, number> = { "My Brother Esau": -1.5, "Touch Of Grey": -0.55, "Cold Rain And Snow": -1.99, "Fire On The Mountain": -1.99, "Samson And Delilah": -1.55 };
+        expect(box.min.y).toBeLessThan(under[title]);
+        expect(box.min.y).toBeGreaterThan(-2.1);
+        expect(box.max.y).toBeLessThan(9.2);
+        expect(Math.max(size.x, size.z)).toBeLessThan(6.1);
+      }
+    }
+  });
+
+  it("are painted face by face: snow lies on the peak's top and lower down one side, the fire's peak is burnt at its top, and the boulder has its touch of grey", () => {
+    const peak = stillOf("Cold Rain And Snow")[0], snow = faces(peak, 0xeceae4), all = peak.geometry.attributes.position.count / 3;
+    expect(snow.n).toBeGreaterThan(10);
+    expect(snow.n).toBeLessThan(0.5 * all);
+    // No snow under 2.5 m, and the tip, 7.4 m up, is snow.
+    expect(snow.low).toBeGreaterThan(2.5);
+    expect(snow.high).toBeCloseTo(7.4, 3);
+    const burnt = faces(stillOf("Fire On The Mountain")[0], 0x2a1d18);
+    expect(burnt.n).toBeGreaterThan(4);
+    expect(burnt.low).toBeGreaterThan(3.2);
+    // The vein: a pale band through the boulder, a few faces wide.
+    const boulder = stillOf("Touch Of Grey")[0], vein = faces(boulder, 0xeceae4);
+    expect(vein.n).toBeGreaterThan(8);
+    expect(vein.n).toBeLessThan(0.3 * (boulder.geometry.attributes.position.count / 3));
+    // Every face of a rough part is flat: its three corners share one normal.
+    const { normal } = peak.geometry.attributes;
+    for (let i = 0; i < normal.count; i += 3) for (const k of [1, 2]) expect(Math.abs(normal.getX(i) - normal.getX(i + k)) + Math.abs(normal.getY(i) - normal.getY(i + k)) + Math.abs(normal.getZ(i) - normal.getZ(i + k))).toBeLessThan(1e-6);
+  });
+
+  it("stands one of the temple's columns to its capital, 6 m up, and breaks the other, its drums and its capital fallen between the two", () => {
+    const { position, color } = stillOf("Samson And Delilah")[0].geometry.attributes, flute = new THREE.Color(0xa9a59c);
+    let standing = -Infinity, fallen = 0, fallenTop = -Infinity;
+    for (let i = 0; i < position.count; i++) {
+      // The standing column is at x -1.6 and the broken one at 1.6, each within 0.9 m of its own line at its foot.
+      if (Math.abs(position.getX(i) + 1.6) < 0.9 && Math.abs(position.getZ(i)) < 0.9) standing = Math.max(standing, position.getY(i));
+      // Between the two columns' bases lie the fluted pieces that fell: two drums and the capital on them, under a bear's knee.
+      if (Math.abs(position.getX(i)) < 0.74 && position.getY(i) < 1.3 && Math.abs(color.getX(i) - flute.r) + Math.abs(color.getY(i) - flute.g) + Math.abs(color.getZ(i) - flute.b) < 1e-4) { fallen += 1; fallenTop = Math.max(fallenTop, position.getY(i)); }
+    }
+    expect(standing).toBeGreaterThan(5.9);
+    expect(fallen).toBeGreaterThan(150);
+    // The capital lies on the drums: the heap's top is over the higher drum's, 0.67 m up.
+    expect(fallenTop).toBeGreaterThan(0.8);
+  });
+
+  it("gives a peak a round rim of eleven sides a metre under its ground, on a phone as on a desktop, and carries its foot straight on down a metre more", () => {
+    for (const [title, r] of [["Cold Rain And Snow", 3], ["Fire On The Mountain", 2.2]] as const) {
+      for (const phone of [false, true]) {
+        const { position } = stillOf(title, phone)[0].geometry.attributes, rim = new Set<string>(), foot = new Set<string>();
+        for (let i = 0; i < position.count; i++) {
+          // A corner's place to the millimetre, with no minus on a nought: the cone's seam closes at 0 and at a hair under it.
+          const mm = (v: number) => Math.round(v * 1e3) / 1e3 + 0;
+          const out = Math.hypot(position.getX(i), position.getZ(i)), y = position.getY(i), key = `${mm(position.getX(i))},${mm(position.getZ(i))}`;
+          // The rim, the peak's outline from above: every corner at the rim's depth is on it or at the middle, and none anywhere
+          // stands further out.
+          expect(out).toBeLessThanOrEqual(r + 1e-4);
+          if (Math.abs(y + 1) < 1e-4 && out > 0.1) { expect(out).toBeCloseTo(r, 4); rim.add(key); }
+          // The skirt's foot, 2 m under: straight below the rim, so a slope's lower side shows stone and no daylight.
+          if (Math.abs(y + 2) < 1e-4 && out > 0.1) { expect(out).toBeCloseTo(r, 4); foot.add(key); }
+        }
+        expect(rim.size).toBe(11);
+        expect(foot).toEqual(rim);
+      }
+    }
+  });
+
+  it("keep inside the outline of the shapes they replace, on a desktop and on a phone, so each stands where its song's point is, and at the one place on both", () => {
+    // How far each reaches from its own middle, seen from above: the slabs 2.09 m, the dodecahedron and the cone 3 m, the fire's
+    // cone 2.2 m, the pillars and their lintel 2.82 m.
+    const reach: Record<string, number> = { "My Brother Esau": 2.09, "Touch Of Grey": 3, "Cold Rain And Snow": 3, "Fire On The Mountain": 2.2, "Samson And Delilah": 2.82 };
+    for (const phone of [false, true]) {
+      for (const title of ROUGH) {
+        let far = 0;
+        for (const part of landmark(title, phone).parts.filter((c) => c.isMesh) as (Part & { position: { x: number; z: number } })[]) {
+          const { position } = part.geometry.attributes;
+          for (let i = 0; i < position.count; i++) far = Math.max(far, Math.hypot(position.getX(i) + part.position.x, position.getZ(i) + part.position.z));
+        }
+        expect(far).toBeLessThanOrEqual(reach[title] + 0.001);
+      }
+    }
+    // The pinned show (1986-07-04, set 2 from track 7, where Cold Rain And Snow stands on the summit between two stretches of the
+    // bears' line): its landmarks placed as main.js places them, on both tiers.
+    const map = JSON.parse(readFileSync(new URL("../../../public/maps/1986-07-04.json", import.meta.url), "utf8")) as { tracks: { title: string; playingDuration: number }[] };
+    const tracks = map.tracks.map((t) => ({ title: t.title, duration: t.playingDuration }));
+    const path = buildPath(), landmarkU = layout(tracks, 7, path), line = buildWalkLine(path, 7);
+    const stood = (phone: boolean) => placeLandmarks(new THREE.Scene(), path, tracks, true, makeBuilders(phone), landmarkU, line) as { position: { x: number; z: number } }[];
+    const desktop = stood(false), phone = stood(true);
+    for (const i of [5, 6, 7, 8, 9]) {
+      expect(ROUGH.some((title) => tracks[i].title.startsWith(title))).toBe(true);
+      const point = path.at(landmarkU[i]);
+      // No further from its song's point than the plain shape stood: a metre at the most, on the summit.
+      expect(Math.hypot(desktop[i].position.x - point.x, desktop[i].position.z - point.z)).toBeLessThanOrEqual(1.001);
+      expect(Math.hypot(desktop[i].position.x - phone[i].position.x, desktop[i].position.z - phone[i].position.z)).toBeLessThan(0.01);
+    }
+  });
+
+  it("leans the lintel from the standing column's capital to the broken shaft's top: it lies on both and in neither", () => {
+    // The lintel is plain stone, as the columns' bases and the capital's slab are, and the one such part over 2.7 m up whose
+    // corners stand within 0.75 m of the temple's line: the slab is 1.6 m square, its corners at z ±0.8. The capital's top is 6 m
+    // up at x -2.4 to -0.8; the broken shaft's top is about 2.8 m up.
+    const { position, color } = stillOf("Samson And Delilah")[0].geometry.attributes, corners: number[][] = [], stone = new THREE.Color(0x8e8a82);
+    const seen = new Set<string>();
+    for (let i = 0; i < position.count; i++) {
+      const x = position.getX(i), y = position.getY(i), z = position.getZ(i), key = `${x.toFixed(3)},${y.toFixed(3)},${z.toFixed(3)}`;
+      if (seen.has(key) || y < 2.7 || Math.abs(z) > 0.75) continue;
+      if (Math.abs(color.getX(i) - stone.r) + Math.abs(color.getY(i) - stone.g) + Math.abs(color.getZ(i) - stone.b) > 1e-4) continue;
+      seen.add(key);
+      corners.push([x, y, z]);
+    }
+    expect(corners).toHaveLength(8);
+    const upper = corners.filter(([x]) => x < 0).sort((p, q) => p[1] - q[1]), lower = corners.filter(([x]) => x > 0).sort((p, q) => p[1] - q[1]);
+    expect(upper).toHaveLength(4);
+    // Its underside runs between the two lower corners of each end. Where it crosses the capital's near edge (x -0.8, 6 m up) it is
+    // just over it, so it lies on the edge and not in the slab; its upper end stands out past the edge, over the capital.
+    const mid = (a: number[], b: number[]) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], [ux, uy] = mid(upper[0], upper[1]), [lx, ly] = mid(lower[0], lower[1]);
+    const under = (x: number) => uy + ((x - ux) / (lx - ux)) * (ly - uy);
+    expect(under(-0.8)).toBeGreaterThan(6);
+    expect(under(-0.8)).toBeLessThan(6.12);
+    expect(ux).toBeLessThan(-0.8);
+    expect(ux).toBeGreaterThan(-2.4);
+    // Its lower end comes down onto the broken shaft's top, 2.7 to 3.1 m up, past the standing column.
+    expect(lower[0][1]).toBeGreaterThan(2.7);
+    expect(lower[0][1]).toBeLessThan(3.1);
+    expect(lx).toBeGreaterThan(1.4);
+  });
+
+  it("burns the fire's peak at its top on a phone as on a desktop", () => {
+    for (const phone of [false, true]) {
+      const burnt = faces(stillOf("Fire On The Mountain", phone)[0], 0x2a1d18);
+      expect(burnt.n).toBeGreaterThan(4);
+      expect(burnt.high).toBeCloseTo(5.2, 3);
+    }
+  });
+
+  it("builds every part closed, and its stone rough: each edge is used once each way, and a boulder's corners stand at different distances out", () => {
+    for (const phone of [false, true]) {
+      for (const title of ROUGH) {
+        const { position } = stillOf(title, phone)[0].geometry.attributes, edges = new Map<string, number>();
+        // To a tenth of a millimetre, with no minus on a nought: a cone's seam closes at 0 and at a hair under it.
+        const at = (v: number) => Math.round(v * 1e4) / 1e4 + 0;
+        const corner = (i: number) => `${at(position.getX(i))},${at(position.getY(i))},${at(position.getZ(i))}`;
+        for (let i = 0; i < position.count; i += 3) for (let k = 0; k < 3; k++) {
+          const a = corner(i + k), b = corner(i + ((k + 1) % 3));
+          edges.set(`${a}>${b}`, (edges.get(`${a}>${b}`) ?? 0) + 1);
+        }
+        for (const [edge, n] of edges) {
+          const [a, b] = edge.split(">");
+          expect(edges.get(`${b}>${a}`) ?? 0).toBe(n);
+        }
+      }
+    }
+    // The great boulder's own corners, about its middle 1.55 m up: no ball.
+    const { position, color } = stillOf("Touch Of Grey")[0].geometry.attributes, grey = new THREE.Color(0x7d7a74);
+    let near = Infinity, far = 0;
+    for (let i = 0; i < position.count; i++) {
+      if (Math.abs(color.getX(i) - grey.r) + Math.abs(color.getY(i) - grey.g) + Math.abs(color.getZ(i) - grey.b) > 1e-4) continue;
+      // A lesser boulder against it, at (-2, 0.15, 1.1), wears the same grey: its corners are left out.
+      if (Math.hypot(position.getX(i) + 2, position.getY(i) - 0.15, position.getZ(i) - 1.1) < 0.9) continue;
+      const out = Math.hypot(position.getX(i), (position.getY(i) - 1.55) / 0.85, position.getZ(i) / 0.94);
+      if (out > 2.9) continue;
+      near = Math.min(near, out); far = Math.max(far, out);
+    }
+    expect(far / near).toBeGreaterThan(1.1);
+  });
+
+  it("keeps the fire's flame and light as main builds them: one cone of six sides, 1 m by 2.4 m, and a light of 40 that reaches 30 m", () => {
+    const { parts, moving } = landmark("Fire On The Mountain");
+    const flame = (moving.find((m) => (m as { kind?: string }).kind === "swell") as { obj: Part & { material: { emissiveIntensity: number; color: { getHex(): number } } } }).obj;
+    const reference = new THREE.ConeGeometry(1, 2.4, 6).translate(0, 1.2, 0);
+    expect([...(flame.geometry.attributes.position as unknown as { array: Float32Array }).array]).toEqual([...reference.attributes.position.array]);
+    expect(flame.material.emissiveIntensity).toBe(0.8);
+    expect(flame.material.color.getHex()).toBe(0xff7a2a);
+    const light = (moving.find((m) => (m as { kind?: string }).kind === "flame") as unknown as { obj: { isPointLight: boolean; intensity: number; distance: number; color: { getHex(): number }; position: { y: number } }; base: number });
+    expect(light.obj.isPointLight).toBe(true);
+    expect([light.obj.intensity, light.base, light.obj.distance, light.obj.color.getHex(), light.obj.position.y]).toEqual([40, 40, 30, 0xff8a3a, 6.5]);
+    expect(parts).toContain(light.obj);
+  });
+
+  it("cost a few hundred triangles each, no more on a phone, and build the same on every visit", () => {
+    for (const title of ROUGH) {
+      const desktop = triangles(landmark(title).parts.filter((c) => c.isMesh)), phone = triangles(landmark(title, true).parts.filter((c) => c.isMesh));
+      expect(desktop).toBeGreaterThan(150);
+      expect(desktop).toBeLessThan(600);
+      expect(phone).toBeLessThanOrEqual(desktop);
+      const a = stillOf(title)[0].geometry.attributes.position, b = stillOf(title)[0].geometry.attributes.position;
+      expect(a.count).toBe(b.count);
+      for (let i = 0; i < a.count; i += 17) expect([a.getX(i), a.getY(i), a.getZ(i)]).toEqual([b.getX(i), b.getY(i), b.getZ(i)]);
     }
   });
 });
