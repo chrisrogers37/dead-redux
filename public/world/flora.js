@@ -68,19 +68,25 @@ export function stoneGeometry() {
 }
 
 /* Tufts are drawn in full to SEEN_NEAR m from the eye and are gone by SEEN_FAR, where each would be a speck that only shimmers. The
-   wind moves a blade's tip by SWAY of the tuft's height at the most, back and forth once in ten seconds or so, with a smaller turn
-   every four and a half: slow and slight, so a pale bloom never flickers against the ground behind it. */
-const SEEN_NEAR = 55, SEEN_FAR = 95, SWAY = 0.045;
+   wind leans a blade's tip SWAY of the tuft's height downwind and back once in ten seconds or so, with a smaller lean every four and
+   a half seconds, so a tall tuft's tip travels further than a short one's and both lean alike: 1.6 times SWAY of its height at the
+   most, when the two fall together. Slow and slight, so a pale bloom never flickers against the ground behind it. */
+const SEEN_NEAR = 55, SEEN_FAR = 95, SWAY = 0.058;
 /* How many tufts a frame that is only counted draws (sparse). */
 const SPARSE = 64;
 const f = (v) => v.toFixed(4);
 /* The dancing bears' colours and a cream, each a little muted, for the blooms. */
 const BLOOMS = [0xc85a72, 0xd9a548, 0xcfc8b4, 0x9078b4, 0xd9a548, 0xc85a72];
 
-/* The fireflies: each wanders FLY_ROAM m about its own place over the grass and lights up once every FLY_SLOW to FLY_QUICK seconds,
-   a soft rise and fall that fills about a third of that time, so no one of them brightens and dims faster than once in FLY_QUICK
-   seconds. They show as far as the night is dark and the music quiet, and are gone by FLY_FAR m from the eye. */
-const FLY_ROAM = 1.6, FLY_SLOW = 5.2, FLY_QUICK = 2.5, FLY_FAR = 110;
+/* The fireflies: each wanders FLY_ROAM m to every side of its own place over the grass, along the lie of the land there, and rises
+   and falls FLY_BOB of that as it goes; and lights up once every FLY_SLOW to FLY_QUICK seconds, a soft rise and fall that fills
+   about a third of that time, so no one of them brightens and dims faster than once in FLY_QUICK seconds. They show as far as the
+   night is dark and the music quiet, and are gone by FLY_FAR m from the eye. */
+const FLY_ROAM = 1.6, FLY_BOB = 0.45, FLY_SLOW = 5.2, FLY_QUICK = 2.5, FLY_FAR = 110;
+/* At the lowest of its wander a firefly is FLY_CLEAR m over the highest ground it passes, or up to FLY_LIFT m more, so none ever
+   sinks into a hillside and goes out. The ground under a wander is read at FLY_STEPS places each way from its middle, and the land's
+   lie it follows is never steeper than FLY_LIE. */
+const FLY_CLEAR = 0.4, FLY_LIFT = 1.2, FLY_STEPS = 3, FLY_LIE = 0.6;
 const FLY_COLOUR = [0.8, 1.0, 0.42];
 
 /* Builds what grows and lies on the land: at most `tufts` tufts and `stones` stones, and `flies` fireflies over the tufts. The turf reaches `extent` m from the island's
@@ -127,8 +133,10 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, sur
         float shown = 1.0 - smoothstep(${f(SEEN_NEAR)}, ${f(SEEN_FAR)}, distance(cameraPosition, root));
         if (aBloom > 0.5 && aFlower.a < 0.5) transformed = vec3(0.0);
         if (aTip > 0.0) {
-          /* One wind: the same way in the world for every tuft, whichever way each is turned, so into each tuft's own frame. */
-          float sway = aTip * ${f(SWAY)} * (sin(uWind * 0.6 + root.x * 0.35 + root.z * 0.27) + 0.4 * sin(uWind * 1.4 + root.z * 0.9));
+          /* One wind: the same way in the world for every tuft, whichever way each is turned, so into each tuft's own frame; and
+             as far as the tuft is tall. */
+          float tall = length(instanceMatrix[1].xyz);
+          float sway = aTip * ${f(SWAY)} * tall * (sin(uWind * 0.6 + root.x * 0.35 + root.z * 0.27) + 0.4 * sin(uWind * 1.4 + root.z * 0.9));
           vec2 wind = vec2(sway, 0.6 * sway), ax = instanceMatrix[0].xz, az = instanceMatrix[2].xz;
           transformed.xz += vec2(dot(wind, ax) / dot(ax, ax), dot(wind, az) / dot(az, az));
         }
@@ -137,7 +145,8 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, sur
     shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_begin>", `#include <normal_fragment_begin>
         normal = normalize(vNormal);`);
   };
-  /* About half the cells on the turf grow a tuft, so there are twice as many cells there as tufts asked for. */
+  /* The cells are of a size that puts about twice as many in the turf's circle as the tufts asked for (pi / 1.6 times). A cell on a
+     track, a steep slope or a thin meadow grows none, so most lands grow nearly all that is asked and none grows more. */
   const cell = Math.sqrt((extent * extent * 1.6) / tufts), span = Math.ceil(extent / cell);
   /* Every cell once, in an order shuffled by the cells' own numbers, so half the tufts, or a handful, are spread over the whole island. */
   const cells = [];
@@ -201,35 +210,49 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, sur
 
   /* The most tufts drawn: all of them, until a caller asks for a handful (sparse). */
   let most = Infinity;
-  /* The fireflies: over tufts spread across the island, a little above the grass. Their light is added to what is behind them, and
-     they write no depth, so one never hides another; they hide behind the land and whatever stands on it. */
+  /* The fireflies: over tufts spread across the island, above the grass. Their light is added to what is behind them, and they
+     write no depth, so one never hides another; they hide behind the land and whatever stands on it. */
   const flyLevel = { value: 0 };
   /* The height in pixels of the frame they are drawn into, which their size is a share of, so they are as large on the screen
      whatever the render scale. */
   const flyTall = { value: 900 }, drawn = new THREE.Vector2();
   const flyCount = Math.min(flies, placed.length);
-  const flyAt = new Float32Array(3 * flyCount), flySeed = new Float32Array(4 * flyCount);
+  const flyAt = new Float32Array(3 * flyCount), flySeed = new Float32Array(4 * flyCount), flyLie = new Float32Array(2 * flyCount);
+  const lie = (rise) => Math.max(-FLY_LIE, Math.min(FLY_LIE, rise / (2 * FLY_ROAM)));
   for (let k = 0; k < flyCount; k++) {
     /* Every so-many-th tuft, which the cells' scattered order has already spread across the island. */
-    const [x, y, z, , a, b] = placed[Math.floor((k * placed.length) / flyCount)];
-    flyAt.set([x, y + 0.6 + 1.5 * chance(a, b, 31), z], 3 * k);
+    const [x, , z, , a, b] = placed[Math.floor((k * placed.length) / flyCount)];
+    /* The lie of the land across its wander, east and south, which the wander follows; and the highest the ground stands over
+       that lie anywhere under the wander, which its lowest point clears. */
+    const lx = lie(surface(x + FLY_ROAM, z) - surface(x - FLY_ROAM, z)), lz = lie(surface(x, z + FLY_ROAM) - surface(x, z - FLY_ROAM));
+    let proud = -Infinity;
+    for (let i = -FLY_STEPS; i <= FLY_STEPS; i++) for (let j = -FLY_STEPS; j <= FLY_STEPS; j++) {
+      const dx = (i / FLY_STEPS) * FLY_ROAM, dz = (j / FLY_STEPS) * FLY_ROAM;
+      proud = Math.max(proud, surface(x + dx, z + dz) - lx * dx - lz * dz);
+    }
+    flyAt.set([x, proud + FLY_BOB * FLY_ROAM + FLY_CLEAR + FLY_LIFT * chance(a, b, 31), z], 3 * k);
     flySeed.set([chance(a, b, 32), chance(a, b, 33), chance(a, b, 34), chance(a, b, 35)], 4 * k);
+    flyLie.set([lx, lz], 2 * k);
   }
   const flyGeo = new THREE.BufferGeometry();
   flyGeo.setAttribute("position", new THREE.BufferAttribute(flyAt, 3));
   flyGeo.setAttribute("aSeed", new THREE.BufferAttribute(flySeed, 4));
+  flyGeo.setAttribute("aLie", new THREE.BufferAttribute(flyLie, 2));
   const flyMat = new THREE.ShaderMaterial({
     uniforms: { uTime: wind, uGlow: flyLevel, uTall: flyTall },
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     vertexShader: `
       attribute vec4 aSeed;
+      attribute vec2 aLie;
       uniform highp float uTime;
       uniform float uGlow, uTall;
       varying float vLit;
       void main() {
-        vec3 roam = vec3(sin(uTime * (0.21 + 0.2 * aSeed.x) + 6.2832 * aSeed.y), 0.45 * sin(uTime * (0.33 + 0.2 * aSeed.z) + 6.2832 * aSeed.w),
+        vec3 roam = ${f(FLY_ROAM)} * vec3(sin(uTime * (0.21 + 0.2 * aSeed.x) + 6.2832 * aSeed.y), ${f(FLY_BOB)} * sin(uTime * (0.33 + 0.2 * aSeed.z) + 6.2832 * aSeed.w),
           cos(uTime * (0.17 + 0.2 * aSeed.y) + 6.2832 * aSeed.x));
-        vec4 seen = modelViewMatrix * vec4(position + ${f(FLY_ROAM)} * roam, 1.0);
+        /* Up the slope as it wanders up the land, and down as it wanders down. */
+        roam.y += dot(aLie, roam.xz);
+        vec4 seen = modelViewMatrix * vec4(position + roam, 1.0);
         /* One light every FLY_SLOW to FLY_QUICK seconds: the upper part of a slow wave, cubed, so it swells and dies away. */
         float wave = max(0.0, sin(uTime * 6.2832 / mix(${f(FLY_SLOW)}, ${f(FLY_QUICK)}, aSeed.w) + 6.2832 * aSeed.z));
         vLit = uGlow * wave * wave * wave * (1.0 - smoothstep(${f(0.5 * FLY_FAR)}, ${f(FLY_FAR)}, -seen.z));

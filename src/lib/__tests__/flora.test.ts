@@ -179,19 +179,33 @@ describe("buildFlora", () => {
 describe("the fireflies", () => {
   const built = flora(), at = built.flies.geometry.getAttribute("position"), n = at.count;
 
-  it("fly over the tufts, spread across the island, a little above the grass", () => {
+  it("fly over the tufts, spread across the island, above the grass", () => {
     expect(n).toBe(90);
-    const tufts = places(built.tufts);
+    const tufts = places(built.tufts), lie = built.flies.geometry.getAttribute("aLie");
     const quarters = new Set<string>();
     for (let i = 0; i < n; i++) {
       const x = at.getX(i), y = at.getY(i), z = at.getZ(i);
-      // Each over a tuft's own place, 0.6 to 2.1 m above the ground there.
+      // Each over a tuft's own place. The middle of its wander is its 0.72 m of rise and fall and 0.4 m over the ground there at the
+      // least, and no more than 1.2 m over that but for what the ground under its wander rises (island.test.ts runs the wander).
       expect(tufts.some((t) => Math.abs(t.x - x) < 1e-4 && Math.abs(t.z - z) < 1e-4)).toBe(true);
-      expect(y - height(x, z)).toBeGreaterThanOrEqual(0.6 - 1e-4);
-      expect(y - height(x, z)).toBeLessThanOrEqual(2.1 + 1e-4);
+      expect(y - height(x, z)).toBeGreaterThanOrEqual(0.72 + 0.4 - 1e-4);
+      expect(y - height(x, z)).toBeLessThanOrEqual(0.72 + 0.4 + 1.2 + 1.0);
+      // The lie of the land it follows is the ground's own slope across its wander, east and south, and never steeper than 0.6.
+      const east = (height(x + 1.6, z) - height(x - 1.6, z)) / 3.2, south = (height(x, z + 1.6) - height(x, z - 1.6)) / 3.2;
+      expect(lie.getX(i)).toBeCloseTo(Math.max(-0.6, Math.min(0.6, east)), 5);
+      expect(lie.getY(i)).toBeCloseTo(Math.max(-0.6, Math.min(0.6, south)), 5);
       quarters.add(`${Math.sign(x)},${Math.sign(z)}`);
     }
     expect(quarters.size).toBe(4);
+  });
+
+  it("are as large on the screen whatever the frame they are drawn into: their size is a share of its height, read as each frame is drawn", () => {
+    const { uniforms, vertexShader } = built.flies.material;
+    expect(vertexShader).toContain("gl_PointSize = uTall * clamp((0.58 + 0.36 * aSeed.x) / -seen.z, 0.0028, 0.022);");
+    for (const tall of [1620, 450]) {
+      built.flies.onBeforeRender({ getDrawingBufferSize: (size: { set(x: number, y: number): unknown }) => size.set(2 * tall, tall) });
+      expect(uniforms.uTall.value).toBe(tall);
+    }
   });
 
   it("are not drawn by day, come out as the night's glow rises, and add their light without hiding one another", () => {
@@ -240,7 +254,9 @@ describe("the tufts' shader", () => {
     expect(shader.vertexShader).toContain("uniform float uWind;");
     expect(shader.vertexShader).toContain("vec3 objectNormal = vec3(0.0, 1.0, 0.0);");
     expect(shader.vertexShader).toContain("vec3 root = instanceMatrix[3].xyz;");
-    // One wind for every tuft, turned into each tuft's own frame.
+    // One wind for every tuft, turned into each tuft's own frame, and as far as the tuft is tall: 0.058 of its height.
+    expect(shader.vertexShader).toContain("float tall = length(instanceMatrix[1].xyz);");
+    expect(shader.vertexShader).toContain("float sway = aTip * 0.0580 * tall * (sin(uWind * 0.6 + root.x * 0.35 + root.z * 0.27) + 0.4 * sin(uWind * 1.4 + root.z * 0.9));");
     expect(shader.vertexShader).toContain("transformed.xz += vec2(dot(wind, ax) / dot(ax, ax), dot(wind, az) / dot(az, az));");
     expect(shader.vertexShader).toContain("transformed *= shown;");
     expect(shader.fragmentShader).toContain("normal = normalize(vNormal);");

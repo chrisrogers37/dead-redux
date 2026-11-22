@@ -23,7 +23,7 @@ function fromBolt(x, z) {
   let least = Infinity;
   for (let k = 0; k < BOLT.length - 1; k++) {
     const [ax, az] = BOLT[k], [bx, bz] = BOLT[k + 1], dx = bx - ax, dz = bz - az;
-    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / Math.max(dx * dx + dz * dz, 1e-6)));
     least = Math.min(least, Math.hypot(x - ax - t * dx, z - az - t * dz));
   }
   return least;
@@ -40,8 +40,8 @@ export function offTracks(x, z, room) {
   return fromRing(x, z) > (SHORE - RING) / 2 + room && fromBolt(x, z) > BOLT_HALF + room;
 }
 
-/* How far from the setlist's path anything grows. */
-const LOOP_ROOM = 2.2;
+/* How far from the setlist's path anything grows, and the side of the squares its points are sorted into (no less than that). */
+const LOOP_ROOM = 2.2, LOOP_SQUARE = 4;
 /* The stage's light on the water: its colour at its fullest, as the screen shows it, and where it lies, from SHINE_OUT m past the stage's
    centre out to sea along the stage's axis, SHINE_LONG m along it and SHINE_WIDE m across. The shore stands 25 m past the stage. */
 const SHINE = [0.4, 0.25, 0.1], SHINE_OUT = 36, SHINE_LONG = 30, SHINE_WIDE = 28;
@@ -95,7 +95,7 @@ const TUSSOCK = 0.9, BLADE = 5.3, FINE_NEAR = 22, FINE_FAR = 70, RELIEF = 0.126;
 /* The tracks, as the ground's shader reckons them: tracksAt, in GLSL. */
 const g2 = ([x, z]) => `vec2(${f(x)}, ${f(z)})`;
 const TRACKS = `
-float fromLine(vec2 p, vec2 a, vec2 b) { vec2 ab = b - a; return distance(p, a + clamp(dot(p - a, ab) / dot(ab, ab), 0.0, 1.0) * ab); }
+float fromLine(vec2 p, vec2 a, vec2 b) { vec2 ab = b - a; return distance(p, a + clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0) * ab); }
 float tracks(vec2 p) {
   float ring = 1.0 - smoothstep(${f((SHORE - RING) / 2)}, ${f((SHORE - RING) / 2 + FEATHER)}, abs(length(p) - ${f((RING + SHORE) / 2)}));
   float bolt = min(min(fromLine(p, ${g2(BOLT[0])}, ${g2(BOLT[1])}), fromLine(p, ${g2(BOLT[1])}, ${g2(BOLT[2])})), fromLine(p, ${g2(BOLT[2])}, ${g2(BOLT[3])}));
@@ -216,11 +216,17 @@ function buildSea(scene, uPool) {
 /* The ground's height as its mesh draws it: the mesh is flat across each half of a cell of its grid, so between the grid's points it
    lies a little under or over the island's own height (ground.js). What lies on the ground lies on this. */
 export function surfaceOf(grid) {
-  const cell = 260 / grid;
+  /* Each of the grid's points is reckoned once, the first time it is asked for. */
+  const cell = 260 / grid, side = grid + 1, known = new Float64Array(side * side).fill(NaN);
+  const at = (ix, iz) => {
+    const k = iz * side + ix;
+    if (Number.isNaN(known[k])) known[k] = height(ix * cell - 130, iz * cell - 130);
+    return known[k];
+  };
   return (x, z) => {
     const gx = Math.min(grid - 1e-9, Math.max(0, (x + 130) / cell)), gz = Math.min(grid - 1e-9, Math.max(0, (z + 130) / cell));
-    const ix = Math.floor(gx), iz = Math.floor(gz), u = gx - ix, v = gz - iz, x0 = ix * cell - 130, z0 = iz * cell - 130;
-    const a = height(x0, z0), b = height(x0, z0 + cell), c = height(x0 + cell, z0 + cell), d = height(x0 + cell, z0);
+    const ix = Math.floor(gx), iz = Math.floor(gz), u = gx - ix, v = gz - iz;
+    const a = at(ix, iz), b = at(ix, iz + 1), c = at(ix + 1, iz + 1), d = at(ix + 1, iz);
     return u + v <= 1 ? a + (d - a) * u + (b - a) * v : c + (b - c) * (1 - u) + (d - c) * (1 - v);
   };
 }
@@ -267,10 +273,26 @@ export function buildIsland(scene, grid, phone, loop = []) {
      costs it more. Each stands on the ground as its mesh draws it and takes the stage's glow as the ground does, and none of them
      stands on a track or on the setlist's path, where the bears walk and the lit bands lie. */
   const thick = phone ? 0.6 : grid >= 80 ? 1.0 : 0.8;
+  /* The path's points by the square of LOOP_SQUARE m each lies in, so a place is tried against the few points near it and not
+     against the whole path. */
+  const near = new Map(), square = (v) => Math.floor(v / LOOP_SQUARE), key = (i, j) => i * 4096 + j;
+  for (const [px, pz] of loop) {
+    const k = key(square(px), square(pz));
+    if (!near.has(k)) near.set(k, []);
+    near.get(k).push(px, pz);
+  }
+  const offLoop = (x, z) => {
+    for (let i = square(x) - 1; i <= square(x) + 1; i++) for (let j = square(z) - 1; j <= square(z) + 1; j++) {
+      const points = near.get(key(i, j));
+      if (!points) continue;
+      for (let k = 0; k < points.length; k += 2) if ((x - points[k]) ** 2 + (z - points[k + 1]) ** 2 < LOOP_ROOM * LOOP_ROOM) return false;
+    }
+    return true;
+  };
   const flora = buildFlora(scene, { tufts: Math.round(grid * grid * thick), stones: Math.round(grid * (phone ? 2.5 : 4)), flies: Math.round(grid * (phone ? 4 : 7)),
     extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6], surface: surfaceOf(grid),
     colour: landColour, lit: (material) => takesPool(material, uPool),
-    clear: (x, z) => offTracks(x, z, FEATHER + 0.4) && !loop.some(([px, pz]) => (x - px) * (x - px) + (z - pz) * (z - pz) < LOOP_ROOM * LOOP_ROOM) });
+    clear: (x, z) => offTracks(x, z, FEATHER + 0.4) && offLoop(x, z) });
 
   /* The caves light for Drums (left) and Space (right): a pool on each floor and, but on a phone, a light inside. */
   const caves = CAVES.map(([cx, cz]) => {

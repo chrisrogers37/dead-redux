@@ -143,6 +143,48 @@ describe("the tracks", () => {
     grained(takesPool(new THREE.MeshLambertMaterial(), { value: new THREE.Color() }), false).onBeforeCompile(plain);
     expect(plain.fragmentShader).not.toContain("tracks(");
   });
+
+  it("are reckoned in the shader as tracksAt reckons them: the whole of its GLSL is as written here, and the same sums in JS agree with tracksAt all over the island", () => {
+    const shader = { uniforms: {} as Record<string, unknown>, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
+    grained(takesPool(new THREE.MeshLambertMaterial(), { value: new THREE.Color() }), false, true).onBeforeCompile(shader);
+    const n = (v: number) => v.toFixed(4), v2 = ([x, z]: number[]) => `vec2(${n(x)}, ${n(z)})`, squash = (text: string) => text.replace(/\s+/g, " ");
+    // The shader's two functions, whole. A change to either fails here, and is then made to the sums below as well.
+    expect(squash(shader.fragmentShader)).toContain(squash(`
+      float fromLine(vec2 p, vec2 a, vec2 b) { vec2 ab = b - a; return distance(p, a + clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0) * ab); }
+      float tracks(vec2 p) {
+        float ring = 1.0 - smoothstep(${n(half)}, ${n(half + FEATHER)}, abs(length(p) - ${n(round)}));
+        float bolt = min(min(fromLine(p, ${v2(BOLT[0])}, ${v2(BOLT[1])}), fromLine(p, ${v2(BOLT[1])}, ${v2(BOLT[2])})), fromLine(p, ${v2(BOLT[2])}, ${v2(BOLT[3])}));
+        return max(ring, 1.0 - smoothstep(${n(BOLT_HALF)}, ${n(BOLT_HALF + FEATHER)}, bolt));
+      }`));
+    // The same, line for line, with the numbers as the shader's text rounds them.
+    const r = (v: number) => Number(n(v)), clamp = (v: number, a: number, b: number) => Math.min(Math.max(v, a), b);
+    const smoothstep = (a: number, b: number, x: number) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+    const fromLine = (px: number, pz: number, [ax, az]: number[], [bx, bz]: number[]) => {
+      const abx = r(bx) - r(ax), abz = r(bz) - r(az), t = clamp(((px - r(ax)) * abx + (pz - r(az)) * abz) / Math.max(abx * abx + abz * abz, 1e-6), 0, 1);
+      return Math.hypot(px - r(ax) - t * abx, pz - r(az) - t * abz);
+    };
+    const tracks = (px: number, pz: number) => {
+      const ring = 1 - smoothstep(r(half), r(half + FEATHER), Math.abs(Math.hypot(px, pz) - r(round)));
+      const bolt = Math.min(Math.min(fromLine(px, pz, BOLT[0], BOLT[1]), fromLine(px, pz, BOLT[1], BOLT[2])), fromLine(px, pz, BOLT[2], BOLT[3]));
+      return Math.max(ring, 1 - smoothstep(r(BOLT_HALF), r(BOLT_HALF + FEATHER), bolt));
+    };
+    const points: number[][] = [];
+    // All over the island, every 1.3 m; round both edges of the ring road; and about each corner of the lightning, its ends too.
+    for (let x = -125; x <= 125; x += 1.3) for (let z = -125; z <= 125; z += 1.3) points.push([x, z]);
+    for (let k = 0; k < 720; k++) for (const far of [RING - FEATHER, RING - FEATHER / 2, RING, SHORE, SHORE + FEATHER / 2, SHORE + FEATHER]) points.push([far * Math.cos(k / 114.6), far * Math.sin(k / 114.6)]);
+    for (const [x, z] of BOLT) for (let k = 0; k < 360; k++) for (const far of [0.3, BOLT_HALF, BOLT_HALF + FEATHER / 2, BOLT_HALF + FEATHER]) points.push([x + far * Math.cos(k / 57.3), z + far * Math.sin(k / 57.3)]);
+    let onTrack = 0, between = 0;
+    for (const [x, z] of points) {
+      const here = tracksAt(x, z);
+      expect(Math.abs(tracks(x, z) - here)).toBeLessThan(1e-4);
+      if (here === 1) onTrack += 1;
+      else if (here > 0) between += 1;
+    }
+    // The points do try the tracks, their edges and the land.
+    expect(onTrack).toBeGreaterThan(2000);
+    expect(between).toBeGreaterThan(2000);
+    expect(points.length - onTrack - between).toBeGreaterThan(20000);
+  });
 });
 
 describe("the sea", () => {
@@ -216,20 +258,56 @@ describe("what stands on the land", () => {
       const { flora } = buildIsland(scene, grid, phone, loop);
       const surface = surfaceOf(grid), matrix = new THREE.Matrix4(), at = new THREE.Vector3();
       expect(flora.tufts.count).toBeGreaterThan(1000);
+      let nearest = Infinity;
       for (let i = 0; i < flora.tufts.count; i++) {
         flora.tufts.getMatrixAt(i, matrix);
         at.setFromMatrixPosition(matrix);
         // A tuft's root is a few centimetres under the drawn ground, never over it.
         expect(at.y - surface(at.x, at.z)).toBeCloseTo(-0.03, 4);
         expect(tracksAt(at.x, at.z)).toBe(0);
-        expect(Math.min(...loop.map(([x, z]) => Math.hypot(at.x - x, at.z - z)))).toBeGreaterThanOrEqual(2.2);
+        const fromLoop = Math.min(...loop.map(([x, z]) => Math.hypot(at.x - x, at.z - z)));
+        expect(fromLoop).toBeGreaterThanOrEqual(2.2);
+        nearest = Math.min(nearest, fromLoop);
       }
+      // The path clears its own 2.2 m and no more: a tuft stands within a metre of that.
+      expect(nearest).toBeLessThan(3.2);
       for (let i = 0; i < flora.stones.count; i++) {
         flora.stones.getMatrixAt(i, matrix);
         at.setFromMatrixPosition(matrix);
         expect(at.y - surface(at.x, at.z)).toBeGreaterThanOrEqual(0);
         expect(at.y - surface(at.x, at.z)).toBeLessThan(0.2);
       }
+    }
+  });
+
+  it("keeps every firefly over the drawn ground through the whole of its wander, on every tier's grid, so none sinks into a hillside and goes out", () => {
+    for (const [grid, phone, count] of [[80, false, 560], [64, false, 448], [52, true, 208]] as const) {
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.Fog(0x000000, 100, 400);
+      const { flora } = buildIsland(scene, grid, phone);
+      const surface = surfaceOf(grid), geo = flora.flies.geometry, at = geo.getAttribute("position"), seed = geo.getAttribute("aSeed"), lie = geo.getAttribute("aLie");
+      expect(at.count).toBe(count);
+      // The wander as the shader writes it, which the sums below repeat.
+      const { vertexShader } = flora.flies.material;
+      expect(vertexShader).toContain("vec3 roam = 1.6000 * vec3(sin(uTime * (0.21 + 0.2 * aSeed.x) + 6.2832 * aSeed.y), 0.4500 * sin(uTime * (0.33 + 0.2 * aSeed.z) + 6.2832 * aSeed.w),");
+      expect(vertexShader).toContain("cos(uTime * (0.17 + 0.2 * aSeed.y) + 6.2832 * aSeed.x));");
+      expect(vertexShader).toContain("roam.y += dot(aLie, roam.xz);");
+      expect(vertexShader).toContain("vec4 seen = modelViewMatrix * vec4(position + roam, 1.0);");
+      let least = Infinity, most = -Infinity;
+      for (let i = 0; i < at.count; i++) {
+        const sx = seed.getX(i), sy = seed.getY(i), sz = seed.getZ(i), sw = seed.getW(i);
+        // Ten minutes of it, four times a second.
+        for (let t = 0; t < 600; t += 0.25) {
+          const x = 1.6 * Math.sin(t * (0.21 + 0.2 * sx) + 6.2832 * sy), z = 1.6 * Math.cos(t * (0.17 + 0.2 * sy) + 6.2832 * sx);
+          const y = 1.6 * 0.45 * Math.sin(t * (0.33 + 0.2 * sz) + 6.2832 * sw) + lie.getX(i) * x + lie.getY(i) * z;
+          const over = at.getY(i) + y - surface(at.getX(i) + x, at.getZ(i) + z);
+          least = Math.min(least, over);
+          most = Math.max(most, over);
+        }
+      }
+      // Never nearer the ground than 0.3 m (it is built to clear 0.4 m at the places it reads), and never higher than a tree's lower boughs.
+      expect(least).toBeGreaterThan(0.3);
+      expect(most).toBeLessThan(4);
     }
   });
 });
