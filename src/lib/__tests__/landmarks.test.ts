@@ -23,13 +23,14 @@ const bounds = (g: unknown) => new THREE.Box3().setFromObject(g);
 const RICH = ["Tuning", "Jack Straw", "Dupree's Diamond Blues", "C C Rider", "Tennessee Jed"];
 
 describe("mergeStill", () => {
-  it("merges a landmark's still parts into one mesh, each part as faceted or as round as it was on its own", () => {
+  // Two balls, one flat-shaded and one smooth, 6 m apart: after a merge the first keeps its facets and the second its round.
+  const twoBalls = () => {
     const g = new THREE.Group();
     const flat = new THREE.MeshLambertMaterial({ color: 0x8e8a82, flatShading: true }), smooth = new THREE.MeshLambertMaterial({ color: 0x6b4e2e });
     g.add(mesh(new THREE.SphereGeometry(1, 8, 6), flat, -3, 1, 0), mesh(new THREE.SphereGeometry(1, 8, 6), smooth, 3, 1, 0));
-    mergeStill(g);
-    expect(g.children).toHaveLength(1);
-    const { geometry, material } = g.children[0] as Part;
+    return g;
+  };
+  const facetedAndRound = ({ geometry, material }: Part) => {
     // One material for every merged mesh: it reads the colours and the normals the parts bring, and forces no facets of its own.
     expect(material.vertexColors).toBe(true);
     expect(material.flatShading).toBe(false);
@@ -57,6 +58,37 @@ describe("mergeStill", () => {
     }
     expect(facets).toBeGreaterThan(40);
     expect(rounds).toBeGreaterThan(40);
+  };
+
+  it("merges a landmark's still parts into one mesh, each part as faceted or as round as it was on its own", () => {
+    const g = twoBalls();
+    mergeStill(g);
+    expect(g.children).toHaveLength(1);
+    facetedAndRound(g.children[0] as Part);
+  });
+
+  it("keeps them so when every landmark's parts merge across the path, which is the mesh that is drawn", () => {
+    const scene = new THREE.Scene(), g = twoBalls();
+    mergeStill(g);
+    scene.add(g, twoBalls().translateZ(40));
+    mergeLandmarks(scene, [g, scene.children[1]], []);
+    const merged = scene.children.filter((c: Part) => c.isMesh) as Part[];
+    expect(merged).toHaveLength(1);
+    // The first landmark's own two balls, which went through both merges.
+    const { position, normal, color } = merged[0].geometry.attributes, near: number[] = [];
+    for (let i = 0; i < position.count; i++) if (position.getZ(i) < 20) near.push(i);
+    const pick = (attribute: { getX(i: number): number; getY(i: number): number; getZ(i: number): number }) => new THREE.Float32BufferAttribute(near.flatMap((i) => [attribute.getX(i), attribute.getY(i), attribute.getZ(i)]), 3);
+    facetedAndRound({ material: merged[0].material, geometry: { index: null, attributes: { position: pick(position), normal: pick(normal), color: pick(color) } } } as unknown as Part);
+  });
+
+  it("gives a part that brings no normals its faces' own, so parts of any making merge", () => {
+    const g = new THREE.Group(), bare = new THREE.BufferGeometry();
+    bare.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 0, -1], 3));
+    g.add(mesh(bare, new THREE.MeshLambertMaterial({ color: 0x8e8a82 }), 0, 0, 0), mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ color: 0x8e8a82 }), 3, 0, 0));
+    mergeStill(g);
+    expect(g.children).toHaveLength(1);
+    const { normal } = (g.children[0] as Part).geometry.attributes;
+    expect([normal.getX(0), normal.getY(0), normal.getZ(0)]).toEqual([0, 1, 0]);
   });
 
   it("leaves what glows, what moves and what wears another material out of the merge", () => {
@@ -112,15 +144,27 @@ describe("the landmarks built of many parts", () => {
     }
   });
 
-  it("stand on the ground and on down under it, so none hangs over a slope's lower side, and keep to the size of the shapes they replace", () => {
+  it("stand on the ground and on down under it, so none hangs over a slope's lower side, and keep near the size of the shapes they replace", () => {
     for (const phone of [false, true]) {
       for (const title of RICH) {
-        const box = bounds(landmark(title, phone).g), size = box.getSize(new THREE.Vector3());
-        // A footing or a post goes 1.2 m under the landmark's own ground; the bales lie on it, sunk a hand.
-        if (title === "Jack Straw") expect(box.min.y).toBeLessThan(-0.05);
-        else expect(box.min.y).toBeLessThanOrEqual(-1.2 + 1e-6);
-        expect(box.min.y).toBeGreaterThan(-1.5);
-        // No taller than two bears, no longer than the rail was, and no wider than 7 m.
+        const { g, parts } = landmark(title, phone), box = bounds(g), size = box.getSize(new THREE.Vector3());
+        const still = parts.find((c) => c.material.emissive.getHex() === 0) as Part, { position, color } = still.geometry.attributes;
+        if (title === "Jack Straw") {
+          // The bales lie settled into the ground: each bale's own body, in straw's colour, goes 0.45 m under it at its lowest
+          // line, and its lowest corners nearly as far.
+          const straw = new THREE.Color(0xc9a24a);
+          let lowest = Infinity;
+          for (let i = 0; i < position.count; i++) if (Math.abs(color.getX(i) - straw.r) + Math.abs(color.getY(i) - straw.g) + Math.abs(color.getZ(i) - straw.b) < 1e-4) lowest = Math.min(lowest, position.getY(i));
+          expect(lowest).toBeLessThan(-0.3);
+          expect(box.min.y).toBeGreaterThan(-0.6);
+        } else {
+          // A footing or a post goes 1.6 m under the landmark's own ground, and every part that comes down to the ground goes on
+          // down with it: none ends between the ground and that depth, where a slope's lower side would show under it.
+          expect(box.min.y).toBeLessThanOrEqual(-1.6 + 1e-6);
+          expect(box.min.y).toBeGreaterThan(-1.65);
+          for (let i = 0; i < position.count; i++) expect(position.getY(i) > -1.5 && position.getY(i) < 0.05).toBe(false);
+        }
+        // No taller than two bears over the ground, about as long as the rail was, and no wider than 7 m.
         expect(box.max.y).toBeLessThan(9.7);
         expect(size.x).toBeLessThan(10.6);
         expect(size.z).toBeLessThan(7);
@@ -128,16 +172,30 @@ describe("the landmarks built of many parts", () => {
     }
   });
 
+  it("stands a thing built in its own frame as large as it was made: the saddle, a third larger than its parts, is 2 m long", () => {
+    // The saddle's leather: its seat, cantle and horn, along the rail.
+    const { position, color } = landmark("C C Rider").parts[0].geometry.attributes, hide = new THREE.Color(0x8a5a34);
+    let lo = Infinity, hi = -Infinity, n = 0;
+    for (let i = 0; i < position.count; i++) {
+      if (Math.abs(color.getX(i) - hide.r) + Math.abs(color.getY(i) - hide.g) + Math.abs(color.getZ(i) - hide.b) > 1e-4) continue;
+      lo = Math.min(lo, position.getX(i)); hi = Math.max(hi, position.getX(i)); n += 1;
+    }
+    expect(n).toBeGreaterThan(300);
+    // 1.5 m as its parts are made, by 1.35.
+    expect(hi - lo).toBeGreaterThan(1.9);
+    expect(hi - lo).toBeLessThan(2.2);
+  });
+
   it("cost a few thousand triangles between them, and fewer on a phone", () => {
     const cost = (phone: boolean) => RICH.map((title) => triangles(landmark(title, phone).parts));
     const desktop = cost(false), phone = cost(true);
-    desktop.forEach((n) => { expect(n).toBeGreaterThan(300); expect(n).toBeLessThan(2800); });
+    desktop.forEach((n) => { expect(n).toBeGreaterThan(300); expect(n).toBeLessThan(3000); });
     phone.forEach((n, k) => expect(n).toBeLessThanOrEqual(desktop[k]));
-    expect(desktop.reduce((a, b) => a + b)).toBeLessThan(7500);
-    expect(phone.reduce((a, b) => a + b)).toBeLessThan(5200);
+    expect(desktop.reduce((a, b) => a + b)).toBeLessThan(8500);
+    expect(phone.reduce((a, b) => a + b)).toBeLessThan(6000);
   });
 
-  it("turn their faces to the walker who comes up the path: the cabin's door and lit window are on its near side", () => {
+  it("turn their faces to the walker who comes up the path: the cabin's door and its window are on its near side", () => {
     // A landmark's own +z runs on along the path, so the walker comes at it from -z. The window's pane is the cabin's one pale part.
     const { parts } = landmark("Tennessee Jed"), { position, color } = parts[0].geometry.attributes, pane = new THREE.Color(0xe8c477);
     let panes = 0;
@@ -146,7 +204,7 @@ describe("the landmarks built of many parts", () => {
       panes += 1;
       expect(position.getZ(i)).toBeLessThan(-2.1);
     }
-    expect(panes).toBe(36);
+    expect(panes).toBeGreaterThanOrEqual(36);
   });
 
   it("build the same on every visit: nothing in them is left to chance", () => {

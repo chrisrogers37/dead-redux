@@ -15,11 +15,11 @@ const vertexColoured = new THREE.MeshLambertMaterial({ vertexColors: true });
 const isStill = (c, keep) => c.isMesh && !keep.includes(c) && c.material.isMeshLambertMaterial && c.material.emissive.getHex() === 0;
 
 /* A mesh's geometry in the space `matrix` takes it to, with a colour per vertex: the colours it already carries when its material
-   reads them (a merged mesh), else its material's colour. A flat-shaded part's normals are its faces' own. Only the corners'
-   places, normals and colours are kept, so parts of any making merge. */
+   reads them (a merged mesh), else its material's colour. A flat-shaded part's normals are its faces' own, and so are those of a
+   part that brings none. Only the corners' places, normals and colours are kept: the merged mesh reads nothing else. */
 function colouredPart(m, matrix) {
   const geo = (m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone()).applyMatrix4(matrix);
-  if (m.material.flatShading) geo.computeVertexNormals();
+  if (m.material.flatShading || !geo.attributes.normal) geo.computeVertexNormals();
   for (const name of Object.keys(geo.attributes)) if (!["position", "normal", "color"].includes(name)) geo.deleteAttribute(name);
   if (!m.material.vertexColors) {
     const colors = new Float32Array(geo.attributes.position.count * 3);
@@ -70,8 +70,9 @@ export function makeBuilders(phone) {
   };
   /* Adds a part to a landmark at a place, turned (about z, then y, then x, as three turns it), and gives it back. */
   const put = (g, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => { const m = mesh(geo, mat, x, y, z); m.rotation.set(rx, ry, rz); g.add(m); return m; };
-  /* Stands a thing built in its own frame (`parts`, a group) in a landmark: each of its parts joins the landmark itself, placed and
-     turned as the group was, since only a landmark's own parts merge. */
+  /* Stands a thing built in its own frame (`parts`, a group) in a landmark: each of its parts joins the landmark itself, placed,
+     turned and scaled as the group was, since only a landmark's own parts merge. The group's scale is the same every way: a
+     scale that differed by axis would shear a turned part, which a part's own place, turn and scale cannot hold. */
   const stand = (g, parts, x, y, z, rx = 0, ry = 0, rz = 0) => {
     parts.position.set(x, y, z);
     parts.rotation.set(rx, ry, rz);
@@ -80,7 +81,7 @@ export function makeBuilders(phone) {
   };
   /* How far a footing or a post goes on down under the landmark's own ground: a landmark stands level, and on a slope the ground
      falls away under its lower side. */
-  const SUNK = 1.2;
+  const SUNK = 1.6;
   const BRASS = 0xb08a3c, TIMBER = 0x6b4e2e, DARK_TIMBER = 0x4a3520, ROOF = 0x3b2a1a, IRON = 0x55595c;
   const STRAW = 0xc9a24a, PALE_STRAW = 0xdcc079, LEATHER = 0x8a5a34, STRING = 0xcfc8b4;
 
@@ -101,20 +102,22 @@ export function makeBuilders(phone) {
   function bale(r, long) {
     const parts = new THREE.Group();
     put(parts, new THREE.CylinderGeometry(r, r, long, phone ? 10 : 16), tone(STRAW), 0, 0, 0, 0, 0, Math.PI / 2);
-    for (const end of [-1, 1]) [0.3, 0.58, 0.86].forEach((share, k) => put(parts, new THREE.TorusGeometry(share * r, 0.07, 4, phone ? 10 : 18), tone(k % 2 ? STRAW : PALE_STRAW), end * (long / 2 + 0.01), 0, 0, 0, Math.PI / 2));
+    for (const end of [-1, 1]) [0.3, 0.58, 0.86].forEach((share, k) => put(parts, new THREE.TorusGeometry(share * r, 0.07, 3, phone ? 10 : 16), tone(k % 2 ? STRAW : PALE_STRAW), end * (long / 2 + 0.01), 0, 0, 0, Math.PI / 2));
     for (const x of [-long / 4, long / 4]) put(parts, new THREE.TorusGeometry(r + 0.02, 0.045, 4, phone ? 12 : 20), tone(DARK_TIMBER), x, 0, 0, 0, Math.PI / 2);
     return parts;
   }
-  /* Jack Straw: two bales, the small one against the big one, loose straw at their foot and a pitchfork stood in the big one. */
+  /* Jack Straw: two bales, the small one against the big one, loose straw at their foot and a pitchfork stood in the big one. Each
+     bale lies BALE_SUNK m into the ground, as a heavy bale settles, which also keeps it on a slope's lower side. */
+  const BALE_SUNK = 0.45;
   function strawBales(g) {
-    stand(g, bale(1.9, 3.6), 0, 1.9, 0, 0, 0.25, 0);
-    stand(g, bale(1.15, 2.3), 2.9, 1.15, 1.5, 0, 1.2, 0);
+    stand(g, bale(1.9, 3.6), 0, 1.9 - BALE_SUNK, 0, 0, 0.25, 0);
+    stand(g, bale(1.15, 2.3), 2.9, 1.15 - BALE_SUNK, 1.5, 0, 1.2, 0);
     if (!phone) for (let k = 0; k < 7; k++) put(g, new THREE.ConeGeometry(0.07, 0.9, 4), tone(PALE_STRAW), -1.6 + 0.75 * k, 0.12, 2.3 + 0.25 * Math.sin(k * 2.1), 1.35 + 0.15 * Math.cos(k * 1.7), k * 0.9, 0);
     const fork = new THREE.Group();
     put(fork, new THREE.CylinderGeometry(0.06, 0.07, 3.2, 6), tone(TIMBER), 0, 1.6, 0);
     put(fork, new THREE.BoxGeometry(0.7, 0.08, 0.08), tone(IRON), 0, 0.05, 0);
     for (const x of [-0.3, 0, 0.3]) put(fork, new THREE.ConeGeometry(0.04, 0.8, 4), tone(IRON), x, -0.38, 0, Math.PI);
-    stand(g, fork, -0.7, 3.75, -0.2, 0.25, 0, -0.55);
+    stand(g, fork, -0.7, 3.75 - BALE_SUNK, -0.2, 0.25, 0, -0.55);
   }
 
   /* Dupree's Diamond Blues: a cut stone, its table up and its point down, held in four brass claws over a stepped stone foot. */
@@ -156,8 +159,8 @@ export function makeBuilders(phone) {
     put(saddle, new THREE.SphereGeometry(0.12, 6, 5), tone(DARK_TIMBER), 0.6, 0.62, 0);
     for (const side of [-1, 1]) {
       put(saddle, new THREE.BoxGeometry(0.8, 0.6, 0.06), tone(0x7a5230), 0, -0.2, side * 0.47, side * 0.3);
-      put(saddle, new THREE.BoxGeometry(0.07, 0.9, 0.03), hide, 0.05, -0.85, side * 0.56);
-      put(saddle, new THREE.TorusGeometry(0.15, 0.03, 4, 8), tone(IRON), 0.05, -1.4, side * 0.56, 0, Math.PI / 2);
+      put(saddle, new THREE.BoxGeometry(0.07, 1.0, 0.03), hide, 0.05, -0.72, side * 0.6, side * 0.3);
+      put(saddle, new THREE.TorusGeometry(0.15, 0.03, 4, 8), tone(IRON), 0.05, -1.3, side * 0.77, 0, Math.PI / 2);
     }
     saddle.scale.setScalar(1.35);
     stand(g, saddle, 1.2, 2.2, 0.13, 0, 0.08, 0.03);
@@ -165,7 +168,8 @@ export function makeBuilders(phone) {
   }
 
   /* Tennessee Jed: a log cabin. Six courses of logs crossing at the corners on a stone footing, a plank roof with a gable at each end,
-     a stone chimney, a door and a lit window, and a porch along the front with a barrel on it. */
+     a stone chimney, a door and a pale window, and a porch along the front with a barrel on it. The window does not glow: in the
+     deep of the night the stage is the island's one warm light. */
   function logCabin(landmark) {
     const g = new THREE.Group();
     const log = tone(TIMBER), plank = tone(DARK_TIMBER, true), round = phone ? 6 : 8;
@@ -175,6 +179,10 @@ export function makeBuilders(phone) {
       for (const z of [-1.95, 1.95]) put(g, new THREE.CylinderGeometry(0.235, 0.235, 5.7, round), log, 0, y, z, 0, 0, Math.PI / 2);
       for (const x of [-2.45, 2.45]) put(g, new THREE.CylinderGeometry(0.235, 0.235, 4.7, round), log, x, y + 0.225, 0, Math.PI / 2);
     }
+    /* A sill under each side wall, whose first log lies half a course up, and a board under each eave, where the front and back
+       walls stop short of the roof. */
+    for (const x of [-2.45, 2.45]) put(g, new THREE.BoxGeometry(0.4, 0.26, 3.6), plank, x, 0.42, 0);
+    for (const z of [-1.95, 1.95]) put(g, new THREE.BoxGeometry(5.3, 0.34, 0.3), plank, 0, 3.17, z);
     /* The gables: a triangle of planks at each end, between the top logs and the ridge. */
     const eave = 3.25, ridge = 4.85, half = 2.25;
     const gable = new THREE.Shape([new THREE.Vector2(-half, 0), new THREE.Vector2(half, 0), new THREE.Vector2(0, ridge - eave)]);
@@ -183,7 +191,7 @@ export function makeBuilders(phone) {
     for (const side of [-1, 1]) put(g, new THREE.BoxGeometry(6.1, 0.14, slope), tone(ROOF, true), 0, (eave + ridge) / 2 - 0.06, side * (half / 2 + 0.2), side * pitch);
     put(g, new THREE.BoxGeometry(6.2, 0.16, 0.3), tone(ROOF, true), 0, ridge + 0.1, 0);
     /* The chimney, up the back wall and past the ridge. */
-    put(g, new THREE.BoxGeometry(1.0, 5.6, 0.9), stone, 1.3, 2.8, -2.3);
+    put(g, new THREE.BoxGeometry(1.0, 5.6 + SUNK, 0.9), stone, 1.3, 2.8 - SUNK / 2, -2.3);
     put(g, new THREE.BoxGeometry(1.25, 0.22, 1.15), tone(0x6f6a63, true), 1.3, 5.7, -2.3);
     /* The door and the window, proud of the front wall's logs. */
     put(g, new THREE.BoxGeometry(1.15, 2.1, 0.1), plank, -0.8, 1.45, 2.2);
@@ -191,8 +199,8 @@ export function makeBuilders(phone) {
     put(g, new THREE.SphereGeometry(0.06, 6, 5), tone(BRASS), -0.45, 1.4, 2.3);
     put(g, new THREE.BoxGeometry(1.1, 1.0, 0.1), plank, 1.25, 1.95, 2.2);
     put(g, new THREE.BoxGeometry(0.9, 0.8, 0.12), tone(0xe8c477, true), 1.25, 1.95, 2.22);
-    put(g, new THREE.BoxGeometry(0.06, 0.8, 0.14), plank, 1.25, 1.95, 2.23);
-    put(g, new THREE.BoxGeometry(0.9, 0.06, 0.14), plank, 1.25, 1.95, 2.23);
+    put(g, new THREE.BoxGeometry(0.06, 0.78, 0.14), plank, 1.25, 1.95, 2.23);
+    put(g, new THREE.BoxGeometry(0.88, 0.06, 0.14), plank, 1.25, 1.95, 2.23);
     /* The porch: its boards, two posts and a lean-to roof, and a barrel by the door. */
     put(g, new THREE.BoxGeometry(5.4, 0.2, 1.5), plank, 0, 0.4, 2.95);
     put(g, new THREE.BoxGeometry(5.2, 0.3 + SUNK, 1.3), stone, 0, 0.15 - SUNK / 2, 2.95);
