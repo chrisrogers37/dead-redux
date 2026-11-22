@@ -85,6 +85,125 @@ export function makeBuilders(phone) {
   const BRASS = 0xb08a3c, TIMBER = 0x6b4e2e, DARK_TIMBER = 0x4a3520, ROOF = 0x3b2a1a, IRON = 0x55595c;
   const STRAW = 0xc9a24a, PALE_STRAW = 0xdcc079, LEATHER = 0x8a5a34, STRAP = 0x6a4426, STRING = 0xcfc8b4;
 
+  /* A number 0 to 1 from a corner's own place and a salt, the same on every visit, so corners that faces share move together and a
+     landmark is built the same each time. */
+  const roll = (x, y, z, salt) => {
+    let h = Math.imul(Math.round(x * 97), 374761393) ^ Math.imul(Math.round(y * 97), 668265263) ^ Math.imul(Math.round(z * 97), 1274126177) ^ Math.imul(salt, 2246822519);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  };
+  /* Rough stone: a shape whose corners stand in or out from its own middle line by up to `rough` of where they were. `keep` says
+     which corners stay put (a peak's tip). */
+  const roughen = (geo, rough, salt, keep = () => false) => {
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      if (keep(x, y, z)) continue;
+      const k = 1 - rough + 2 * rough * roll(x, y, z, salt);
+      pos.setXYZ(i, x * k, y, z * k);
+    }
+    return geo;
+  };
+  /* A boulder `r` across its half, rough all round. */
+  const rock = (r, detail, rough, salt) => {
+    const geo = new THREE.IcosahedronGeometry(r, detail), pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), k = 1 - rough + 2 * rough * roll(x, y, z, salt);
+      pos.setXYZ(i, x * k, y * k, z * k);
+    }
+    return geo;
+  };
+  /* Paints a shape face by face: `colour(x, y, z)` of a face's middle, in the shape's own frame, gives its hex. The part then wears
+     `painted`, which reads those colours and shades flat. */
+  const painted = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const paint = (source, colour) => {
+    const geo = source.index ? source.toNonIndexed() : source, pos = geo.attributes.position, colors = new Float32Array(pos.count * 3), c = new THREE.Color();
+    for (let i = 0; i < pos.count; i += 3) {
+      c.setHex(colour((pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3, (pos.getY(i) + pos.getY(i + 1) + pos.getY(i + 2)) / 3, (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3));
+      for (let k = 0; k < 3; k++) c.toArray(colors, (i + k) * 3);
+    }
+    return geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  };
+  const GREY = 0x7d7a74, PALE_STONE = 0xa9a59c, MOSS = 0x55663f, SNOW = 0xeceae4, BASALT = 0x4a3a30, PINE = 0x33503a;
+
+  /* My Brother Esau: two standing stones, brothers. The elder is the taller and the rougher, with moss on him; the younger leans
+     toward him. Small stones lie round their feet. */
+  function brotherStones(g) {
+    put(g, rock(1.2, 1, 0.14, 5).scale(1, 2.75, 0.85), tone(0x8e8a82, true), -1.35, 3.3 - SUNK, 0, 0, 0.3, -0.07);
+    put(g, rock(1.0, 1, 0.1, 6).scale(0.95, 2.45, 0.8), tone(GREY, true), 1.3, 2.45 - SUNK * 0.75, 0.1, 0, -0.4, 0.11);
+    for (const [x, y, z, r] of [[-2.3, 2.4, 0.2, 0.42], [-0.55, 3.6, 0.35, 0.36], [-1.5, 1.2, 0.85, 0.5], [-1.9, 4.4, -0.3, 0.3]].slice(0, phone ? 2 : 4)) put(g, rock(r, 0, 0.18, 7).scale(1, 0.55, 1), tone(MOSS, true), x, y, z);
+    for (const [x, z, r] of [[-0.1, 1.3, 0.4], [0.5, -1.2, 0.5], [2.6, 0.9, 0.35], [-2.9, -0.8, 0.45], [2.4, -1.0, 0.3]].slice(0, phone ? 2 : 5)) put(g, rock(r, 0, 0.2, 8 + Math.round(r * 10)).scale(1, 0.7, 1), tone(PALE_STONE, true), x, 0.1 * r - 0.25, z);
+  }
+
+  /* Touch Of Grey: a great boulder with a pale vein through it, and two lesser ones against it. */
+  function greyBoulder(g) {
+    const vein = (x, y, z) => (Math.abs(y - 0.55 * x - 0.3 * z - 0.4) < 0.38 ? SNOW : y > 1.9 && roll(x, y, z, 3) > 0.5 ? PALE_STONE : GREY);
+    put(g, paint(rock(3, phone ? 1 : 2, 0.09, 11).scale(1, 0.82, 0.92), vein), painted, 0, 1.75, 0);
+    put(g, rock(1.25, 1, 0.14, 12).scale(1, 0.8, 1), tone(0x6f6a63, true), 3.1, 0.45, 1.2);
+    put(g, rock(0.8, 1, 0.16, 13).scale(1, 0.75, 1), tone(GREY, true), -2.7, 0.2, 1.9);
+  }
+
+  /* A little mountain, its base at its own ground: a cone of `round` sides and `rings` rings, rough but for its tip, painted by
+     `colour`. Its foot goes on down under a slope. */
+  const peak = (r, tall, rough, salt, colour) => {
+    const cone = new THREE.ConeGeometry(r, tall + SUNK, phone ? 8 : 11, phone ? 4 : 6).translate(0, (tall - SUNK) / 2, 0);
+    return paint(roughen(cone, rough, salt, (x, y) => y > tall - 0.05), colour);
+  };
+  /* A pine in its own frame: a trunk and three skirts of boughs. */
+  const pine = (tall) => {
+    const parts = new THREE.Group();
+    put(parts, new THREE.CylinderGeometry(0.08 * tall, 0.11 * tall, 0.4 * tall + SUNK, 5), tone(DARK_TIMBER, true), 0, 0.2 * tall - SUNK / 2, 0);
+    [[0.42, 0.5, 0.36], [0.32, 0.42, 0.62], [0.2, 0.36, 0.84]].forEach(([r, h, y], k) => put(parts, new THREE.ConeGeometry(r * tall, h * tall, 6), tone(PINE, true), 0, y * tall, 0, 0, k * 0.5, 0));
+    return parts;
+  };
+
+  /* Cold Rain And Snow: a peak with snow on its top, lying lower down its north side, and pines at its foot. */
+  function snowPeak(g) {
+    const snowline = (x, y, z) => (y > 4.3 - 0.9 * roll(Math.round(x * 2), 0, Math.round(z * 2), 21) - 0.25 * z ? SNOW : y > 2.2 && roll(x, y, z, 22) > 0.6 ? PALE_STONE : 0x8e8a82);
+    put(g, peak(3.2, 7.4, 0.13, 20, snowline), painted, 0, 0, 0);
+    for (const [x, z, tall] of [[3.3, 1.4, 2.6], [2.5, 2.7, 1.9], [-3.4, 0.9, 2.2]].slice(0, phone ? 1 : 3)) stand(g, pine(tall), x, 0, z);
+  }
+
+  /* Fire On The Mountain: a dark peak, burnt at its top, and the fire on it. The flame stands on the mountain's top, 5 m up, with its
+     base at its own origin, so a swell grows it up and out from there. */
+  function fireMountain(g) {
+    const burnt = (x, y, z) => (y > 4.1 ? 0x2a1d18 : roll(x, y, z, 31) > 0.72 ? 0x5e4a3c : BASALT);
+    put(g, peak(2.5, 5.2, 0.14, 30, burnt), painted, 0, 0, 0);
+    for (const [x, z, r] of [[2.3, 1.0, 0.5], [-2.2, 1.4, 0.4], [1.2, -2.2, 0.35]].slice(0, phone ? 1 : 3)) put(g, rock(r, 0, 0.2, 32).scale(1, 0.7, 1), tone(0x3b2e27, true), x, 0.05, z);
+    /* The flame is main's one cone: three tongues in one mesh were counted at 5 swings a second at one block through the song's
+       peak, where the one cone counts 3. */
+    const f = mesh(new THREE.ConeGeometry(1, 2.4, 6).translate(0, 1.2, 0), new THREE.MeshLambertMaterial({ color: 0xff7a2a, emissive: 0xff7a2a, emissiveIntensity: 0.8 }), 0, 5, 0);
+    g.add(f);
+    moving.push({ obj: f, kind: "swell" });
+    if (!phone) { const l = new THREE.PointLight(0xff8a3a, 40, 30); l.position.set(0, 6.5, 0); g.add(l); moving.push({ obj: l, kind: "flame", base: l.intensity }); }
+  }
+
+  /* A temple's column in its own frame, its foot at its own ground: a stepped base, a shaft of ten flat flutes that narrows as it
+     rises, and a capital. `tall` is to the capital's top. */
+  const column = (tall, capital = true) => {
+    const parts = new THREE.Group(), flute = tone(PALE_STONE, true);
+    put(parts, new THREE.BoxGeometry(1.7, 0.3 + SUNK, 1.7), stone, 0, 0.15 - SUNK / 2, 0);
+    put(parts, new THREE.CylinderGeometry(0.72, 0.8, 0.3, 10), flute, 0, 0.45, 0);
+    put(parts, new THREE.CylinderGeometry(0.5, 0.62, tall - 1.2, 10), flute, 0, 0.6 + (tall - 1.2) / 2, 0);
+    if (capital) {
+      put(parts, new THREE.CylinderGeometry(0.78, 0.52, 0.32, 10), flute, 0, tall - 0.44, 0);
+      put(parts, new THREE.BoxGeometry(1.6, 0.28, 1.6), stone, 0, tall - 0.14, 0);
+    }
+    return parts;
+  };
+  /* Samson And Delilah: the temple as he brings it down. One column stands; the other is pushed over and broken, its upper drums
+     fallen, and the lintel has slipped from it, one end still on the standing column's capital. */
+  function templePillars(g) {
+    stand(g, column(6), -1.6, 0, 0);
+    stand(g, column(3.4, false), 1.6, 0, 0, 0, 0, -0.2);
+    const flute = tone(PALE_STONE, true);
+    put(g, new THREE.CylinderGeometry(0.5, 0.55, 1.5, 10), flute, 3.4, 0.42, 0.9, 0.2, 0.5, Math.PI / 2);
+    put(g, new THREE.CylinderGeometry(0.48, 0.5, 1.1, 10), flute, 3.0, 0.4, -1.3, Math.PI / 2 - 0.1, 0, 0.35);
+    put(g, new THREE.CylinderGeometry(0.78, 0.52, 0.32, 10), flute, 4.3, 0.1, -0.2, 0.5, 0, 0.9);
+    put(g, new THREE.BoxGeometry(4.6, 0.6, 1.0), stone, 0.35, 4.85, 0.05, 0, 0.06, -0.5);
+    if (!phone) for (const [x, z, r] of [[2.2, 1.6, 0.3], [0.6, -1.4, 0.25], [3.9, -1.5, 0.22], [-0.2, 1.5, 0.2]]) put(g, rock(r, 0, 0.22, 41).scale(1, 0.75, 1), tone(0x8e8a82, true), x, 0.05, z);
+  }
+
   /* Tuning: a guitar's tuning peg, taller than a bear. A turned post on a stone footing, brass collars, the string wound round it,
      and its key, a flattened oval, amber and glowing. */
   function tuningPeg(g) {
@@ -233,12 +352,12 @@ export function makeBuilders(phone) {
     [/diamond/i, cutDiamond],
     [/rider/i, hitchingRail],
     [/jed/i, logCabin],
-    [/esau/i, (g) => { g.add(mesh(new THREE.BoxGeometry(1.6, 5, 1.2), stone, -1.2, 2.5, 0), mesh(new THREE.BoxGeometry(1.6, 4.2, 1.2), stone, 1.2, 2.1, 0)); }],
-    [/grey|gray/i, (g) => { g.add(mesh(new THREE.DodecahedronGeometry(3), new THREE.MeshLambertMaterial({ color: 0x7d7a74, flatShading: true }), 0, 2.4, 0)); }],
-    [/snow/i, (g) => { g.add(mesh(new THREE.ConeGeometry(3, 7, 7), stone, 0, 3.5, 0), mesh(new THREE.ConeGeometry(1.4, 2.6, 7), new THREE.MeshLambertMaterial({ color: 0xeceae4, flatShading: true }), 0, 5.7, 0)); }],
+    [/esau/i, brotherStones],
+    [/grey|gray/i, greyBoulder],
+    [/snow/i, snowPeak],
     /* The flame stands on the mountain's top, 5 m up, with its base at its own origin, so a swell grows it up and out from there. */
-    [/fire/i, (g) => { const f = mesh(new THREE.ConeGeometry(1, 2.4, 6).translate(0, 1.2, 0), new THREE.MeshLambertMaterial({ color: 0xff7a2a, emissive: 0xff7a2a, emissiveIntensity: 0.8 }), 0, 5, 0); g.add(mesh(new THREE.ConeGeometry(2.2, 5, 7), new THREE.MeshLambertMaterial({ color: 0x4a3a30, flatShading: true }), 0, 2.5, 0), f); moving.push({ obj: f, kind: "swell" }); if (!phone) { const l = new THREE.PointLight(0xff8a3a, 40, 30); l.position.set(0, 6.5, 0); g.add(l); moving.push({ obj: l, kind: "flame", base: l.intensity }); } }],
-    [/samson/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(0.6, 0.6, 6, 8), stone, -1.5, 3, 0)); const p = mesh(new THREE.CylinderGeometry(0.6, 0.6, 6, 8), stone, 1.5, 2.8, 0); p.rotation.z = -0.25; g.add(p, mesh(new THREE.BoxGeometry(4.4, 0.6, 1), stone, 0, 6.3, 0)); }],
+    [/fire/i, fireMountain],
+    [/samson/i, templePillars],
     [/wheel/i, (g) => { const w = mesh(new THREE.TorusGeometry(3.2, 0.4, 6, 16), wood, 0, 3.6, 0); g.add(w); moving.push({ obj: w, kind: "spin" }); }],
     [/miracle/i, (g) => { const s = mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.9 }), 0, 4, 0); g.add(s); moving.push({ obj: s, kind: "bob" }); }],
     [/band/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(4, 4, 0.8, 8), wood, 0, 0.4, 0)); if (!phone) for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; g.add(mesh(new THREE.CylinderGeometry(0.2, 0.2, 3, 5), wood, Math.cos(a) * 3.6, 2.3, Math.sin(a) * 3.6)); } g.add(mesh(new THREE.ConeGeometry(4.6, 2, 8), stone, 0, 4.8, 0)); }],

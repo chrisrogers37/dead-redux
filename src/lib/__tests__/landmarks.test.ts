@@ -299,3 +299,96 @@ describe("the landmarks built of many parts", () => {
     }
   });
 });
+
+describe("the rough-hewn landmarks", () => {
+  // The five built of rough stone, by a title of each.
+  const ROUGH = ["My Brother Esau", "Touch Of Grey", "Cold Rain And Snow", "Fire On The Mountain", "Samson And Delilah"];
+  const stillOf = (title: string, phone = false) => landmark(title, phone).parts.filter((c) => c.isMesh && c.material.emissive.getHex() === 0);
+  // How many of a mesh's faces are in a colour, and the lowest and highest of them.
+  const faces = (part: Part, hex: number) => {
+    const { position, color } = part.geometry.attributes, tone = new THREE.Color(hex);
+    let n = 0, low = Infinity, high = -Infinity;
+    for (let i = 0; i < position.count; i += 3) {
+      if (Math.abs(color.getX(i) - tone.r) + Math.abs(color.getY(i) - tone.g) + Math.abs(color.getZ(i) - tone.b) > 1e-4) continue;
+      n += 1;
+      low = Math.min(low, position.getY(i), position.getY(i + 1), position.getY(i + 2));
+      high = Math.max(high, position.getY(i), position.getY(i + 1), position.getY(i + 2));
+    }
+    return { n, low, high };
+  };
+
+  it("are each one still mesh, on a desktop and on a phone, and the fire its flame and its light besides", () => {
+    for (const phone of [false, true]) {
+      for (const title of ROUGH) {
+        const { parts, moving } = landmark(title, phone);
+        expect(stillOf(title, phone)).toHaveLength(1);
+        if (title !== "Fire On The Mountain") { expect(parts).toHaveLength(1); continue; }
+        // The flame swells with the music from its own base, 5 m up; its light is a desktop's and a TV's.
+        const swell = moving.find((m) => (m as { kind?: string }).kind === "swell") as { obj: Part & { position: { y: number } } };
+        expect(parts).toContain(swell.obj);
+        expect(swell.obj.position.y).toBe(5);
+        expect(new THREE.Box3().setFromBufferAttribute(swell.obj.geometry.attributes.position).min.y).toBeCloseTo(0, 6);
+        expect(swell.obj.material.emissive.getHex()).toBe(0xff7a2a);
+        expect(moving.filter((m) => (m as { kind?: string }).kind === "flame")).toHaveLength(phone ? 0 : 1);
+        expect(parts).toHaveLength(phone ? 2 : 3);
+      }
+    }
+  });
+
+  it("stand in the ground, so none shows daylight under it on a slope, and keep near the size of the shapes they replace", () => {
+    for (const phone of [false, true]) {
+      for (const title of ROUGH) {
+        const box = bounds(landmark(title, phone).g), size = box.getSize(new THREE.Vector3());
+        // A peak, a column's base and the standing stones go 1.6 m under; the great boulder lies 0.7 m into the ground.
+        expect(box.min.y).toBeLessThan(title === "Touch Of Grey" ? -0.6 : -1.55);
+        expect(box.min.y).toBeGreaterThan(-2.1);
+        expect(box.max.y).toBeLessThan(9.2);
+        expect(Math.max(size.x, size.z)).toBeLessThan(8.6);
+      }
+    }
+  });
+
+  it("are painted face by face: snow lies on the peak's top and lower down one side, the fire's peak is burnt at its top, and the boulder has its touch of grey", () => {
+    const peak = stillOf("Cold Rain And Snow")[0], snow = faces(peak, 0xeceae4), all = peak.geometry.attributes.position.count / 3;
+    expect(snow.n).toBeGreaterThan(10);
+    expect(snow.n).toBeLessThan(0.5 * all);
+    // No snow under 2.5 m, and the tip, 7.4 m up, is snow.
+    expect(snow.low).toBeGreaterThan(2.5);
+    expect(snow.high).toBeCloseTo(7.4, 3);
+    const burnt = faces(stillOf("Fire On The Mountain")[0], 0x2a1d18);
+    expect(burnt.n).toBeGreaterThan(4);
+    expect(burnt.low).toBeGreaterThan(3.2);
+    // The vein: a pale band through the boulder, a few faces wide.
+    const boulder = stillOf("Touch Of Grey")[0], vein = faces(boulder, 0xeceae4);
+    expect(vein.n).toBeGreaterThan(8);
+    expect(vein.n).toBeLessThan(0.3 * (boulder.geometry.attributes.position.count / 3));
+    // Every face of a rough part is flat: its three corners share one normal.
+    const { normal } = peak.geometry.attributes;
+    for (let i = 0; i < normal.count; i += 3) for (const k of [1, 2]) expect(Math.abs(normal.getX(i) - normal.getX(i + k)) + Math.abs(normal.getY(i) - normal.getY(i + k)) + Math.abs(normal.getZ(i) - normal.getZ(i + k))).toBeLessThan(1e-6);
+  });
+
+  it("stands one of the temple's columns to its capital, 6 m up, and breaks the other, with its drums and the slipped lintel on the ground and against the first", () => {
+    const { position } = stillOf("Samson And Delilah")[0].geometry.attributes;
+    let standing = -Infinity, broken = -Infinity;
+    for (let i = 0; i < position.count; i++) {
+      // The standing column is at x -1.6 and the broken one at 1.6, each within 0.9 m of its own line at its foot.
+      if (Math.abs(position.getX(i) + 1.6) < 0.9 && Math.abs(position.getZ(i)) < 0.9) standing = Math.max(standing, position.getY(i));
+      if (position.getX(i) > 3.2) broken = Math.max(broken, position.getY(i));
+    }
+    expect(standing).toBeGreaterThan(5.9);
+    // Past the broken column lie only its fallen drums and its capital, no higher than a bear's knee.
+    expect(broken).toBeLessThan(1.2);
+  });
+
+  it("cost a few hundred triangles each, no more on a phone, and build the same on every visit", () => {
+    for (const title of ROUGH) {
+      const desktop = triangles(landmark(title).parts.filter((c) => c.isMesh)), phone = triangles(landmark(title, true).parts.filter((c) => c.isMesh));
+      expect(desktop).toBeGreaterThan(150);
+      expect(desktop).toBeLessThan(600);
+      expect(phone).toBeLessThanOrEqual(desktop);
+      const a = stillOf(title)[0].geometry.attributes.position, b = stillOf(title)[0].geometry.attributes.position;
+      expect(a.count).toBe(b.count);
+      for (let i = 0; i < a.count; i += 17) expect([a.getX(i), a.getY(i), a.getZ(i)]).toEqual([b.getX(i), b.getY(i), b.getZ(i)]);
+    }
+  });
+});
