@@ -242,7 +242,7 @@ export function makeBuilders(phone) {
     put(fork, new THREE.CylinderGeometry(0.06, 0.07, 3.6, 6), tone(TIMBER), 0, 1.8, 0);
     put(fork, new THREE.BoxGeometry(0.7, 0.08, 0.08), tone(IRON), 0, 3.6, 0);
     for (const x of [-0.3, 0, 0.3]) put(fork, new THREE.ConeGeometry(0.045, 0.85, 4), tone(IRON), x, 4.05, 0);
-    stand(g, fork, -0.5, -0.35, -2.45, 0.36, 0.25, 0);
+    stand(g, fork, -0.5, -0.45, -2.75, 0.36, 0.25, 0);
   }
 
   /* Dupree's Diamond Blues: a cut stone, its table up and its point down, held in four brass claws over a stepped stone foot. */
