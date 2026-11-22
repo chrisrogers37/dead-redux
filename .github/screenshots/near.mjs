@@ -25,6 +25,16 @@ export const AS_TITLES = [
   [15, "China Cat Sunflower"],
 ];
 
+// The standing stones: a song with no landmark of its own gets one of eight kinds of stone, by its title (stoneKind,
+// public/world/landmarks.js). On a third load of the fixed day, eight of its songs' landmarks are built as these eight songs would have
+// them: songs from the maps that no rule matches, one of each kind in the kinds' own order (a menhir, a leaning slab, a split stone, a
+// cairn, a trilithon, a pair, a stele, a balanced boulder), at points where the view is clear from 14 m. The cairn stands at song 4's
+// point, on the steep climb, where the visitor looks up at a stone's lower side: one that hung over the slope or lay buried in it
+// would show there. The test holds this table to all of that.
+export const STONE_TITLES = [
+  [2, "Cassidy"], [9, "Casey Jones"], [16, "To Lay Me Down"], [4, "Wharf Rat"], [10, "Peggy-O"], [7, "The Other One"], [12, "Bertha"], [18, "Little Red Rooster"],
+];
+
 // How many frames the world draws after a move before its still is taken: the one that draws the cut, with the bears in their places,
 // and one more, so that the still is taken of a frame that has been shown.
 export const NEAR_FRAMES = 2;
@@ -40,8 +50,12 @@ const nearPage = (songs, prefix, as = []) => ({
   steps: songs.map(([index, title]) => ({ near: index, title, shot: `${prefix}-${slug(title)}` })),
 });
 
-// The shoot's pages for the near stills: the fixed day's own landmarks, then the other kinds.
-export const nearPages = () => [nearPage(FIXED_TITLES.map((title, index) => [index, title]), "fixed-near"), nearPage(AS_TITLES, "fixed-as", AS_TITLES)];
+// The shoot's pages for the near stills: the fixed day's own landmarks, then the other kinds, then the eight standing stones.
+export const nearPages = () => [
+  nearPage(FIXED_TITLES.map((title, index) => [index, title]), "fixed-near"),
+  nearPage(AS_TITLES, "fixed-as", AS_TITLES),
+  nearPage(STONE_TITLES, "fixed-stone", STONE_TITLES),
+];
 
 // Why a near still is wrong, or null: the page says which song the visitor stands by and the title its landmark is built for
 // (window.__hill.near), and both must be the step's; and no other landmark may stand in the view. The fixed day's page takes its

@@ -273,8 +273,8 @@ const PAGES = [
   { path: "/2026-10-20?pose=landmark-12", devices: ["desktop"], shots: ["fixed-over-uncle-johns-band"] },
   // The near stills (near.mjs): the visitor stands beside each landmark, 14 m short of it on the path and facing it, the last bear
   // beside it and the others on ahead, and the page is shot whole. Every landmark of the fixed day, then, on a second load of it,
-  // every other kind of landmark, each built at one of the fixed day's songs' points. A landmark is read here at the size a
-  // visitor sees it.
+  // every other kind of landmark, and on a third the eight kinds of standing stone, each built at one of the fixed day's songs'
+  // points. A landmark is read here at the size a visitor sees it.
   ...nearPages(),
   // The fixed day with the site's day faked as 2099-01-01, a day it will not reach: the chip names the new day at load and stays while
   // the show plays on (the 8-s shot's clock has moved; the url line still reads the fixed page); in lean-back it sits above the title; its
