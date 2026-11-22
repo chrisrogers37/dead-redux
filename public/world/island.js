@@ -41,9 +41,10 @@ export function offTracks(x, z, room) {
   return fromRing(x, z) > (SHORE - RING) / 2 + room && fromBolt(x, z) > BOLT_HALF + room;
 }
 
-/* How far past the crowd's ground the turf is trodden bare of tufts: a figure stands or sits anywhere on that ground, steps aside
-   for the visitor and rises with the music, and a blade or a bloom that came up through it would flicker against it as it swayed. */
-const CROWD_ROOM = 2;
+/* How far past the crowd's ground the turf is trodden bare of tufts. A figure stands or sits anywhere on that ground and rises with
+   the music, and one at its rim steps out past it for the visitor, who it keeps 4.2 m from (crowd.js's parting). A blade or a
+   bloom that came up through a figure would flicker against it as it swayed. */
+const CROWD_ROOM = 4.5;
 /* How far from the setlist's path anything grows, and the side of the squares its points are sorted into (no less than that). */
 const LOOP_ROOM = 2.2, LOOP_SQUARE = 4;
 /* The stage's light on the water: its colour at its fullest, as the screen shows it, and where it lies, from SHINE_OUT m past the stage's

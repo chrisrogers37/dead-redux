@@ -296,8 +296,8 @@ describe("what stands on the land", () => {
         // A tuft's root is a few centimetres under the drawn ground, never over it.
         expect(at.y - surface(at.x, at.z)).toBeCloseTo(-0.03, 4);
         expect(tracksAt(at.x, at.z)).toBe(0);
-        // None on the crowd's ground or within 2 m of it, where a figure would stand in it.
-        expect(onCrowdGround(at.x, at.z, 2)).toBe(false);
+        // None on the crowd's ground or within 4.5 m of it, where a figure would stand in it, or step into it for the visitor.
+        expect(onCrowdGround(at.x, at.z, 4.5)).toBe(false);
         const fromLoop = Math.min(...loop.map(([x, z]) => Math.hypot(at.x - x, at.z - z)));
         expect(fromLoop).toBeGreaterThanOrEqual(2.2);
         nearest = Math.min(nearest, fromLoop);
@@ -306,7 +306,7 @@ describe("what stands on the land", () => {
       expect(nearest).toBeLessThan(3.2);
       // No firefly flies over the crowd either: each is over a tuft.
       const flies = flora.flies.geometry.getAttribute("position");
-      for (let i = 0; i < flies.count; i++) expect(onCrowdGround(flies.getX(i), flies.getZ(i), 2)).toBe(false);
+      for (let i = 0; i < flies.count; i++) expect(onCrowdGround(flies.getX(i), flies.getZ(i), 4.5)).toBe(false);
       let among = 0;
       for (let i = 0; i < flora.stones.count; i++) {
         flora.stones.getMatrixAt(i, matrix);
