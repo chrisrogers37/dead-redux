@@ -43,14 +43,16 @@ export function layout(tracks, set2Start, { pointU }) {
 }
 
 /* The test hook ?pose=near-K (main.js) stands the visitor NEAR_SHORT m short of a landmark, in a straight line, or one of the NEAR_CLOSER
-   distances where another landmark would stand in the view: within NEAR_CLEAR m of the line of sight. The first-person view is centred
-   NEAR_AIM m up the landmark, which at 14 m keeps the foot and the top of a 12 m landmark in a desktop's frame, and a flat one, lying
-   downhill, in it too. */
-const NEAR_SHORT = 14, NEAR_CLOSER = [11, 8], NEAR_CLEAR = 4, NEAR_AIM = 4;
+   distances where another landmark would stand in the view: within NEAR_CLEAR m of the line of sight. At each it also keeps the
+   NEAR_ROOM beside it from the landmark's furthest reach (placeLandmarks), so that a long landmark's near end is not under the
+   frame: the road's slab reaches 9.2 m. The first-person view is centred NEAR_AIM m up the landmark, which at 14 m keeps the foot
+   and the top of a 12 m landmark in a desktop's frame, and a flat one, lying downhill, in it too. */
+const NEAR_SHORT = 14, NEAR_CLOSER = [11, 8], NEAR_ROOM = [8, 6, 4], NEAR_CLEAR = 4, NEAR_AIM = 4;
 
 /* Where ?pose=near-K stands the visitor: on the path, `short` metres in a straight line from where landmark k really stands, which may be
-   off its song's point (placeLandmarks), found by stepping back along the path from that point, the first song's round the loop's
-   closing. A landmark that already stands that far or further from its song's point is seen from the point. Where another landmark
+   off its song's point (placeLandmarks), or as far as its reach asks, found by stepping back along the path from that point, the
+   first song's round the loop's closing. A landmark that already stands that far or further from its song's point is seen from the
+   point. Where another landmark
    stands in the view from there, the visitor stands closer, at the first of NEAR_CLOSER that clears it, or the last, and `clear` says
    whether the view is clear in the end. It faces the landmark and looks NEAR_AIM m up it, no steeper than the walk's own tilt goes
    (0.8 rad, main.js). Null where there is no landmark k, or the path never gets `short` metres from it. */
@@ -77,11 +79,13 @@ export function nearStand({ at, curveLength }, landmarkU, landmarks, k, short = 
     const dx = to.x - p.x, dz = to.z - p.z, t = ((q.x - p.x) * dx + (q.z - p.z) * dz) / (dx * dx + dz * dz);
     return t > 0 && t < 1 && Math.hypot(q.x - p.x - dx * t, q.z - p.z - dz * t) < NEAR_CLEAR;
   });
-  let p = spot(short);
+  /* How far the landmark reaches from its own middle, seen from above; a stand keeps its room from that. */
+  const reach = landmarks[k].userData?.reach ?? 0;
+  let p = spot(Math.max(short, reach + NEAR_ROOM[0]));
   if (!p) return null;
-  for (const closer of NEAR_CLOSER) {
+  for (const [n, closer] of NEAR_CLOSER.entries()) {
     if (closer >= short || !blocked(p)) break;
-    p = spot(closer);
+    p = spot(Math.max(closer, reach + NEAR_ROOM[n + 1]));
   }
   const pitch = Math.atan2(to.y + NEAR_AIM - p.y - FIRST_EYE, gap(p));
   return { x: p.x, z: p.z, heading: Math.atan2(p.x - to.x, p.z - to.z), pitch: Math.max(-0.8, Math.min(0.8, pitch)), clear: !blocked(p) };
@@ -169,8 +173,11 @@ export function placeLandmarks(scene, { at, tangentAt }, tracks, hasShow, { BUIL
     /* A song with a landmark of its own gets it; any other, its title's standing stone. */
     if (b) b[1](g);
     else standingStone(g, tracks[i].title);
-    const s = standClear(p.x, p.z, g.rotation.y, outline(g, moving), pts);
+    const edge = outline(g, moving);
+    const s = standClear(p.x, p.z, g.rotation.y, edge, pts);
     g.position.set(s.x, height(s.x, s.z), s.z);
+    /* How far it reaches from its own middle, seen from above: ?pose=near-K stands back from a long landmark by it (nearStand). */
+    g.userData.reach = Math.max(0, ...edge.map(([x, z]) => Math.hypot(x, z)));
     scene.add(g);
     landmarks.push(g);
   }
