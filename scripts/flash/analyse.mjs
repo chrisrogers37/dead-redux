@@ -194,7 +194,7 @@ export const lum = (r, g, b) => 0.2126 * LIN[r] + 0.7152 * LIN[g] + 0.0722 * LIN
 
 // One frame's relative luminance per 2x2 block of device pixels, written as uint16 into `out` from `base` on, row after row. `rgba` is
 // the frame's pixels, `frameWidth` of them a row; the grid is `bw` by `bh` blocks and stands `ox` px right and `oy` px down of the
-// frame's corner (0 or 1 each), so a block that straddles the even grid's lines is counted on the grid moved by one.
+// frame's corner (0 or 1 each), so a flash that straddles the even grid's lines lies whole in a block of one of the three moved grids.
 export function blockLuminance(rgba, frameWidth, bw, bh, ox, oy, out, base) {
   const d = rgba;
   for (let by = 0; by < bh; by++) {
