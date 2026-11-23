@@ -11,6 +11,7 @@ import {
   fits,
   keepSpot,
   modeRules,
+  RIDES,
   slotAt,
   slotDistance,
   walkFrom,
@@ -39,8 +40,9 @@ const P: Spot = { x: STAGE_POSE.x, z: STAGE_POSE.z, heading: STAGE_POSE.heading 
 // Its place in the bears' line, across the island from it.
 const SLOT: Spot = { x: -40, z: 60, heading: 2.1 };
 
-// What each mode does to the walker in its frames (public/world/main.js): attract and lean-back's drift keep it in its place in the
-// line, which moves as the bears walk on; follow leaves it standing and turns its heading and its look as the visitor looks around.
+// What each mode does to the walker in its frames (public/world/main.js): attract and the ride's crane, drift, keep it in its place
+// in the line, which moves as the bears walk on; follow leaves it standing and turns its heading and its look as the visitor looks
+// around.
 const MODES: Record<string, (walker: Walker, slot: Spot) => void> = {
   attract: (w, s) => Object.assign(w, s),
   drift: (w, s) => Object.assign(w, s),
@@ -428,7 +430,7 @@ describe("enterMode", () => {
   it("changes nothing where the mode is the same, and does not ask where a walk starts", () => {
     for (const mode of EVERY_MODE) {
       const spot = startingAt("nearest");
-      expect(enterMode(mode, mode, spot)).toEqual({ changed: false, cut: false, followEntered: false });
+      expect(enterMode(mode, mode, spot)).toEqual({ changed: false, cut: false, rideEntered: false });
       expect(spot.walks).toBe(0);
     }
   });
@@ -437,7 +439,7 @@ describe("enterMode", () => {
     for (const from of otherThan("walk")) {
       for (const start of ["stood", "nearest"] as const) {
         const spot = startingAt(start);
-        expect(enterMode(from, "walk", spot)).toEqual({ changed: true, cut: true, followEntered: false });
+        expect(enterMode(from, "walk", spot)).toEqual({ changed: true, cut: true, rideEntered: false });
         expect(spot.walks).toBe(1);
       }
     }
@@ -446,7 +448,7 @@ describe("enterMode", () => {
   it("does not cut to a walk that starts in the line, where the last camera already is", () => {
     for (const from of otherThan("walk")) {
       const spot = startingAt("slot");
-      expect(enterMode(from, "walk", spot)).toEqual({ changed: true, cut: false, followEntered: false });
+      expect(enterMode(from, "walk", spot)).toEqual({ changed: true, cut: false, rideEntered: false });
       expect(spot.walks).toBe(1);
     }
   });
@@ -461,14 +463,20 @@ describe("enterMode", () => {
     }
   });
 
-  it("marks entering follow, which frames the bears again, level, and no other mode", () => {
-    for (const from of otherThan("follow")) {
-      const spot = startingAt("stood");
-      expect(enterMode(from, "follow", spot)).toEqual({ changed: true, cut: false, followEntered: true });
-      expect(spot.walks).toBe(0);
+  it("marks a ride entered from outside it, on either of its rigs, which frames the bears again, level; and neither the change from one rig to the other, where the look the visitor turned is kept, nor any other mode", () => {
+    expect([...RIDES]).toEqual(["follow", "drift"]);
+    for (const to of RIDES) {
+      for (const from of EVERY_MODE.filter((mode) => !RIDES.has(mode))) {
+        const spot = startingAt("stood");
+        expect(enterMode(from, to, spot)).toEqual({ changed: true, cut: false, rideEntered: true });
+        expect(spot.walks).toBe(0);
+      }
     }
-    for (const to of otherThan("follow")) {
-      for (const from of otherThan(to)) expect(enterMode(from, to, startingAt("stood")).followEntered).toBe(false);
+    // Between the rigs the camera eases and nothing is framed again: marked, the look would snap level as the crane took the view.
+    expect(enterMode("follow", "drift", startingAt("stood"))).toEqual({ changed: true, cut: false, rideEntered: false });
+    expect(enterMode("drift", "follow", startingAt("stood"))).toEqual({ changed: true, cut: false, rideEntered: false });
+    for (const to of EVERY_MODE.filter((mode) => !RIDES.has(mode))) {
+      for (const from of otherThan(to)) expect(enterMode(from, to, startingAt("stood")).rideEntered).toBe(false);
     }
   });
 
@@ -491,10 +499,12 @@ const FRAMES_PER_S = 20;
 // modeRules as main.js holds them, with the mode it reads and a setMode that only enters the new one. `run` draws the frames of
 // `seconds` of world time and calls `each` after every frame.
 function rulesFrom(start: string) {
-  const world = { mode: start, frame: 0 };
+  // `entered` is each mode setMode was asked for, in order, the mode it already had among them.
+  const world = { mode: start, frame: 0, entered: [] as string[] };
   const rules = modeRules(
     () => world.mode,
     (mode: string) => {
+      world.entered.push(mode);
       world.mode = mode;
     },
   );
@@ -520,18 +530,29 @@ function bindWorld(userInput: (action: string) => void) {
   });
   vi.stubGlobal("window", new EventTarget());
   vi.stubGlobal("HTMLElement", class {});
-  vi.stubGlobal(
-    "document",
-    Object.assign(new EventTarget(), {
-      querySelector: (selector: string) => (selector === "[data-stick]" ? stickEl : null),
-    }),
-  );
-  const input = bindInput(new EventTarget(), { heading: 0, pitch: 0 }, userInput);
+  // The page's own events, which the world must not answer: the ride's keys are the page's (src/components/world/ride.ts).
+  const said: string[] = [];
+  const doc = Object.assign(new EventTarget(), {
+    querySelector: (selector: string) => (selector === "[data-stick]" ? stickEl : null),
+  });
+  for (const type of ["player:join", "world:follow"]) doc.addEventListener(type, () => said.push(type));
+  vi.stubGlobal("document", doc);
+  // The world's own element, which takes a drag.
+  const container = new EventTarget();
+  const walker = { heading: 0, pitch: 0 };
+  const input = bindInput(container, walker, userInput);
   const press = (code: string) => window.dispatchEvent(Object.assign(new Event("keydown"), { code, repeat: false }));
   const touch = (type: string, dx: number, dy: number) =>
     stickEl.dispatchEvent(Object.assign(new Event(type), { pointerId: 7, clientX: 100 + dx, clientY: 700 + dy }));
-  return { ...input, press, touch };
+  // A press on the world at (x, y) px, and the same pointer moved there.
+  const drag = (type: string, x: number, y: number) =>
+    (type === "pointerdown" ? container : window).dispatchEvent(Object.assign(new Event(type), { pointerId: 3, clientX: x, clientY: y }));
+  return { ...input, press, touch, drag, walker, said };
 }
+
+// The controls that only look around, and those that walk (bindInput's actions).
+const LOOK_CONTROLS = ["left", "right", "lookUp", "lookDown", "drag"];
+const WALK_CONTROLS = ["fwd", "back", "strafeL", "strafeR"];
 
 describe("modeRules", () => {
   afterEach(() => {
@@ -543,7 +564,8 @@ describe("modeRules", () => {
     run(DESCENT_S);
     expect(world.mode).toBe("attract");
     // A step after the descent starts a walk, with the visitor's bear at P; then nothing is pressed for a minute of world time.
-    expect(rules.input("fwd")).toBe(true);
+    rules.input("fwd");
+    expect(world.mode).toBe("walk");
     const walker: Walker = { ...P, pitch: 0 };
     // In third person the listener is the bear's head (listenerAt), which stands over the walker.
     const head = { x: P.x, y: 3.6, z: P.z };
@@ -582,33 +604,137 @@ describe("modeRules", () => {
     expect(stick).toEqual({ walk: 0, turn: 0 });
   });
 
-  it("still walks with the bears on B, keeps them while the visitor only looks around, and walks again on B or a step", () => {
-    const { world, rules } = rulesFrom("walk");
-    const { press } = bindWorld((action) => rules.input(action));
-    press("KeyB");
-    expect(world.mode).toBe("follow");
-    for (const look of ["left", "right", "lookUp", "lookDown", "drag"]) {
-      expect(rules.input(look)).toBe(true);
-      expect(world.mode).toBe("follow");
+  it("starts the ride with the bears as the page turns it on, from each mode it can be asked in, and ends it in a walk as the page turns it off", () => {
+    for (const from of ["descent", "attract", "walk"]) {
+      const { world, rules } = rulesFrom(from);
+      rules.ride(true, false);
+      expect(world.mode, from).toBe("follow");
+      rules.ride(false, false);
+      expect(world.mode, from).toBe("walk");
+      // A page that never said "riding" and says it is not asks for nothing: the opening is left to play out.
+      const quiet = rulesFrom(from);
+      quiet.rules.ride(false, false);
+      expect(quiet.world.entered).toEqual([]);
     }
-    press("KeyB");
-    expect(world.mode).toBe("walk");
-    press("KeyB");
-    expect(rules.input("back")).toBe(true);
-    expect(world.mode).toBe("walk");
   });
 
-  it("still drifts above the bears in lean-back, which takes no control, and walks once it ends", () => {
-    const { world, rules, run } = rulesFrom("walk");
-    rules.lean(true);
-    expect(world.mode).toBe("drift");
-    for (const action of ["fwd", "follow", "left", "drag"]) {
-      expect(rules.input(action)).toBe(false);
-      expect(world.mode).toBe("drift");
+  it("starts the ride on the crane where the page is settled as it turns it on, as for a visitor carried over from the day before", () => {
+    for (const from of ["descent", "walk"]) {
+      const { world, rules } = rulesFrom(from);
+      rules.ride(true, true);
+      expect(world.entered, from).toEqual(["drift"]);
     }
-    run(60);
+  });
+
+  it("goes to the crane as the page settles, and stays on it when the page wakes: a pointer that reaches for the page swings no view", () => {
+    const { world, rules, run } = rulesFrom("walk");
+    rules.ride(true, false);
+    rules.ride(true, true);
     expect(world.mode).toBe("drift");
-    rules.lean(false);
+    // The page wakes, settles again and wakes, as a pointer comes and goes; a minute of frames passes. Nothing is asked of the camera.
+    world.entered.length = 0;
+    rules.ride(true, false);
+    rules.ride(true, true);
+    rules.ride(true, false);
+    run(60);
+    expect(world.entered).toEqual([]);
+    expect(world.mode).toBe("drift");
+  });
+
+  it("keeps the ride through every control that only looks around, which brings the camera back from the crane to the rig it turns; the page's next settling sends it out again", () => {
+    for (const look of LOOK_CONTROLS) {
+      const { world, rules } = rulesFrom("walk");
+      rules.ride(true, false);
+      rules.input(look);
+      expect(world.mode, look).toBe("follow");
+      rules.ride(true, true);
+      expect(world.mode, look).toBe("drift");
+      rules.input(look);
+      expect(world.mode, look).toBe("follow");
+      // The page has not woken yet, and its word is read again as it stands, as when the player's state changes: the camera goes on
+      // back, since the page settled before the look and has not settled since.
+      rules.ride(true, true);
+      expect(world.mode, look).toBe("follow");
+      // The same control wakes the page; ten seconds on it settles again.
+      rules.ride(true, false);
+      rules.ride(true, true);
+      expect(world.mode, look).toBe("drift");
+    }
+  });
+
+  it("leaves the ride for a walk on every walking control, from the rig that walks with the bears and from the crane", () => {
+    for (const step of WALK_CONTROLS) {
+      for (const settled of [false, true]) {
+        const { world, rules } = rulesFrom("walk");
+        rules.ride(true, false);
+        if (settled) rules.ride(true, true);
+        expect(world.mode).toBe(settled ? "drift" : "follow");
+        rules.input(step);
+        expect(world.mode, `${step}, ${settled ? "settled" : "awake"}`).toBe("walk");
+      }
+    }
+  });
+
+  it("acts on the page's word as it changes, never while it stands: a page that still says riding after a step has left the ride does not start it again, nor does its settling", () => {
+    const { world, rules } = rulesFrom("walk");
+    rules.ride(true, false);
+    rules.input("fwd");
+    expect(world.mode).toBe("walk");
+    // The page has not yet heard of the step: its word stands, is read again as the player's state changes, and it even settles.
+    world.entered.length = 0;
+    rules.ride(true, false);
+    rules.ride(true, true);
+    expect(world.entered).toEqual([]);
+    // Then it catches up, and the next ride starts as any other.
+    rules.ride(false, false);
+    expect(world.entered).toEqual([]);
+    rules.ride(true, false);
+    expect(world.mode).toBe("follow");
+  });
+
+  it("ends the ride in a walk from either rig as the page turns it off", () => {
+    for (const settled of [false, true]) {
+      const { world, rules } = rulesFrom("attract");
+      rules.ride(true, settled);
+      rules.ride(false, false);
+      expect(world.entered).toEqual([settled ? "drift" : "follow", "walk"]);
+    }
+  });
+
+  it("hears a look key, the stick's turn and a drag on the world from the crane, and hears nothing of B or F, which are the page's", () => {
+    const { world, rules } = rulesFrom("walk");
+    const controls: string[] = [];
+    const { press, touch, drag, walker, said } = bindWorld((action) => {
+      controls.push(action);
+      rules.input(action);
+    });
+    const settle = () => { rules.ride(true, false); rules.ride(true, true); expect(world.mode).toBe("drift"); };
+    rules.ride(true, false);
+    for (const code of ["KeyB", "KeyF", "Escape"]) press(code);
+    expect(controls).toEqual([]);
+    expect(said).toEqual([]);
+    expect(world.mode).toBe("follow");
+    settle();
+    press("ArrowLeft");
+    expect(world.mode).toBe("follow");
+    settle();
+    press("KeyT");
+    expect(world.mode).toBe("follow");
+    settle();
+    touch("pointerdown", -REACH, 0);
+    expect(world.mode).toBe("follow");
+    touch("pointerup", -REACH, 0);
+    settle();
+    // A drag on the world starts from the crane as from anywhere: it turns the look by how far the pointer goes.
+    walker.heading = 1;
+    drag("pointerdown", 400, 300);
+    expect(world.mode).toBe("follow");
+    drag("pointermove", 300, 300);
+    expect(walker.heading).toBeCloseTo(1.5, 9);
+    expect(controls).toEqual(["left", "lookUp", "left", "drag", "drag"]);
+    // And a step from the crane walks.
+    settle();
+    press("ArrowUp");
     expect(world.mode).toBe("walk");
   });
 

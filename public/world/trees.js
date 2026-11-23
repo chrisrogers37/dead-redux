@@ -260,9 +260,9 @@ export function placeTrees({ count, loop = [], line = [], landmarks = [], eyes =
    `eyes` are the places [x, z, y] the camera that walks with the bears stands at (pose.js postPose), for each of those numbers of
    bears, the lead bear every 2 m along the line. `views` are ground a tree's foot keeps off, each { from, to, half, spread, cost }
    (corridors). A view with no `cost` no tree stands in: the sights from each of those eyes to each bear and the visitor's; from
-   lean-back's crane (pose.js CRANE) to the visitor's bear, to the bears and to where it looks; from behind each test pose
+   a settled ride's crane (pose.js CRANE) to the visitor's bear, to the bears and to where it looks; from behind each test pose
    (ground.js), where the walk's camera hangs on its boom (avatar.js) and BOOM_BACK m more, to the stage; from the summit to the
-   trailhead, as lean-back looks under reduced motion; from a boom's length behind each stand to its landmark and BEHIND m past
+   trailhead, as a settled ride looks under reduced motion; from a boom's length behind each stand to its landmark and BEHIND m past
    it, so a landmark is seen whole; and BACKDROP m behind each landmark as its song begins and the beam stands on it, from the two
    cameras a visitor rides, the one that walks with the bears and the crane.
    The opening is the first of those: the first song's landmark, from the ridden cameras with each number of bears. No tree stands

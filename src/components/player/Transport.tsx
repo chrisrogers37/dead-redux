@@ -1,9 +1,9 @@
-import type { CSSProperties, ReactNode } from "react";
+import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { formatDuration } from "@/lib/format";
 
 interface Props {
-  /** Lean-back shows the big title, the line and the seek band only. */
-  leanback: boolean;
+  /** A settled ride (ride.ts) shows the big title, the line and the seek band only. */
+  settled: boolean;
   title: string;
   index: number;
   count: number;
@@ -24,6 +24,9 @@ interface Props {
   onSeek: (seconds: number) => void;
   /** Try again on a failed track: it loads again from where it stopped, with its reloads to come. */
   onRetry: () => void;
+  /** Whether Details is open, which the player keeps: a ride that settles takes the controls away, and waking brings them back as they were. */
+  detailsOpen: boolean;
+  onDetails: (open: boolean) => void;
   /** What Details holds. */
   children?: ReactNode;
 }
@@ -60,7 +63,7 @@ export function focusWorldOnRelease(press: { pointerId: number; pointerType: str
 }
 
 export function Transport({
-  leanback,
+  settled,
   title,
   index,
   count,
@@ -76,6 +79,8 @@ export function Transport({
   onNext,
   onSeek,
   onRetry,
+  detailsOpen,
+  onDetails,
   children,
 }: Props) {
   const max = Math.max(1, Math.round(duration));
@@ -94,7 +99,7 @@ export function Transport({
       step={1}
       value={value}
       onChange={(e) => onSeek(Number(e.currentTarget.value))}
-      onPointerDown={leanback ? undefined : focusWorldOnRelease}
+      onPointerDown={settled ? undefined : focusWorldOnRelease}
       className="seek w-full"
       style={value ? ({ "--p": `${(value / max) * 100}%` } as CSSProperties) : undefined}
     />
@@ -107,13 +112,17 @@ export function Transport({
     </>
   );
 
-  if (leanback) {
+  /* The slider is the same element in both looks, the second of two children here whichever the first is, so a ride that settles or
+     wakes leaves it its focus and a press that has hold of it. */
+  if (settled) {
     return (
       <>
-        <p className="text-[40px] leading-[48px] font-medium text-ink" aria-live="polite">
-          {liveTitle}
-        </p>
-        <p className="text-[24px] leading-8 font-mono text-muted mt-1">{line}</p>
+        <Fragment key="settled">
+          <p className="text-[40px] leading-[48px] font-medium text-ink" aria-live="polite">
+            {liveTitle}
+          </p>
+          <p className="text-[24px] leading-8 font-mono text-muted mt-1">{line}</p>
+        </Fragment>
         {seek}
       </>
     );
@@ -121,6 +130,7 @@ export function Transport({
 
   return (
     <>
+      <Fragment key="awake">
       <p className="t-tag text-muted">{line}</p>
       <p className="t-now text-ink mt-1" aria-live="polite">
         {liveTitle}
@@ -172,11 +182,12 @@ export function Transport({
             <path d={NEXT} />
           </svg>
         </button>
-        <details className="ml-2">
+        <details className="ml-2" open={detailsOpen} onToggle={(e) => onDetails(e.currentTarget.open)}>
           <summary data-action="details" className="t-row text-muted cursor-pointer py-3">Details</summary>
           {children}
         </details>
       </div>
+      </Fragment>
       {seek}
     </>
   );

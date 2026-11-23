@@ -3,8 +3,9 @@ import { BODY_REACH, keepOut } from "./collide.js";
 import { BOUND, STAGE_COLUMN, STAGE_REACH } from "./ground.js";
 
 /* Where a walk starts, with no three import so that vitest can load it. A walk is the visitor's own: their bear stands where the
-   walker does. Every other camera (the descent, attract, follow and lean-back's drift) walks the bear in its place in the bears' line,
-   so leaving one would leave the bear there; instead a walk starts where the bear last stood in a walk. A spot is { x, z, heading }.
+   walker does. Every other camera (the descent, attract, and the ride's two, follow and drift) walks the bear in its place in the
+   bears' line, so leaving one would leave the bear there; instead a walk starts where the bear last stood in a walk. A spot is
+   { x, z, heading }.
    `limits` is what a walk's frame keeps the walker to (walkLimits): within `bound` of the island's centre, out of the reach
    `stageReach` round each column in `stages`, the stage's, out of the reach `treeReach` round each tree's foot, and out of the reach
    `bearReach` round each of the bears' spots, `bears` (collide.js). `trees(x, z, r)` is the trees a walker at (x, z) could stand
@@ -81,18 +82,24 @@ export function slotAt(line, d) {
   return { x: p.x, z: p.z, heading: Math.atan2(-t.x, -t.z) };
 }
 
+/* The ride: the visitor is carried along the setlist with the bears, and the camera stands on one of two rigs. `follow` walks
+   with the bears (pose.js postPose) and is the one the visitor can turn; `drift` is the crane (pose.js cranePose), which has the
+   view once the page has settled, the visitor having left it alone. The camera eases from the one to the other (pose.js ridePose). */
+export const RIDES = new Set(["follow", "drift"]);
+
 /* What entering the mode `to` from the mode `from` asks of the camera, for main.js to carry out. Nothing happens when the mode is the
    same (`changed` is false). A walk starts where `spot` (keepSpot's) says and puts the walker there, so it is asked once for each
    entry to a walk and for no other mode; the camera `cut`s to the walk unless that is its place in the line, where the last camera
-   already is, since easing from there to anywhere else would carry the view across the island without the bear in it. Follow frames
-   the bears again, level (`followEntered`). */
+   already is, since easing from there to anywhere else would carry the view across the island without the bear in it. A ride
+   entered from outside it (`rideEntered`) frames the bears again, level, on the rig it enters; between its two rigs the camera
+   eases and the look the visitor turned it to is kept. */
 export function enterMode(from, to, spot) {
-  if (to === from) return { changed: false, cut: false, followEntered: false };
+  if (to === from) return { changed: false, cut: false, rideEntered: false };
   const cut = to === "walk" && spot.walk() !== "slot";
-  return { changed: true, cut, followEntered: to === "follow" };
+  return { changed: true, cut, rideEntered: RIDES.has(to) && !RIDES.has(from) };
 }
 
-/* The controls that only look around (bindInput's actions, input.js), so in follow they keep walking with the bears. */
+/* The controls that only look around (bindInput's actions, input.js), so in a ride they keep riding. */
 const LOOKS = new Set(["left", "right", "lookUp", "lookDown", "drag"]);
 
 /* The descent's length, in seconds of world time. A frame adds at most 50 ms to the world's time, so a slow load stretches the
@@ -100,23 +107,27 @@ const LOOKS = new Set(["left", "right", "lookUp", "lookDown", "drag"]);
 export const DESCENT_S = 6;
 
 /* What changes the camera's mode, for main.js, which reads it with `mode()` and enters another with `setMode` (enterMode says what that
-   asks of the camera). `input(action)` takes a control, bindInput's action or "follow" for B and the button, and returns whether the
-   world took it: lean-back's drift takes none; B toggles walking with the bears (follow); in follow the controls that only look around
-   keep it; any other control walks. `lean(on)` takes lean-back's switch: its drift while it is on, and a walk once it is off.
+   asks of the camera). `input(action)` takes a control, bindInput's action: in a ride the controls that only look around keep it,
+   and bring the camera back from the crane to the rig they turn; any other control walks, from either rig. `ride(on, settled)`
+   takes what the page says of the ride (main.js reads it from <main>): whether the visitor rides, and whether the page has settled.
+   The page's word acts when it changes, never while it stands: the ride begins as the page turns it on, on the crane if it is
+   settled by then and else with the bears; it ends in a walk as the page turns it off; and the camera goes to the crane as the
+   page settles. A page that wakes moves no camera, so a pointer that reaches for the page's controls does not swing the view, and
+   a page that still says "riding" for a moment after a step has left the ride does not start it again.
    `frame(elapsed)` takes each frame, `elapsed` seconds of world time in: the descent ends with the bears (attract) at DESCENT_S.
    Nothing else changes the mode, so a walk lasts until the visitor leaves it, however long they go without a control. */
 export function modeRules(mode, setMode) {
+  /* What the page last said. */
+  let rode = false, sat = false;
   return {
     input(action) {
-      const m = mode();
-      if (m === "drift") return false;
-      if (action === "follow") setMode(m === "follow" ? "walk" : "follow");
-      else if (!(m === "follow" && LOOKS.has(action))) setMode("walk");
-      return true;
+      setMode(RIDES.has(mode()) && LOOKS.has(action) ? "follow" : "walk");
     },
-    lean(on) {
-      if (on) setMode("drift");
-      else if (mode() === "drift") setMode("walk");
+    ride(on, settled) {
+      if (on && !rode) setMode(settled ? "drift" : "follow");
+      else if (!on && rode) { if (RIDES.has(mode())) setMode("walk"); }
+      else if (on && settled && !sat && mode() === "follow") setMode("drift");
+      rode = on; sat = on && settled;
     },
     frame(elapsed) {
       if (mode() === "descent" && elapsed >= DESCENT_S) setMode("attract");

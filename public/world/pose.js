@@ -11,9 +11,34 @@ import { slotDistance } from "./modes.js";
 /* The opening's descent comes straight down from this high over the island's middle to the camera that walks with the bears. */
 export const DESCENT_FROM = 140;
 
-/* Lean-back's crane hangs `back` m behind the visitor's bear along the bears' line, sways `sway` m to either side of the line, and
-   looks at the line `ahead` m on from where it hangs. */
+/* The crane, which has the view once a ride has settled (modes.js), hangs `back` m behind the visitor's bear along the bears' line,
+   sways `sway` m to either side of the line, and looks at the line `ahead` m on from where it hangs. */
 export const CRANE = { back: 14, sway: 2, ahead: 28 };
+
+/* The crane's place and where it looks, `elapsed` seconds of world time in: 9 m over the ground it hangs above, swaying to either
+   side of the line and back once in 30 s, and looking 8 m over the line. `deps` is postPose's, of which it reads `bearD`, `count`,
+   `gap`, `line`, whose `tangentAt(d)` is the line's level unit tangent `d` m along it, and `height`. */
+export function cranePose(deps, elapsed) {
+  const { bearD, count, gap, line, height } = deps;
+  const d = slotDistance(bearD, count, gap) - CRANE.back, p = line.at(d), t = line.tangentAt(d), ahead = line.at(d + CRANE.ahead);
+  const sway = CRANE.sway * Math.sin((elapsed * Math.PI * 2) / 30);
+  /* To the line's side: its tangent turned a quarter of a turn. */
+  const x = p.x - t.z * sway, z = p.z + t.x * sway;
+  return { pos: { x, y: height(x, z) + 9, z }, look: { x: ahead.x, y: ahead.y + 8, z: ahead.z } };
+}
+
+/* A ride's camera goes from the one rig to the other in RIG_EASE_S seconds of world time, in a straight line and at the same share
+   of the way in its look: `lean` is the share of that time passed, 0 on the camera that walks with the bears (`post`, postPose's)
+   and 1 on the crane (`crane`, cranePose's), and rigShare the share of the way it has then gone, setting off and arriving at
+   rest. No tree's crown can reach that line, wherever a show stands its trees (trees.test.ts). */
+export const RIG_EASE_S = 3;
+export const rigShare = (lean) => lean * lean * (3 - 2 * lean);
+export function ridePose(post, crane, lean) {
+  if (lean <= 0) return post;
+  if (lean >= 1) return crane;
+  const k = rigShare(lean), mix = (a, b) => ({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k });
+  return { pos: mix(post.pos, crane.pos), look: mix(post.look, crane.look) };
+}
 
 /* The camera that walks with the bears, in follow and attract, its eye above their heads; it looks at the lead bear, turned by `yaw`
    and tilted by `pitch`. In third person it stands behind the visitor's bear and to its left, away from the path, along the chord from

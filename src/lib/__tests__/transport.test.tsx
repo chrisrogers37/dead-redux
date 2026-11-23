@@ -5,7 +5,7 @@ import { focusWorldOnRelease, Transport } from "../../components/player/Transpor
 describe("Transport", () => {
   const archiveUrl = "https://archive.org/details/gd1986-07-04";
   const props = {
-    leanback: false,
+    settled: false,
     title: "Touch of Grey",
     index: 0,
     count: 19,
@@ -20,6 +20,8 @@ describe("Transport", () => {
     onNext: () => {},
     onSeek: () => {},
     onRetry: () => {},
+    detailsOpen: false,
+    onDetails: () => {},
   };
 
   it("offers Try again beside the archive.org link once a track could not play", () => {
@@ -60,7 +62,7 @@ describe("focusWorldOnRelease", () => {
   const press = (pointerType = "mouse", pointerId = 1) => focusWorldOnRelease({ pointerId, pointerType, currentTarget: SLIDER });
 
   const props = { title: "Bertha", index: 0, count: 1, set: null, position: 0, duration: 60, status: null, archiveUrl: "", playing: false, failed: false,
-    onPrevious: () => {}, onPlay: () => {}, onNext: () => {}, onSeek: () => {}, onRetry: () => {} };
+    onPrevious: () => {}, onPlay: () => {}, onNext: () => {}, onSeek: () => {}, onRetry: () => {}, detailsOpen: false, onDetails: () => {} };
   // The seek slider among what Transport renders.
   function slider(node: unknown): { props: Record<string, unknown> } | null {
     if (Array.isArray(node)) return node.map(slider).find(Boolean) ?? null;
@@ -69,10 +71,45 @@ describe("focusWorldOnRelease", () => {
     return element.type === "input" && element.props["data-action"] === "seek" ? element : slider(element.props.children);
   }
 
-  it("is what a press on the seek slider calls, wired by React and not written into the markup; in lean-back, where no key walks, the slider keeps its focus", () => {
-    expect(slider(Transport({ ...props, leanback: false }))!.props.onPointerDown).toBe(focusWorldOnRelease);
-    expect(slider(Transport({ ...props, leanback: true }))!.props.onPointerDown).toBeUndefined();
-    expect(renderToStaticMarkup(<Transport {...props} leanback={false} />)).not.toMatch(/onpointerdown/i);
+  it("is what a press on the seek slider calls, wired by React and not written into the markup; in a settled ride the slider keeps its focus", () => {
+    expect(slider(Transport({ ...props, settled: false }))!.props.onPointerDown).toBe(focusWorldOnRelease);
+    expect(slider(Transport({ ...props, settled: true }))!.props.onPointerDown).toBeUndefined();
+    expect(renderToStaticMarkup(<Transport {...props} settled={false} />)).not.toMatch(/onpointerdown/i);
+  });
+
+  it("keeps the slider the same element as a ride settles and wakes: in both looks it is the second of two children, after a part with a key of its own, so React moves no focus and drops no press", () => {
+    // What Transport hands React in each look: a fragment's children, by their kind and key.
+    const parts = (settled: boolean) => {
+      const children = (Transport({ ...props, settled }) as { props: { children: { type: unknown; key: string | null }[] } }).props.children;
+      return children.map((child) => ({ input: child.type === "input", key: child.key }));
+    };
+    expect(parts(false)).toEqual([{ input: false, key: "awake" }, { input: true, key: null }]);
+    expect(parts(true)).toEqual([{ input: false, key: "settled" }, { input: true, key: null }]);
+    // And each look still shows what it showed: the controls only while awake, the large title only once settled.
+    const awake = renderToStaticMarkup(<Transport {...props} settled={false} />), settled = renderToStaticMarkup(<Transport {...props} settled />);
+    expect(awake).toContain('data-action="play"');
+    expect(settled).not.toContain('data-action="play"');
+    expect(settled).toContain("text-[40px]");
+    expect(awake).not.toContain("text-[40px]");
+    for (const look of [awake, settled]) expect(look.split('data-action="seek"')).toHaveLength(2);
+  });
+
+  it("opens Details as the player says, and tells the player when the visitor opens or shuts it, so a ride that settles and wakes brings it back as it was", () => {
+    expect(renderToStaticMarkup(<Transport {...props} settled={false} />)).toContain('<details class="ml-2">');
+    expect(renderToStaticMarkup(<Transport {...props} settled={false} detailsOpen />)).toContain('<details class="ml-2" open="">');
+    // The element among what Transport renders, and what its toggle tells the player.
+    const find = (node: unknown): { props: Record<string, unknown> } | null => {
+      if (Array.isArray(node)) return node.map(find).find(Boolean) ?? null;
+      if (!node || typeof node !== "object" || !("props" in node)) return null;
+      const element = node as { type: unknown; props: Record<string, unknown> };
+      return element.type === "details" ? element : find(element.props.children);
+    };
+    const told: boolean[] = [];
+    const details = find(Transport({ ...props, settled: false, onDetails: (open) => told.push(open) }))!;
+    const toggle = details.props.onToggle as (e: { currentTarget: { open: boolean } }) => void;
+    toggle({ currentTarget: { open: true } });
+    toggle({ currentTarget: { open: false } });
+    expect(told).toEqual([true, false]);
   });
 
   it("gives the world focus once the pointer that pressed the slider lifts, without scrolling to it, and not before", () => {
