@@ -6,7 +6,7 @@ export const SHELVES = ["title", "actions", "player"] as const;
 export type Shelf = (typeof SHELVES)[number];
 
 /** localStorage key of the shelves put away: their names, in SHELVES' order, joined by commas; "" or nothing when all are out. */
-const SHELVES_STORAGE = "dead-redux:shelves";
+export const SHELVES_STORAGE = "dead-redux:shelves";
 /**
  * The cookie that carries the same string to the server, which renders each shelf where the visitor left it. Storage alone is read
  * only once the page's script runs, so a shelf put away would load out and then slide off.

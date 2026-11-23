@@ -19,7 +19,7 @@ const nameOf = (kind: number) => (kind < 0 ? "the standing stone" : (BUILDERS[ki
 const map = JSON.parse(readFileSync(join(__dirname, "../../public/maps/1986-07-04.json"), "utf8")) as { tracks: { title: string; playingDuration: number }[] };
 const as = AS_TITLES as [number, string, string?][], stoneTitles = STONE_TITLES as [number, string][];
 type Step = { near: number; title: string; shot: string };
-type Page = { path: string; devices: string[]; whole: boolean; shots: string[]; steps: Step[] };
+type Page = { path: string; devices: string[]; ready?: string; whole: boolean; shots: string[]; steps: Step[] };
 const [own, others, stones] = nearPages() as Page[];
 
 describe("the near stills", () => {
@@ -149,6 +149,17 @@ describe("the near stills", () => {
     const files = [own, others, stones].flatMap((page) => page.devices.flatMap((device) => page.steps.map((s) => `${device}-${s.shot}.png`)));
     expect(new Set(files).size).toBe(files.length);
     expect(files).toHaveLength(2 * (19 + 13 + 8));
+  });
+
+  it("waits on every near page for the world to be ready before its first step", () => {
+    // A step stands the visitor in the world: taken on a page still loading, it fails with "the page has no world". The shoot waits
+    // for the state a page names (`ready`), as it does on its sweep page.
+    const pages = nearPages() as Page[];
+    expect(pages.length).toBeGreaterThan(0);
+    for (const page of pages) {
+      expect(page.steps.length, page.path).toBeGreaterThan(0);
+      expect(page.ready, page.path).toBe("#world[data-world='ready']");
+    }
   });
 });
 
