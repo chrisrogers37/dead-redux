@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
 import {
-  buildCrowd, COLOURS, CUT, CYCLE, DROP, FEET, figureGeometry, FOLD, FOOT, HAND, HANG, inView, LEG, MOST, MOVES, OUTLINE, outlineOf, PART,
-  partingOptions, people, PLAIN_LEAVES_OUT, plainly, PROP_EVERY, PROPS, SEAT, SHARE, SHOULDER_X, SHOULDER_Y, TALL, tone, TOP, wearing,
+  buildCrowd, COLOURS, CUT, CYCLE, DROP, FEET, figureGeometry, FOLD, FOOT, HAND, HANG, inView, LEG, MOST, MOVES, only, OUTLINE, outlineOf, PART,
+  partingOptions, people, PLAIN_LEAVES_OUT, plainly, PROP_EVERY, PROPS, SEAT, SHARE, SHOULDER_X, SHOULDER_Y, TALL, tone, TOP, wearing, without,
 } from "../../../public/world/crowd.js";
 import { FACING, height, STAGE, STAGE_COLUMN, TEST_POSES } from "../../../public/world/ground.js";
 import { buildPath, buildWalkLine } from "../../../public/world/path.js";
@@ -120,7 +120,9 @@ const GLSL: Record<string, (...v: number[]) => number> = {
   atan: (y, x) => (x === undefined ? Math.atan(y) : Math.atan2(y, x)),
 };
 const READS = ["transformed", "vColor", "aMark", "aFig", "aPart", "aRise", "aBody", "aWear", "aCut", "aTone", "uBeat", "uDance", "uRise", "uSit"];
-const asJs = (glsl: string) => new Function(...READS, ...Object.keys(GLSL), glsl.replace(/\b(?:float|bool)\s+/g, "let "));
+// The GLSL functions are handed over once, as the made function's own names, and never with each of its millions of calls.
+const asJs = (glsl: string) =>
+  new Function(...Object.keys(GLSL), `return function (${READS.join(", ")}) {${glsl.replace(/\b(?:float|bool)\s+/g, "let ")}\n};`)(...Object.values(GLSL)) as (...reads: unknown[]) => void;
 const runDance = asJs(dance), runTones = asJs(tones);
 
 // A vertex of the figure, with its marks; a figure, with the numbers its instance carries and its scale across and up, in metres a
@@ -159,7 +161,7 @@ function put(f: Figure, v: Vertex, pose: Pose) {
   part.w = pose.still ?? 0;
   const rise = pose.rise ?? 0, sit = pose.sit ?? 0;
   runDance(moved, null, v.mark, f.fig, part, pose.rising ?? 1, f.body, f.wear, f.cut, f.tone, pose.beat, pose.dance,
-    rise > 0 ? 0.3 + 0.6 * f.fig.z + 0.1 * rise : 0, sit > 0 ? (sit + 0.5 * f.fig.y) / 1.5 : 0, ...Object.values(GLSL));
+    rise > 0 ? 0.3 + 0.6 * f.fig.z + 0.1 * rise : 0, sit > 0 ? (sit + 0.5 * f.fig.y) / 1.5 : 0);
   return moved;
 }
 // The beats a figure is looked at through a cycle: 16 across it, and those where each of its moves' waves stands at its ends.
@@ -253,6 +255,29 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect(crowd.mesh.count).toBe(crowd.count);
     expect(crowd.count).toBe(placedOf.get(crowd)!.length);
     expect(phone.count).toBe(150);
+  });
+
+  it("needs 15 of the 16 vertex attribute slots a WebGL program is sure of, so the next attribute anyone gives the crowd is the last", () => {
+    // WebGL promises a program 16 attribute slots and no more, and a program that asks for a 17th does not link: the crowd would not
+    // draw at all on a device that gives only what is promised. What the crowd's own shader declares, a slot each:
+    const declared = [...compiled.vertexShader.split("#include <common>")[1].split("#include <")[0].matchAll(/attribute (float|vec[234]|mat[234]) (\w+);/g)]
+      .map(([, type, name]) => ({ name, slots: type.startsWith("mat") ? Number(type[3]) : 1 }));
+    expect(declared.map((d) => d.name).sort()).toEqual(["aBody", "aCut", "aFig", "aMark", "aPart", "aRise", "aTone", "aWear"]);
+    // And three's own for an instanced mesh with a colour to each instance: a corner's place, its normal, the instance's matrix, four
+    // slots, and its colour. three's Lambert vertex shader reads `normal` whatever the shading (beginnormal_vertex), so the linked
+    // program keeps its slot though the flat-shaded crowd lights no face by it and its geometry carries none: Chromium's linked
+    // program lists it, on a desktop and on a phone.
+    expect(compiled.vertexShader).toContain("#include <beginnormal_vertex>");
+    expect(THREE.ShaderChunk.beginnormal_vertex).toContain("vec3( normal )");
+    expect(crowd.mesh.instanceMatrix.itemSize).toBe(16);
+    expect(crowd.mesh.instanceColor.itemSize).toBe(3);
+    const threes = { position: 1, normal: 1, instanceMatrix: 4, instanceColor: 1 };
+    const slots = declared.reduce((sum, d) => sum + d.slots, 0) + Object.values(threes).reduce((sum, n) => sum + n, 0);
+    expect(slots).toBe(15);
+    expect(slots).toBeLessThanOrEqual(16);
+    // The geometry holds what the shader declares and each corner's place, and nothing else: no normal, no texture coordinates.
+    for (const c of [crowd, phone]) expect(Object.keys(c.mesh.geometry.attributes).sort()).toEqual([...declared.map((d) => d.name), "position"].sort());
+    expect(Object.keys(figureGeometry().attributes).sort()).toEqual(["aMark", "position"]);
   });
 
   it("is lit by nothing the island's own light is not, and hides nothing: a solid Lambert material that three's own fragment shader draws", () => {
@@ -437,7 +462,7 @@ describe("the figure, as figureGeometry builds it", () => {
 describe("the crowd's shader", () => {
   // A plain figure of the standard build that bobs, wearing nothing, and main's shader for it, at 359fd84, from before the crowd's
   // people differed: every figure moved this way.
-  const standard = (fig: Vec): Figure => ({ i: 0, across: scale, up: scale, fig, body: { x: 1, y: 1, z: 1, w: 1 }, wear: { x: 0, y: 0, z: 0, w: 1 },
+  const standard = (fig: Vec): Figure => ({ i: 0, across: scale, up: scale, fig, body: { x: 1, y: 1, z: 1, w: 1 }, wear: { x: 0, y: MOVES.indexOf("bob"), z: 0, w: 1 },
     cut: { x: 1, y: 0.093, z: 1, w: 1 }, tone: { x: 0, y: 0, z: 0, w: 0 }, top: { r: 0, g: 0, b: 0 } });
   function before(v: Vertex, fig: Vec, pose: Pose, sways = true) {
     const rot = (a: number, b: number, angle: number) => [Math.cos(angle) * a - Math.sin(angle) * b, Math.sin(angle) * a + Math.cos(angle) * b];
@@ -531,6 +556,18 @@ describe("the crowd's shader", () => {
     expect(folded).toBeGreaterThan(20000);
     expect(specks).toBe(0);
     expect(flat).toBe(0);
+    // And a part that is folded away has no colour worked out for it: the shader leaves it the instance's own, where one it wears
+    // takes its tone. Over half of a desktop figure's corners are of parts it does not wear.
+    const pack = { x: 0, y: PART.PACK as number, z: 4, w: 0 }, out: Rgb = { r: 0, g: 0, b: 0 };
+    let wearing2 = 0, without2 = 0;
+    for (const f of figures) {
+      out.r = f.top.r; out.g = f.top.g; out.b = f.top.b;
+      runTones(null, out, pack, f.fig, null, 1, f.body, f.wear, f.cut, f.tone, 0, 0, 0, 0);
+      const toned = out.r !== f.top.r || out.g !== f.top.g || out.b !== f.top.b;
+      if (wears(f, { x: 0, y: 0, z: 0, mark: pack })) { wearing2 += 1; expect(toned).toBe(true); } else { without2 += 1; expect(toned).toBe(false); }
+    }
+    expect(wearing2).toBeGreaterThan(50);
+    expect(without2).toBeGreaterThan(50);
   });
 
   it("keeps every figure inside the reaches the parting keeps for it, through every beat of its way of moving, as the build-up lifts it and as it sits", () => {
@@ -835,7 +872,7 @@ describe("the crowd's shader", () => {
       for (const f of list) for (const m of marksOnce.values()) {
         if (!(m.y === 0 || Math.floor(f.wear.x / m.y) % 2 === 1)) continue;
         out.r = f.top.r; out.g = f.top.g; out.b = f.top.b;
-        runTones(null, out, m, f.fig, null, 1, f.body, f.wear, f.cut, f.tone, 0, 0, 0, 0, ...Object.values(GLSL));
+        runTones(null, out, m, f.fig, null, 1, f.body, f.wear, f.cut, f.tone, 0, 0, 0, 0);
         brightest = Math.max(brightest, out.r, out.g, out.b);
         lightest = Math.max(lightest, light(out));
         seen.add([out.r, out.g, out.b].map((v) => v.toFixed(4)).join());
@@ -852,7 +889,7 @@ describe("the crowd's shader", () => {
     for (const hex of [...COLOURS.legs, ...COLOURS.hair, ...COLOURS.self, ...COLOURS.thing] as number[]) {
       const want = new THREE.Color(hex);
       out.r = 1; out.g = 1; out.b = 1;
-      runTones(null, out, { x: 0, y: 0, z: 1, w: 0 }, null, null, 1, null, { x: 0, y: 0, z: 0, w: 1 }, null, { x: tone(hex), y: 0, z: 0, w: 0 }, 0, 0, 0, 0, ...Object.values(GLSL));
+      runTones(null, out, { x: 0, y: 0, z: 1, w: 0 }, null, null, 1, null, { x: 0, y: 0, z: 0, w: 1 }, null, { x: tone(hex), y: 0, z: 0, w: 0 }, 0, 0, 0, 0);
       expect(Math.max(Math.abs(out.r - want.r), Math.abs(out.g - want.g), Math.abs(out.b - want.b))).toBeLessThan(0.01 * MOST);
     }
     // And the tops are deep colours apart from each other, no longer near one grey: at least ten hues a sixth of the wheel apart or more
@@ -976,25 +1013,49 @@ describe("the crowd's people", () => {
     expect([holder.prop, holder.stature]).toEqual(["flag", "short"]);
   });
 
+  it("picks from a list of choices only those named, or all but those named, in the list's own order, and dresses whoever holds something so that it does not catch", () => {
+    const list = [["a", 1], ["b", 2], ["c", 3]];
+    expect(only(list, ["c", "a"])).toEqual([["a", 1], ["c", 3]]);
+    expect(without(list, ["c", "a"])).toEqual([["b", 2]]);
+    expect([only(list, []), without(list, [])]).toEqual([[], list]);
+    // The rules made of them: a flag flies over no big round head of hair and no top hat, one beside a stand wears no skirt to the
+    // ankle, a child rides on a head with little hair, and no child is bald.
+    for (const { who } of all) for (const p of who) {
+      if (p.prop === "flag") expect([p.hair !== "afro", p.head !== "topper"]).toEqual([true, true]);
+      if (p.prop === "stand") expect(p.legs).not.toBe("maxi");
+      if (p.prop === "rider") expect(["bald", "crop", "bob"]).toContain(p.hair);
+      if (p.stature === "child") expect(p.hair).not.toBe("bald");
+    }
+  });
+
   it("wear what they are: each figure's parts and cut are its person's, a phone's without what its geometry leaves out", () => {
     const P = PART as Record<string, number>, C = CUT as Record<string, number>;
     const base = { stature: "mid", build: "average", legs: "jeans", top: "shirt", hair: "crop", beard: false, head: "none", back: "none", prop: "none", move: "bob", akimbo: false };
     const worn = (p: Record<string, unknown>) => wearing({ ...base, ...p });
-    expect(worn({})).toEqual({ parts: 0, style: 0 });
+    const move = (name: string) => MOVES.indexOf(name);
+    expect(worn({})).toEqual({ parts: 0, style: move("bob") });
     expect(worn({ head: "hat" }).parts).toBe(P.BRIM + P.CROWN);
     expect(worn({ head: "cap" }).parts).toBe(P.CROWN + P.BILL);
     expect(worn({ head: "bandana" }).parts).toBe(P.BAND + P.KNOT);
     expect(worn({ hair: "braids", beard: true }).parts).toBe(P.TAIL + P.TAIL2 + P.BEARD);
-    expect(worn({ hair: "afro" })).toEqual({ parts: 0, style: 64 * C.AFRO });
-    expect(worn({ legs: "tunic", top: "shawl" })).toEqual({ parts: P.SKIRT + P.PONCHO, style: 64 * (C.TUNIC + C.SHAWL) });
-    expect(worn({ legs: "dress", top: "tee", hair: "bald" })).toEqual({ parts: P.SKIRT, style: 64 * (C.SHORTS + C.BARE + C.BALD) });
-    expect(worn({ legs: "bells", back: "both", move: "spin" })).toEqual({ parts: P.PACK + P.ROLL, style: 3 + 64 * C.BELLS });
-    expect(worn({ prop: "flag", move: "sway" })).toEqual({ parts: P.POLE + P.FLAG, style: 1 + 8 });
-    expect(worn({ prop: "rider", move: "sway" })).toEqual({ parts: P.RIDER, style: 1 + 8 * 3 });
-    expect(worn({ move: "watch", akimbo: true }).style).toBe(6 + 64 * C.AKIMBO);
+    expect(worn({ hair: "afro" })).toEqual({ parts: 0, style: move("bob") + 64 * C.AFRO });
+    expect(worn({ legs: "tunic", top: "shawl" })).toEqual({ parts: P.SKIRT + P.PONCHO, style: move("bob") + 64 * (C.TUNIC + C.SHAWL) });
+    expect(worn({ legs: "dress", top: "tee", hair: "bald" })).toEqual({ parts: P.SKIRT, style: move("bob") + 64 * (C.SHORTS + C.BARE + C.BALD) });
+    expect(worn({ legs: "bells", back: "both", move: "spin" })).toEqual({ parts: P.PACK + P.ROLL, style: move("spin") + 64 * C.BELLS });
+    expect(worn({ legs: "shorts", back: "roll", hair: "long", top: "poncho" })).toEqual({ parts: P.ROLL + P.HAIR + P.PONCHO, style: move("bob") + 64 * C.SHORTS });
+    expect(worn({ legs: "maxi", hair: "mane", head: "floppy", prop: "drum" })).toEqual({ parts: P.SKIRT + P.HAIR + P.BRIM + P.CROWN + P.DRUM, style: move("bob") + 8 * 4 });
+    expect(worn({ hair: "tail", head: "wreath", back: "pack", prop: "hoop", move: "sway" })).toEqual({ parts: P.TAIL + P.WREATH + P.PACK + P.HOOP, style: move("sway") + 8 * 5 });
+    expect(worn({ head: "topper", prop: "finger", move: "watch" })).toEqual({ parts: P.BRIM + P.CROWN + P.FINGER, style: move("watch") + 8 * 2 });
+    expect(worn({ head: "band", hair: "bob", prop: "stand", move: "watch" }).parts).toBe(P.BAND + P.HAIR + P.STAND);
+    expect(worn({ prop: "balloon" })).toEqual({ parts: P.BALLOON, style: move("bob") + 8 });
+    expect(worn({ prop: "flag", move: "sway" })).toEqual({ parts: P.POLE + P.FLAG, style: move("sway") + 8 });
+    expect(worn({ prop: "rider", move: "sway" })).toEqual({ parts: P.RIDER, style: move("sway") + 8 * 3 });
+    expect(worn({ move: "watch", akimbo: true }).style).toBe(move("watch") + 64 * C.AKIMBO);
+    expect(worn({ move: "watch", akimbo: true, prop: "finger" }).style).toBe(move("watch") + 8 * 2);
+    expect(worn({ move: "nod", akimbo: true }).style).toBe(move("nod"));
     // A phone's: a wreath is a band, braids one tail, a bedroll a pack, and no beard, hoop, rider or drum, so its arms hold none.
     const lean = plainly({ ...base, head: "wreath", hair: "braids", beard: true, back: "roll", prop: "rider", move: "sway" });
-    expect(wearing(lean)).toEqual({ parts: P.BAND + P.TAIL + P.PACK, style: 1 });
+    expect(wearing(lean)).toEqual({ parts: P.BAND + P.TAIL + P.PACK, style: move("sway") });
     const kept2 = plainly({ ...base, prop: "balloon", back: "both" });
     expect(wearing(kept2).parts).toBe(P.PACK + P.BALLOON);
     // No phone's figure wears a part its geometry lacks.

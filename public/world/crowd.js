@@ -20,7 +20,8 @@ const HEAD_Y = 1.655, NECK_Y = 1.56, HIP_X = 0.095, ELBOW = 0.27;
 
 /* What a figure may wear or carry, each a part of the one geometry with a bit of its own. A figure's `parts` (aWear.x) is the sum of
    the bits it wears, and the vertex shader folds every other part to a point inside its head. A plain figure, a phone's and a TV's
-   (main.js), is built without the parts PLAIN_LEAVES_OUT names, and with fewer sides to the round ones. */
+   (main.js), is built without the parts PLAIN_LEAVES_OUT names (figureGeometry's `add` passes them by), and with fewer sides to the
+   round ones. */
 export const PART = {
   BRIM: 1, CROWN: 2, BILL: 4, BAND: 8, KNOT: 16, WREATH: 32, HAIR: 64, TAIL: 128, TAIL2: 256, BEARD: 512, SKIRT: 1024, PONCHO: 2048,
   PACK: 4096, ROLL: 8192, POLE: 16384, FLAG: 32768, STAND: 65536, BALLOON: 131072, HOOP: 262144, DRUM: 524288, RIDER: 1048576,
@@ -40,7 +41,11 @@ export const CUT = { BELLS: 1, SHORTS: 2, BARE: 4, TUNIC: 8, AFRO: 16, BALD: 32,
 /* The ways of moving, and what a figure's arms do when they hold something: nothing, keep the right one down on a pole or a string,
    hold a finger up, hold a child's legs, drum, or lift a hoop. */
 export const MOVES = ["bob", "sway", "wave", "spin", "nod", "clap", "watch"];
+const MOVE = Object.fromEntries(MOVES.map((name, k) => [name, k]));
 const ARMS = { none: 0, flag: 1, balloon: 1, finger: 2, rider: 3, drum: 4, hoop: 5, stand: 0 };
+/* A figure's style (aWear.y) is one number: its way of moving in the ones, what its arms do in the STYLE.ARMS, and how it is cut
+   from STYLE.CUT up. Each holds fewer kinds than the next one's place. */
+const STYLE = { ARMS: 8, CUT: 64 };
 
 /* A tube of rings from the top down, each { y, rx, rz, cx, cz } and `sides` round, facing out; `dy(turn)` lets a ring's edge rise and
    fall round it. */
@@ -85,14 +90,16 @@ const hairy = (x, y, z) => Math.min(1, Math.max(0, 0.5 + ((y - HEAD_Y) * 0.9 - z
    the body), whose colour its face takes (TINT) and, where a part bends or flies, how far along it the vertex lies. `plain` builds a
    plain one. Nothing on a figure reads a texture, so its vertices carry no texture coordinates. */
 export function figureGeometry(plain = false) {
-  const parts = [];
+  const parts = [], leftOut = new Set(plain ? PLAIN_LEAVES_OUT.map((name) => PART[name]) : []);
+  /* Adds a piece: its corners alone, each marked. A face's colour is `tint`, or what `tint` makes of the middle of the face. A plain
+     figure takes no piece of a part it leaves out. */
   const add = (geo, rig, bit, tint, weight = null) => {
+    if (leftOut.has(bit)) return;
     const g = geo.index ? geo.toNonIndexed() : geo;
     for (const name of ["uv", "normal"]) g.deleteAttribute(name);
-    const p = g.attributes.position, m = new Float32Array(4 * p.count);
+    const p = g.attributes.position, m = new Float32Array(4 * p.count), middle = (t, k) => (p.getComponent(t, k) + p.getComponent(t + 1, k) + p.getComponent(t + 2, k)) / 3;
     for (let t = 0; t < p.count; t += 3) {
-      const mid = [0, 1, 2].map((k) => (p.getComponent(t, k) + p.getComponent(t + 1, k) + p.getComponent(t + 2, k)) / 3);
-      const tone = typeof tint === "function" ? tint(...mid) : tint;
+      const tone = typeof tint === "function" ? tint(middle(t, 0), middle(t, 1), middle(t, 2)) : tint;
       for (let k = t; k < t + 3; k++) m.set([rig, bit, tone, weight ? weight(p.getX(k), p.getY(k), p.getZ(k)) : 0], 4 * k);
     }
     g.setAttribute("aMark", new THREE.BufferAttribute(m, 4));
@@ -130,24 +137,21 @@ export function figureGeometry(plain = false) {
   add(new THREE.BoxGeometry(0.2, 0.016, 0.15).translate(0, 1.712, 0.195), RIG.HEAD, PART.BILL, TINT.THING);
   add(new THREE.CylinderGeometry(0.143, 0.143, 0.04, round(8, 6), 1, true).scale(1, 1, 1.05).translate(0, HEAD_Y + 0.05, 0), RIG.HEAD, PART.BAND, TINT.THING);
   add(new THREE.ConeGeometry(0.04, 0.14, 3).rotateX(Math.PI).translate(0, 1.63, -0.165), RIG.HEAD, PART.KNOT, TINT.THING);
-  if (!plain) {
-    const wreath = new THREE.TorusGeometry(0.118, 0.03, 3, 6).rotateX(Math.PI / 2), p = wreath.attributes.position;
-    for (let k = 0; k < p.count; k++) {
-      const lump = 1 + 0.16 * Math.cos(3 * Math.atan2(p.getZ(k), p.getX(k)));
-      p.setXYZ(k, p.getX(k) * lump, p.getY(k) * lump, p.getZ(k) * lump);
-    }
-    add(wreath.translate(0, HEAD_Y + 0.085, 0), RIG.HEAD, PART.WREATH, TINT.THING);
+  const wreath = new THREE.TorusGeometry(0.118, 0.03, 3, 6).rotateX(Math.PI / 2), ring = wreath.attributes.position;
+  for (let k = 0; k < ring.count; k++) {
+    const lump = 1 + 0.16 * Math.cos(3 * Math.atan2(ring.getZ(k), ring.getX(k)));
+    ring.setXYZ(k, ring.getX(k) * lump, ring.getY(k) * lump, ring.getZ(k) * lump);
   }
+  add(wreath.translate(0, HEAD_Y + 0.085, 0), RIG.HEAD, PART.WREATH, TINT.THING);
   /* Hair down the back of the head to the shoulders, which the figure's own length (aCut.x) crops to a bob or lets down to its waist;
      two tails down its back, braids, or one of them alone, moved to the middle, a ponytail; and a beard. */
   add(tube([{ y: HAIR_TOP, rx: 0.118, rz: 0.075, cz: -0.055 }, { y: 1.62, rx: 0.158, rz: 0.095, cz: -0.075 }, { y: 1.42, rx: 0.14, rz: 0.08, cz: -0.13 }],
     round(8, 6), { top: true, bottom: true }), RIG.HEAD, PART.HAIR, TINT.HAIR);
   for (const [side, bit] of [[1, PART.TAIL], [-1, PART.TAIL2]]) {
-    if (plain && bit === PART.TAIL2) continue;
     add(tube([{ y: TAIL_TOP, rx: 0.034, cx: side * TAIL_X, cz: -0.15 }, { y: 1.38, rx: 0.038, cx: side * TAIL_X, cz: -0.2 }, { y: 1.14, rx: 0.022, cx: side * TAIL_X, cz: -0.19 }],
       4, { top: true, bottom: true }), RIG.HEAD, bit, TINT.HAIR);
   }
-  if (!plain) add(new THREE.ConeGeometry(0.07, 0.17, 5).rotateX(Math.PI).translate(0, HEAD_Y - 0.15, 0.07), RIG.HEAD, PART.BEARD, TINT.HAIR);
+  add(new THREE.ConeGeometry(0.07, 0.17, 5).rotateX(Math.PI).translate(0, HEAD_Y - 0.15, 0.07), RIG.HEAD, PART.BEARD, TINT.HAIR);
 
   /* A skirt, from the waist down round the legs to a hem that the figure's own number sets anywhere from the ankle to the thigh
      (aCut.y); its rings stand at the waist, the hips, the knees and the hem, and below the hips they follow the legs as they bend.
@@ -158,7 +162,7 @@ export function figureGeometry(plain = false) {
     RIG.BODY, PART.PONCHO, TINT.THING, (x, y) => (y < 1.3 ? 1 : 0));
   /* On the back: a pack, and a bedroll across the top of it or alone. */
   add(new THREE.BoxGeometry(0.27, 0.36, 0.13).translate(0, 1.26, -0.205), RIG.BODY, PART.PACK, TINT.THING);
-  if (!plain) add(new THREE.CylinderGeometry(0.062, 0.062, 0.36, 6).rotateZ(Math.PI / 2).translate(0, 1.5, -0.19), RIG.BODY, PART.ROLL, TINT.LEGS);
+  add(new THREE.CylinderGeometry(0.062, 0.062, 0.36, 6).rotateZ(Math.PI / 2).translate(0, 1.5, -0.19), RIG.BODY, PART.ROLL, TINT.LEGS);
 
   /* In the hands and overhead. A pole in the right hand, and a flag on it over the head, which waves from the pole out (its weight
      along it); a balloon over the right shoulder on a string from that hand, which leans from the hand up. */
@@ -167,28 +171,28 @@ export function figureGeometry(plain = false) {
   const lift = (x, y) => Math.min(1, Math.max(0, (y - 0.885) / 1.1));
   add(new THREE.SphereGeometry(0.12, round(7, 6), 4).scale(1, 1.18, 1).translate(0.2, 2.098, -0.03), RIG.BODY, PART.BALLOON, TINT.THING, lift);
   add(rope([[0.285, 0.885, 0.03], [0.2, 1.96, -0.03]], [0.008, 0.008], 3), RIG.BODY, PART.BALLOON, TINT.SHOE, lift);
-  /* A taper's stand before the left foot, on the ground: a pole to over the head, a bar across its top and a microphone at each end. */
+  /* A taper's stand before the left foot, on the ground: a pole to over the head, a bar across its top and, but on a plain figure, a
+     microphone at each end. */
   add(new THREE.CylinderGeometry(0.014, 0.014, 2.2, 4, 1, true).translate(-0.14, 1.1, 0.22), RIG.GROUND, PART.STAND, TINT.SHOE);
   add(new THREE.BoxGeometry(0.18, 0.022, 0.022).translate(-0.14, 2.19, 0.22), RIG.GROUND, PART.STAND, TINT.SHOE);
   if (!plain) for (const side of [-1, 1]) add(new THREE.BoxGeometry(0.034, 0.085, 0.034).translate(-0.14 + side * 0.08, 2.195, 0.22), RIG.GROUND, PART.STAND, TINT.SHOE);
   add(new THREE.ConeGeometry(0.06, 0.1, 3).translate(-0.14, 0.05, 0.22), RIG.GROUND, PART.STAND, TINT.SHOE);
   /* The finger of the right hand, for the one who holds it up for a ticket. */
   add(new THREE.ConeGeometry(0.016, 0.1, 4).rotateX(Math.PI).translate(SHOULDER_X, 0.79, 0), RIG.ARM_R, PART.FINGER, TINT.SELF);
-  if (!plain) {
-    /* A hoop in the hands at the hips, which a dancer lifts and swings; a hand drum at the left hip. */
-    add(new THREE.TorusGeometry(0.305, 0.022, 3, 10).rotateX(Math.PI / 2).translate(0, 0.9, 0), RIG.BODY, PART.HOOP, TINT.THING);
-    add(new THREE.CylinderGeometry(0.105, 0.065, 0.3, 6).rotateX(-0.45).translate(-0.12, 1.0, 0.15), RIG.BODY, PART.DRUM, TINT.THING);
-    /* A child on the shoulders, behind the head: a body, a head, legs down over the chest and arms up. */
-    add(tube([{ y: 1.84, rx: 0.1, rz: 0.075, cz: -0.1 }, { y: 1.56, rx: 0.085, rz: 0.07, cz: -0.1 }], 6, { top: true, bottom: true }), RIG.BODY, PART.RIDER, TINT.THING);
-    add(new THREE.SphereGeometry(0.098, 6, 4).translate(0, 1.955, -0.09), RIG.BODY, PART.RIDER, (x, y, z) => (z > -0.06 && y < 1.99 ? TINT.SELF : TINT.HAIR));
-    for (const side of [-1, 1]) {
-      add(rope([[side * 0.06, 1.58, -0.06], [side * 0.115, 1.57, 0.11], [side * 0.115, 1.33, 0.16]], [0.04, 0.036, 0.03], 3), RIG.BODY, PART.RIDER, TINT.LEGS);
-      add(rope([[side * 0.1, 1.8, -0.1], [side * 0.2, 2.03, -0.08]], [0.03, 0.024], 3), RIG.BODY, PART.RIDER, TINT.THING);
-    }
+  /* A hoop in the hands at the hips, which a dancer lifts and swings; a hand drum at the left hip. */
+  add(new THREE.TorusGeometry(0.305, 0.022, 3, 10).rotateX(Math.PI / 2).translate(0, 0.9, 0), RIG.BODY, PART.HOOP, TINT.THING);
+  add(new THREE.CylinderGeometry(0.105, 0.065, 0.3, 6).rotateX(-0.45).translate(-0.12, 1.0, 0.15), RIG.BODY, PART.DRUM, TINT.THING);
+  /* A child on the shoulders, behind the head: a body, a head, legs down over the chest and arms up. */
+  add(tube([{ y: 1.84, rx: 0.1, rz: 0.075, cz: -0.1 }, { y: 1.56, rx: 0.085, rz: 0.07, cz: -0.1 }], 6, { top: true, bottom: true }), RIG.BODY, PART.RIDER, TINT.THING);
+  add(new THREE.SphereGeometry(0.098, 6, 4).translate(0, 1.955, -0.09), RIG.BODY, PART.RIDER, (x, y, z) => (z > -0.06 && y < 1.99 ? TINT.SELF : TINT.HAIR));
+  for (const side of [-1, 1]) {
+    add(rope([[side * 0.06, 1.58, -0.06], [side * 0.115, 1.57, 0.11], [side * 0.115, 1.33, 0.16]], [0.04, 0.036, 0.03], 3), RIG.BODY, PART.RIDER, TINT.LEGS);
+    add(rope([[side * 0.1, 1.8, -0.1], [side * 0.2, 2.03, -0.08]], [0.03, 0.024], 3), RIG.BODY, PART.RIDER, TINT.THING);
   }
-  const geo = mergeGeometries(parts);
-  geo.computeVertexNormals();
-  return geo;
+  /* The corners and their marks are all a figure's geometry holds. The material shades each face flat, from the face itself, so it
+     reads no normal to light one, and none is kept: an instanced mesh's own attributes and the crowd's leave one slot of the sixteen
+     a WebGL program is sure of (crowd.test.ts counts them). */
+  return mergeGeometries(parts);
 }
 
 /* A leg is two bones of the same length, the thigh and the shin, from the hip down to the knee and on to the foot. The knee stands
@@ -321,7 +325,9 @@ const choose = (r, list) => {
   for (const [name, w] of list) if ((at -= w) < 0) return name;
   return list[list.length - 1][0];
 };
-const only = (list, names) => list.filter(([name]) => names.includes(name));
+/* A list of choices with only those named, and without them. */
+export const only = (list, names) => list.filter(([name]) => names.includes(name));
+export const without = (list, names) => list.filter(([name]) => !names.includes(name));
 
 /* One person from a stream `r`, for a seat that sits or stands, and a stature and a prop already given it ("none" for most). What it
    holds decides some of the rest: a child rides on bare shoulders, a flag flies over no tall hat, the one with a hoop or beside a
@@ -335,12 +341,12 @@ function person(r, sits, prop, stature) {
     : sits ? choose(r, only(CHOICES.move, ["bob", "sway", "nod", "watch"]))
     : child ? choose(r, only(CHOICES.move, ["bob", "wave", "spin", "clap"])) : choose(r, CHOICES.move);
   p.legs = p.move === "spin" && r() < 0.85 ? choose(r, only(CHOICES.legs, ["maxi", "dress"]))
-    : prop === "stand" ? choose(r, CHOICES.legs.filter(([name]) => name !== "maxi")) : choose(r, CHOICES.legs);
+    : prop === "stand" ? choose(r, without(CHOICES.legs, ["maxi"])) : choose(r, CHOICES.legs);
   p.top = prop === "hoop" || prop === "drum" || prop === "stand" ? choose(r, only(CHOICES.top, ["shirt", "tee"])) : choose(r, CHOICES.top);
-  p.hair = prop === "rider" ? choose(r, only(CHOICES.hair, ["bald", "crop", "bob"])) : prop === "flag" ? choose(r, CHOICES.hair.filter(([name]) => name !== "afro"))
-    : child ? choose(r, CHOICES.hair.filter(([name]) => name !== "bald")) : choose(r, CHOICES.hair);
+  p.hair = prop === "rider" ? choose(r, only(CHOICES.hair, ["bald", "crop", "bob"])) : prop === "flag" ? choose(r, without(CHOICES.hair, ["afro"]))
+    : child ? choose(r, without(CHOICES.hair, ["bald"])) : choose(r, CHOICES.hair);
   p.head = p.hair === "afro" ? "none" : prop === "rider" ? choose(r, only(CHOICES.head, ["none", "bandana", "band"]))
-    : prop === "flag" ? choose(r, CHOICES.head.filter(([name]) => name !== "topper")) : choose(r, CHOICES.head);
+    : prop === "flag" ? choose(r, without(CHOICES.head, ["topper"])) : choose(r, CHOICES.head);
   p.beard = !small && r() < 0.16;
   p.back = prop === "rider" ? choose(r, only(CHOICES.back, ["none", "pack"])) : choose(r, CHOICES.back);
   /* Its numbers: how tall beside the standard figure, and how its body is built. */
@@ -421,35 +427,26 @@ export function people(placed) {
   return out;
 }
 
-/* What a figure wears, as the numbers its instance carries: the sum of its parts' bits, and its way of moving, what its arms do and
-   how it is cut as one number (the move in the ones, the arms in the eights, the cut from 64 up). */
+/* What a figure wears, as the numbers its instance carries: the sum of its parts' bits, and its style (STYLE). WEARS says which parts
+   each choice of a person's wears, and CUTS how a choice cuts the figure (CUT); a beard and hands on the hips are a person's own. */
+const WEARS = {
+  head: { hat: ["BRIM", "CROWN"], topper: ["BRIM", "CROWN"], floppy: ["BRIM", "CROWN"], cap: ["CROWN", "BILL"], band: ["BAND"], bandana: ["BAND", "KNOT"], wreath: ["WREATH"] },
+  hair: { bob: ["HAIR"], long: ["HAIR"], mane: ["HAIR"], tail: ["TAIL"], braids: ["TAIL", "TAIL2"] },
+  legs: { maxi: ["SKIRT"], dress: ["SKIRT"], tunic: ["SKIRT"] },
+  top: { poncho: ["PONCHO"], shawl: ["PONCHO"] },
+  back: { pack: ["PACK"], roll: ["ROLL"], both: ["PACK", "ROLL"] },
+  prop: { flag: ["POLE", "FLAG"], stand: ["STAND"], balloon: ["BALLOON"], finger: ["FINGER"], hoop: ["HOOP"], rider: ["RIDER"], drum: ["DRUM"] },
+};
+const CUTS = {
+  hair: { afro: "AFRO", bald: "BALD" },
+  legs: { bells: "BELLS", shorts: "SHORTS", dress: "SHORTS", tunic: "TUNIC" },
+  top: { tee: "BARE", shawl: "SHAWL" },
+};
 export function wearing(p) {
-  let parts = 0, cut = 0;
-  const wear = (...names) => { for (const name of names) parts += PART[name]; };
-  if (p.head === "hat" || p.head === "topper" || p.head === "floppy") wear("BRIM", "CROWN");
-  if (p.head === "cap") wear("CROWN", "BILL");
-  if (p.head === "band") wear("BAND");
-  if (p.head === "bandana") wear("BAND", "KNOT");
-  if (p.head === "wreath") wear("WREATH");
-  if (p.hair === "bob" || p.hair === "long" || p.hair === "mane") wear("HAIR");
-  if (p.hair === "tail") wear("TAIL");
-  if (p.hair === "braids") wear("TAIL", "TAIL2");
-  if (p.hair === "afro") cut += CUT.AFRO;
-  if (p.hair === "bald") cut += CUT.BALD;
-  if (p.beard) wear("BEARD");
-  if (p.legs === "maxi" || p.legs === "dress" || p.legs === "tunic") wear("SKIRT");
-  if (p.legs === "tunic") cut += CUT.TUNIC;
-  if (p.legs === "bells") cut += CUT.BELLS;
-  if (p.legs === "shorts" || p.legs === "dress") cut += CUT.SHORTS;
-  if (p.top === "tee") cut += CUT.BARE;
-  if (p.top === "poncho" || p.top === "shawl") wear("PONCHO");
-  if (p.top === "shawl") cut += CUT.SHAWL;
-  if (p.back === "pack" || p.back === "both") wear("PACK");
-  if (p.back === "roll" || p.back === "both") wear("ROLL");
-  if (p.prop === "flag") wear("POLE", "FLAG");
-  if (p.prop !== "none" && p.prop !== "flag") wear(p.prop.toUpperCase());
-  if (p.move === "watch" && p.akimbo && p.prop === "none") cut += CUT.AKIMBO;
-  return { parts, style: MOVES.indexOf(p.move) + 8 * ARMS[p.prop] + 64 * cut };
+  let parts = p.beard ? PART.BEARD : 0, cut = p.move === "watch" && p.akimbo && p.prop === "none" ? CUT.AKIMBO : 0;
+  for (const slot in WEARS) for (const name of WEARS[slot][p[slot]] ?? []) parts += PART[name];
+  for (const slot in CUTS) cut += CUT[CUTS[slot][p[slot]]] ?? 0;
+  return { parts, style: MOVE[p.move] + STYLE.ARMS * ARMS[p.prop] + STYLE.CUT * cut };
 }
 
 /* How far a figure's rest reaches from its axis in its own units, standing still with its arms down, and how high over its feet at the
@@ -486,7 +483,12 @@ function reaches(p, wear) {
 }
 
 const f = (v) => v.toFixed(4);
-const B = Object.fromEntries(Object.entries(PART).map(([name, bit]) => [name, bit.toFixed(1)]));
+/* The tables' whole numbers as the shader writes them, so that the shader's text holds none of its own: a number; whether a value
+   is that whole number; and whether a sum of bits holds a bit. */
+const n = (v) => v.toFixed(1);
+const is = (value, whole) => `${value} > ${n(whole - 0.5)} && ${value} < ${n(whole + 0.5)}`;
+const has = (sum, bit) => (bit === 1 ? `mod(${sum}, 2.0) > 0.5` : `mod(floor(${sum} / ${n(bit)}), 2.0) > 0.5`);
+const B = Object.fromEntries(Object.entries(PART).map(([name, bit]) => [name, n(bit)]));
 /* After common: the crowd's attributes and uniforms. */
 const DECLARE = `
 attribute vec4 aMark;
@@ -519,10 +521,12 @@ if (!worn) {
   transformed.x = 0.0; transformed.y = ${f(HEAD_Y)}; transformed.z = 0.0;
 } else {
   float x = transformed.x, y = transformed.y, z = transformed.z;
-  float kind = mod(aWear.y, 8.0), arms = mod(floor(aWear.y / 8.0), 8.0), cuts = floor(aWear.y / 64.0);
-  bool bells = mod(cuts, 2.0) > 0.5, afro = mod(floor(cuts / 16.0), 2.0) > 0.5, shawl = mod(floor(cuts / 64.0), 2.0) > 0.5, akimbo = mod(floor(cuts / 128.0), 2.0) > 0.5;
-  bool legRig = rig > 0.5 && rig < 1.5, footRig = rig > 1.5 && rig < 2.5, armRig = rig > 2.5 && rig < 4.5, skirtRig = rig > 4.5 && rig < 5.5;
-  bool headRig = rig > 5.5 && rig < 6.5, groundRig = rig > 6.5, core = rig < 0.5 && bit < 0.5;
+  float kind = mod(aWear.y, ${n(STYLE.ARMS)}), arms = mod(floor(aWear.y / ${n(STYLE.ARMS)}), ${n(STYLE.CUT / STYLE.ARMS)}), cuts = floor(aWear.y / ${n(STYLE.CUT)});
+  bool bells = ${has("cuts", CUT.BELLS)}, afro = ${has("cuts", CUT.AFRO)}, shawl = ${has("cuts", CUT.SHAWL)}, akimbo = ${has("cuts", CUT.AKIMBO)};
+  bool legRig = ${is("rig", RIG.LEG)}, footRig = ${is("rig", RIG.FOOT)}, armRig = (${is("rig", RIG.ARM_L)}) || (${is("rig", RIG.ARM_R)}), skirtRig = ${is("rig", RIG.SKIRT)};
+  bool headRig = ${is("rig", RIG.HEAD)}, groundRig = ${is("rig", RIG.GROUND)}, core = ${is("rig", RIG.BODY)} && bit < 0.5;
+  bool bobber = ${is("kind", MOVE.bob)}, swayer = ${is("kind", MOVE.sway)}, waver = ${is("kind", MOVE.wave)}, spinner = ${is("kind", MOVE.spin)};
+  bool nodder = ${is("kind", MOVE.nod)}, clapper = ${is("kind", MOVE.clap)};
   float girth = aBody.x, legL = ${f(LEG)} * aBody.z, up = legL - ${f(LEG)};
 
   float moves = 1.0 - aPart.w, dance = uDance * moves * aWear.w, going = min(2.5 * dance, 1.0);
@@ -531,8 +535,10 @@ if (!worn) {
   float bounce = 0.5 + 0.5 * cos(6.2832 * (uBeat + ${f(JITTER)} * aFig.y));
   /* The figure's slow beat: every other beat, its own of the two, 1 on it and 0 on the beat between. */
   float slow = 0.5 + 0.5 * cos(3.1416 * (uBeat + ${f(JITTER)} * aFig.y + floor(2.0 * fract(5.3 * aFig.y))));
-  float two = sin(3.1416 * (uBeat + aFig.y)), four = sin(1.5708 * (uBeat + 4.0 * aFig.y)), eight = 0.7854 * (uBeat + 8.0 * aFig.y);
-  float spin = kind > 2.5 && kind < 3.5 ? 1.0 : 0.0;
+  /* The figure's place in its slow waves: once round in four beats (quarter) and in eight (eight). */
+  float quarter = 1.5708 * (uBeat + 4.0 * aFig.y), eight = 0.7854 * (uBeat + 8.0 * aFig.y);
+  float two = sin(3.1416 * (uBeat + aFig.y)), four = sin(quarter);
+  float spin = spinner ? 1.0 : 0.0;
 
   if (headRig) {
     if (bit == ${B.HAIR}) y = ${f(HAIR_TOP)} - (${f(HAIR_TOP)} - y) * aCut.x;
@@ -577,25 +583,25 @@ if (!worn) {
     y = y > ${f(LEG - 0.001)} ? y + up : y * aBody.z;
   }
   if (!legRig && !footRig && !skirtRig && !groundRig) y += up;
-  if (bit == ${B.FLAG}) z += 0.06 * dance * aMark.w * sin(1.5708 * (uBeat + 4.0 * aFig.y) - 2.6 * aMark.w);
+  if (bit == ${B.FLAG}) z += 0.06 * dance * aMark.w * sin(quarter - 2.6 * aMark.w);
   if (bit == ${B.BALLOON}) { x += 0.06 * dance * aMark.w * four; z += 0.04 * dance * aMark.w * cos(eight); }
-  if (bit == ${B.HOOP}) y += (1.0 - sit) * (0.13 * going + 0.28 * min(dance, 1.2) * (x * cos(1.5708 * (uBeat + 4.0 * aFig.y)) + z * sin(1.5708 * (uBeat + 4.0 * aFig.y))));
+  if (bit == ${B.HOOP}) y += (1.0 - sit) * (0.13 * going + 0.28 * min(dance, 1.2) * (x * cos(quarter) + z * sin(quarter)));
 
   if (armRig) {
-    float side = rig < 3.5 ? -1.0 : 1.0, stand = moves * (1.0 - sit), aloft = going * (1.0 - sit);
+    float side = ${is("rig", RIG.ARM_L)} ? -1.0 : 1.0, stand = moves * (1.0 - sit), aloft = going * (1.0 - sit);
     float lift = 0.0, fore = 0.0, bend = 0.0, inward = 0.0, held = 0.0;
-    if (kind < 0.5) lift = dance * ${f(ARM_SWING)} * (0.5 + 0.5 * side * two) * (1.0 - sit);
-    else if (kind < 1.5) lift = max(0.05 * stand + side * dance * 0.1 * (1.0 - sit) * sin(1.5708 * (uBeat + 4.0 * aFig.y) - 0.9), -0.04);
-    else if (kind < 2.5) { lift = aloft * (2.65 + side * 0.3 * min(dance, 1.3) * four); bend = aloft * 0.25; inward = 1.0; }
-    else if (kind < 3.5) lift = dance * (0.12 + 0.45 * abs(cos(eight))) * (1.0 - sit);
-    else if (kind < 4.5) { lift = 0.12 * stand; fore = 0.25 * stand; bend = 1.75 * stand; inward = 0.75; }
-    else if (kind < 5.5) { fore = 0.6 * aloft; bend = 1.75 * aloft; inward = 0.35 + 0.37 * slow; }
+    if (bobber) lift = dance * ${f(ARM_SWING)} * (0.5 + 0.5 * side * two) * (1.0 - sit);
+    else if (swayer) lift = max(0.05 * stand + side * dance * 0.1 * (1.0 - sit) * sin(quarter - 0.9), -0.04);
+    else if (waver) { lift = aloft * (2.65 + side * 0.3 * min(dance, 1.3) * four); bend = aloft * 0.25; inward = 1.0; }
+    else if (spinner) lift = dance * (0.12 + 0.45 * abs(cos(eight))) * (1.0 - sit);
+    else if (nodder) { lift = 0.12 * stand; fore = 0.25 * stand; bend = 1.75 * stand; inward = 0.75; }
+    else if (clapper) { fore = 0.6 * aloft; bend = 1.75 * aloft; inward = 0.35 + 0.37 * slow; }
     else if (akimbo) { lift = 0.62 * stand; bend = 1.5 * stand; inward = 1.0; }
-    if (arms > 0.5 && arms < 1.5 && side > 0.0) { lift = 0.0; fore = 0.0; bend = 0.0; held = 1.0; }
-    else if (arms > 1.5 && arms < 2.5 && side > 0.0) { lift = 2.95 * moves; fore = 0.0; bend = 0.0; held = 1.0; }
-    else if (arms > 2.5 && arms < 3.5) { lift = 0.1 * moves; fore = 0.55 * moves; bend = 2.1 * moves; inward = 0.35; held = 1.0; }
-    else if (arms > 3.5 && arms < 4.5) { lift = 0.1 * stand; fore = 0.35 * stand; bend = (1.25 + 0.3 * dance * (side > 0.0 ? bounce : 1.0 - bounce)) * stand; inward = 0.55; }
-    else if (arms > 4.5) lift = 0.6 * aloft;
+    if (${is("arms", ARMS.flag)} && side > 0.0) { lift = 0.0; fore = 0.0; bend = 0.0; held = 1.0; }
+    else if (${is("arms", ARMS.finger)} && side > 0.0) { lift = 2.95 * moves; fore = 0.0; bend = 0.0; held = 1.0; }
+    else if (${is("arms", ARMS.rider)}) { lift = 0.1 * moves; fore = 0.55 * moves; bend = 2.1 * moves; inward = 0.35; held = 1.0; }
+    else if (${is("arms", ARMS.drum)}) { lift = 0.1 * stand; fore = 0.35 * stand; bend = (1.25 + 0.3 * dance * (side > 0.0 ? bounce : 1.0 - bounce)) * stand; inward = 0.55; }
+    else if (${is("arms", ARMS.hoop)}) lift = 0.6 * aloft;
     float lifted = rise * (1.0 - held);
     lift = mix(lift, ${f(ARM_UP)}, lifted); fore *= 1.0 - lifted; bend *= 1.0 - lifted;
     float sx = side * ${f(SHOULDER_X)} * aBody.y, sy = ${f(SHOULDER_Y)} + up;
@@ -612,15 +618,15 @@ if (!worn) {
     float cl = cos(side * lift), sl = sin(side * lift);
     x = sx + cl * px - sl * qy; y = sy + sl * px + cl * qy; z = qz;
   }
-  if (headRig && kind > 3.5 && kind < 4.5) {
+  if (headRig && nodder) {
     float nod = 0.24 * dance * bounce * (1.0 - rise), cn = cos(nod), sn = sin(nod), hy = y - ${f(NECK_Y)} - up;
     y = ${f(NECK_Y)} + up - z * sn + hy * cn; z = z * cn + hy * sn;
   }
 
   /* The knees: one that bobs bends them on every beat, one that sways, waves or claps on its slow beat and less, and the rest not at
      all; as the build-up lifts them, all on every beat. */
-  float bobs = kind < 0.5 ? 1.0 : kind < 1.5 ? 0.35 : 0.0;
-  float dip = mix(kind < 0.5 ? bounce : slow, bounce, rise);
+  float bobs = bobber ? 1.0 : swayer ? 0.35 : 0.0;
+  float dip = mix(bobber ? bounce : slow, bounce, rise);
   float bob = (1.0 - sit) * dance * (1.0 + rise) * ${f(BOB)} * dip * mix(bobs, 1.0, rise);
   /* A seat stands as much higher as the thighs are thicker, so that a broad figure's rest on the ground as a slight one's do. */
   float lower = legL * ${f(1 - FOLD)} * bob + (legL - ${f(SEAT)} - 0.044 * max(girth - 1.0, 0.0)) * sit;
@@ -652,14 +658,13 @@ if (!worn) {
   } else if (!groundRig) y -= lower;
 
   if (!groundRig) {
-    float lean = kind < 0.5 ? two : kind < 1.5 ? four * (1.0 + 0.6 * (1.0 - rise) * (1.0 - sit)) : kind < 2.5 ? 0.6 * four
-      : kind < 3.5 ? 0.0 : kind < 4.5 ? 0.25 * four : kind < 5.5 ? 0.3 * four : 0.2 * four;
+    float lean = bobber ? two : swayer ? four * (1.0 + 0.6 * (1.0 - rise) * (1.0 - sit)) : waver ? 0.6 * four : spinner ? 0.0 : nodder ? 0.25 * four : clapper ? 0.3 * four : 0.2 * four;
     /* A foot stays flat where it stands as the figure leans over it: a foot that tipped with the lean lifted an edge off the ground
        and sank the other in it, which on a phone's small frame flickered against the lit ground. */
     float tilt = footRig ? 0.0 : dance * ${f(SWAY)} * lean;
     if (!onLeg) {
       /* Above the hips: the stoop, and, for one that sways, the lean back over its feet, most of twice as far as its legs lean out. */
-      float over = max(y - legL + lower, 0.0), back = kind > 0.5 && kind < 1.5 ? -1.8 * tilt * (1.0 - rise) * (1.0 - sit) : 0.0;
+      float over = max(y - legL + lower, 0.0), back = swayer ? -1.8 * tilt * (1.0 - rise) * (1.0 - sit) : 0.0;
       float ck = cos(back), sk = sin(back);
       z += aWear.z * over;
       y += sk * x + (ck - 1.0) * over; x = ck * x - sk * over;
@@ -672,15 +677,18 @@ if (!worn) {
   transformed.x = x; transformed.y = y; transformed.z = z;
 }`;
 /* After color_vertex, where the colour is the instance's own, its top's: a face that is not its top's takes one of the figure's four
-   tones (aTone, each as tone() packs it), or a shoe's near black. */
+   tones (aTone, each as tone() packs it), or a shoe's near black. A part the figure does not wear is folded away (DANCE), over half
+   of a desktop figure's corners, so its colour is not worked out: `shown` is DANCE's `worn`, said again here because this runs first
+   and each of the two is read on its own by the unit tests. */
 const TONE = `
 float tint = aMark.z;
-if (tint > 0.5) {
-  float cutting = floor(aWear.y / 64.0);
-  bool shorts = mod(floor(cutting / 2.0), 2.0) > 0.5, bare = mod(floor(cutting / 4.0), 2.0) > 0.5, tunic = mod(floor(cutting / 8.0), 2.0) > 0.5, bald = mod(floor(cutting / 32.0), 2.0) > 0.5;
-  float tone = tint < 1.5 ? aTone.x : tint < 2.5 ? aTone.y : tint < 3.5 ? aTone.z : tint < 4.5 ? aTone.w
-    : tint < 5.5 ? (shorts ? aTone.z : aTone.x) : tint < 6.5 ? (bare ? aTone.z : -1.0) : tint < 7.5 ? (tunic ? -1.0 : aTone.x)
-    : tint < 8.5 ? (bald ? aTone.z : aTone.y) : -2.0;
+bool shown = aMark.y < 0.5 || mod(floor(aWear.x / aMark.y), 2.0) > 0.5;
+if (shown && !(${is("tint", TINT.TOP)})) {
+  float cutting = floor(aWear.y / ${n(STYLE.CUT)});
+  bool shorts = ${has("cutting", CUT.SHORTS)}, bare = ${has("cutting", CUT.BARE)}, tunic = ${has("cutting", CUT.TUNIC)}, bald = ${has("cutting", CUT.BALD)};
+  float tone = ${is("tint", TINT.LEGS)} ? aTone.x : ${is("tint", TINT.HAIR)} ? aTone.y : ${is("tint", TINT.SELF)} ? aTone.z : ${is("tint", TINT.THING)} ? aTone.w
+    : ${is("tint", TINT.SHIN)} ? (shorts ? aTone.z : aTone.x) : ${is("tint", TINT.FOREARM)} ? (bare ? aTone.z : -1.0) : ${is("tint", TINT.SKIRT)} ? (tunic ? -1.0 : aTone.x)
+    : ${is("tint", TINT.SCALP)} ? (bald ? aTone.z : aTone.y) : -2.0;
   if (tone > -0.5) {
     float red = mod(tone, 128.0) / 127.0, green = mod(floor(tone / 128.0), 128.0) / 127.0, blue = floor(tone / 16384.0) / 127.0;
     vColor.r = ${f(MOST)} * red * red; vColor.g = ${f(MOST)} * green * green; vColor.b = ${f(MOST)} * blue * blue;
