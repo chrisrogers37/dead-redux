@@ -147,15 +147,18 @@ describe("the page's wiring to the ride", () => {
     }
   });
 
-  it("starts the ride listening once the page is drawn, with the page's own ten seconds and minutes off a preview, and gives focus back only while the page is awake", () => {
+  it("starts the ride listening once the page is drawn, with the page's own ten seconds and minutes off a preview, and asks for focus back each time the page is drawn in its other look", () => {
     const out = page({});
     expect(stand.calls).toEqual([]);
     out.runRideEffects();
     expect(stand.calls).toEqual(['start {"idleMs":10000,"unitMs":60000}', "refocus"]);
-    // Settled, the ride is listening all the same, and no focus is given back until the page wakes.
+    // Settled too: the settled look draws the chip's link anew, and the focus the awake one had goes to it (ride.ts).
     const settled = page({ riding: true, settled: true });
     settled.runRideEffects();
-    expect(stand.calls).toEqual(['start {"idleMs":10000,"unitMs":60000}']);
+    expect(stand.calls).toEqual(['start {"idleMs":10000,"unitMs":60000}', "refocus"]);
+    // The asking waits on the look alone: it is run again when the page settles or wakes, and for nothing else.
+    const [, asking] = stand.effects.filter((effect) => effect.deps?.includes(stand.ride));
+    expect(asking.deps).toEqual([stand.ride, true]);
     // What starts it is the ride's own start, whose answer is what stops it.
     const [starting] = stand.effects.filter((effect) => effect.deps?.includes(stand.ride));
     expect(typeof starting.run()).toBe("function");

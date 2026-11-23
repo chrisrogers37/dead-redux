@@ -18,7 +18,7 @@ import {
   walkPoses,
 } from "./assets.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
-import { FOCUS_STOPS, RIDE_RECORDINGS, rideIdle, ridePages, stillInLook, wakeByPointer } from "./ride.mjs";
+import { FOCUS_STOPS, RIDE_RECORDINGS, pressFailure, rideIdle, ridePages, stillInLook, wakeByPointer } from "./ride.mjs";
 
 const DEVICES = {
   desktop: { viewport: { width: 1440, height: 900 } },
@@ -887,7 +887,9 @@ try {
       }
 
       for (const step of steps ?? []) {
-        const selector = step.click ?? step.focus;
+        // A step may be for the devices with a touch screen alone, or for those without one.
+        if (step.touch !== undefined && step.touch !== Boolean(options.hasTouch)) continue;
+        const selector = step.click ?? step.tap ?? step.focus;
         // A control missing from the page is logged and skipped, and fails the run only for a required step; a step that only presses a
         // key has none to miss.
         if (selector && (await page.locator(selector).count()) === 0) {
@@ -895,7 +897,11 @@ try {
           console.log(`${step.shot}: ${selector} absent`);
           continue;
         }
+        // A press that is of a control in one look of the ride fails the run where the page is in another as it is made (ride.mjs).
+        const pressedWrong = step.from ? await pressFailure(page, step.from) : null;
+        if (pressedWrong) failures.push(`${device}-${step.shot}.png: ${pressedWrong}`);
         if (step.focus) await page.focus(selector);
+        else if (step.tap) await page.tap(selector);
         else if (step.click) await page.click(selector);
         if (step.press) await page.keyboard.press(step.press);
         // A drag on the world turns and tilts the view by so many px ([right, down]), from a point clear of every plate.

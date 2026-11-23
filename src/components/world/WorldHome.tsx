@@ -202,10 +202,10 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
   const fakeNow = Number.isNaN(fakeAt) ? null : fakeAt;
   const sleepUnit = sleepUnitMs(testHooks, search);
   const idle = idleMs(testHooks, search);
-  /* The ride listens to the page for as long as the page is up; and once the page is awake again, the control that had focus when
-     it settled has it back. */
+  /* The ride listens to the page for as long as the page is up; and each time the page is drawn in its other look, the control that
+     had focus as the look changed has it back where that look shows it. */
   useEffect(() => ride.start({ idleMs: idle, unitMs: sleepUnit }), [ride, idle, sleepUnit]);
-  useEffect(() => { if (!settled) ride.refocus(); }, [ride, settled]);
+  useEffect(() => ride.refocus(), [ride, settled]);
   /* The next show: the new day's once the site's day has turned, or a past pick once this show is over. */
   const next = useNextShow({ today, renderedAt, pastPick, fakeNow, riding, sleepEndsAt, over, onCarry: ride.arrive });
   const [stats, setStats] = useState<string | null>(null);

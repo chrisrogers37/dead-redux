@@ -37,6 +37,13 @@ export async function stillInLook(page, need, take) {
   return need ? rideFailure(need, before, await rideNow(page)) : null;
 }
 
+// What is wrong with a press that needs the ride in the look `from` as it is made, a tap on a control of the settled look: null
+// where the page marks that look.
+export async function pressFailure(page, from) {
+  const now = await rideNow(page);
+  return now === from ? null : `the press needs the ride ${from}, and the page had it ${now}`;
+}
+
 // A pointer that moves, over the world and clear of every plate, which wakes a settled ride and leaves its camera where it is. The
 // page takes the first move it hears only for where the pointer is (watchIdle in ride.ts), so the pointer goes to one place and
 // then on to another, in a few moves.
@@ -56,6 +63,11 @@ export const rideSteps = (shot, crane = false) => [
   { waitFor: SETTLED, waitMs: 40_000, required: true, ride: "settled", crane, shot: `${shot}-settled` },
 ];
 
+// The chip's link to the next show, and today's page once that link has loaded it: no chip, and the show playing, or paused where
+// the browser refuses to start it.
+const NEXT_LINK = "[data-action='play-next']";
+const ARRIVED = "main:not(:has([data-next]))[data-state='playing'], main:not(:has([data-next]))[data-state='paused']";
+
 // The pages that shoot the ride, each with the devices it names (null for every device that shoots every page; the TV shoots the
 // home page alone) and the ride's own steps, which the shoot puts among the page's others. `playWaitMs` is how long a step that
 // starts a show waits for it (shoot.mjs).
@@ -65,23 +77,19 @@ export const ridePages = (playWaitMs) => ({
   fixed: { devices: null, steps: rideSteps("fixed-ride", true) },
   // Without WebGL the ride is the page's half of it.
   still: { devices: ["desktop-nowebgl", "phone-nowebgl"], steps: rideSteps("fixed-ride") },
-  // The new day's chip: under the title's plate while the ride is awake, over the title once it has settled. A pointer that moves
-  // wakes the page and leaves the camera where it is (two moves: the first only tells the page where the pointer is), and the chip's
-  // link, back under the title's plate, loads today's page, which arrives riding and settled at once.
+  // The new day's chip: under the title's plate while the ride is awake, over the title once it has settled. Its link loads today's
+  // page, which arrives riding and settled at once. On a touch screen (`touch: true`) a finger taps the settled chip's link, and
+  // that first tap follows it: the settled look holds under a press on a control until its click has been delivered (watchIdle in
+  // ride.ts), and the step fails the run unless the page is settled as it taps (`from`). A mouse cannot reach the settled link
+  // without moving, and a pointer that moves wakes the page and leaves the camera where it is, so the other devices
+  // (`touch: false`) take a still of that and press the link where it is then, back under the title's plate.
   newday: {
     devices: ["desktop", "phone", "desktop-reduced"],
     steps: [
       ...rideSteps("fixed-newday-ride"),
-      { wake: true, waitFor: AWAKE, required: true, ride: "awake", shot: "fixed-newday-ride-woken" },
-      {
-        click: "[data-action='play-next']",
-        required: true,
-        waitFor: "main:not(:has([data-next]))[data-state='playing'], main:not(:has([data-next]))[data-state='paused']",
-        waitMs: playWaitMs,
-        player: true,
-        ride: "settled",
-        shot: "fixed-newday-tapped",
-      },
+      { touch: false, wake: true, waitFor: AWAKE, required: true, ride: "awake", shot: "fixed-newday-ride-woken" },
+      { touch: false, click: NEXT_LINK, required: true, waitFor: ARRIVED, waitMs: playWaitMs, player: true, ride: "settled", shot: "fixed-newday-tapped" },
+      { touch: true, tap: NEXT_LINK, from: "settled", required: true, waitFor: ARRIVED, waitMs: playWaitMs, player: true, ride: "settled", shot: "fixed-newday-tapped" },
     ],
   },
   // The sleep timer counting seconds: the ride's own row has it while the page is awake, and one press sets 30 s. The later still

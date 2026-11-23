@@ -1,7 +1,7 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FOCUS_STOPS, RIDE, RIDE_RECORDINGS, rideFailure, rideIdle, rideNow, ridePages, rideSteps, stillInLook, wakeByPointer } from "../../.github/screenshots/ride.mjs";
+import { FOCUS_STOPS, pressFailure, RIDE, RIDE_RECORDINGS, rideFailure, rideIdle, rideNow, ridePages, rideSteps, stillInLook, wakeByPointer } from "../../.github/screenshots/ride.mjs";
 import { IDLE_S, watchIdle } from "../../src/components/world/ride";
 
 // The shoot's stills and recordings of the ride (.github/screenshots/ride.mjs). The ride changes look on a timer, so each of its
@@ -11,7 +11,10 @@ import { IDLE_S, watchIdle } from "../../src/components/world/ride";
 // failing the run where it cannot have it.
 
 type Later = { ms: number; shot: string; ride?: string };
-type Step = { click?: string; press?: string; wake?: boolean; required?: boolean; waitFor?: string; waitMs?: number; player?: boolean; ride?: string; crane?: boolean; shot: string; later?: Later };
+type Step = {
+  click?: string; tap?: string; press?: string; wake?: boolean; touch?: boolean; from?: string; required?: boolean; waitFor?: string; waitMs?: number; player?: boolean; ride?: string; crane?: boolean;
+  shot: string; later?: Later;
+};
 type Page = { devices: string[] | null; ownIdle?: boolean; steps: Step[] };
 type Recording = { device: string; name: string; path: string; click: string; required?: boolean; waitFor: string; settled?: boolean; keys?: [string, number][]; recordMs?: number };
 
@@ -21,7 +24,9 @@ const pages = ridePages(PLAY_WAIT_MS) as Record<string, Page>;
 const recordings = RIDE_RECORDINGS as unknown as Record<string, Recording>;
 const shoot = readFileSync(join(__dirname, "../../.github/screenshots/shoot.mjs"), "utf8");
 // A page's stills, each with the look it needs: a step's own, and a later one's after it.
-const stills = (page: Page) => page.steps.flatMap((step) => [[step.shot, step.ride], ...(step.later ? [[step.later.shot, step.later.ride]] : [])]);
+// A step may be for the devices with a touch screen alone, or for those without one: `touch` says which the list is for.
+const stills = (page: Page, touch = false) =>
+  page.steps.filter((step) => step.touch === undefined || step.touch === touch).flatMap((step) => [[step.shot, step.ride], ...(step.later ? [[step.later.shot, step.later.ride]] : [])]);
 
 // What the shoot measured on CI's software renderer (the Screenshots run of 33ddbf6), in seconds: the longest span from a press to
 // the end of the still after it, on a desktop (the TV took no longer) and on any other device.
@@ -41,6 +46,31 @@ describe("the shoot's stills of the ride", () => {
       lookup: { devices: ["desktop", "phone", "phone-360"], stills: [["fixed-lookup-failed-ride", "awake"], ["fixed-lookup-failed-ride-settled", "settled"]] },
       frame: { devices: ["phone", "phone-landscape"], stills: [["fixed-shelf-frame-ride", "awake"]] },
     });
+    // A phone, which has a touch screen, takes the same stills, but for the new day's: there the first tap on the settled chip's link
+    // follows it, with no still of a page woken on the way.
+    for (const [name, page] of Object.entries(pages)) {
+      if (name !== "newday") expect(stills(page, true), name).toEqual(stills(page));
+    }
+    expect(stills(pages.newday, true)).toEqual([["fixed-newday-ride", "awake"], ["fixed-newday-ride-settled", "settled"], ["fixed-newday-tapped", "settled"]]);
+  });
+
+  it("follows the new day's link by one tap on the settled chip where the device has a touch screen, and fails the run unless the page is settled as it taps; with a mouse it presses the link of a page the pointer has woken", () => {
+    const LINK = "[data-action='play-next']";
+    const [byMouse, byTap] = pages.newday.steps.filter((step) => step.shot === "fixed-newday-tapped");
+    expect(byTap).toMatchObject({ touch: true, tap: LINK, from: "settled", required: true, ride: "settled", waitMs: PLAY_WAIT_MS });
+    expect(byMouse).toMatchObject({ touch: false, click: LINK, required: true, ride: "settled", waitMs: PLAY_WAIT_MS });
+    expect(byMouse.from).toBeUndefined();
+    // Both wait for today's page: no chip, and the show playing or paused.
+    expect(byTap.waitFor).toBe(byMouse.waitFor);
+    expect(byTap.waitFor).toContain("main:not(:has([data-next]))[data-state='playing']");
+    // The step before the tap leaves the page settled and sends it nothing; the one before the mouse's press wakes it.
+    const taps = pages.newday.steps.filter((step) => step.touch !== false), clicks = pages.newday.steps.filter((step) => step.touch !== true);
+    expect(taps.at(-2)).toMatchObject({ ride: "settled", shot: "fixed-newday-ride-settled" });
+    expect(clicks.at(-2)).toMatchObject({ wake: true, ride: "awake", shot: "fixed-newday-ride-woken" });
+    // A phone shoots the page, and the shoot knows it for a touch screen; no other page has a step for one kind of device alone.
+    expect(pages.newday.devices).toContain("phone");
+    expect(shoot).toMatch(/\n  phone: \{\n    viewport: \{ width: 390, height: 844 \},\n    deviceScaleFactor: 2,\n    isMobile: true,\n    hasTouch: true,\n  \},/);
+    expect(Object.entries(pages).filter(([, page]) => page.steps.some((step) => step.touch !== undefined)).map(([name]) => name)).toEqual(["newday"]);
   });
 
   it("has every step say the look its still needs, and none that can be skipped in silence: a control it presses is required, and so is a state it waits for", () => {
@@ -50,8 +80,10 @@ describe("the shoot's stills of the ride", () => {
         expect(["awake", "settled"], where).toContain(step.ride);
         if (step.later) expect(["awake", "settled"], where).toContain(step.later.ride);
         // What a step does: a press on a control, a key, or the pointer's move; or nothing, for a still of the page left alone.
-        expect([step.click, step.press, step.wake].filter(Boolean).length, where).toBe(step.ride === "settled" && !step.click ? 0 : 1);
-        if (step.click || step.waitFor) expect(step.required, where).toBe(true);
+        expect([step.click, step.tap, step.press, step.wake].filter(Boolean).length, where).toBe(step.ride === "settled" && !step.click && !step.tap ? 0 : 1);
+        if (step.click || step.tap || step.waitFor) expect(step.required, where).toBe(true);
+        // A tap is of a control in one look, on a touch screen: it says both.
+        if (step.tap) expect([step.touch, step.from], where).toEqual([true, "settled"]);
         // A still's name says its look: settled, slept or arrived; the others are awake.
         expect(step.ride, where).toBe(/-settled$|-tapped$/.test(step.shot) ? "settled" : "awake");
       }
@@ -133,6 +165,11 @@ describe("the shoot's stills of the ride", () => {
     const plain = standIn([]);
     expect(await stillInLook(plain.page, undefined, plain.take)).toBe(null);
     expect(plain.did).toEqual(["still"]);
+    // A press of a control in one look: the page's mark as it is made is that look, or the run fails.
+    expect(await pressFailure(standIn(["settled"]).page, "settled")).toBe(null);
+    for (const now of ["awake", undefined]) {
+      expect(await pressFailure(standIn([now]).page, "settled")).toBe(`the press needs the ride settled, and the page had it ${now ?? "none"}`);
+    }
   });
 
   it("wakes a settled ride with a pointer the page had not heard of, by the page's own rule for one: a first move only says where the pointer is", async () => {
@@ -176,6 +213,12 @@ describe("the shoot's stills of the ride", () => {
     expect(shoot).toContain("if (step.required) failures.push(`${device}-${step.shot}.png: ${selector} absent`);");
     expect(shoot).toContain("if (step.required) failures.push(`${device}-${step.shot}.png: never reached ${step.waitFor}`);");
     expect(shoot).toContain("if (step.wake) await wakeByPointer(page);");
+    // A step for one kind of device is skipped on the other; a tap is a tap, on the control a click would press; and a press made
+    // in the wrong look fails the run, before the press.
+    expect(shoot).toContain("if (step.touch !== undefined && step.touch !== Boolean(options.hasTouch)) continue;");
+    expect(shoot).toContain("const selector = step.click ?? step.tap ?? step.focus;");
+    expect(shoot).toContain("else if (step.tap) await page.tap(selector);");
+    expect(shoot).toContain("const pressedWrong = step.from ? await pressFailure(page, step.from) : null;\n        if (pressedWrong) failures.push(`${device}-${step.shot}.png: ${pressedWrong}`);\n        if (step.focus)");
     expect(shoot).toContain("FOCUS_STOPS.map((_, i) => ({ press: \"Tab\", shot: `fixed-focus-${i + 1}` }))");
     // The shelf's tab back, the one other step of a ride page, needs the ride awake too: the tab is there only while it is.
     expect(shoot).toContain('{ ...shelfStep("player", "out", "fixed-shelf-frame-back"), ride: "awake" }');
