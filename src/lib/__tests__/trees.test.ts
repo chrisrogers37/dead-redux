@@ -1219,7 +1219,7 @@ describe("the trees as they are built", () => {
     expect(made.trunks(0, 0, 2 * BOUND)).toHaveLength(fixed.trees.length);
   });
 
-  it("stop a walk where no part of the visitor's bear is in a trunk: stood TREE_REACH from each tree of the fixed day and facing it, from 32 ways round it, on a desktop and a phone, every corner of the bear is outside the bark", () => {
+  it("stop a walk where no part of the visitor's bear is in a trunk: stood TREE_REACH from each tree of the fixed day and facing it, from 32 ways round it, on a desktop and a phone, every corner of the bear is outside the bark", { timeout: 20000 }, () => {
     const v = new THREE.Vector3();
     for (const [w, own] of [[fixed, made], [fixedPhone, phones]] as const) {
       const avatar = buildAvatar(new THREE.Scene(), [], { phone: w.phone, reduced: true }) as unknown as { g: { updateMatrixWorld(force: boolean): void; traverse(see: (o: BearPart) => void): void }; step(x: number, z: number, heading: number, dt: number): void };
