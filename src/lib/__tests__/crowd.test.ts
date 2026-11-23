@@ -698,12 +698,12 @@ describe("the crowd's shader", () => {
     return count;
   }
 
-  it("swings no arm out and back more than once in two beats, bends the knees on every beat only of one that bobs, and keeps a clap inside the figure's own outline", () => {
+  it("swings no arm out and back more than once in two beats, a clap's among them, bends the knees on every beat only of one that bobs, and keeps a clap inside the figure's own outline", () => {
     // The flash bar counts a block's swings in brightness, and a thin limb that passes over lit ground or the stage swings each block
     // on its way twice as it goes and twice as it comes back. Main's arms did that on every beat: 9 and 10 swings a second at one
     // block from the stage's pose in Drums, by render. So every arm here keeps to a cycle of two beats or longer, a figure that
-    // claps on every beat does it before its chest where its own body covers it, and only one that bobs bends its knees on every
-    // beat. Over CYCLE beats, standing and dancing at the dance's middle: how far each arm stands out from hanging, by its hand
+    // claps does it on every other beat and before its chest, where its own body covers it, and only one that bobs bends its knees
+    // on every beat. Over CYCLE beats, standing and dancing at the dance's middle: how far each arm stands out from hanging, by its hand
     // from its shoulder, and how high the hips stand.
     // An arm's angle from hanging is the angle between its own line, from the middle of its top ring to the middle of its hand,
     // and the body's, from the neck down to the hips: the same however the figure leans or turns.
@@ -732,12 +732,13 @@ describe("the crowd's shader", () => {
     expect(swung.spin.slice(0, 2)).toEqual([4, 4]);
     expect(swung.nod.slice(0, 2)).toEqual([0, 0]);
     expect(swung.watch.slice(0, 2)).toEqual([0, 0]);
+    expect(swung.clap.slice(0, 2)).toEqual([8, 8]);
     for (const move of ["sway", "wave", "spin", "nod", "clap", "watch"]) {
-      if (move !== "clap") expect([move, Math.max(swung[move][0], swung[move][1]) <= 8]).toEqual([move, true]);
+      expect([move, Math.max(swung[move][0], swung[move][1]) <= 8]).toEqual([move, true]);
       expect([move, swung[move][2] <= 8]).toEqual([move, true]);
     }
-    // The clap is on every beat and inside the outline: seen from behind or before, no part of either arm stands further to the
-    // side of its shoulder than the arm is thick, or over the shoulders.
+    // And the clap is inside the outline: seen from behind or before, no part of either arm stands further to the side of its
+    // shoulder than the arm is thick, or over the shoulders.
     const clap = figureOf("clap");
     let wide = 0, high = 0;
     for (const beat of beats.filter((_, k) => k % 8 === 0)) for (const [k, r] of [3, 4].entries()) {
@@ -768,19 +769,19 @@ describe("the crowd's shader", () => {
     expect(over).toBe(0);
   });
 
-  it("claps before its chest on the beat, waves both arms one way, sways from the hips, turns a skirt out, folds its arms to nod, and stands with its hands on its hips", () => {
+  it("claps before its chest on every other beat, waves both arms one way, sways from the hips, turns a skirt out, folds its arms to nod, and stands with its hands on its hips", () => {
     // Each way of moving in turn, at the dance's middle.
     const figure = figureOf;
     const hands = [bodyOf(3).reduce(lowest), bodyOf(4).reduce(lowest)], crown = bodyOf(6).reduce((a, b) => (b.y > a.y ? b : a));
     const shoulder = rich.find((v) => v.mark.x === 0 && v.mark.y === 0 && Math.abs(v.y - SHOULDER_Y) < 0.01 && v.x > 0.3)!, hip = rich.find((v) => v.mark.x === 0 && v.mark.y === 0 && v.y < 0.85 && v.x > 0.15)!;
-    // Clapping: the hands meet before the chest on the beat, and stand apart between beats; with no song they hang.
+    // Clapping: the hands meet before the chest on every other beat, and stand apart on the beat between; with no song they hang.
     const clap = figure("clap");
-    for (const beat of [0, 1, 5]) {
+    for (const beat of [0, 2, 6]) {
       const [left, right] = hands.map((v) => at2(clap, v, { beat, dance: 1 }));
       expect(right.x - left.x).toBeLessThan(0.12);
       for (const p of [left, right]) { expect(p.z).toBeGreaterThan(0.15); expect(p.y).toBeGreaterThan(1.05); expect(p.y).toBeLessThan(SHOULDER_Y); }
     }
-    const [openL, openR] = hands.map((v) => at2(clap, v, { beat: 0.5, dance: 1 }));
+    const [openL, openR] = hands.map((v) => at2(clap, v, { beat: 1, dance: 1 }));
     expect(openR.x - openL.x).toBeGreaterThan(0.2);
     expect(at2(clap, hands[1], { beat: 0.5, dance: 0 })).toEqual({ x: hands[1].x, y: hands[1].y, z: hands[1].z });
     // Waving: both hands up at the head's height or over it, leaning the same way together, there and back in four beats.

@@ -207,13 +207,13 @@ export const DROP = [-0.12, 0.3];
    within JITTER of a beat of the rest, sways SWAY rad to each side over two beats and swings each arm out ARM_SWING rad as it leans
    that way. One that sways leans from the feet over four beats, its hips out and its shoulders back over them; one waves both arms
    overhead, over four beats; one turns on the spot, there and back over eight beats, a skirt flaring as it turns; one nods with its
-   arms folded; one claps on the beat, before its chest; one stands and watches, its hands on its hips or at its sides. A stance,
+   arms folded; one claps on every other beat, before its chest; one stands and watches, its hands on its hips or at its sides. A stance,
    folded arms or hands on hips, is kept dancing or not, but let go, like the dance, as the parting stills a figure. Seated, every
    arm hangs.
    The dance is slow on purpose, for the flash count (CLAUDE.md, motion and flashes): a limb that passes over lit ground or the stage
    swings each block on its way twice as it goes and twice as it comes back. So no arm goes out and back more than once in two
-   beats; what keeps every beat is the bob's knees, the nod and the clap, which a figure's own body covers; and no arm is raised by
-   one that sits, as the whole crowd does through Space. It is counted by render, with scripts/flash, and the PR's text holds the
+   beats, and a clap is kept before the chest, where the figure's own body covers it; what keeps every beat is the bob's knees and
+   the nod alone; and no arm is raised by one that sits, as the whole crowd does through Space. It is counted by render, with scripts/flash, and the PR's text holds the
    counts: a new way of moving is counted the same way before it merges.
    No way of moving carries a hand further from the figure's axis than the bob does as the build-up lifts its arms, so the reaches
    below bound them all (crowd.test.ts). */
@@ -589,7 +589,7 @@ if (!worn) {
     else if (kind < 2.5) { lift = aloft * (2.65 + side * 0.3 * min(dance, 1.3) * four); bend = aloft * 0.25; inward = 1.0; }
     else if (kind < 3.5) lift = dance * (0.12 + 0.45 * abs(cos(eight))) * (1.0 - sit);
     else if (kind < 4.5) { lift = 0.12 * stand; fore = 0.25 * stand; bend = 1.75 * stand; inward = 0.75; }
-    else if (kind < 5.5) { fore = 0.6 * aloft; bend = 1.75 * aloft; inward = 0.35 + 0.37 * bounce; }
+    else if (kind < 5.5) { fore = 0.6 * aloft; bend = 1.75 * aloft; inward = 0.35 + 0.37 * slow; }
     else if (akimbo) { lift = 0.62 * stand; bend = 1.5 * stand; inward = 1.0; }
     if (arms > 0.5 && arms < 1.5 && side > 0.0) { lift = 0.0; fore = 0.0; bend = 0.0; held = 1.0; }
     else if (arms > 1.5 && arms < 2.5 && side > 0.0) { lift = 2.95 * moves; fore = 0.0; bend = 0.0; held = 1.0; }
