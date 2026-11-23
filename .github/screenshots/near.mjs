@@ -27,23 +27,40 @@ export const AS_TITLES = [
   [17, "Terrapin Station"], [18, "China Cat Sunflower", "standing-stone"],
 ];
 
+// The standing stones: a song with no landmark of its own gets one of eight kinds of stone, by its title (stoneKind,
+// public/world/landmarks.js). On a third load of the fixed day, eight of its songs' landmarks are built as these eight songs would have
+// them: songs from the maps that no rule matches, one of each kind in the kinds' own order (a menhir, a holed stone, a split stone, a
+// cairn, a trilithon, a pair, a stele, a rock on a rock), at points where the view is clear from 14 m. The cairn stands on the
+// steep climb, where the visitor looks up at a stone's lower side: one that hung over the slope or lay buried in it would show
+// there. The test holds this table to all of that.
+export const STONE_TITLES = [
+  [2, "Cassidy"], [9, "Casey Jones"], [16, "To Lay Me Down"], [4, "Wharf Rat"], [10, "Peggy-O"], [7, "Black Muddy River"], [12, "Bertha"], [18, "Little Red Rooster"],
+];
+
 // How many frames the world draws after a move before its still is taken: the one that draws the cut, with the bears in their places,
 // and one more, so that the still is taken of a frame that has been shown.
 export const NEAR_FRAMES = 2;
 
 // A page of near stills (shoot.mjs's PAGES) of `songs` ([index, title], ...) on the fixed day, with the landmarks of `as` built for
 // other titles: it opens beside the first, and each step stands the visitor by a song's landmark and shoots it as `<prefix>-<slug>`.
-// The page is shot `whole`: in first person, where the visitor's own bear is out of the frame, with the shelves away.
+// The page is shot `whole`: in first person, where the visitor's own bear is out of the frame, with the shelves away. It waits for
+// the world to be `ready` before its first step, as the shoot's other pages that need a running world do: a step taken on a page
+// that is still loading would find no world to stand the visitor in.
 const nearPage = (songs, prefix, as = []) => ({
   path: `/${FIXED_DAY}?pose=near-${songs[0][0]}${as.map(([index, title]) => `&as=${index}:${encodeURIComponent(title)}`).join("")}`,
   devices: ["desktop", "phone"],
+  ready: "#world[data-world='ready']",
   whole: true,
   shots: [],
   steps: songs.map(([index, title, name = slug(title)]) => ({ near: index, title, shot: `${prefix}-${name}` })),
 });
 
-// The shoot's pages for the near stills: the fixed day's own landmarks, then the other kinds.
-export const nearPages = () => [nearPage(FIXED_TITLES.map((title, index) => [index, title]), "fixed-near"), nearPage(AS_TITLES, "fixed-as", AS_TITLES)];
+// The shoot's pages for the near stills: the fixed day's own landmarks, then the other kinds, then the eight standing stones.
+export const nearPages = () => [
+  nearPage(FIXED_TITLES.map((title, index) => [index, title]), "fixed-near"),
+  nearPage(AS_TITLES, "fixed-as", AS_TITLES),
+  nearPage(STONE_TITLES, "fixed-stone", STONE_TITLES),
+];
 
 // Why a near still is wrong, or null: the page says which song the visitor stands by and the title its landmark is built for
 // (window.__hill.near), and both must be the step's; and no other landmark may stand in the view. The fixed day's page takes its
