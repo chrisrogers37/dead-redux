@@ -167,10 +167,9 @@ function start(gl) {
   const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks });
 
   /* ---------- the visitor's bear ---------- */
-  /* What the walk's camera keeps out of besides the landmarks: the stage's column, and after it the trunks and crowns of the trees
-     near the visitor, which each frame of a walk puts there (trees.js). */
-  const columns = [STAGE_COLUMN];
-  const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns, over: crowd.over, ahead: crowd.ahead });
+  /* The walk's camera keeps out of the landmarks and the stage's column, climbs over the crowd, and among the trees slides round a
+     trunk and dips under a crown (trees.js). */
+  const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN], over: crowd.over, ahead: crowd.ahead, slide: trees.slide, ceiling: trees.ceiling });
   /* Every bear's legs, the visitor's too, as one mesh (bears.js). */
   drawLegs(scene, [...bears, avatar]);
   /* The landmarks' still parts become one mesh across the path, once the camera's keep-out boxes and the crowd's are read from them. */
@@ -691,12 +690,7 @@ function start(gl) {
       avatar.step(walker.x, walker.z, walker.heading, dt);
       crowd.part(dt, avatar.feet, avatar.head, reduced);
       spot.stand();
-      if (third) {
-        /* The boom keeps out of the trees near the visitor: the same columns each time, after the stage's. */
-        columns.length = 1;
-        trees.columns(walker.x, walker.z, columns);
-        aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));
-      }
+      if (third) aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));
       else {
         placeWalker();
         /* The eye bobs with the walk's pace: fully for a key, less for a gentle push on the stick. */

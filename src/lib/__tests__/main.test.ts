@@ -95,11 +95,10 @@ const fake = vi.hoisted(() => {
     nearAsks: [] as number[][],
     trunkAsks: [] as number[][],
     treeReads: new Set<string>(),
-    // The columns the walk's camera keeps out of: the array the visitor's bear was built with, what it held at the last boom, and each
-    // time the trees were asked for those near a place, as [x, z, how many the array held then].
-    boomColumns: undefined as unknown as unknown[],
+    // What the visitor's bear was built with for its camera to keep clear of: the columns, and the trees' own slide and ceiling; and
+    // what the columns held at the last boom.
+    avatarAsk: undefined as unknown as { columns: unknown[]; slide: unknown; ceiling: unknown },
     columnsAtBoom: [] as unknown[],
-    columnAsks: [] as number[][],
     nearSpot: (k: number) => ({ x: k, z: 0, heading: 0, pitch: 0, clear: true }),
     cut: false,
     // The songs' titles the path was last asked to lay out, and those it was asked to place landmarks for.
@@ -182,7 +181,7 @@ const fake = vi.hoisted(() => {
   // The stand-ins' own: the light the island hands on, a landmark's outline, the cameras' ways, a tree's column, how near a walk comes
   // to a trunk and how far from one anything grows.
   const LIT = (material: unknown) => material, OUTLINE = [[0, 0], [1, 0], [0, 1]], WAYS = { eyes: [[1, 2, 3]], views: [{ from: [0, 0], to: [1, 1], half: 5 }] };
-  const TREE_COLUMN = { x: 0, z: 0, r: 1, top: 9 }, TREE_REACH = 2.5, TRUNK_ROOM = 2.25;
+  const SLIDE = () => {}, CEILING = () => Infinity, TREE_REACH = 2.5, TRUNK_ROOM = 2.25;
   const three = {
     WebGLRenderer: class {
       shadowMap = (world.shadowMap = { enabled: false, autoUpdate: true, needsUpdate: false });
@@ -227,7 +226,8 @@ const fake = vi.hoisted(() => {
         world.treesBuilt.push({ spots, lit, phone });
         const built: Record<string, unknown> = {
           count: spots.length,
-          columns: (x: number, z: number, into: unknown[]) => { world.columnAsks.push([x, z, into.length]); into.push(TREE_COLUMN); return into; },
+          slide: SLIDE,
+          ceiling: CEILING,
           // Every trunk is near, the stand-in says: the walk keeps out of whichever it is handed.
           trunks: (x: number, z: number, r: number) => { world.trunkAsks.push([x, z, r]); return spots; },
         };
@@ -281,7 +281,7 @@ const fake = vi.hoisted(() => {
       },
     },
     avatar: {
-      buildAvatar: (_scene: unknown, _landmarks: unknown, { columns }: { columns: unknown[] }) => ({
+      buildAvatar: (_scene: unknown, _landmarks: unknown, ask: { columns: unknown[]; slide: unknown; ceiling: unknown }) => ({
         g: { visible: true },
         head: new Vec(),
         top: new Vec(),
@@ -292,8 +292,8 @@ const fake = vi.hoisted(() => {
         // The third-person camera's boom, which here only looks at the walker.
         boom: (_camera: Camera, walker: Point, _dt: number, cut: boolean) => {
           world.cut = cut;
-          world.boomColumns = columns;
-          world.columnsAtBoom = [...columns];
+          world.avatarAsk = ask;
+          world.columnsAtBoom = [...ask.columns];
           return new Vec(walker.x, 0, walker.z);
         },
         settle: () => {},
@@ -372,7 +372,7 @@ const fake = vi.hoisted(() => {
       }),
     },
   };
-  return { world, three, modules, TURN, LIT, OUTLINE, WAYS, TREE_COLUMN, TREE_REACH, TRUNK_ROOM };
+  return { world, three, modules, TURN, LIT, OUTLINE, WAYS, SLIDE, CEILING, TREE_REACH, TRUNK_ROOM };
 });
 
 vi.mock("three", () => fake.three);
@@ -547,7 +547,6 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
   fake.world.nearAsks = [];
   fake.world.trunkAsks = [];
   fake.world.treeReads = new Set();
-  fake.world.columnAsks = [];
   fake.world.columnsAtBoom = [];
   fake.world.meshes = [];
   fake.world.onset = null;
@@ -811,32 +810,23 @@ describe("main.js's frames", () => {
       expect(Math.abs(across(open.stepped()))).toBeGreaterThan(30);
     });
 
-    it("are solid to the walk's camera: each frame of a walk in third person the boom has the stage's column and the columns of the trees near the visitor, and no more", async () => {
+    it("move the walk's camera only by the slide and the ceiling the visitor's bear is built with: its boom has the stage's column alone, and no frame hands it a tree", async () => {
       const page = await startWorld({ search: "?pose=stage" });
       page.run(0.2);
       expect(page.mode()).toBe("walk");
-      // The same array the visitor's bear was built with, refilled: ten frames on it holds two, not twelve.
-      expect(fake.world.columnsAtBoom).toEqual([STAGE_COLUMN, fake.TREE_COLUMN]);
-      expect(fake.world.columnsAtBoom[1]).toBe(fake.TREE_COLUMN);
-      expect(fake.world.boomColumns).toHaveLength(2);
-      expect(fake.world.columnAsks).toHaveLength(10);
-      // Each ask is for the trees near where the visitor stands, with the stage's column alone in the array.
-      for (const ask of fake.world.columnAsks) expect(ask).toEqual([page.stepped().x, page.stepped().z, 1]);
-      page.hold("ArrowUp", 0.2);
-      expect(fake.world.columnAsks.at(-1)).toEqual([page.stepped().x, page.stepped().z, 1]);
-      expect(fake.world.boomColumns).toHaveLength(2);
-      // In first person there is no boom, and with the bears no walk: neither asks.
-      const first = await startWorld({ search: "?pose=stage", view: "first" });
-      first.run(0.2);
-      expect(fake.world.columnAsks).toEqual([]);
-      const attract = await afterDescent();
-      attract.run(0.2);
-      expect(fake.world.columnAsks).toEqual([]);
+      // The trees' own two, as they were built; and of columns, which draw the boom in, the stage's and no tree's.
+      expect(fake.world.avatarAsk.slide).toBe(fake.SLIDE);
+      expect(fake.world.avatarAsk.ceiling).toBe(fake.CEILING);
+      expect(fake.world.columnsAtBoom).toEqual([STAGE_COLUMN]);
+      page.hold("ArrowUp", 0.5);
+      expect(fake.world.columnsAtBoom).toEqual([STAGE_COLUMN]);
+      expect(fake.world.avatarAsk.columns).toHaveLength(1);
     });
 
     it("stand still: a frame hands them no time and asks them only for what a walk and its camera keep out of", async () => {
       // The opening, a walk in third person and in first, lean-back, and a walk under reduced motion: main.js reads their count for
-      // the stats and their two look-ups, and nothing else of them, so nothing it does can move them.
+      // the stats, the trunks a walk keeps out of, and the slide and the ceiling it hands the walk's camera, and nothing else of them,
+      // so nothing it does can move them.
       const page = await startWorld({ trees: [off(15, 20)] });
       page.run(DESCENT_S + 0.1);
       page.hold("ArrowUp", 0.5);
@@ -845,10 +835,10 @@ describe("main.js's frames", () => {
       page.lean(false);
       page.run(0.2);
       expect((hill() as unknown as { trees: number }).trees).toBe(1);
-      expect([...fake.world.treeReads].sort()).toEqual(["columns", "count", "trunks"]);
+      expect([...fake.world.treeReads].sort()).toEqual(["ceiling", "count", "slide", "trunks"]);
       const still = await startWorld({ reduced: true, trees: [off(15, 20)] });
       still.hold("ArrowUp", 1);
-      expect([...fake.world.treeReads].filter((name) => name !== "count").sort()).toEqual(["columns", "trunks"]);
+      expect([...fake.world.treeReads].filter((name) => name !== "count").sort()).toEqual(["ceiling", "slide", "trunks"]);
     });
   });
 

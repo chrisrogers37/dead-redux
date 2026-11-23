@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { boomLength, TOP } from "./avatar.js";
-import { CLEAR, outside } from "./collide.js";
+import { SNOUT } from "./bears.js";
+import { outside } from "./collide.js";
 import { chance, STONE_REACH } from "./flora.js";
 import { CAVES, height, STAGE, TEST_POSES, TRAILHEAD } from "./ground.js";
 import { FEATHER, offTracks, RING } from "./island.js";
@@ -9,9 +10,9 @@ import { CRANE, DESCENT_FROM, postPose } from "./pose.js";
 import { onCrowdGround } from "./seats.js";
 
 /* The trees: groves of tall pines and broad-crowned trees between the landmarks, so the island has an outline against the sky. All
-   of one kind are one instanced mesh, so the trees cost two draw calls however many stand. A trunk is solid to a walk (modes.js) and
-   to the walk's camera, and so is a crown to that camera (boom.js); every other camera's way is kept clear of them when they are
-   placed. A tree stands on the island's own height (ground.js), which a walk and its camera reckon by, with its foot sunk under it:
+   of one kind are one instanced mesh, so the trees cost two draw calls however many stand. A trunk is solid to a walk (modes.js);
+   the walk's camera slides round a trunk and dips under a crown (avatar.js); every other camera's way is kept clear of them when
+   they are placed. A tree stands on the island's own height (ground.js), which a walk and its camera reckon by, with its foot sunk under it:
    the ground's mesh lies up to 0.7 m off that height on a phone's coarser grid, and the sunk foot covers it.
    The trees stand still. A crown that swayed made the pixels its edge crossed flicker against a bright sky, up to six swings in a
    second at a block where the trees held still counted three (scripts/flash), so nothing here moves a corner once it is built. */
@@ -19,7 +20,7 @@ import { onCrowdGround } from "./seats.js";
 /* A tree stands TALL m over the ground, its foot SUNK m under it, since on a slope the ground falls away under its lower side. Its
    crown is the upper part of it, from BASE_FRAC of the way up from its foot, and CROWN_R m across its half; and there are CROWN_BASE m
    of air under a crown wherever a walker can stand below it, so a bear walks under any crown with its head clear (avatar.js TOP),
-   and the walk's camera's boom starts under it with room for the camera (boom.js). A tree leans up to LEAN rad. */
+   and the walk's camera passes under it. A tree leans up to LEAN rad. */
 export const SUNK = 1.6, TALL = [11, 18], CROWN_BASE = 6.5, BASE_FRAC = 0.66;
 export const CROWN_R = [2.8, 4.0], LEAN = 0.04;
 /* A tree's shape is built with its crown's radius for a unit across (the shapes, below). In those: a trunk's half-width at its sunk
@@ -32,22 +33,27 @@ const crownOut = (wide, lean, tall) => wide * CROWN_REACH + lean * (tall + SUNK)
 const trunkOut = (wide, lean, up) => wide * TRUNK_FOOT + lean * up;
 /* The furthest any crown reaches from its tree's foot, and any trunk no higher than a bear is tall. */
 export const CROWN_R_MAX = crownOut(CROWN_R[1], LEAN, TALL[1]), TRUNK_R_MAX = trunkOut(CROWN_R[1], LEAN, SUNK + TOP);
-/* How near a walk comes to the middle of a trunk's foot: a bear's half-width and a quarter metre (collide.js CLEAR) outside the
-   widest trunk, so its bark is that far from the walker's middle, clear of the first-person view's near plane. Two such reaches fit
-   between any two trees (MIN_APART), so a walk passes between any two trunks and slides round any one of them. */
-export const TREE_REACH = TRUNK_R_MAX + CLEAR;
+/* How near a walk comes to the middle of a trunk's foot, whichever way the walker faces: the furthest any part of a bear stands from
+   its centre, its nose's tip (bears.js SNOUT), outside the widest trunk. So no part of the visitor's bear is in the bark of a trunk
+   it has walked up to, and turning beside one never moves it. The reach is the bear's as it stands: the lean a walk gives it
+   (avatar.js) carries its nose 0.4 m further for the moment after it is stopped, which the widest trunk's foot, wider than where a
+   nose meets it, all but covers. Two such reaches and PASS m fit between any two trees (MIN_APART), so a walk passes between any
+   two trunks, with over a metre of air beside each flank, and slides round any one of them. */
+export const TREE_REACH = SNOUT + TRUNK_R_MAX, PASS = 0.5, MIN_APART = 2 * TREE_REACH + PASS;
 /* How far from the middle of a tree's foot anything grows or lies (island.js): the widest trunk and the largest stone's reach. */
 export const TRUNK_ROOM = TRUNK_R_MAX + STONE_REACH;
 /* How far a tree's foot keeps from the setlist's path, from the bears' line, from a landmark's outline, from the crowd's ground, from
-   the stage's centre and from a cave's; from the tracks' edges and inside the ring road; from every place the camera that walks with
-   the bears stands (EYE_ROOM); and from each other. A view (cameraWays) is kept clear to VIEW_HALF m either side of its line, which
+   the stage's centre and from a cave's; from the tracks' edges and inside the ring road; and from every place the camera that walks
+   with the bears stands (EYE_ROOM). A view (cameraWays) is kept clear to VIEW_HALF m either side of its line, which
    is 4 m of air beside the widest crown, and a camera's sight of a bear, or of a landmark as its song begins, to SIGHT_HALF m, a
    crown's reach. */
 export const PATH_ROOM = 9, LINE_ROOM = 8, LANDMARK_ROOM = 6, CROWD_ROOM = 8, STAGE_ROOM = 30, CAVE_ROOM = 13.5 + 4;
-export const TRACK_ROOM = 2, RING_ROOM = 3, EYE_ROOM = 6.5, VIEW_HALF = 4 + CROWN_R_MAX, SIGHT_HALF = CROWN_R_MAX, MIN_APART = 6.5;
+export const TRACK_ROOM = 2, RING_ROOM = 3, EYE_ROOM = 6.5, VIEW_HALF = 4 + CROWN_R_MAX, SIGHT_HALF = CROWN_R_MAX;
 /* A tree stands where the land's normal is no lower than NY_MIN, which takes in the stony slopes a tuft does not grow on; a steeper
-   slope would ask for a taller tree than any is. One place is tried in each square of CELL m. TARGET is how many trees a tier draws. */
-export const NY_MIN = 0.85, CELL = 6, TARGET = { desktop: 100, tv: 75, phone: 45 };
+   slope would ask for a taller tree than any is. TRIES places are tried in each square of CELL m, which is narrower than two trees
+   stand apart: a square whose first place is too near a neighbour's tree may still grow its own at another. TARGET is how many
+   trees a tier draws. */
+export const NY_MIN = 0.85, CELL = 6, TRIES = 3, TARGET = { desktop: 100, tv: 75, phone: 45 };
 /* The groves, each [x, z, r, pines]: a wood round (x, z), thick out to GROVE_CORE of `r` m from it and thinning to nothing by `r`, with
    `pines` the share of its trees that are pines and the rest broad-crowned. They stand where the rules below leave room: in the
    island's three quarters between the path's arms and at its north-east rim, with meadows between them. Away from them the share
@@ -58,10 +64,9 @@ export const GROVES = [
   [-62, -40, 25, 0.85], [-28, -64, 17, 0.25], [-24, -22, 14, 0.1],
   [38, -96, 20, 0.9], [98, -38, 10, 0],
 ];
-export const GROVE_CORE = 0.7, LONE = 0.2;
+export const GROVE_CORE = 0.8, LONE = 0.2;
 /* A crown's lowest corner may sit this far under BASE_FRAC of its tree's height: a lean lowers its downwind rim, and the ground under
-   it is read at a few places, not all. And how far past a crown's reach the ground is read for the air under it, so the boom's foot
-   is as far from a crown beside it as from one overhead. */
+   it is read at a few places, not all. And how far past a crown's reach the ground is read for the air under it. */
 export const DROP = 0.3, UNDER = 1.5;
 /* The way the wind blows across the island, [x, z]: the trees lean down it. */
 const WIND = [0.86, 0.51];
@@ -182,8 +187,8 @@ function groundUnder(x, z, reach) {
    `near(x, z, r)`, whether one's foot stands within `r` m of a place. `loop` is the setlist's path and `line` the bears' line, as
    points [x, z] no more than 2 m apart; `landmarks` each { x, z, rot, poly }, where one stands, how it is turned and its outline from
    above in its own frame (path.js outline); `eyes` and `views` what the tier's cameras need kept clear (cameraWays).
-   One place is tried in each square of CELL m, in an order shuffled by the squares' own numbers, and kept where the groves grow and
-   no rule forbids it; so with the same cameras' ways a tier that draws fewer draws the first of a tier's that draws more, as a TV
+   A place is tried in each square of CELL m, in an order shuffled by the squares' own numbers, and kept where the groves grow and
+   no rule forbids it, and then the squares' other places are tried (TRIES), a square growing one tree at the most; so with the same cameras' ways a tier that draws fewer draws the first of a tier's that draws more, as a TV
    does of a desktop's, and the trees are the same on every visit.
    A tree is as tall as its place gives it, or taller where the ground under its crown stands higher than its foot: its crown starts
    CROWN_BASE m over the highest ground under it. `reach`, `base` and `top` bound its crown for the walk's camera: no part of it is
@@ -195,12 +200,13 @@ export function placeTrees({ count, loop = [], line = [], landmarks = [], eyes =
   };
   const rules = Object.values(RULES);
   const span = Math.ceil(RING / CELL), cells = [];
-  for (let a = -span; a <= span; a++) for (let b = -span; b <= span; b++) cells.push([chance(a, b, 0), a, b]);
+  /* Every square's first place, in the shuffled order, then every square's second, and so on: each try has numbers of its own. */
+  for (let a = -span; a <= span; a++) for (let b = -span; b <= span; b++) for (let nth = 0; nth < TRIES; nth++) cells.push([nth + chance(a, b, 20 * nth), a, b, 20 * nth]);
   cells.sort((p, q) => p[0] - q[0] || p[1] - q[1] || p[2] - q[2]);
   const spots = [];
-  for (const [, a, b] of cells) {
+  for (const [, a, b, salt] of cells) {
     if (spots.length >= count) break;
-    const x = (a + 0.1 + 0.8 * chance(a, b, 1)) * CELL, z = (b + 0.1 + 0.8 * chance(a, b, 2)) * CELL;
+    const x = (a + 0.1 + 0.8 * chance(a, b, salt + 1)) * CELL, z = (b + 0.1 + 0.8 * chance(a, b, salt + 2)) * CELL;
     const { thick, pines } = groves(x, z);
     if (chance(a, b, 3) >= Math.max(thick, LONE)) continue;
     if (rules.some((rule) => rule(x, z, ctx))) continue;
@@ -442,40 +448,67 @@ export function broadGeometry(phone) {
 
 /* ---------- the meshes ---------- */
 
-/* The side of the squares the trees are sorted into for the walk and its camera: its boom is longest on a phone and trails a run by
-   a few metres more, and a crown reaches CROWN_R_MAX past its tree, so the squares within SQUARE m of the visitor hold every tree the
-   boom can meet. */
+/* The side of the squares the trees are sorted into for the walk and its camera, so a frame tries the few trees near a place. */
 export const SQUARE = 30;
-/* The camera keeps this far from a trunk's bark: its near plane, 0.5 m (main.js), and a little more, so it never looks into one. */
-export const NEAR = 0.6;
 /* Of the stage's glow that level ground at its foot would take, a tree takes this share (island.js takesPool): its bark and leaves
    are paler than the turf, and the ground at its foot may slope away from the stage, so with less than a half it is never the
    brighter of the two. */
 export const GLOW_SHARE = 0.25;
 
-/* What a walk and its camera keep out of, near a place: `columns(x, z, into)` pushes onto `into`, for each tree in the squares within
-   SQUARE m of (x, z), a column for its trunk and one, with a `base`, for its crown (collide.js enterColumn); and `trunks(x, z, r)`
-   is the trunks' columns in the squares within `r` m, each with its foot's `x` and `z`, in an array that is the same one every
-   time. The same objects every time, so a frame makes nothing. */
+/* What a walk and its camera keep clear of. `trunks(x, z, r)` is the trees whose feet stand in the squares within `r` m of a
+   place, each with its foot's `x` and `z`, in an array that is the same one every time (modes.js).
+   The walk's camera (avatar.js) hangs on a boom whose length no tree changes: a tree moves the camera only a little at a time,
+   level round its trunk and down under its crown, so the view never cuts. `room` is how far the camera keeps from bark and
+   leaves, what its near plane needs.
+   `slide(p, room, toward)` moves the point `p` level out of each trunk it stands in, to `room` m outside the trunk's widest at
+   the point's own height, where the trunk's lean has carried it; so a camera whose way a trunk stands in slides round it as a
+   walker does. One that only slid would stop dead behind a trunk that stood square in its way; so where it is going on past the
+   trunk, to `toward`, it goes round by as far as the trunk stopped it, on the side `toward` lies. A trunk may stand between the
+   camera and the bear for a moment.
+   `ceiling(x, y, z, room)` is how high a camera at (x, z), now at `y`, may stand for the crowns: `room` m under a crown's base
+   beneath it, and a metre higher for each metre the place is outside the crown's circle, so a camera coming up to a crown has
+   come down under it by the time it is there, and rises as it leaves; Infinity where no crown is that near. Every crown's base
+   is CROWN_BASE m over the highest ground under it, so the ceiling is over what the camera needs over the ground (avatar.js).
+   A frame makes nothing: the point and its room are held here for the two that try each tree. */
 function keepOuts(spots) {
   const grid = squares(SQUARE), feet = [];
-  for (const { x, z, tall, wide, lean, reach, base, top } of spots) {
-    /* The trunk's column takes in its foot's width, as far as its lean carries it by where its crown starts, and NEAR. */
-    const r = trunkOut(wide, Math.hypot(lean[0], lean[1]), (tall + SUNK) * BASE_FRAC) + NEAR;
-    grid.add(x, z, { trunk: { x, z, r, top }, crown: { x, z, r: reach, base, top } });
+  let low = Infinity;
+  for (const { x, y, z, wide, lean, reach, base } of spots) {
+    grid.add(x, z, { x, z, foot: y - SUNK, lean, r: wide * TRUNK_FOOT, reach, base });
+    low = Math.min(low, base);
   }
-  let into = feet;
-  const both = (tree) => { into.push(tree.trunk, tree.crown); }, trunk = (tree) => { feet.push(tree.trunk); };
+  const foot = (tree) => { feet.push(tree); };
+  let p = null, room = 0, toward = null, px = 0, pz = 0, top = Infinity;
+  const round = (t) => {
+    /* The trunk's middle at the point's height, or at the highest the point may stand under its crown. */
+    const up = Math.min(p.y, t.base - room) - t.foot, cx = t.x + t.lean[0] * up, cz = t.z + t.lean[1] * up, r = t.r + room;
+    let dx = p.x - cx, dz = p.z - cz;
+    const d = Math.hypot(dx, dz);
+    if (d >= r) return;
+    /* Right on the trunk's middle there is no line out from it: it steps out along x. */
+    if (d < 1e-9) { dx = 1; dz = 0; }
+    let turn = Math.atan2(dz, dx);
+    if (toward) {
+      const tx = toward.x - cx, tz = toward.z - cz;
+      if (tx * tx + tz * tz > r * r) turn += ((r - d) / r) * (dx * tz - dz * tx < 0 ? -1 : 1);
+    }
+    p.x = cx + r * Math.cos(turn); p.z = cz + r * Math.sin(turn);
+  };
+  const lower = (t) => { top = Math.min(top, t.base - room + Math.max(0, Math.hypot(px - t.x, pz - t.z) - t.reach)); };
+  /* The furthest a trunk's keep-out reaches from its foot: its widest, and its lean by its crown's base. */
+  const out = trunkOut(CROWN_R[1], LEAN, (TALL[1] + SUNK) * BASE_FRAC);
   return {
-    columns(x, z, list) { into = list; grid.some(x, z, SQUARE, both); return list; },
-    trunks(x, z, r) { feet.length = 0; grid.some(x, z, r, trunk); return feet; },
+    trunks(x, z, r) { feet.length = 0; grid.some(x, z, r, foot); return feet; },
+    slide(point, by, to = null) { p = point; room = by; toward = to; grid.some(p.x, p.z, out + by, round); },
+    /* A crown lowers the ceiling under `y` only from nearer than its reach and as far again as `y` is over its base less `room`. */
+    ceiling(x, y, z, by) { px = x; pz = z; room = by; top = Infinity; grid.some(x, z, CROWN_R_MAX + Math.max(0, y - low + by), lower); return top; },
   };
 }
 
 /* Builds the trees at `spots` (placeTrees): the pines as one instanced mesh and the broad-crowned as another, of one material, which
    `lit(material, stands)` has take the stage's glow as a thing that stands on the ground does (island.js takesPool). Nothing moves
-   them once they are built. Returns `count`; `meshes`; and `columns` and `trunks`, what the walk's camera and the walk keep out of
-   near a place (keepOuts). */
+   them once they are built. Returns `count`; `meshes`; and `trunks`, `slide` and `ceiling`, what the walk and its camera keep clear
+   of (keepOuts). */
 export function buildTrees(scene, spots, { lit, phone }) {
   const dummy = new THREE.Object3D(), turn = new THREE.Quaternion(), axis = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), tint = new THREE.Color();
   const material = lit(new THREE.MeshLambertMaterial({ vertexColors: true }), { sunk: SUNK, share: GLOW_SHARE });
