@@ -446,6 +446,7 @@ type Hill = {
   near: { index: number; title: string; clear: boolean } | null;
   rung: number;
   still: boolean;
+  walker: { x: number; z: number; heading: number; pitch: number };
   crowd: { drawn: number; dance: number; sit: number; parted: number };
   analysis: { source: string | null; weight: number };
   map: { step: number; bass: number; build: number; swell: number; bpm: number | null } | null;
@@ -1091,7 +1092,7 @@ describe("main.js's frames", () => {
       expect(fake.world.posed.dance).toBeGreaterThan(0);
     });
 
-    it("leaves the light alone under ?still=1: the bears hidden, the band never moved, the crowd posed standing still, and says so in its stats", async () => {
+    it("stills the figures under ?still=1, and nothing else: the bears hidden, the band never moved, the crowd posed standing still, and says so in its stats", async () => {
       blank();
       const page = await startWorld({ playing: true, search: "?still=1" });
       expect(hill().still).toBe(true);
@@ -1113,6 +1114,27 @@ describe("main.js's frames", () => {
       expect(fake.world.beats).toBeGreaterThan(0);
       expect(fake.world.posed.beats).toBe(fake.world.beats);
       expect(fake.world.posed.dance).toBe(1);
+    });
+
+    it.each(["?still=0", "?still=", "?still=true", "?still=2", "?still=01", "?still=1x", "?still"])("stills nothing under %s: only ?still=1 does", async (search) => {
+      // A hook that took any word for yes would still the figures of a page that asked for them moving.
+      blank();
+      const page = await startWorld({ playing: true, search });
+      expect(hill().still).toBe(false);
+      page.run(1);
+      expect(fake.world.bears.filter((b) => b.g.visible === false)).toEqual([]);
+      expect(fake.world.beats).toBeGreaterThan(0);
+      expect(fake.world.posed.dance).toBe(1);
+    });
+
+    it("keeps the hidden bears on their line under ?still=1, walking as the show plays and in a walker's way as ever", async () => {
+      const page = await startWorld({ playing: true, search: "?still=1" });
+      page.run(0.1);
+      const before = fake.world.bears.map((b) => along(b.g.position));
+      page.run(2);
+      // They have walked on, 7 m apart, though none is drawn.
+      fake.world.bears.forEach((b, k) => expect(along(b.g.position)).toBeGreaterThan(before[k] + 1));
+      expect(page.shown()).toHaveLength(5);
     });
 
     it("still sits the crowd where the track seats it under ?still=1, standing still as it sits", async () => {
@@ -1190,6 +1212,18 @@ describe("main.js's frames", () => {
       expect(fake.world.cut).toBe(true);
       page.run(0.02);
       expect(fake.world.cut).toBe(false);
+      // The stats say where the visitor stands and how they look: there, as asked.
+      expect(hill().walker).toEqual(SPOT);
+    });
+
+    it("says in its stats where the walk's limits have moved a visitor who was stood where no walker may stand", async () => {
+      // 200 m east of the island's centre is past its bound: the walk's first frame brings the visitor back to it. The flash counter
+      // reads this and stops a job whose pose was moved.
+      const page = await startWorld({ search: "?pose=200,0,0.5,0" });
+      expect(hill().walker).toEqual({ x: 200, z: 0, heading: 0.5, pitch: 0 });
+      page.run(0.02);
+      expect(hill().walker).toEqual({ x: BOUND, z: 0, heading: 0.5, pitch: 0 });
+      expect(page.stepped()).toEqual({ x: BOUND, z: 0, heading: 0.5 });
     });
 
     it("looks from the visitor's eye there in first person: 3.2 m over the ground, along the heading, tilted by the pitch", async () => {

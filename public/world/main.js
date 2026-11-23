@@ -298,8 +298,11 @@ function start(gl) {
     ? { x: Number(four[1]), z: Number(four[2]), heading: Number(four[3]), pitch: Number(four[4]) } : null;
   const testPose = hook && Object.hasOwn(TEST_POSES, hook) ? TEST_POSES[hook] : numberPose;
   const sweep = hook === "sweep";
-  /* ?still=1: the light alone. The bears are hidden, the band is not moved and the crowd is posed standing still (it still sits where
-     the track seats it); the sky, the night, the rig and the lights are as they are. The flash counter's light-alone pass. */
+  /* ?still=1: the figures are stilled, and nothing else. The bears are hidden, though they walk their line as ever and keep the
+     visitor out of their reach; the band is not moved; and the crowd is posed standing still (it still sits where the track seats it,
+     and parts for the visitor). All else moves as it does: the rig and the lights, the sky and its drops, the sea, the tufts in the
+     wind, the fireflies and the landmarks' moving parts; and the visitor's own bear stands where it is posed. The flash counter
+     calls this pass the light alone (scripts/flash/README.md). */
   const still = hooks?.get("still") === "1";
   if (still) for (const b of bears) b.g.visible = false;
   /* ?rung=N, N from 1 to 99: the world starts N rungs down its quality ladder (fewer if the ladder ends) and holds there, as a slow
@@ -502,11 +505,15 @@ function start(gl) {
   const r3 = (v) => Math.round(v * 1000) / 1000;
   Object.defineProperties((window.__hill ??= {}), {
     tier: stat(() => tier), scale: stat(() => quality.scale), rung: stat(() => rung), trees: stat(() => trees.count),
-    /* Whether ?still=1 was heard: the flash counter reads it, so a world from before the hook never passes for the light alone. */
+    /* Whether ?still=1 was heard: the flash counter reads it, so a world from before the hook never passes for one with its figures
+       stilled. */
     still: stat(() => still),
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
     frameMs: stat(() => Math.round(sampler.frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
     mode: stat(() => mode),
+    /* Where the visitor stands and how they look (x, z, heading, pitch). The flash counter holds a pose it asked for to this: the
+       walk's limits move a visitor who is stood where no walker may stand. */
+    walker: stat(() => ({ x: r3(walker.x), z: r3(walker.z), heading: r3(walker.heading), pitch: r3(walker.pitch) })),
     /* Under ?pose=near-K, the song whose landmark the visitor stands by, the title its landmark is built for, and whether no other
        landmark stands in the view of it. */
     near: stat(() => (nearAt === null ? null : { index: nearAt, title: landmarkTitle(nearAt), clear: nearClear })),

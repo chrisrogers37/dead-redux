@@ -4,28 +4,36 @@
 // capture.mjs counts as the frames arrive (`counter`): it keeps each block's state and its swings, and a second of frames, never the
 // run. `analyse` counts a run that is kept whole, as every count before was made; it is the reference the counter is held to
 // (scripts/__tests__/flash-analyse.test.ts), and no script calls it.
+//
+// A run may open with a lead-in: `lead` frames from before the window that is counted. They set each block's state and count for
+// nothing else: a swing is counted when it completes in the window, measured from a turn in the lead-in or the window. A turn older
+// than the lead-in is not known, and the block is measured from its least and its greatest since the lead-in's first frame in its place. The window's first frame is
+// frame 0, and a lead-in's frames are numbered back from it, -1 the last.
 
 export const THRESHOLD = 0.1;
 const T16 = THRESHOLD * 65535;
 
-// The frames at which a block swings, as [frame, direction] pairs flattened. `L` is nFrames x nBlocks, frame after frame.
-export function swingsOf(L, nFrames, nBlocks, b) {
+// The frames of the window at which a block swings, as [frame, direction] pairs flattened. `L` is nFrames x nBlocks, frame after
+// frame, its first `lead` frames the lead-in.
+export function swingsOf(L, nFrames, nBlocks, b, lead = 0) {
   const out = [];
   let lo = L[b], hi = L[b], ext = 0, dir = 0;
-  for (let f = 1; f < nFrames; f++) {
-    const v = L[f * nBlocks + b];
+  for (let i = 1; i < nFrames; i++) {
+    const v = L[i * nBlocks + b];
+    let d = 0;
     if (dir === 0) {
       if (v > hi) hi = v;
       if (v < lo) lo = v;
-      if (v - lo >= T16) { dir = 1; ext = v; out.push(f, 1); }
-      else if (hi - v >= T16) { dir = -1; ext = v; out.push(f, -1); }
+      if (v - lo >= T16) d = 1;
+      else if (hi - v >= T16) d = -1;
     } else if (dir === 1) {
       if (v > ext) ext = v;
-      else if (ext - v >= T16) { dir = -1; ext = v; out.push(f, -1); }
-    } else {
-      if (v < ext) ext = v;
-      else if (v - ext >= T16) { dir = 1; ext = v; out.push(f, 1); }
-    }
+      else if (ext - v >= T16) d = -1;
+    } else if (v < ext) ext = v;
+    else if (v - ext >= T16) d = 1;
+    if (d === 0) continue;
+    dir = d; ext = v;
+    if (i >= lead) out.push(i - lead, d);
   }
   return out;
 }
@@ -45,10 +53,10 @@ export function mostWithin(swings, span) {
 const traceFrames = (fps) => fps + 2;
 const shown = (v) => Math.round((v / 65535) * 10000) / 10000;
 
-// What a run's blocks come to. `lo` and `hi` hold each block's least and greatest luminance, `swings(b)` gives a block's swings as
-// swingsOf does, and `trace(b, last)` its luminance through the frames that end at frame `last`, traceFrames of them or as many as
-// the run has by then. `mask` marks the blocks that are not counted.
-function summarise(bw, bh, mask, fps, lo, hi, swings, trace) {
+// What a run's blocks come to. `lo` and `hi` hold each block's least and greatest luminance in the window, `swings(b)` gives a
+// block's swings as swingsOf does, and `trace(b, last)` its luminance through the frames that end at frame `last`, traceFrames of
+// them or as many as the run has by then, its lead-in with it. `mask` marks the blocks that are not counted.
+function summarise(bw, bh, mask, fps, lead, lo, hi, swings, trace) {
   const nBlocks = bw * bh;
   // A second holds fps frame intervals: swings whose frames are at most fps apart (inclusive, the cautious reading), and at most fps - 1
   // apart (a second's fps frames, the strict one).
@@ -60,8 +68,9 @@ function summarise(bw, bh, mask, fps, lo, hi, swings, trace) {
     if (mask[b]) continue;
     unmasked += 1;
     range[b] = (hi[b] - lo[b]) / 65535;
-    if (hi[b] - lo[b] < T16) { hist[0] += 1; continue; }
+    // A block may swing in a window through which it moves less than a tenth: where its last turn was in the lead-in.
     const s = swings(b), n = s.length / 2;
+    if (n === 0) { hist[0] += 1; continue; }
     totalSwings += n;
     const inc = mostWithin(s, fps), strict = mostWithin(s, fps - 1);
     perBlock[b] = inc.best;
@@ -80,7 +89,7 @@ function summarise(bw, bh, mask, fps, lo, hi, swings, trace) {
     return {
       bx: r.b % bw, by: Math.floor(r.b / bw), x: (r.b % bw) * 2, y: Math.floor(r.b / bw) * 2,
       mostInASecond: r.most, mostInASecondStrict: r.strict, runStartsAtFrame: r.at, swingsInWindow: r.total, range: Math.round(r.range * 1000) / 1000,
-      swings: pairs, traceFromFrame: Math.max(0, last - traceFrames(fps) + 1), trace: trace(r.b, last),
+      swings: pairs, traceFromFrame: Math.max(0, last + lead - traceFrames(fps) + 1) - lead, trace: trace(r.b, last),
     };
   };
   const top = ranked.slice(0, 12).map(describe);
@@ -95,33 +104,40 @@ function summarise(bw, bh, mask, fps, lo, hi, swings, trace) {
   };
 }
 
-// The count of a run kept whole: `L` is nFrames x nBlocks of uint16, frame after frame. The reference for `counter`.
-export function analyse(L, nFrames, bw, bh, mask, fps = 60) {
+// The count of a run kept whole: `L` is nFrames x nBlocks of uint16, frame after frame, its first `lead` frames the lead-in. The
+// reference for `counter`.
+export function analyse(L, nFrames, bw, bh, mask, fps = 60, lead = 0) {
   const nBlocks = bw * bh, lo = new Uint16Array(nBlocks).fill(65535), hi = new Uint16Array(nBlocks);
-  for (let f = 0; f < nFrames; f++) {
-    for (let b = 0; b < nBlocks; b++) { const v = L[f * nBlocks + b]; if (v < lo[b]) lo[b] = v; if (v > hi[b]) hi[b] = v; }
+  for (let i = lead; i < nFrames; i++) {
+    for (let b = 0; b < nBlocks; b++) { const v = L[i * nBlocks + b]; if (v < lo[b]) lo[b] = v; if (v > hi[b]) hi[b] = v; }
   }
   const trace = (b, last) => {
     const out = [];
-    for (let f = Math.max(0, last - traceFrames(fps) + 1); f <= last; f++) out.push(shown(L[f * nBlocks + b]));
+    for (let i = Math.max(0, last + lead - traceFrames(fps) + 1); i <= last + lead; i++) out.push(shown(L[i * nBlocks + b]));
     return out;
   };
-  return summarise(bw, bh, mask, fps, lo, hi, (b) => swingsOf(L, nFrames, nBlocks, b), trace);
+  return summarise(bw, bh, mask, fps, lead, lo, hi, (b) => swingsOf(L, nFrames, nBlocks, b, lead), trace);
 }
 
 // The count as the frames arrive. `add(write)` takes the next frame in: `write(out, base)` writes its blocks' luminance into `out`
-// from `base` on. `result(mask)` is what `analyse` gives for the same frames.
-// It holds, for each block, its least and greatest luminance, where its last turn left it, and its swings; and the last
-// traceFrames of the run, from which a block's frames are kept each time a second ends with more swings than any second of that
-// block before it, so that at the end each block has the frames of its busiest second.
-export function counter(bw, bh, fps = 60) {
+// from `base` on. The first `lead` frames are the lead-in. `result(mask)` is what `analyse` gives for the same frames.
+// It holds, for each block, where its last turn left it, its least and greatest luminance in the window, and its swings, so it grows
+// with the swings of a run and not with its frames; and the last traceFrames of the run, from which a block's frames are kept each
+// time a second ends with more swings than any second of that block before it, so that at the end each block has the frames of its
+// busiest second.
+export function counter(bw, bh, fps = 60, lead = 0) {
   const nBlocks = bw * bh, span = traceFrames(fps);
   const ring = new Uint16Array(span * nBlocks), kept = new Uint16Array(span * nBlocks);
-  const lo = new Uint16Array(nBlocks), hi = new Uint16Array(nBlocks), ext = new Uint16Array(nBlocks), dir = new Int8Array(nBlocks);
+  // A block's turning: until its first swing it is measured from its least and greatest so far (`low`, `high`), the lead-in's with
+  // them; after it, from where its last turn left it (`ext`), in the direction `dir`.
+  const low = new Uint16Array(nBlocks), high = new Uint16Array(nBlocks), ext = new Uint16Array(nBlocks), dir = new Int8Array(nBlocks);
+  // Its least and greatest in the window alone, for its range.
+  const lo = new Uint16Array(nBlocks), hi = new Uint16Array(nBlocks);
   const most = new Uint8Array(nBlocks), keptAt = new Int32Array(nBlocks).fill(-1);
   const lists = new Array(nBlocks);
   let frames = 0;
-  // A swing of block b at frame f. The second that ends here holds the swings at most fps frames before it, as mostWithin counts them.
+  // A swing of block b at the window's frame f. The second that ends here holds the swings at most fps frames before it, as mostWithin
+  // counts them.
   function swing(b, f, d) {
     const s = (lists[b] ??= []);
     s.push(f, d);
@@ -131,36 +147,43 @@ export function counter(bw, bh, fps = 60) {
     if (n <= most[b]) return;
     most[b] = n;
     keptAt[b] = f;
-    for (let g = Math.max(0, f - span + 1); g <= f; g++) kept[b * span + (g % span)] = ring[(g % span) * nBlocks + b];
+    // The ring holds the run's frame i, the window's frame i - lead, at i % span.
+    for (let i = Math.max(0, f + lead - span + 1); i <= f + lead; i++) kept[b * span + (i % span)] = ring[(i % span) * nBlocks + b];
   }
   return {
     add(write) {
-      const f = frames++, base = (f % span) * nBlocks;
+      const i = frames++, base = (i % span) * nBlocks;
       write(ring, base);
-      if (f === 0) { lo.set(ring.subarray(base, base + nBlocks)); hi.set(lo); return; }
+      if (i === lead) { lo.set(ring.subarray(base, base + nBlocks)); hi.set(lo); }
+      if (i === 0) { low.set(ring.subarray(base, base + nBlocks)); high.set(low); return; }
       for (let b = 0; b < nBlocks; b++) {
         const v = ring[base + b];
-        if (v > hi[b]) hi[b] = v;
-        if (v < lo[b]) lo[b] = v;
-        // Until its first swing a block is measured from its least and greatest so far; after it, from where its last turn left it.
+        if (i > lead) { if (v > hi[b]) hi[b] = v; if (v < lo[b]) lo[b] = v; }
+        let d = 0;
         if (dir[b] === 0) {
-          if (v - lo[b] >= T16) { dir[b] = 1; ext[b] = v; swing(b, f, 1); }
-          else if (hi[b] - v >= T16) { dir[b] = -1; ext[b] = v; swing(b, f, -1); }
+          if (v > high[b]) high[b] = v;
+          if (v < low[b]) low[b] = v;
+          if (v - low[b] >= T16) d = 1;
+          else if (high[b] - v >= T16) d = -1;
         } else if (dir[b] === 1) {
           if (v > ext[b]) ext[b] = v;
-          else if (ext[b] - v >= T16) { dir[b] = -1; ext[b] = v; swing(b, f, -1); }
+          else if (ext[b] - v >= T16) d = -1;
         } else if (v < ext[b]) ext[b] = v;
-        else if (v - ext[b] >= T16) { dir[b] = 1; ext[b] = v; swing(b, f, 1); }
+        else if (v - ext[b] >= T16) d = 1;
+        if (d === 0) continue;
+        dir[b] = d; ext[b] = v;
+        // A turn in the lead-in sets the block's state and is no swing of the window.
+        if (i >= lead) swing(b, i - lead, d);
       }
     },
     result(mask) {
       const trace = (b, last) => {
         if (keptAt[b] !== last) throw new Error(`block ${b}: the frames kept end at frame ${keptAt[b]}, and its busiest second at ${last}`);
         const out = [];
-        for (let g = Math.max(0, last - span + 1); g <= last; g++) out.push(shown(kept[b * span + (g % span)]));
+        for (let i = Math.max(0, last + lead - span + 1); i <= last + lead; i++) out.push(shown(kept[b * span + (i % span)]));
         return out;
       };
-      return summarise(bw, bh, mask, fps, lo, hi, (b) => lists[b] ?? [], trace);
+      return summarise(bw, bh, mask, fps, lead, lo, hi, (b) => lists[b] ?? [], trace);
     },
   };
 }

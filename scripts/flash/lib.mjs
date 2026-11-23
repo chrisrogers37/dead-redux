@@ -3,9 +3,10 @@
 // with no browser and no git.
 import { createRequire } from "module";
 import { execFileSync } from "child_process";
-import { readFileSync, readdirSync } from "fs";
+import { createHash } from "crypto";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "fs";
 import { tmpdir } from "os";
-import { isAbsolute, join, relative, resolve } from "path";
+import { dirname, isAbsolute, join, relative, resolve } from "path";
 import { fileURLToPath } from "url";
 
 export const FPS = 60;
@@ -20,22 +21,50 @@ export function loadPlaywright() {
   return { chromium: require("playwright").chromium, PNG: require("pngjs").PNG };
 }
 
-// A run's settings, from the environment (README.md lists them). OUT_DIR is outside the repo, so a result never lands in a commit.
+// The nearest folder of a path that exists, as the disk spells it through any link. A path is in the repo just when this is: the
+// repo's own folder exists, so nothing under it has a nearer one outside.
+function realFolder(path) {
+  let dir = resolve(path);
+  while (!existsSync(dir) && dirname(dir) !== dir) dir = dirname(dir);
+  return realpathSync(dir);
+}
+
+// A run's settings, from the environment (README.md lists them). Each is checked here, before a browser starts: a setting that is
+// wrong stops the run by name, where it would else fail every job late or count something that was not meant.
 export function readConfig(env) {
+  // OUT_DIR is outside the repo, so a result never lands in a commit. Real paths on both sides: a Mac's /tmp is a link, and a repo
+  // under it is not hidden from an OUT_DIR that is spelled the other way.
   const outDir = resolve(env.OUT_DIR || join(tmpdir(), "dead-redux-flash"));
-  const within = relative(repoRoot(), outDir);
-  if (within === "" || (!within.startsWith("..") && !isAbsolute(within))) throw new Error(`OUT_DIR ${outDir} is inside the repo: a count's files stay out of it`);
+  const within = relative(realpathSync(repoRoot()), realFolder(outDir));
+  if (!within.startsWith("..") && !isAbsolute(within)) throw new Error(`OUT_DIR ${outDir} is inside the repo: a count's files stay out of it`);
+  const gpu = env.GPU || "";
+  if (gpu !== "" && gpu !== "metal") throw new Error(`GPU=${gpu}: metal, or unset for the browser's own renderer`);
+  let site = null;
+  try {
+    site = new URL(env.SITE_URL || "http://127.0.0.1:3000");
+  } catch {
+    // No address at all: refused below, with one that has no scheme.
+  }
+  if (!site || !/^https?:$/.test(site.protocol)) throw new Error(`SITE_URL=${env.SITE_URL} is no address: one starts with http:// or https://`);
+  const worldDir = env.WORLD_DIR ? resolve(env.WORLD_DIR) : null;
+  if (worldDir && !existsSync(join(worldDir, "main.js"))) {
+    const inner = join(worldDir, "public", "world");
+    throw new Error(`WORLD_DIR=${worldDir} holds no main.js: it is a checkout's public/world` + (existsSync(join(inner, "main.js")) ? `; did you mean ${inner}` : ""));
+  }
   const day = env.DAY || "2026-10-20";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error(`DAY=${day} is no date`);
-  const parallel = Number(env.PARALLEL || 3);
+  const parallel = Number(env.PARALLEL || 2);
   if (!Number.isInteger(parallel) || parallel < 1) throw new Error(`PARALLEL=${env.PARALLEL} is no count of jobs`);
   // A job writes its result, a few kilobytes. Its heat maps (HEAT=1) and its stills (STILLS=1), which are megabytes, are kept on asking.
   return {
-    siteUrl: (env.SITE_URL || "http://127.0.0.1:3000").replace(/\/+$/, ""), day, outDir, gpu: env.GPU || "",
-    worldDir: env.WORLD_DIR ? resolve(env.WORLD_DIR) : null, mainRef: env.MAIN_REF || "origin/main", parallel,
+    siteUrl: site.href.replace(/\/+$/, ""), day, outDir, gpu, worldDir, mainRef: env.MAIN_REF || "origin/main", parallel,
     heat: env.HEAT === "1", stills: env.STILLS === "1",
   };
 }
+
+// A run's own folder under OUT_DIR, named by when it started (UTC) and what it ran. No run writes into another's folder, so a table
+// made from a folder is of one run.
+export const runFolder = (now, command, arg) => `${now.toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-")}-${command === "matrix" ? arg : command}`;
 
 // The windows of a day's show (windows.json): the stretches of it that are counted. The track numbers belong to that day's show.
 export function windowsFor(day) {
@@ -56,7 +85,7 @@ const POSE = /^(?:[a-z]+(?:-\d+)?|-?\d+(?:\.\d+)?(?:,-?\d+(?:\.\d+)?){3})$/;
 //   view=800x500     the viewport, in CSS px
 //   dpr=1            the device's pixel ratio; the frame that is counted is the viewport times it, in device pixels
 //   tier=            the page's own pick, or phone or tv (?tier=)
-//   still=0          1 for the light alone (?still=1)
+//   still=0          1 stills the figures (?still=1): the pass the README calls the light alone
 //   rung=0           how many rungs down its quality ladder the world starts and holds (?rung=N)
 //   grids=0,0+1,1    the grids of 2x2 blocks counted, each by how many px it stands right and down of the frame's corner
 export function parseJobs(text, windows) {
@@ -125,9 +154,9 @@ export function matrixJobs(name) {
   throw new Error(`no matrix "${name}": quick or standard`);
 }
 
-// The browser. GPU=metal renders on a Mac's GPU; otherwise the browser picks its own renderer, which each result names.
+// The browser. GPU=metal renders on a Mac's GPU; unset, the browser picks its own renderer, which each result names.
 export function launch(chromium, gpu) {
-  if (gpu !== "metal") console.warn("GPU is not metal: the browser picks its renderer, and counts from different renderers are not comparable");
+  if (gpu !== "metal") console.warn("GPU is unset: the browser picks its renderer, and counts from different renderers are not comparable");
   return chromium.launch({ args: gpu === "metal" ? ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] : [] });
 }
 
@@ -135,14 +164,18 @@ export function launch(chromium, gpu) {
 // requestAnimationFrame queues onto a virtual frame that only a step runs, so every frame the world draws is one this script asked for,
 // exactly 1/60 s of the world's time after the last. step(n) runs n frames in a row (nothing is presented between them);
 // present() runs one inside a real animation frame, as a display would, and resolves two real frames later, once it is on screen.
+// Date.now() follows the virtual clock from the moment the page opened, in whole milliseconds. Nothing else is virtual: timers, new
+// Date() and CSS animations keep the machine's time, which the page's own scripts need. So the world's modules keep to
+// performance.now and the animation frame, and scripts/__tests__/flash-lib.test.ts holds them to it.
 export const STEPPER = `(() => {
   const perf = performance;
   const realNow = perf.now.bind(perf);
   const realRaf = window.requestAnimationFrame.bind(window);
-  const base = realNow();
+  const base = realNow(), opened = Date.now();
   let n = 0, vnow = base, nextId = 1;
   const queue = new Map();
   perf.now = () => vnow;
+  Date.now = () => opened + Math.floor(vnow - base);
   window.requestAnimationFrame = (cb) => { const id = nextId++; queue.set(id, cb); return id; };
   window.cancelAnimationFrame = (id) => { queue.delete(id); };
   const run = (advance) => {
@@ -160,24 +193,42 @@ export const STEPPER = `(() => {
   };
 })();`;
 
-// A ref's world modules, read from git in this repo: the commit `ref` names (origin/main by default, which `git fetch` brings up to
-// date; a local `main` can stand behind it).
-const git = (...args) => execFileSync("git", ["-C", repoRoot(), ...args], { encoding: "utf8", maxBuffer: 1 << 26 });
-export const mainSha = (ref) => git("rev-parse", ref).trim();
-const worlds = new Map();
-export function mainWorld(ref) {
-  if (!worlds.has(ref)) {
-    const names = git("ls-tree", "--name-only", ref, "public/world/").trim().split("\n").map((p) => p.replace("public/world/", "")).filter((p) => p.endsWith(".js"));
-    worlds.set(ref, new Map(names.map((name) => [name, git("show", `${ref}:public/world/${name}`)])));
-  }
-  return worlds.get(ref);
-}
-// The commit a checkout's world stands at, where `worldDir` is in a git checkout; else null.
-export function headOf(worldDir) {
+// The commit MAIN_REF names in this repo (origin/main by default, which `git fetch` brings up to date; a local `main` can stand
+// behind it). A run resolves it once, before a browser starts, and reads main's world at that commit from then on.
+const git = (dir, ...args) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", maxBuffer: 1 << 26, stdio: ["ignore", "pipe", "ignore"] });
+export function mainSha(ref) {
   try {
-    return execFileSync("git", ["-C", worldDir, "rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return git(repoRoot(), "rev-parse", "--verify", `${ref}^{commit}`).trim();
   } catch {
-    return null;
+    throw new Error(`MAIN_REF=${ref} names no commit in this repo (git fetch origin main brings origin/main)`);
+  }
+}
+// A commit's world modules, read from git in this repo.
+const worlds = new Map();
+export function mainWorld(commit) {
+  if (!worlds.has(commit)) {
+    const names = git(repoRoot(), "ls-tree", "--name-only", commit, "public/world/").trim().split("\n").map((p) => p.replace("public/world/", "")).filter((p) => p.endsWith(".js"));
+    worlds.set(commit, new Map(names.map((name) => [name, git(repoRoot(), "show", `${commit}:public/world/${name}`)])));
+  }
+  return worlds.get(commit);
+}
+
+// Which world a job counts, for its result. `hash` tells one world from another whatever is said of where it came from: it is of the
+// modules as the page was served them, every /world/*.js it loaded, by name. With it, where they came from: main's commit; a
+// checkout's public/world, with the checkout's commit and whether that folder differs from it (`dirty`); or the server's own.
+export function worldHash(modules) {
+  const hash = createHash("sha256");
+  for (const [name, text] of [...modules].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) hash.update(`${name}\0${Buffer.byteLength(text)}\0${text}`);
+  return hash.digest("hex");
+}
+export function worldFrom(variant, { siteUrl, mainRef, mainCommit, worldDir }) {
+  if (variant === "main") return { from: "main", ref: mainRef, commit: mainCommit, dirty: false };
+  if (!worldDir) return { from: "server", ref: siteUrl, commit: null, dirty: null };
+  try {
+    return { from: "WORLD_DIR", ref: worldDir, commit: git(worldDir, "rev-parse", "HEAD").trim(), dirty: git(worldDir, "status", "--porcelain", "--", ".").trim() !== "" };
+  } catch {
+    // A folder that is in no git checkout: the hash alone says what it holds.
+    return { from: "WORLD_DIR", ref: worldDir, commit: null, dirty: null };
   }
 }
 
@@ -185,9 +236,9 @@ export function headOf(worldDir) {
 // is a 404; for "branch" those of `worldDir`, a checkout's public/world, so what is counted is that checkout's world whatever tree the
 // server runs, or with no `worldDir` the server's own, which is not routed at all. An experiment that needs a changed world counts a
 // scratch checkout as `worldDir`.
-export async function routeWorld(page, variant, { mainRef, worldDir = null }) {
+export async function routeWorld(page, variant, { mainCommit, worldDir = null }) {
   if (variant !== "main" && !worldDir) return;
-  const files = variant === "main" ? mainWorld(mainRef) : new Map(readdirSync(worldDir).filter((name) => name.endsWith(".js")).map((name) => [name, readFileSync(join(worldDir, name), "utf8")]));
+  const files = variant === "main" ? mainWorld(mainCommit) : new Map(readdirSync(worldDir).filter((name) => name.endsWith(".js")).map((name) => [name, readFileSync(join(worldDir, name), "utf8")]));
   await page.route((url) => /^\/world\/[^/]+\.js$/.test(url.pathname), (route) => {
     const name = new URL(route.request().url()).pathname.replace("/world/", "");
     if (!files.has(name)) return route.fulfill({ status: 404, contentType: "text/plain", body: variant === "main" ? "not on main" : "not in WORLD_DIR" });
@@ -201,8 +252,8 @@ export async function routeWorld(page, variant, { mainRef, worldDir = null }) {
 export const SHELVES_COOKIE = "dead-redux-shelves", SHELVES_STORAGE = "dead-redux:shelves", SHELVES_AWAY = "title,actions,player";
 
 // The HUD's plates as the page draws them now, each drawn one's box in CSS px and the start of its text: window.__plates(), which the
-// count reads before, in and after every frame, so one test says what is drawn.
-function installPlates() {
+// count reads before the frames and in every one, so one test says what is drawn. It runs in the page.
+export function installPlates() {
   window.__plates = () => [...document.querySelectorAll(".plate")].flatMap((el) => {
     const r = el.getBoundingClientRect();
     if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) || r.width <= 0 || r.height <= 0) return [];
@@ -212,8 +263,8 @@ function installPlates() {
 export const readPlates = (page) => page.evaluate(() => window.__plates());
 
 // A page for a job: its viewport and pixel ratio, a phone's touch for the phone's tier, the shelves put away, the stepper, the plate
-// reader, and the world's modules routed.
-export async function openPage(browser, job, { siteUrl, mainRef, worldDir }) {
+// reader, and the world's modules routed. `modules` gathers every world module the page is served, by name, for the world's hash.
+export async function openPage(browser, job, { siteUrl, mainCommit, worldDir }) {
   const context = await browser.newContext({ viewport: job.view, deviceScaleFactor: job.dpr, ...(job.tier === "phone" ? { hasTouch: true, isMobile: true } : {}) });
   // The cookie is what the server renders the shelves by, and the storage what the page's script reads.
   await context.addCookies([{ name: SHELVES_COOKIE, value: SHELVES_AWAY, url: siteUrl }]);
@@ -227,11 +278,15 @@ export async function openPage(browser, job, { siteUrl, mainRef, worldDir }) {
   await context.addInitScript(STEPPER);
   await context.addInitScript(installPlates);
   const page = await context.newPage();
-  const errors = [];
+  const errors = [], modules = new Map();
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
   page.on("console", (m) => { if (m.type() === "error" && !/archive\.org|ERR_ABORTED|favicon/.test(m.text())) errors.push(`console.error: ${m.text().slice(0, 300)}`); });
-  await routeWorld(page, job.variant, { mainRef, worldDir });
-  return { context, page, errors };
+  page.on("response", (response) => {
+    const name = /^\/world\/([^/]+\.js)$/.exec(new URL(response.url()).pathname)?.[1];
+    if (name && response.status() === 200) modules.set(name, response.text().then((text) => [name, text]));
+  });
+  await routeWorld(page, job.variant, { mainCommit, worldDir });
+  return { context, page, errors, modules };
 }
 
 // Hides the dev server's own indicator, which is no part of the site.

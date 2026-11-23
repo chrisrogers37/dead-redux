@@ -69,9 +69,10 @@ describe("mostWithin", () => {
 });
 
 // The count of a run, taken both ways: kept whole (`analyse`, as every count before was made) and as its frames arrive (`counter`, as
-// capture.mjs counts, which keeps a second of frames and never the run). The two must agree in everything.
-const counted = (L: Uint16Array, frames: number, bw: number, bh: number, mask: Uint8Array, fps = 60) => {
-  const whole = analyse(L, frames, bw, bh, mask, fps), live = counter(bw, bh, fps), n = bw * bh;
+// capture.mjs counts, which keeps a second of frames and never the run). The two must agree in everything. The run's first `lead`
+// frames are its lead-in, from before the window that is counted.
+const counted = (L: Uint16Array, frames: number, bw: number, bh: number, mask: Uint8Array, fps = 60, lead = 0) => {
+  const whole = analyse(L, frames, bw, bh, mask, fps, lead), live = counter(bw, bh, fps, lead), n = bw * bh;
   for (let f = 0; f < frames; f++) live.add((out: Uint16Array, base: number) => out.set(L.subarray(f * n, (f + 1) * n), base));
   expect(live.result(mask)).toEqual(whole);
   return whole;
@@ -148,6 +149,14 @@ describe("the count of a run, kept whole and as its frames arrive", () => {
     expect(result.totalSwings).toBe(199 + 100 + 67 + 50 + 40 + 25 + 17 + 10 + 7 + 2 + 4 + 4 + 2 + 2);
   });
 
+  it("ranks the wider swing first where two blocks swing as often, in the second and in the run", () => {
+    // Blocks 2 and 5 each rise at frame 1 and fall at frame 41: 2 in a second by both readings, 2 in the run. The second swings four
+    // times as far, and stands first though it comes later.
+    const pulse = (top: number) => (f: number) => (f >= 1 && f < 41 ? top : 1000);
+    const result = counted(film({ 2: pulse(8000), 5: pulse(29000) }), FRAMES, BW, BH, none);
+    expect(result.top.map((t) => [t.bx, t.by, t.mostInASecond, t.mostInASecondStrict, t.swingsInWindow, t.range])).toEqual([[2, 1, 2, 2, 2, 0.427], [2, 0, 2, 2, 2, 0.107]]);
+  });
+
   it("shows a block's luminance through its busiest second and the frame before it: the 62 frames that end at that second's last swing", () => {
     // Block 1 swings at frames 100, 110, 150, 200 and 205. Its first second of three is 100 to 150; 150 to 205 holds three too, and
     // the first stands.
@@ -170,6 +179,50 @@ describe("the count of a run, kept whole and as its frames arrive", () => {
     const result = counted(film({ 0: (f) => ((f >= 5 && f < 15) || f >= 16 ? 20000 : 1000) }, 40), 40, BW, BH, none, 10);
     expect(result.worst).toMatchObject({ mostInASecond: 2, mostInASecondStrict: 2, runStartsAtFrame: 5, traceFromFrame: 4 });
     expect(result.worst!.trace).toHaveLength(12);
+  });
+});
+
+describe("a window's lead-in", () => {
+  // One block. Its luminance in shares of white, frame after frame.
+  const run = (values: number[]) => Uint16Array.from(values, (v) => Math.round(v * 65535));
+  const one = new Uint8Array(1);
+
+  it("counts the swing that began before the window: a fall from a peak the window never saw", () => {
+    // The block stood at 0.20, peaked at 0.35 and is on its way down as the window opens at 0.26: then 0.20 and 0.30. By the
+    // definition the 0.20 is a swing, 0.15 under the peak, and the 0.30 another. A count that knows nothing before the window takes
+    // 0.26 for where the block started, and finds the one rise.
+    const without = counted(run([0.26, 0.2, 0.3]), 3, 1, 1, one);
+    expect(without.totalSwings).toBe(1);
+    expect(without.worst!.swings).toEqual([[2, 1]]);
+    const withIt = counted(run([0.2, 0.35, 0.26, 0.2, 0.3]), 5, 1, 1, one, 60, 2);
+    expect(withIt.totalSwings).toBe(2);
+    expect(withIt.worst).toMatchObject({ mostInASecond: 2, runStartsAtFrame: 1, swingsInWindow: 2 });
+    // The window's first frame is frame 0: the fall lands on frame 1 and the rise on frame 2.
+    expect(withIt.worst!.swings).toEqual([[1, -1], [2, 1]]);
+  });
+
+  it("counts no swing of the lead-in itself, and a swing that lands on the window's first frame", () => {
+    // Up and down twice in the lead-in, then still: nothing in the window.
+    expect(counted(run([0.1, 0.3, 0.1, 0.3, 0.1, 0.1, 0.1]), 7, 1, 1, one, 60, 5).totalSwings).toBe(0);
+    // The lead-in ends low, and the window opens a tenth higher: a swing at frame 0, which no window without a lead-in can have.
+    const first = counted(run([0.3, 0.1, 0.1, 0.25, 0.25]), 5, 1, 1, one, 60, 3);
+    expect(first.worst!.swings).toEqual([[0, 1]]);
+    expect(first.worst).toMatchObject({ runStartsAtFrame: 0, traceFromFrame: -3 });
+  });
+
+  it("measures a block's range in the window alone, and counts a block that swings there while moving less than a tenth in it", () => {
+    // A peak of 0.40 in the lead-in; the window holds 0.31, 0.29, 0.31: a range of 0.02, and the 0.29 is a swing, 0.11 under the peak.
+    const result = counted(run([0.2, 0.4, 0.31, 0.29, 0.31]), 5, 1, 1, one, 60, 2);
+    expect(result.worst).toMatchObject({ mostInASecond: 1, runStartsAtFrame: 1, range: 0.02 });
+    expect(result.histogramOfMostInASecond.slice(0, 2)).toEqual([0, 1]);
+    expect(result.maps.range[0]).toBeCloseTo(0.02, 4);
+  });
+
+  it("shows the lead-in's frames before the window's in a block's trace, numbered back from frame 0", () => {
+    const values = [0.2, 0.35, 0.26, 0.2, 0.3];
+    const result = counted(run(values), 5, 1, 1, one, 60, 2);
+    expect(result.worst).toMatchObject({ traceFromFrame: -2 });
+    expect(result.worst!.trace).toEqual(values);
   });
 });
 
@@ -214,9 +267,9 @@ describe("the count as the frames arrive", () => {
     return { L, mask: Uint8Array.from({ length: n }, () => (rnd() < 0.1 ? 1 : 0)) };
   };
 
-  it.each([1, 2, 3, 4])("equals the count of the run kept whole, on 480 blocks through 7 s of every kind of series (seed %i)", (seed) => {
-    const bw = 24, bh = 20, frames = 420, { L, mask } = series(seed, bw, bh, frames);
-    const result = counted(L, frames, bw, bh, mask);
+  it.each([[1, 0], [2, 0], [3, 60], [4, 60], [5, 7], [6, 130]])("equals the count of the run kept whole, on 480 blocks through 7 s of every kind of series (seed %i, a lead-in of %i frames)", (seed, lead) => {
+    const bw = 24, bh = 20, frames = 420 + lead, { L, mask } = series(seed, bw, bh, frames);
+    const result = counted(L, frames, bw, bh, mask, 60, lead);
     // The series do swing: the test would hold of a counter that counted nothing on a run that held nothing.
     expect(result.maxSwingsInASecond).toBe(61);
     expect((result.blocksAtLeast as Record<number, number>)[1]).toBeGreaterThan(200);
@@ -224,15 +277,15 @@ describe("the count as the frames arrive", () => {
     expect(result.maskedBlocks).toBeGreaterThan(20);
   });
 
-  it("equals it on a run shorter than the second of frames it keeps, on one of a single frame, and at another frame rate", () => {
-    for (const [frames, fps] of [[1, 60], [2, 60], [40, 60], [62, 60], [63, 60], [300, 24], [300, 7]]) {
-      const { L, mask } = series(9 + frames + fps, 16, 10, frames);
-      counted(L, frames, 16, 10, mask, fps);
+  it("equals it on a run shorter than the second of frames it keeps, on one of a single frame, at another frame rate, and on a window of one frame after its lead-in", () => {
+    for (const [frames, fps, lead] of [[1, 60, 0], [2, 60, 0], [40, 60, 0], [62, 60, 0], [63, 60, 0], [300, 24, 0], [300, 7, 0], [2, 60, 1], [61, 60, 60], [64, 60, 60], [300, 24, 24], [91, 60, 90]]) {
+      const { L, mask } = series(9 + frames + fps + lead, 16, 10, frames);
+      counted(L, frames, 16, 10, mask, fps, lead);
     }
   });
 
-  it("holds no more for a long run than for a short one: a second of frames a grid, and each block's swings", () => {
-    // 3 blocks through 100 s: a run kept whole would be 6000 frames, and the count takes them one at a time.
+  it("takes a run of 100 s a frame at a time, and counts it as it would a short one", () => {
+    // 3 blocks through 6000 frames, each handed over and gone: the count keeps the last 62 of them, and each block's swings.
     const live = counter(3, 1), frames = 6000;
     for (let f = 0; f < frames; f++) live.add((out: Uint16Array, base: number) => out.set([1000, f % 600 < 20 && f % 2 ? 30000 : 1000, 5 * f], base));
     const result = live.result(new Uint8Array(3));
@@ -319,6 +372,12 @@ describe("platesMask", () => {
   it("takes in the pixels a box's fractional edge touches", () => {
     // From 6.5 to 10.5 px across: px 6 to 10, and with the pad 4 to 12, so one block further right.
     expect(marked(platesMask([{ x: 6.5, y: 8, w: 4, h: 2 }], 10, 10, 1))).toEqual(span(2, 6, 3, 5));
+    // A left edge at 7.6 px is in px 7, and the pad reaches px 5, in block 2; rounded up to px 8 it would start a block late. And a
+    // top edge at 9.7 px is in px 9, the pad reaching px 7, in block 3.
+    expect(marked(platesMask([{ x: 7.6, y: 9.7, w: 2, h: 0.2 }], 10, 10, 1))).toEqual(span(2, 5, 3, 5));
+    // A right edge at 10.4 px is in px 10, and the pad reaches px 12, in block 6; rounded down to px 10 it would end a block early.
+    // And a bottom edge at 10.2 px is in px 10, the pad reaching px 12, in block 6.
+    expect(marked(platesMask([{ x: 8, y: 8, w: 2.4, h: 2.2 }], 10, 10, 1))).toEqual(span(3, 6, 3, 6));
   });
 
   it("masks by the pad it is given, and keeps to the frame at its edges", () => {
