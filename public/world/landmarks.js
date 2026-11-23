@@ -1087,7 +1087,8 @@ export function makeBuilders(phone) {
     const inset = board - proud, front = layer(1) - board / 2 + inset, back = SIGN.back - inset, high = SIGN.at + 0.3;
     put(g, new THREE.BoxGeometry(0.24, high + SUNK, back - front), tone(TIMBER, true), 0, (high - SUNK) / 2, (front + back) / 2);
     put(g, new THREE.BoxGeometry(0.9, 0.34, board), tone(PLAQUE, true), 0, SIGN.plaque, layer(2));
-    for (const [y, wide] of [[0.07, 0.66], [-0.07, 0.44]]) put(g, new THREE.BoxGeometry(wide, 0.08, board), dark, 0, SIGN.plaque + y, layer(3));
+    for (const [y, wide] of [[0.07, 0.62], [-0.07, 0.44]]) put(g, new THREE.BoxGeometry(wide, 0.08, board), dark, 0, SIGN.plaque + y, layer(3));
+    /* A bolt's head at each end of the plaque, in the lines' own layer and clear of their ends. */
     if (!phone) for (const x of [-0.36, 0.36]) put(g, bolt, iron, x, SIGN.plaque, layer(3));
   }
 
@@ -1103,7 +1104,9 @@ export function makeBuilders(phone) {
      ground rises along it, it runs into the hill, as the slab did. Stood at every quarter metre of the path, turned to the path
      there and where its outline stands clear of the bears' line, as a landmark is stood (collide.js standClear), the ground under
      a corner of a post's foot lies 6.95 m under the landmark's own ground at the lowest: so the posts go TRESTLE_SUNK down, and
-     their feet are 0.45 m in the ground there. Its test measures the fall so and holds the figure (landmarks.test.ts). */
+     their feet are 0.45 m in the ground there. Its test holds the figure, and the depth to it and a hand: it sweeps the path at
+     every second metre, and at every quarter metre round the eight places where that found a foot covered least, which gives
+     the whole sweep's figure (landmarks.test.ts). */
   /* The deck, from the rails down: each layer's top and how tall it is. */
   const DECK = { rail: [0.495, 0.085], tie: [0.41, 0.12], stringer: [0.29, 0.22], cap: [0.07, 0.26] };
   function trestle(g) {
@@ -1116,12 +1119,14 @@ export function makeBuilders(phone) {
     for (const x of [-1.72, 1.72]) put(g, new THREE.BoxGeometry(0.16, DECK.rail[1], long), timber, x, middle(DECK.rail), 0);
     const ties = phone ? 14 : 21, first = -8.7;
     for (let k = 0; k < ties; k++) put(g, new THREE.BoxGeometry(3.7, DECK.tie[1], square), dark, 0.1 * (roll(k, 0, 0, 81) - 0.5), middle(DECK.tie), first - (2 * first * k) / (ties - 1), 0, 0.03 * (roll(k, 1, 0, 81) - 0.5), 0);
-    /* A post's middle line: under its stringer at its head, `foot` out at its foot. Its head is INTO its cap. */
-    const head = DECK.cap[0] - DECK.cap[1], foot = 1.8, INTO = 0.1, spread = (y) => rail + ((foot - rail) * (head - y)) / (head + TRESTLE_SUNK);
+    /* A post's middle line: under its stringer at its head, `foot` out at its foot. Its head is INTO its cap, and the cap is
+       OVER deeper than its posts before and behind: a cap as deep as its posts would have each post's head lie in the cap's own
+       two faces, two timbers' tones in one plane, which flicker. */
+    const head = DECK.cap[0] - DECK.cap[1], foot = 1.8, INTO = 0.1, OVER = 0.01, spread = (y) => rail + ((foot - rail) * (head - y)) / (head + TRESTLE_SUNK);
     /* Each cross of braces, from its foot to its head, a board's depth before the posts' middle; the girts are as far behind it. */
     const crosses = [[-2.3, -0.3], [-4.3, -2.3]], board = [0.08, 0.16], off = 0.19;
     for (const z of phone ? [-8, 0, 8] : [-8, -4, 0, 4, 8]) {
-      put(g, new THREE.BoxGeometry(3, DECK.cap[1], square), dark, 0, middle(DECK.cap), z);
+      put(g, new THREE.BoxGeometry(3, DECK.cap[1], square + 2 * OVER), dark, 0, middle(DECK.cap), z);
       for (const side of [-1, 1]) {
         beam(g, post, [side * foot, -TRESTLE_SUNK, z], [side * spread(head + INTO), head + INTO, z], square, square);
         for (const [low, high] of crosses) beam(g, timber, [side * spread(low), low, z - off], [-side * spread(high), high, z - off], ...board);
@@ -1179,27 +1184,38 @@ export function makeBuilders(phone) {
      No bar stands before the ball's middle as the walker sees it. A phone's cage has four bars, where a desktop's has six. */
   const PIER = { wide: 1.5, deep: 1.08, draw: 0.03, foot: 0.55, course: 0.55, courses: 6, niche: [3, 4], bay: 0.3, recess: 0.3, cornice: 0.15, cap: 0.22 };
   const CAGE = { r: 0.47, bar: 0.03, foot: 4.5, top: 5.35, ring: 0.1 };
+  /* How far a block of the pier is keyed into the courses over and under it, so that no two tops lie in one plane. */
+  const KEYED = 0.01;
   const BALL = { r: 0.4, y: 5 };
   function stonePillar(g) {
     const greys = [STONE, GREY, PALE_STONE], rows = Array.from({ length: PIER.courses }, (_, k) => k), nicheTop = PIER.niche[PIER.niche.length - 1];
-    /* A dressed block, its corners a little out of true: from its low corner [x0, y0, z0] to its high one. */
-    const block = (x0, y0, z0, x1, y1, z1, hex, salt) => put(g, roughen(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), 0.02, salt), tone(hex, true), (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    /* A dressed block, its corners a little out of true: from its low corner [x0, y0, z0] to its high one. With `near`, its near
+       face is of that tone and the rest of its own. */
+    const block = (x0, y0, z0, x1, y1, z1, hex, salt, near) => {
+      const geo = roughen(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), 0.02, salt);
+      return near === undefined ? put(g, geo, tone(hex, true), (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2) : put(g, paint(geo, (x, y, z) => (z < (z0 - z1) / 4 ? near : hex)), painted, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    };
     /* A course's foot, and its half-breadth and half-depth. */
     const level = (k) => PIER.foot + k * PIER.course, half = (k) => [(PIER.wide - k * PIER.draw) / 2, (PIER.deep - k * PIER.draw) / 2];
     block(-0.78, -SUNK, -0.58, 0.78, PIER.foot, 0.58, PIER_PLINTH, 90);
     for (const k of rows) {
       const [w, d] = half(k), grey = (n) => greys[Math.floor(greys.length * roll(k, n, 0, 91))], salt = 92 + 3 * k, LAP = 0.015;
       /* A niche's course is two jambs; the course over it, two blocks and the keystone between them, proud of them; any other,
-         two blocks that lap at their joint. */
-      const jambs = PIER.niche.includes(k), joint = jambs || k === nicheTop + 1 ? PIER.bay - (jambs ? 0 : LAP) : (k % 2 ? 0.24 : -0.24) + LAP;
-      block(-w, level(k), -d, jambs || k === nicheTop + 1 ? -joint : joint, level(k + 1), d, grey(0), salt);
-      block(jambs || k === nicheTop + 1 ? joint : joint - 2 * LAP, level(k), -d + (jambs ? 0 : 0.02 * roll(k, 5, 0, 91)), w, level(k + 1), d, grey(1), salt + 1);
-      if (k === nicheTop + 1) block(-PIER.bay, level(k), -d - 0.03, PIER.bay, level(k + 1), d, PALE_STONE, salt + 2);
+         two blocks that lap at their joint. Of two blocks that lap, the second is KEYED taller at its top and at its foot, into
+         the courses over and under it, and so is the keystone: laid at one height, the two would have their tops in one
+         plane where they lap, one grey over another. */
+      const jambs = PIER.niche.includes(k), keystone = k === nicheTop + 1, joint = jambs || keystone ? PIER.bay - (jambs ? 0 : LAP) : (k % 2 ? 0.24 : -0.24) + LAP, keyed = jambs || keystone ? 0 : KEYED;
+      block(-w, level(k), -d, jambs || keystone ? -joint : joint, level(k + 1), d, grey(0), salt);
+      block(jambs || keystone ? joint : joint - 2 * LAP, level(k) - keyed, -d + (jambs ? 0 : 0.02 * roll(k, 5, 0, 91)), w, level(k + 1) + keyed, d, grey(1), salt + 1);
+      if (keystone) block(-PIER.bay, level(k) - KEYED, -d - 0.03, PIER.bay, level(k + 1) + KEYED, d, PALE_STONE, salt + 2);
     }
-    /* The niche's back, set PIER.recess in from the face, and its sill, proud of it. */
-    const sill = level(PIER.niche[0]), face = -half(PIER.niche[0])[1];
-    block(-PIER.bay - 0.02, sill, face + PIER.recess, PIER.bay + 0.02, level(nicheTop + 1), 0.4, PIER_NICHE, 110);
-    put(g, new THREE.BoxGeometry(0.84, 0.1, 0.22), tone(PALE_STONE, true), 0, sill - 0.05, -0.49);
+    /* The niche: one block between the jambs, keyed into the course under it and into the keystone, whose near face is the
+       niche's dark back, PIER.recess in from the pier's face, and which goes on to the pier's back, NICHE_BACK short of the
+       jambs' backs: stone there, a shallow panel, where a block that stopped short would leave a second niche in the back. And
+       the sill, proud of the face, its top KEYED under the niche's floor. */
+    const sill = level(PIER.niche[0]), face = -half(PIER.niche[0])[1], NICHE_BACK = 0.03;
+    block(-PIER.bay - 0.02, sill - KEYED, face + PIER.recess, PIER.bay + 0.02, level(nicheTop + 1) + KEYED, half(nicheTop)[1] - NICHE_BACK, greys[1], 110, PIER_NICHE);
+    put(g, new THREE.BoxGeometry(0.84, 0.1, 0.22), tone(PALE_STONE, true), 0, sill - KEYED - 0.05, -0.49);
     /* The cornice, the cap, and the block the lantern stands on, up to the cage's foot. */
     const shaft = level(PIER.courses), under = shaft + PIER.cornice, over = under + PIER.cap;
     put(g, new THREE.BoxGeometry(1.5, PIER.cornice, 1.1), tone(GREY, true), 0, (shaft + under) / 2, 0);
@@ -1225,8 +1241,9 @@ export function makeBuilders(phone) {
      board and soffit, three courses of copper green, the middle one the darker, that rise more gently as they go, a cupola
      under its own cap, and a brass ball on that. A phone's posts are four-sided and simpler, and its rail has no laths.
      The stand is 9 m across and stands level. Stood at every quarter metre of the path, as the trestle is, the ground under a
-     corner of its plinth's foot or of a step's lies 3.89 m under the landmark's own ground at the lowest: so the plinth and
-     the steps go BAND_SUNK down, and are 0.51 m in the ground there. Its test measures the fall so and holds the figure. */
+     corner of its plinth's foot or of a step's lies 3.89 m under the landmark's own ground at the lowest: so the plinth goes
+     BAND_SUNK down, 0.51 m into the ground there, and the steps a centimetre short of it. Its test holds the figure as the
+     trestle's does. */
   const BAND = { sides: 8, plinth: [4, 0.45], deck: 3.88, floor: 0.8, posts: 3.55, steps: 3, tread: 0.27, rail: [0.95, 0.2], soffit: 0.16 };
   /* The roof's courses, each ring [radius, height], from the eave up to the cupola's foot. */
   const BAND_ROOF = [[4.6, 3.8], [3.45, 4.4], [2.2, 4.9], [0.95, 5.28]];
@@ -1237,11 +1254,12 @@ export function makeBuilders(phone) {
     put(g, new THREE.CylinderGeometry(plinth, plinth, plinthTop + BAND_SUNK, sides), stone, 0, (plinthTop - BAND_SUNK) / 2, 0);
     put(g, new THREE.CylinderGeometry(BAND.deck, BAND.deck, floor - plinthTop, sides), tone(TIMBER, true), 0, (floor + plinthTop) / 2, 0);
     /* The steps, the upper one first: each a tread deep and a third of the floor's height over the one below, against the
-       plinth's side and a centimetre into what is behind it. */
+       plinth's side and a centimetre into what is behind it. Their feet are that centimetre short of the plinth's, so that
+       where a step laps the plinth the two feet are not in one plane. */
     const out = turn(BAND.steps + 0.5), side = plinth * Math.cos(Math.PI / sides), LAP = 0.01;
     for (const n of [2, 1]) {
       const d = side + (2.5 - n) * BAND.tread - LAP / 2, high = (n * floor) / 3;
-      put(g, new THREE.BoxGeometry(1.8, high + BAND_SUNK, BAND.tread + LAP), tone(PALE_STONE, true), d * Math.sin(out), (high - BAND_SUNK) / 2, d * Math.cos(out), 0, out, 0);
+      put(g, new THREE.BoxGeometry(1.8, high + BAND_SUNK - LAP, BAND.tread + LAP), tone(PALE_STONE, true), d * Math.sin(out), (high - BAND_SUNK + LAP) / 2, d * Math.cos(out), 0, out, 0);
     }
     /* The posts, from the floor up into the eave's soffit. */
     const soffit = eave - BAND.soffit, tall = soffit - floor + 0.04;

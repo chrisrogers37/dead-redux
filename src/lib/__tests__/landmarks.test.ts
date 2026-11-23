@@ -100,16 +100,16 @@ const groundAt = (stand: Stand, x: number, z: number) => height(stand.x + x * st
 // `corners` are those of the pieces that stand in the ground; their feet are the corners `sunk` m under the landmark's own ground,
 // or within `slack` of that for a foot cut aslant, `least` of them or more. At each of `stands`, under every corner of a foot, the
 // ground must be FOOT_COVER m or more over it: less, and a slope's lower side shows daylight under the foot. And where it is
-// least, it is under FOOT_SPARE: the depth is the slope's, not a guess. Gives that least, the shallowest a foot lies anywhere.
+// least, it is under FOOT_SPARE: the depth is the slope's, not a guess. Gives that least, the shallowest a foot lies anywhere,
+// and how shallow the shallowest foot lies at each stand, in the stands' order.
 const FOOT_COVER = 0.2, FOOT_SPARE = 1.7;
 const shallowestFoot = (stands: Stand[], position: Corners, corners: number[], sunk: number, where: string, least: number, slack = 0) => {
   const feet = footRing(position, corners, slack - sunk);
   expect(feet.length, where).toBeGreaterThanOrEqual(least);
-  let shallowest = Infinity;
-  for (const stand of stands) for (const [x, z] of feet) shallowest = Math.min(shallowest, groundAt(stand, x, z) + sunk);
+  const covers = stands.map((stand) => feet.reduce((cover, [x, z]) => Math.min(cover, groundAt(stand, x, z) + sunk), Infinity)), shallowest = Math.min(...covers);
   if (shallowest < FOOT_COVER) expect.fail(`${where}: a foot ${shallowest} m under the ground beneath it, at the path's steepest`);
   expect(shallowest, where).toBeLessThan(FOOT_SPARE);
-  return shallowest;
+  return { shallowest, covers };
 };
 // How sharply a mesh's faces meet: the least dot of the ways two faces that share an edge look. Two faces that lie one over the
 // other, the skin folded there, give -1; the sharpest true edge of any standing stone, where a split stone's crack meets its side,
@@ -143,11 +143,13 @@ const cornersOf = (part: unknown) => {
 // `plain` is that shape: its corners, its outline seen from above (path.js stands a landmark by its outline) and the top a
 // landmark may not pass. `built` is a landmark on a tier, built once for every test that reads it: its still mesh and that mesh's
 // pieces, every part's corners, and its own outline seen from above. `tiers` visits every one on both tiers. `along` is the whole
-// path as places for one of them: where it stands, by its own outline, at every second metre, or every `step` m; two that share
-// an outline share the sweep.
+// path as places for one of them: where it stands, by its own outline, at every SWEEP m, the k-th stand k of them along; two
+// that share an outline share the sweep. `about` is the path round some places of it, given in metres along it: where one of
+// them stands at every `step` m within a SWEEP of each.
 type PlainShape = { corners: [number, number, number][]; outline: number[][]; top: number };
 type Built = { parts: Part[]; moving: { obj: unknown; kind?: string }[]; still: Part; position: Corners; color: Corners; pieces: Piece[]; corners: [number, number, number][]; outline: number[][] };
 type Batch = ReturnType<typeof batchOf>;
+const SWEEP = 2;
 function batchOf(titles: string[], shapes: Record<string, (phone: boolean) => [unknown, number, number, number, number?][]>, over: Record<string, number>) {
   const plains = new Map<string, PlainShape>(), builds = new Map<string, Built>(), sweeps = new Map<string, Stand[]>();
   const plain = (title: string, phone = false) => {
@@ -168,16 +170,21 @@ function batchOf(titles: string[], shapes: Record<string, (phone: boolean) => [u
     return builds.get(key) as Built;
   };
   const tiers = (visit: (b: Built, title: string, phone: boolean, where: string) => void) => { for (const phone of [false, true]) for (const title of titles) visit(built(title, phone), title, phone, `${title}${phone ? " on a phone" : ""}`); };
-  const along = (title: string, phone = false, step = 2) => {
-    const { outline } = built(title, phone), key = `${step}:${JSON.stringify(outline)}`;
+  const along = (title: string, phone = false) => {
+    const { outline } = built(title, phone), key = JSON.stringify(outline);
     if (!sweeps.has(key)) {
       const stands: Stand[] = [];
-      for (let d = 0; d < path.curveLength; d += step) stands.push(standAt(d / path.curveLength, outline));
+      for (let d = 0; d < path.curveLength; d += SWEEP) stands.push(standAt(d / path.curveLength, outline));
       sweeps.set(key, stands);
     }
     return sweeps.get(key) as Stand[];
   };
-  return { plain, built, tiers, along };
+  const about = (title: string, phone: boolean, places: number[], step: number) => {
+    const { outline } = built(title, phone), steps = new Set<number>();
+    for (const place of places) for (let n = Math.round((place - SWEEP) / step); n * step <= place + SWEEP + 1e-9; n++) steps.add(n);
+    return [...steps].map((n) => standAt((n * step) / path.curveLength, outline));
+  };
+  return { plain, built, tiers, along, about };
 }
 // The pieces in one of some colours, by a piece's first corner.
 const of = ({ color, pieces }: Built, ...hexes: number[]) => pieces.filter((piece) => hexes.some((hex) => isTone(color, piece.corners[0], hex)));
@@ -233,6 +240,56 @@ const silhouette = (corners: [number, number, number][], back = nearBack()) => {
 };
 const areaOf = (grid: Uint8Array) => grid.reduce((sum, cell) => sum + cell, 0) * CELL * CELL;
 const sharedBy = (one: Uint8Array, other: Uint8Array) => one.reduce((sum, cell, i) => sum + (cell & other[i]), 0) * CELL * CELL;
+// Two faces of different tones that lie in one plane, look the same way and overlap flicker as they are drawn, neither being in
+// front: a strip that shimmers where two parts were set flush. `flushFaces` finds them in a landmark's parts as they are drawn:
+// every pair of faces of different tones whose normals are within 0.81 degrees of each other (a dot of SAME_WAY or more) and
+// each of whose middles is within ONE_PLANE, a millimetre, of the other's plane; and the area the two share, summed for each
+// pair of tones, in square metres. A face's tone is its corners', or its part's material's where its corners have none. It
+// reads faces, not what hides them: two such faces inside a solid are found as well as two in the open.
+const SAME_WAY = 0.9999, ONE_PLANE = 0.001;
+const flushFaces = (parts: unknown[]) => {
+  type Drawn = { isMesh?: boolean; material: { vertexColors?: boolean; color: { getHexString(): string } }; geometry: { attributes: { color?: Corners } } };
+  const faces: { p: number[][]; n: number[]; d: number; mid: number[]; tone: string }[] = [], hex = new THREE.Color();
+  for (const part of parts as Drawn[]) {
+    if (!part.isMesh) continue;
+    const corners = cornersOf(part), color = part.material.vertexColors ? part.geometry.attributes.color : undefined;
+    for (let i = 0; i < corners.length; i += 3) {
+      const [p0, p1, p2] = [corners[i], corners[i + 1], corners[i + 2]], u = [0, 1, 2].map((k) => p1[k] - p0[k]), v = [0, 1, 2].map((k) => p2[k] - p0[k]);
+      const cross = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]], length = Math.hypot(...cross);
+      if (length < 1e-10) continue;
+      const n = cross.map((x) => x / length);
+      faces.push({ p: [p0, p1, p2], n, d: n[0] * p0[0] + n[1] * p0[1] + n[2] * p0[2], mid: [0, 1, 2].map((k) => (p0[k] + p1[k] + p2[k]) / 3), tone: color ? hex.setRGB(color.getX(i), color.getY(i), color.getZ(i)).getHexString() : part.material.color.getHexString() });
+    }
+  }
+  const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  // The area two faces in one plane share: the one, laid flat in that plane, cut by the other's three sides.
+  const shared = (A: (typeof faces)[number], B: (typeof faces)[number]) => {
+    const [nx, ny, nz] = A.n, e = Math.abs(nx) < 0.9 ? [1, 0, 0] : [0, 1, 0], along = [e[1] * nz - e[2] * ny, e[2] * nx - e[0] * nz, e[0] * ny - e[1] * nx], size = Math.hypot(...along), u = along.map((x) => x / size);
+    const w = [ny * u[2] - nz * u[1], nz * u[0] - nx * u[2], nx * u[1] - ny * u[0]], flat = (q: number[]) => [dot(q, u), dot(q, w)];
+    let poly = A.p.map(flat);
+    const cut = B.p.map(flat), turn = Math.sign((cut[1][0] - cut[0][0]) * (cut[2][1] - cut[0][1]) - (cut[1][1] - cut[0][1]) * (cut[2][0] - cut[0][0]));
+    for (let k = 0; k < 3 && poly.length; k++) {
+      const a = cut[k], b = cut[(k + 1) % 3], side = ([x, y]: number[]) => turn * ((b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0])), kept: number[][] = [];
+      poly.forEach((q, i) => {
+        const r = poly[(i + 1) % poly.length], sq = side(q), sr = side(r);
+        if (sq >= 0) kept.push(q);
+        if (sq >= 0 !== sr >= 0) { const t = sq / (sq - sr); kept.push([q[0] + (r[0] - q[0]) * t, q[1] + (r[1] - q[1]) * t]); }
+      });
+      poly = kept;
+    }
+    return Math.abs(poly.reduce((sum, q, i) => { const r = poly[(i + 1) % poly.length]; return sum + q[0] * r[1] - r[0] * q[1]; }, 0)) / 2;
+  };
+  const flush = new Map<string, number>();
+  for (let i = 0; i < faces.length; i++) for (let j = i + 1; j < faces.length; j++) {
+    const A = faces[i], B = faces[j];
+    if (A.tone === B.tone || dot(A.n, B.n) < SAME_WAY || Math.abs(dot(A.n, B.mid) - A.d) > ONE_PLANE || Math.abs(dot(B.n, A.mid) - B.d) > ONE_PLANE) continue;
+    const pair = [A.tone, B.tone].sort().join(" over ");
+    flush.set(pair, (flush.get(pair) ?? 0) + shared(A, B));
+  }
+  return flush;
+};
+// How bright a face is painted: its colour's relative luminance.
+const bright = (r: number, g: number, b: number) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 // The five that are built of many parts, by a title of each.
 const RICH = ["Tuning", "Jack Straw", "Dupree's Diamond Blues", "C C Rider", "Tennessee Jed"];
 
@@ -332,6 +389,37 @@ describe("the landmarks", () => {
         expect(parts.length).toBeLessThanOrEqual(4);
       }
     }
+  });
+
+  it("lays no two parts flush where their tones differ, in any landmark on a desktop or a phone: faces of two tones in one plane that look one way and overlap would flicker", { timeout: 20000 }, () => {
+    // The most two tones may share so in one landmark: a tenth of a square centimetre, which is under a pixel of a desktop's
+    // frame from 3 m. The trestle's posts' heads lay in their caps' faces over 6,024 square centimetres, and the sign's bolts
+    // over its plaque's line by 1.
+    const LEAST = 1e-5;
+    // What is owed, by the rule that builds it, with the area in square metres: the log cabin's window, whose pale pane and
+    // whose two glazing bars have their backs in one plane, 996 square centimetres of it, inside the front wall's logs. It is an
+    // older landmark's and is left as it is here, out of the rule by name; and it is held to being owed still, so that mending
+    // it takes it out of this list.
+    const OWED: Record<string, number> = { jed: 0.0996 };
+    // The standing stones scanned: every song of the maps that gets one, and the first 128 that no show has played, sixteen or
+    // so of each kind.
+    const fallers = (table: [{ test(title: string): boolean }, Build][]) => [...new Set(shows.flatMap(({ tracks }) => tracks.map((t) => t.title)).filter((title) => !table.some(([rule]) => rule.test(title)))), ...Array.from({ length: 128 }, (_, n) => `A Song No Show Has Played ${n}`)];
+    let scanned = 0;
+    for (const phone of [false, true]) {
+      const { table, standingStone } = builders(phone);
+      const worst = (build: (g: unknown) => void) => { const g = new THREE.Group(); build(g); scanned += 1; return [...flushFaces(g.children)].reduce((most, pair) => (pair[1] > most[1] ? pair : most), ["none", 0] as [string, number]); };
+      for (const [rule, build] of table) {
+        const name = (rule as { source?: string }).source ?? rule.test.name, [pair, area] = worst(build), where = `${name}${phone ? " on a phone" : ""}`;
+        if (name in OWED) expect(area, where).toBeCloseTo(OWED[name], 3);
+        else if (area > LEAST) expect.fail(`${where}: ${pair}, ${area * 1e4} square centimetres of two tones in one plane, looking one way`);
+      }
+      for (const title of fallers(table)) {
+        const [pair, area] = worst((g) => standingStone(g, title));
+        if (area > LEAST) expect.fail(`"${title}"${phone ? " on a phone" : ""}: ${pair}, ${area * 1e4} square centimetres of two tones in one plane, looking one way`);
+      }
+    }
+    // Every row of the table and some hundreds of stones, on both tiers.
+    expect(scanned).toBeGreaterThan(2 * (builders(false).table.length + 128));
   });
 
   it("draws all their still parts as one mesh across the whole path", () => {
@@ -2295,7 +2383,6 @@ describe("the drum circle, the banner, Space's rim, the magnolia and the leaning
     // which on faces this large were the brightest faces on a slab, and read as stray triangles.
     const STONES = [{ tone: 0xa9a59c, grain: [0x918e86, 0xbab6ac], grown: [0x8fa37c, 0x86986f] }, { tone: 0x9a8c74, grain: [0x847864, 0xa99a80], grown: [0x8c8e68, 0x7e825e] }];
     // How bright a face is painted: its colour's relative luminance.
-    const bright = (r: number, g: number, b: number) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
     for (const phone of [false, true]) {
       const { position, color, pieces } = built("Good Lovin'", phone);
       pieces.forEach((piece, n) => {
@@ -2350,7 +2437,7 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
     ],
   };
   // None may stand over its plain shape's top.
-  const batch = batchOf(FIVE, PLAIN, Object.fromEntries(FIVE.map((title) => [title, 0]))), { plain, built, tiers, along } = batch;
+  const batch = batchOf(FIVE, PLAIN, Object.fromEntries(FIVE.map((title) => [title, 0]))), { plain, built, tiers, along, about } = batch;
   // The tones the tests know parts by are the builders' own (imported above); the sail's two are its rose and its gold.
   const [ROSE, GOLD] = KITE_TONES;
   // A piece's breadth across the path, its depth along it and its height; its middle; and how far a place is from the upright
@@ -2437,11 +2524,11 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
     }
   });
 
-  // This test stands ten outlines at every second metre of the path, and three of them at every quarter metre, some six seconds
-  // of standClear on a quiet machine: it has 60 s, not the usual 5.
-  it("go into the ground as far as it can fall away under them: a post, a plinth and a step each goes on down to its landmark's depth, and no foot shows on any slope of the path", { timeout: 60000 }, () => {
-    // How far the ground falls under a foot of the trestle and of the bandstand, at the most, in metres.
-    const FALLS: Record<string, number> = { [ROAD]: 6.95, [BAND]: 3.89 };
+  // This test stands ten outlines at every second metre of the path: it has 20 s, not the usual 5.
+  it("go into the ground as far as it can fall away under them: a post, a plinth and a step each goes on down to its landmark's depth, and no foot shows on any slope of the path", { timeout: 20000 }, () => {
+    // How far the ground falls under a foot of the trestle and of the bandstand, at the most, in metres; and how much deeper
+    // than that a broad landmark's foot may go: a hand, under 0.6 m.
+    const FALLS: Record<string, number> = { [ROAD]: 6.95, [BAND]: 3.89 }, HAND = 0.6;
     // What stands in the ground, of each, and how many: the sign's post; the trestle's posts, two to a bent; the kite's post;
     // the pier's plinth; and the bandstand's plinth and its two steps.
     const FOOTED: Record<string, [number[], number, number]> = { [SIGN]: [[TIMBER], 1, 1], [ROAD]: [[POST], 10, 6], [KITE]: [[TIMBER], 1, 1], [PIER]: [[PIER_PLINTH], 1, 1], [BAND]: [[STONE, PALE_STONE], 3, 3] };
@@ -2455,13 +2542,19 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
       if (title !== ROAD) expect(grounded, where).toHaveLength(feet.length);
       // And that depth is enough anywhere on the path, under every corner of a foot, four corners of them or more, and no deeper
       // than the slope asks (shallowestFoot). A trestle's post's foot is cut aslant: its corners are within 3 cm of its depth.
-      const corners = feet.flatMap((piece) => piece.corners);
-      shallowestFoot(along(title, phone), b.position, corners, SUNK[title], where, 4, 0.03);
-      // The two that are broad are sunk by a measure, which their builders' comments give: stood at every quarter metre of the
-      // path, the lowest the ground lies under a corner of a foot, under the landmark's own ground. It is held here, at those
-      // steps, where a foot must be covered too: a ground or a foot that moved would leave the comment's figure, and the depth
-      // set by it, behind.
-      if (title in FALLS) expect(SUNK[title] - shallowestFoot(along(title, phone, 0.25), b.position, corners, SUNK[title], where, 4, 0.03), where).toBeCloseTo(FALLS[title], 2);
+      const corners = feet.flatMap((piece) => piece.corners), { covers } = shallowestFoot(along(title, phone), b.position, corners, SUNK[title], where, 4, 0.03);
+      // The sign, the kite and the pier go to the depth every slim landmark goes to, which is more than these three ask and
+      // is not theirs to set. The two that are broad are sunk by a measure, which their builders' comments give: stood at every
+      // quarter metre of the path, the lowest the ground lies under a corner of a foot, under the landmark's own ground. That
+      // sweep of the whole path, 2,280 stands of each, gave 6.952 m and 3.892 m. It is held here by a shorter one that gives
+      // the same: at every quarter metre within 2 m of the eight places where the sweep above, at every second metre, found a
+      // foot covered least. There too a foot must be covered, and by no more than a hand: a depth is its fall and that, so a
+      // post a metre deeper than its slope asks fails as one too shallow does.
+      if (!(title in FALLS)) return;
+      const worst = covers.map((cover, k) => [cover, k * SWEEP]).sort((p, q) => p[0] - q[0]).slice(0, 8).map(([, place]) => place);
+      const { shallowest } = shallowestFoot(about(title, phone, worst, 0.25), b.position, corners, SUNK[title], where, 4, 0.03);
+      expect(SUNK[title] - shallowest, where).toBeCloseTo(FALLS[title], 2);
+      expect(shallowest, where).toBeLessThan(HAND);
     });
   });
 
@@ -2631,6 +2724,9 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
           // Its head is in the cap, 10 cm up into it, under the stringer; its foot is 1.8 m out, at the trestle's depth. A post that
           // stopped short of its cap would leave the deck on nothing.
           expect(post.high > cap.low + 0.08 && post.high < cap.high, which).toBe(true);
+          // And the cap is a centimetre deeper than the post before and behind: a head as deep as its cap lies in the cap's
+          // own two faces, post's tone and cap's in one plane.
+          expect([post.z0 - cap.z0, cap.z1 - post.z1], which).toEqual([expect.closeTo(0.01, 5), expect.closeTo(0.01, 5)]);
           expect(side * feet(post, true), which).toBeCloseTo(1.15, 1);
           expect(side * feet(post, false), which).toBeCloseTo(1.8, 1);
           expect(cap.x0 < post.x0 || cap.x1 > post.x1, which).toBe(true);
@@ -2731,14 +2827,19 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
   it("builds the pier in courses under its lantern: a plinth, six courses of two blocks drawn in as they rise, a niche in its near face, a cornice and a cap, and an iron cage round main's ball with no bar before its middle", () => {
     for (const phone of [false, true]) {
       const pier = built(PIER, phone), { position } = pier, where = phone ? "on a phone" : "on a desktop";
-      const [plinth] = of(pier, PIER_PLINTH), [niche] = of(pier, PIER_NICHE), stones = of(pier, STONE, GREY, PALE_STONE), iron = of(pier, IRON);
+      const [plinth] = of(pier, PIER_PLINTH), stones = of(pier, STONE, GREY, PALE_STONE), iron = of(pier, IRON);
+      // The niche's block is the one piece with the niche's dark tone on it: on its near face, and nowhere else.
+      const niches = pier.pieces.filter((piece) => piece.corners.some((i) => isTone(pier.color, i, PIER_NICHE)));
+      expect(niches, where).toHaveLength(1);
+      const [niche] = niches, dark = niche.corners.filter((i) => isTone(pier.color, i, PIER_NICHE));
       // The plinth goes into the ground to the common depth and is nearly as broad as the plain block, 1.6 m by 1.2 m.
       expect([plinth.low, plinth.high], where).toEqual([expect.closeTo(-SUNK[PIER], 5), expect.closeTo(0.55, 5)]);
       expect(wide(plinth) > 1.5 && deep(plinth) > 1.1, where).toBe(true);
       // The courses: six, each 0.55 m, from the plinth's top to 3.85 m. Each is of two blocks that lap at their joint, so no
       // sky shows through it, and the joint steps from one side of the middle to the other, course by course; a niche's
-      // course is two jambs, 0.6 m apart. Each course is a little less broad than the one under it.
-      const course = (k: number) => stones.filter((piece) => Math.abs(piece.low - (0.55 + 0.55 * k)) < 1e-4 && Math.abs(tall(piece) - 0.55) < 1e-4).sort((p, q) => p.x0 - q.x0);
+      // course is two jambs, 0.6 m apart. Each course is a little less broad than the one under it. A block that laps
+      // another is KEYED, a centimetre, into the courses over and under it, and so is the keystone.
+      const KEYED = 0.01, course = (k: number) => stones.filter((piece) => Math.abs(piece.low - (0.55 + 0.55 * k)) < KEYED + 1e-4 && tall(piece) > 0.55 - 1e-4 && tall(piece) < 0.55 + 2 * KEYED + 1e-4).sort((p, q) => p.x0 - q.x0);
       let breadth = wide(plinth);
       const joints: number[] = [];
       for (let k = 0; k < 6; k++) {
@@ -2748,20 +2849,41 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
         expect(across, which).toBeGreaterThan(1.3);
         breadth = across;
         if (k === 3 || k === 4) {
-          // The niche: its jambs stand apart, and its dark back fills the gap between them, behind their faces.
+          // The niche: its jambs stand apart, and its block fills the gap between them, its dark face behind theirs. The block
+          // goes on to the pier's back, 1 to 5 cm short of the jambs' backs and so not in their plane: one that stopped
+          // short would leave a pocket between the jambs there, a second niche in the back of the pier.
           expect(blocks[1].x0 - blocks[0].x1, which).toBeGreaterThan(0.55);
           expect(niche.x0 < blocks[0].x1 && niche.x1 > blocks[1].x0, which).toBe(true);
           expect(niche.z0 - Math.max(blocks[0].z0, blocks[1].z0), which).toBeGreaterThan(0.25);
+          const short = Math.min(blocks[0].z1, blocks[1].z1) - niche.z1;
+          expect(short > 0.01 && short < 0.05, `${which}: the niche's block ends ${short} m short of the jambs' backs`).toBe(true);
         } else {
           for (let n = 0; n + 1 < blocks.length; n++) expect(blocks[n].x1 - blocks[n + 1].x0, which).toBeGreaterThan(0.005);
+          // Two blocks that lap do not have their tops, or their feet, at one height: the one is keyed past the other.
+          for (let n = 0; n + 1 < blocks.length; n++) expect([Math.abs(blocks[n].high - blocks[n + 1].high), Math.abs(blocks[n].low - blocks[n + 1].low)], which).toEqual([expect.closeTo(KEYED, 5), expect.closeTo(KEYED, 5)]);
           if (k < 3) joints.push((blocks[0].x1 + blocks[1].x0) / 2);
         }
       }
       expect(joints.map(Math.sign), where).toEqual([-1, 1, -1]);
-      // The niche is two courses tall, from 2.2 m to 3.3 m, with the keystone over it, proud of the blocks beside it, and a
-      // pale sill under it that stands out to the plain block's own face.
-      expect([niche.low, niche.high], where).toEqual([expect.closeTo(2.2, 5), expect.closeTo(3.3, 5)]);
-      const [, key] = course(5), sill = stones.find((piece) => Math.abs(piece.high - niche.low) < 1e-4 && tall(piece) < 0.2) as Piece;
+      // The pier is built of more than one of its three greys, the keystone, which is always the pale one, aside: of one grey
+      // its courses' joints would not show, and it would be a block again.
+      const greys = [0, 1, 2, 3, 4, 5].flatMap((k) => course(k).filter((_, n) => k < 5 || n !== 1)).map((block) => [STONE, GREY, PALE_STONE].find((hex) => isTone(pier.color, block.corners[0], hex)));
+      expect(greys, where).toHaveLength(12);
+      expect(greys.every((hex) => hex !== undefined) && new Set(greys).size > 1, where).toBe(true);
+      // The niche is two courses tall, from 2.2 m to 3.3 m, its block keyed into the course under it and into the keystone
+      // over it, which is proud of the blocks beside it. Its back is dark: the block's near face, two faces of it, and no
+      // other face of the block, whose back and sides are the pier's stone. Under it a pale sill stands out to the plain
+      // block's own face, its top a centimetre under the niche's floor.
+      expect([niche.low, niche.high], where).toEqual([expect.closeTo(2.2 - KEYED, 5), expect.closeTo(3.3 + KEYED, 5)]);
+      expect(dark.length / 3, where).toBe(2);
+      expect(Math.max(...dark.map((i) => position.getZ(i))), where).toBeLessThan(niche.z0 + 0.02);
+      // And it is dark: under a quarter as bright as the dimmest block of the jambs round it. A niche as pale as the pier's
+      // face is no niche from 14 m.
+      const lit = (i: number) => bright(pier.color.getX(i), pier.color.getY(i), pier.color.getZ(i));
+      expect(lit(dark[0]), where).toBeLessThan(Math.min(...[...course(3), ...course(4)].map((block) => lit(block.corners[0]))) / 4);
+      const [, key] = course(5), sill = stones.find((piece) => tall(piece) < 0.2 && piece.high < 2.2 && piece.high > 2) as Piece;
+      expect(sill.high, where).toBeCloseTo(2.2 - KEYED, 5);
+      expect(Math.min(...course(2).map((block) => block.high)), where).toBeCloseTo(2.2, 5);
       expect(key.z0, where).toBeLessThan(Math.min(course(5)[0].z0, course(5)[2].z0) - 0.02);
       expect(key.x0 < niche.x0 + 0.05 && key.x1 > niche.x1 - 0.05, where).toBe(true);
       expect(sill.z0, where).toBeCloseTo(-0.6, 5);
@@ -2808,10 +2930,11 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
       expect(Math.min(...deck.map((i) => position.getY(i))), where).toBeCloseTo(Math.max(...plinth.map((i) => position.getY(i))), 5);
       expect(Math.max(...plinth.map((i) => position.getY(i))), where).toBeCloseTo(0.45, 5);
       expect([Math.max(...plinth.map(from)), Math.max(...deck.map(from))], where).toEqual([expect.closeTo(4, 5), expect.closeTo(3.88, 5)]);
-      // The steps: two, of stone, each a third of the floor's height over the one under it, going down as far as the plinth.
+      // The steps: two, of stone, each a third of the floor's height over the one under it, going down as far as the plinth
+      // but a centimetre, so that their feet and the plinth's are not in one plane where they lap.
       // The upper lies against the plinth's side and the lower against the upper, on the side that looks to the walker's
       // right: steps round the back, or off the plinth, lead nowhere.
-      expect(steps.map((step) => [step.low, step.high]), where).toEqual([[expect.closeTo(-SUNK[BAND], 5), expect.closeTo(1.6 / 3, 5)], [expect.closeTo(-SUNK[BAND], 5), expect.closeTo(0.8 / 3, 5)]]);
+      expect(steps.map((step) => [step.low, step.high]), where).toEqual([[expect.closeTo(0.01 - SUNK[BAND], 5), expect.closeTo(1.6 / 3, 5)], [expect.closeTo(0.01 - SUNK[BAND], 5), expect.closeTo(0.8 / 3, 5)]]);
       const out = (step: Piece, pick: (...values: number[]) => number) => pick(...step.corners.map((i) => position.getX(i) * Math.sin((3.5 / 8) * 2 * Math.PI) + position.getZ(i) * Math.cos((3.5 / 8) * 2 * Math.PI)));
       const side = 4 * Math.cos(Math.PI / 8);
       expect(out(steps[0], Math.min), where).toBeCloseTo(side - 0.01, 4);

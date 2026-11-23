@@ -302,8 +302,8 @@ function start(gl) {
   /* ?still=1: the figures are stilled, and nothing else. The bears are hidden, though they walk their line as ever and keep the
      visitor out of their reach; the band is not moved; and the crowd is posed standing still (it still sits where the track seats it,
      and parts for the visitor). All else moves as it does: the rig and the lights, the sky and its drops, the sea, the tufts in the
-     wind, the fireflies and the landmarks' moving parts; and the visitor's own bear stands where it is posed. The flash counter
-     calls this pass the light alone (scripts/flash/README.md). */
+     wind, the fireflies and the landmarks' moving parts, unless ?hold=1, below, holds those; and the visitor's own bear stands
+     where it is posed. The flash counter calls this pass the light alone (scripts/flash/README.md). */
   const still = hooks?.get("still") === "1";
   if (still) for (const b of bears) b.g.visible = false;
   /* ?hold=1: the landmarks' moving parts are held as they were built, and nothing else. A wheel is not turned, a ball glows as it

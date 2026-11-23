@@ -1076,26 +1076,30 @@ describe("main.js's frames", () => {
     type Parts = ReturnType<typeof readParts>;
     // A show that plays where the analyser cannot hear it, on a map whose low end is half of full and whose one peak is at 300 s,
     // cued 8 s before the peak and run 2 s: by then the flame has swelled, its light follows the low end, and the ball, the wheel and
-    // the miracle have moved by the time alone. `built` is each part before any frame ran, as it was built, and `parts` after.
+    // the miracle have moved by the time alone. `built` is each part before any frame ran, as it was built, and `parts` after; and
+    // `sky` is the sky's own time and how long since its last drop fell, before any frame and after.
     const moved = async (search: string, hooks = true) => {
       const page = await startWorld({ playing: true, routing: "plain", map: showMap({ bass: 128, peaks: [[300, 0.9]] }), search, hooks });
-      const built = readParts();
+      const readSky = () => ({ time: fake.world.sky.uniforms.uTime.value as number, sinceDrop: page.sinceDrop() }), built = readParts(), before = readSky();
       page.seek(292);
       page.run(2);
-      return { page, built, parts: readParts() };
+      return { page, built, parts: readParts(), sky: { before, after: readSky() } };
     };
     // Every part has moved from where it was built, by more than a rounding.
     const expectMoved = (parts: Parts, built: Parts) => {
       for (const name of Object.keys(built) as (keyof Parts)[]) expect(Math.abs(parts[name] - built[name]), name).toBeGreaterThan(0.01);
     };
 
-    it("holds the landmarks' moving parts as they were built, and nothing else: the band plays on, the bears walk and the crowd dances", async () => {
+    it("holds the landmarks' moving parts as they were built, and nothing else: the band plays on, the bears walk, the crowd dances and the sky's time runs", async () => {
       fake.world.beats = NaN;
-      const { parts, built } = await moved("?hold=1");
+      const { parts, built, sky } = await moved("?hold=1");
       expect(hill().hold).toBe(true);
       // Each part is what it was before any frame ran.
       expect(parts).toEqual(built);
-      // All else moves: the band is moved to the beat, the crowd dances, and no bear is hidden.
+      // All else moves: the band is moved to the beat, the crowd dances, and no bear is hidden; and the sky keeps its own
+      // time, by which its light and the sea move and its drops fall.
+      expect(sky.after.time).toBeGreaterThan(sky.before.time + 1);
+      expect(sky.after.sinceDrop).toBeGreaterThan(sky.before.sinceDrop + 1);
       expect(fake.world.beats).toBeGreaterThan(0);
       expect(fake.world.posed.dance).toBeGreaterThan(0);
       expect(fake.world.bears.filter((b) => b.g.visible === false)).toEqual([]);
