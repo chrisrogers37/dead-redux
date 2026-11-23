@@ -528,8 +528,26 @@ const LOAD_MS = 30_000;
 // Full-page shots stop at this many screens; the archive lists a month.
 const MAX_SCREENS = 4;
 
+// The walk's camera at the stage and at a landmark (#178, #191), which no still and no other recording shows: in third person a
+// landmark or the stage in the boom's way used to cut the view, and the first mend of that left the camera swinging for ever beside
+// the stage once the bear stood still. Two walks on the fixed day, each from a place of its own (?pose=X,Z,HEADING,PITCH), since
+// the stage and the nearest tall landmark stand 131 m apart; a desktop and a phone record each.
+// At the stage: from 5 m short of the platform's edge the bear walks to the edge, facing the stage; turns round, which swings the
+// boom onto the stage; and stands. At the tower: from 14 m short of the Lovelight tower the bear walks past it, 2.5 m from its
+// middle, to 7 m beyond, which brings the tower into the boom's way; and stands with its back to it.
+// Each hold ends where the visitor is, not after a time, since a frame of the world is 50 ms of its time at the most and CI draws
+// about two a second: the walks are 9 and 35 such frames and the turn 39, about 4, 18 and 20 s there, and each has half as long
+// again and more. The bear then stands 20 s, about two seconds of the world's time in CI, in which the camera comes to rest and
+// is seen to hold still; so the stage's recording is about 45 s in CI and the tower's about 40.
+const CAMERA_WALKS = [
+  ["camera-stage", "61.12,-53.12,-0.855,0", [["ArrowUp", 15_000, { near: [73.2, -63.6, 11.1] }], ["ArrowLeft", 35_000, { turned: Math.PI }], [null, 20_000]]],
+  ["camera-tower", "81.66,54.33,2.524,0", [["ArrowUp", 40_000, { near: [69.5, 71.46, 1] }], [null, 20_000]]],
+];
+
 // Short recordings show the motion that stills cannot. Lean-back records on the TV.
-// An entry records the page at its path, "/" unless it names one.
+// An entry records the page at its path, "/" unless it names one. Its keys are held one after another, each for its milliseconds;
+// a hold that names where it ends (`near`: [x, z, r], the visitor within r m of a place; `turned`: how far it has turned, in rad)
+// ends there, or after its milliseconds if the visitor never comes to that; and a hold of no key (null) is the bear standing.
 const RECORDINGS = [
   { device: "desktop", name: "home" },
   { device: "phone", name: "home" },
@@ -618,6 +636,7 @@ const RECORDINGS = [
       ["ArrowUp", 2000],
     ],
   },
+  ...["desktop", "phone"].flatMap((device) => CAMERA_WALKS.map(([name, pose, keys]) => ({ device, name, path: `/2026-10-20?pose=${pose}`, click: "canvas", keys }))),
 ];
 
 // How long each recording runs once the page has loaded and any control is pressed, unless it names its own `recordMs`.
@@ -1087,12 +1106,32 @@ try {
       }
     }
     let held = 0;
-    for (const [key, ms] of keys ?? []) {
-      await page.keyboard.down(key);
-      await page.waitForTimeout(ms);
-      await page.keyboard.up(key);
-      held += ms;
-      await logStats(page, `${file} after ${key}`);
+    for (const [key, ms, until] of keys ?? []) {
+      // A hold that ends where the visitor is waits for the world to say where that is (window.__hill) before its key goes down;
+      // `was` is where the visitor stands then, for how far it has turned since.
+      const was = until ? await page.waitForFunction(() => window.__hill?.walker ?? null, null, { timeout: LOAD_MS }).then((walker) => walker.jsonValue(), () => null) : null;
+      const from = Date.now();
+      if (key) await page.keyboard.down(key);
+      if (until) {
+        const there = await page
+          .waitForFunction(
+            ([{ near, turned }, start]) => {
+              const walker = window.__hill?.walker;
+              if (!walker) return false;
+              return near ? Math.hypot(walker.x - near[0], walker.z - near[1]) <= near[2] : start !== null && Math.abs(walker.heading - start.heading) >= turned;
+            },
+            [until, was],
+            { timeout: ms, polling: 50 }
+          )
+          .then(() => true, () => false);
+        // A hold that ran out is logged and the recording goes on: it shows where the visitor got to.
+        if (!there) console.log(`${file}: ${key} was held its whole ${ms} ms, and the visitor did not come to ${JSON.stringify(until)}`);
+      } else {
+        await page.waitForTimeout(ms);
+      }
+      if (key) await page.keyboard.up(key);
+      held += Date.now() - from;
+      await logStats(page, `${file} after ${key ?? "standing"}`);
     }
     // The stick is pushed with a mouse press, not a touch, from its centre to its rim each way in turn, and let go at the end; the
     // log says so.
