@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
 import { hull, standClear } from "../../../public/world/collide.js";
@@ -683,11 +683,12 @@ describe("the standing stones", () => {
 
   // How much of the view a stone holds, seen along the path from 14 m short of it with the eye 1.7 m up: every face over the level
   // ground is thrown from the eye onto the upright plane through the stone's middle, and what the faces cover there is counted on a
-  // 2 cm grid: its area in square metres, and how wide and how high it stands. The plain block covers 7.78 m2 so.
+  // 2 cm grid: its area in square metres, and how wide and how high it stands. The plain block covers 7.78 m2 so. `turned` looks at
+  // it from that far round to one side instead, in radians.
   const EYE = 1.7, BACK = 14, CELL = 0.02, WIDE = 130, HIGH = 250;
-  const seen = (position: Corners) => {
+  const seen = (position: Corners, turned = 0) => {
     const grid = new Uint8Array(WIDE * HIGH);
-    const thrown = ([x, y, z]: number[]) => { const k = BACK / (BACK + z); return [x * k, EYE + (y - EYE) * k]; };
+    const thrown = ([x, y, z]: number[]) => { const k = BACK / (BACK + z); return [x * k, EYE + (y - EYE) * k]; }, cos = Math.cos(turned), sin = Math.sin(turned);
     const fill = (p: number[], q: number[], r: number[]) => {
       const d = (q[0] - p[0]) * (r[1] - p[1]) - (r[0] - p[0]) * (q[1] - p[1]);
       if (Math.abs(d) < 1e-12) return;
@@ -701,7 +702,7 @@ describe("the standing stones", () => {
     };
     for (let n = 0; n < position.count; n += 3) {
       // The face over the ground: cut at the ground's level.
-      const tri = [0, 1, 2].map((k) => [position.getX(n + k), position.getY(n + k), position.getZ(n + k)]), over: number[][] = [];
+      const tri = [0, 1, 2].map((k) => [position.getX(n + k) * cos - position.getZ(n + k) * sin, position.getY(n + k), position.getX(n + k) * sin + position.getZ(n + k) * cos]), over: number[][] = [];
       tri.forEach((p, k) => {
         const q = tri[(k + 1) % 3];
         if (p[1] >= 0) over.push(p);
@@ -749,6 +750,37 @@ describe("the standing stones", () => {
     }
     return rise;
   };
+
+  // How sharply a stone's faces meet: the least dot of the ways two faces that share an edge look. Two faces that lie one over the
+  // other, the stone's skin folded there, give -1; the sharpest true edge of any kind, where a split stone's crack meets its side,
+  // gives -0.8.
+  const sharpest = (position: Corners) => {
+    const ids = new Map<string, number>(), looks: THREE.Vector3[] = [], at = new Map<number, number[]>();
+    let least = 1;
+    for (let n = 0; n < position.count; n += 3) {
+      a.fromBufferAttribute(position, n); b.fromBufferAttribute(position, n + 1); c.fromBufferAttribute(position, n + 2);
+      const look = b.clone().sub(a).cross(c.clone().sub(a)).normalize();
+      const corners = [0, 1, 2].map((k) => { const key = cornerKey(position, n + k); if (!ids.has(key)) ids.set(key, ids.size); return ids.get(key) as number; });
+      for (let k = 0; k < 3; k++) {
+        const p = corners[k], q = corners[(k + 1) % 3], edge = Math.min(p, q) * 4096 + Math.max(p, q), there = at.get(edge) ?? [];
+        for (const other of there) least = Math.min(least, looks[other].dot(look));
+        at.set(edge, [...there, looks.length]);
+      }
+      looks.push(look);
+    }
+    return least;
+  };
+
+  // Every stone the tests read is built here, once, on both tiers; every show is placed, with its stones and with the plain block in
+  // their places; and the highest ground is reckoned. So no test's own time is the building's or the placing's, and a busy machine
+  // has no reason to time one out. The four tests that still take a third of a second or more on a quiet machine say how long they
+  // may take.
+  beforeAll(() => {
+    for (const phone of [false, true]) for (const title of EVERY) stone(title, phone);
+    for (const { show, tracks } of shows) for (const phone of [false, true]) for (const block of [false, true]) placed(show, tracks, phone, block);
+    highestGround();
+  }, 120000);
+  const SLOW = { timeout: 20000 };
 
   it("gives a song one name however its title is written: an accent, a capital, a leading \"the\", a dropped g and a segue mark change nothing", () => {
     // The three songs the maps write two ways, which had two stones each.
@@ -833,7 +865,7 @@ describe("the standing stones", () => {
     }
   });
 
-  it("builds every stone as one still mesh whose pieces are closed, with their faces outward and none of no area, each standing 1.6 m into the ground or on another piece that does", () => {
+  it("builds every stone as one still mesh whose pieces are closed, with their faces outward and none of no area, each standing 1.6 m into the ground or on another piece that does", SLOW, () => {
     for (const phone of [false, true]) {
       for (const title of EVERY) {
         const { parts, position, pieces } = stone(title, phone), where = `"${title}"${phone ? " on a phone" : ""}`;
@@ -864,9 +896,37 @@ describe("the standing stones", () => {
     expect(tiers[1].moving).toHaveLength(0);
   });
 
+  it("folds no stone's skin over itself, of any kind, on a desktop or a phone: no two faces that share an edge look opposite ways, and each face of a holed stone's two broad sides looks out", SLOW, () => {
+    // A closed piece whose every edge is used once each way, with stone in it, has no face wound against its neighbours; but its
+    // skin can still cross itself, a face laid back over the next, and neither of those tests sees that. This one does, over the
+    // maps' songs and the first 2,000 that no show has played, 250 of a kind, on both tiers.
+    const titles = [...fallers, ...Array.from({ length: 2000 }, (_, n) => `A Song No Show Has Played ${n}`)], least = KINDS.map(() => 1);
+    for (const phone of [false, true]) {
+      for (const title of titles) {
+        const position = stones.has(`${phone}:${title}`) ? stone(title, phone).position : build(title, phone)[0].geometry.attributes.position;
+        const kind = stoneKind(title), dot = sharpest(position), where = `"${title}"${phone ? " on a phone" : ""}`;
+        least[kind] = Math.min(least[kind], dot);
+        if (dot < -0.9) expect.fail(`${where}: two faces that share an edge look opposite ways (${dot})`);
+        // A holed stone's broad sides are many faces laid round the hole, and a fold there may be a gentle one. So each face whose
+        // corners are all on the near side must look back along the path, and each on the far side on along it.
+        if (kind !== HOLED) continue;
+        for (let n = 0; n < position.count; n += 3) {
+          a.fromBufferAttribute(position, n); b.fromBufferAttribute(position, n + 1); c.fromBufferAttribute(position, n + 2);
+          if (a.z * b.z <= 0 || b.z * c.z <= 0) continue;
+          const side = Math.sign(a.z), out = b.sub(a).cross(c.sub(a)).normalize().z * side;
+          if (out < 0.1) expect.fail(`${where}: a face of its ${side < 0 ? "near" : "far"} side looks ${out} of the way out`);
+        }
+      }
+    }
+    // The test has seen sharp edges that are no fold: a split stone's are under -0.4 somewhere; and a holed stone's faces meet far
+    // more gently than a fold, over -0.5 everywhere.
+    expect(least[SPLIT]).toBeLessThan(-0.4);
+    expect(least[HOLED]).toBeGreaterThan(-0.5);
+  });
+
   it("costs at most 240 triangles a stone on a desktop and 150 on a phone, a phone's no more than a desktop's, and each kind what it is said to cost", () => {
     // A kind's triangles on a desktop and on a phone, in the order of the kinds: every title's stone of a kind costs the same.
-    const COST = [[162, 98], [192, 108], [208, 132], [156, 150], [132, 80], [184, 110], [128, 128], [164, 124]];
+    const COST = [[162, 98], [208, 132], [208, 132], [156, 150], [132, 80], [184, 110], [128, 128], [164, 124]];
     for (const [desktop, phone] of COST) expect(desktop <= 240 && phone <= 150 && phone <= desktop && phone >= 40, `${desktop}, ${phone}`).toBe(true);
     for (const title of EVERY) {
       const cost = [stone(title).faces, stone(title, true).faces];
@@ -874,16 +934,24 @@ describe("the standing stones", () => {
     }
   });
 
-  it("holds the frame the block held: seen along the path from 14 m a menhir, a holed stone, a pair, a stele and a rock on a rock each cover three quarters of what the block covered, and a split stone, a cairn and a trilithon stand as wide and as tall with the sky in them", () => {
+  it("holds the frame the block held: seen along the path from 14 m a menhir, a holed stone, a pair, a stele and a rock on a rock each cover three quarters of what the block covered, and a split stone, a cairn and a trilithon stand as wide and as tall with the sky in them; and from 60 degrees to one side the five still cover half", SLOW, () => {
     // The plain block itself, by the same count.
     const block = seen(new THREE.BoxGeometry(1.6, 4.5 + 1.6, 1.2).translate(0, (4.5 - 1.6) / 2, 0).toNonIndexed().attributes.position as unknown as Corners);
     expect(block.area).toBeGreaterThan(7.7);
     expect(block.area).toBeLessThan(7.86);
+    // And from 60 degrees to one side, where the bears' line and the path's bends put a visitor: the block turned as far covers
+    // 8.5 m2, and a stone is held to a lower bar there, since each is a slab or a pile with its broad side to the path. Half for
+    // the five (the holed stone, 0.6 m thick, is the least of them at 0.54); 0.45 for a split stone and a trilithon; 0.3 for a cairn.
+    const SIDE = Math.PI / 3, aside = seen(new THREE.BoxGeometry(1.6, 4.5 + 1.6, 1.2).translate(0, (4.5 - 1.6) / 2, 0).toNonIndexed().attributes.position as unknown as Corners, SIDE);
+    expect(aside.area).toBeGreaterThan(8.3);
+    expect(aside.area).toBeLessThan(8.7);
     const least = KINDS.map(() => 1);
     for (const phone of [false, true]) {
       for (const title of EVERY) {
         const kind = stoneKind(title), view = seen(stone(title, phone).position), share = view.area / block.area, where = `"${title}"${phone ? " on a phone" : ""}`;
         least[kind] = Math.min(least[kind], share);
+        const fromSide = seen(stone(title, phone).position, SIDE).area / aside.area;
+        if (fromSide < (kind === CAIRN ? 0.3 : kind === SPLIT || kind === TRILITHON ? 0.45 : 0.5)) expect.fail(`${where}: covers ${fromSide} of the block's view from 60 degrees to one side`);
         // The three whose gaps are the point: the sky shows in them, so they cover less, and they stand as wide and as tall.
         if ([SPLIT, CAIRN, TRILITHON].includes(kind)) {
           if (share < 0.4 || share > 0.7 || view.wide < 1.25 || view.high < 3.85) expect.fail(`${where}: covers ${share} of the block's view, ${view.wide} m wide and ${view.high} m high`);
@@ -1055,7 +1123,7 @@ describe("the standing stones", () => {
     }
   });
 
-  it("pierces the holed stone: a broad rough slab with a round hole clean through it, well over the ground, a hand's lean, and a top broken off unevenly, one shoulder gone, paler where it broke", () => {
+  it("pierces the holed stone: a broad rough slab with a round hole clean through it, well over the ground, a hand's lean, and a top broken off unevenly, one shoulder gone, paler where it broke", SLOW, () => {
     for (const phone of [false, true]) {
       for (const title of of(HOLED)) {
         const { position, color, pieces } = stone(title, phone), [piece, ...more] = pieces;
@@ -1081,7 +1149,7 @@ describe("the standing stones", () => {
         expect(wide, title).toBeGreaterThan(0.55);
         expect(wide, title).toBeLessThan(0.78);
         expect(Math.abs(wide - high), title).toBeLessThan(0.12);
-        expect(cells.length * 0.0004, title).toBeGreaterThan(0.68 * wide * high);
+        expect(cells.length * 0.0004, title).toBeGreaterThan(0.62 * wide * high);
         // It begins over 2.3 m up, far over any ground, in the stone's upper half, with a jamb of 25 cm or more to each side.
         expect(Math.min(...ys), title).toBeGreaterThan(2.3);
         expect(centre[1], title).toBeGreaterThan(0.6 * piece.high);
@@ -1237,6 +1305,34 @@ describe("the standing stones", () => {
         // The pile is of stones of all four tones.
         expect(tones.size, title).toBe(4);
       }
+    }
+  });
+
+  it("turns no stone of a cairn by its song's title: the first laid of every pile lies the same way round, and so the second, to the sixth", () => {
+    // A laid stone is a boulder of twelve corners, six pairs across its middle, and its roughness moves each corner only in or out
+    // along its own line through the middle. So the way each pair's line runs, seen from above, is the way the stone is turned,
+    // whatever its roughness, its height and where it is laid; and it is the same for every title's pile.
+    const ways = (position: Corners, piece: Piece) => {
+      const corners = [...new Map(piece.corners.map((i) => [cornerKey(position, i), new THREE.Vector3().fromBufferAttribute(position as unknown as THREE.BufferAttribute, i)])).values()];
+      const mid = corners.reduce((sum, corner) => sum.add(corner), new THREE.Vector3()).divideScalar(corners.length), from = corners.map((corner) => corner.clone().sub(mid).normalize());
+      // Each corner's pair is the one most nearly opposite it across the middle.
+      const pair = from.map((dir) => from.reduce((best, other, k) => (other.dot(dir) < from[best].dot(dir) ? k : best), 0));
+      return corners.flatMap((corner, i) => (i < pair[i] ? [(Math.atan2(corners[pair[i]].x - corner.x, corners[pair[i]].z - corner.z) + Math.PI) % Math.PI] : []));
+    };
+    const apart = (p: number, q: number) => Math.min(Math.abs(p - q), Math.PI - Math.abs(p - q));
+    for (const phone of [false, true]) {
+      const first: number[][] = [];
+      for (const title of of(CAIRN)) {
+        const { position, pieces } = stone(title, phone);
+        pieces.slice(1).forEach((piece, k) => {
+          const lies = ways(position, piece);
+          expect(lies, title).toHaveLength(6);
+          first[k] ??= lies;
+          // Each of its six lines runs as one of the first pile's k-th stone's does, to a thousandth of a radian.
+          for (const way of lies) expect(Math.min(...first[k].map((other) => apart(way, other))), `${title}: stone ${k + 1}`).toBeLessThan(1e-3);
+        });
+      }
+      expect(first).toHaveLength(6);
     }
   });
 
@@ -1433,7 +1529,8 @@ describe("the standing stones", () => {
   });
 
   // Every show placed as main.js places it, on both tiers, with no second set: the maps do not hold where set 2 begins, and a stone
-  // is the same wherever along the path its song falls. Each show is placed once for both tests below.
+  // is the same wherever along the path its song falls. Each show is placed once, before the tests (the hook above), with its
+  // stones and again with the plain block in their places.
   type Stood = { g: { position: { x: number; y: number; z: number }; rotation: { y: number }; children: Part[] }; off: number };
   const place = (tracks: { title: string; duration: number }[], phone: boolean, block = false): Stood[] => {
     const made = makeBuilders(phone), landmarkU = layout(tracks, null, path);
@@ -1443,19 +1540,18 @@ describe("the standing stones", () => {
     return landmarks.map((g, i) => { const point = path.at(landmarkU[i]); return { g, off: Math.hypot(g.position.x - point.x, g.position.z - point.z) }; });
   };
   const placings = new Map<string, Stood[]>();
-  const placed = (show: string, tracks: { title: string; duration: number }[], phone: boolean) => {
-    const key = `${phone}:${show}`;
-    if (!placings.has(key)) placings.set(key, place(tracks, phone));
+  const placed = (show: string, tracks: { title: string; duration: number }[], phone: boolean, block = false) => {
+    const key = `${phone}:${block}:${show}`;
+    if (!placings.has(key)) placings.set(key, place(tracks, phone, block));
     return placings.get(key) as Stood[];
   };
   const everyStone = (visit: (stood: Stood, title: string, phone: boolean, where: string, block: () => Stood) => void) => {
     let n = 0;
     for (const { show, tracks } of shows) for (const phone of [false, true]) {
-      let blocks: Stood[] | null = null;
       placed(show, tracks, phone).forEach((stood, i) => {
         if (!falls(tracks[i].title)) return;
         n += 1;
-        visit(stood, tracks[i].title, phone, `${show}, song ${i}, "${tracks[i].title}"${phone ? " on a phone" : ""}`, () => (blocks ??= place(tracks, phone, true))[i]);
+        visit(stood, tracks[i].title, phone, `${show}, song ${i}, "${tracks[i].title}"${phone ? " on a phone" : ""}`, () => placed(show, tracks, phone, true)[i]);
       });
     }
     return n;

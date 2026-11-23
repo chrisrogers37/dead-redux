@@ -43,10 +43,13 @@ export const NEAR_FRAMES = 2;
 
 // A page of near stills (shoot.mjs's PAGES) of `songs` ([index, title], ...) on the fixed day, with the landmarks of `as` built for
 // other titles: it opens beside the first, and each step stands the visitor by a song's landmark and shoots it as `<prefix>-<slug>`.
-// The page is shot `whole`: in first person, where the visitor's own bear is out of the frame, with the shelves away.
+// The page is shot `whole`: in first person, where the visitor's own bear is out of the frame, with the shelves away. It waits for
+// the world to be `ready` before its first step, as the shoot's other pages that need a running world do: a step taken on a page
+// that is still loading would find no world to stand the visitor in.
 const nearPage = (songs, prefix, as = []) => ({
   path: `/${FIXED_DAY}?pose=near-${songs[0][0]}${as.map(([index, title]) => `&as=${index}:${encodeURIComponent(title)}`).join("")}`,
   devices: ["desktop", "phone"],
+  ready: "#world[data-world='ready']",
   whole: true,
   shots: [],
   steps: songs.map(([index, title, name = slug(title)]) => ({ near: index, title, shot: `${prefix}-${name}` })),

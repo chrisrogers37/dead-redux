@@ -576,24 +576,31 @@ export function makeBuilders(phone) {
   /* 1. A holed stone: a broad slab that leans a hand out of true, with a round hole clean through it that the sky shows through,
      and its top broken off unevenly, one shoulder gone. It is built round the hole: a section of it runs from the hole's rim out
      across its near face to its edge, over the edge and back across its far face to the rim, and there is one for each corner of
-     its outline. Its faces are rough, the slab thins towards its edge and is worn thinner still round the hole, and where its top
-     broke its edge is paler. `outline` is its edge, going round from the hole's right, `coarse` the corners a phone keeps, and a
-     phone keeps the hole.
+     its edge. A section's rim corner stands on the line from the hole's middle to its edge corner, so every section runs
+     straight out from the hole and none crosses its neighbour, whichever corners a tier has: a slab whose sections crossed would
+     fold a face over the next. Its faces are rough, the slab thins towards its edge and is worn thinner still round the hole, and
+     where its top broke its edge is paler. `outline` is its edge on a desktop and on a phone, going round from its high shoulder:
+     the top's five corners, down one side, the two feet, and up the other, the sides' corners spread so that the rim's are no
+     more than 36 degrees apart on a desktop and 48 on a phone, and the hole is round.
      An edge corner is moved by no more than 0.008 m in or out and 0.06 m up or down, and the lean takes it 0.015 m further for
-     each metre it stands over the ground: the furthest across is the corner 3.25 m up, 0.735 + 0.008 + 0.015 x 3.31 = 0.793 m.
+     each metre it stands over the ground: the furthest across is the corner 2.85 m up, 0.745 + 0.008 + 0.015 x 2.91 = 0.797 m.
      Along the path the slab reaches 0.25 + 0.06 = 0.31 m. Its top is no higher than 4.42 + 0.06 = 4.48 m. */
   const HOLED = {
-    outline: [[0.735, 3.25], [0.72, 4.25], [0.4, 4.42], [-0.08, 4.34], [-0.46, 4.1], [-0.74, 3.92], [-0.765, 2.3], [-0.765, 0.5], [-0.75, -SUNK], [0.75, -SUNK], [0.76, 0.6], [0.75, 2.2]],
-    coarse: [1, 2, 3, 4, 5, 7, 8, 9, 10], hole: [0, 3.0, 0.34], rings: [[0.3, 0.65], [0.5]], lean: 0.015, broken: 3.6,
+    outline: [
+      [[0.72, 4.25], [0.4, 4.42], [-0.08, 4.34], [-0.46, 4.1], [-0.74, 3.92], [-0.765, 3.25], [-0.765, 2.8], [-0.765, 2.15], [-0.75, -SUNK], [0.75, -SUNK], [0.75, 2.22], [0.745, 2.85], [0.735, 3.33]],
+      [[0.72, 4.25], [0.4, 4.42], [-0.08, 4.34], [-0.46, 4.1], [-0.74, 3.92], [-0.765, 3.09], [-0.765, 2.42], [-0.75, -SUNK], [0.75, -SUNK], [0.75, 2.49], [0.74, 3.17]],
+    ],
+    hole: [0, 3.0, 0.34], rings: [[0.3, 0.65], [0.5]], lean: 0.015, broken: 3.6,
   };
   function holedStone(g, of) {
     piece(g, of.tones, of.salt(1), (salt) => {
-      const edge = phone ? HOLED.coarse.map((k) => HOLED.outline[k]) : HOLED.outline, [hx, hy, r] = HOLED.hole, between = HOLED.rings[phone ? 1 : 0];
+      const tier = phone ? 1 : 0, [hx, hy, r] = HOLED.hole, between = HOLED.rings[tier];
       const stand = (x, y, z) => [(x + HOLED.lean * Math.max(0, y)) * of.turn, y > 0 ? y * of.tall : y, z];
-      const sections = edge.map(([ex, ey], i) => {
-        const a = ((i + 0.5) / edge.length) * 2 * Math.PI, out = r * (0.94 + 0.12 * roll(i, 0, 2, salt)), rim = [hx + out * Math.cos(a), hy + out * Math.sin(a)];
-        /* Its edge, a little in or out and, over the ground, up or down; then its corners from the rim out, near face and far. */
+      const sections = HOLED.outline[tier].map(([ex, ey], i) => {
+        /* Its edge corner, a little in or out and, over the ground, up or down; its rim corner on the line to it from the hole's
+           middle, a little in or out from the round; then its corners from the rim out, near face and far. */
         const far = ey > 0 ? [ex + 0.016 * (roll(i, 1, 2, salt) - 0.5), ey + 0.12 * (roll(i, 2, 2, salt) - 0.5)] : [ex, ey];
+        const out = (r * (0.94 + 0.12 * roll(i, 0, 2, salt))) / Math.hypot(far[0] - hx, far[1] - hy), rim = [hx + out * (far[0] - hx), hy + out * (far[1] - hy)];
         const across = [0, ...between, 1].map((f) => [rim[0] + f * (far[0] - rim[0]), rim[1] + f * (far[1] - rim[1]), f === 0 ? 0.13 : f === 1 ? 0.19 : 0.25]);
         const side = (face) => across.map(([x, y, thick], k) => stand(x, y, face * (thick + 0.06 * roll(i, k, 3 + face, salt))));
         return [...side(-1), ...side(1).reverse()];
