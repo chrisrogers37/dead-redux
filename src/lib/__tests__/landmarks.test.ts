@@ -1692,7 +1692,8 @@ describe("the drum circle, the banner, Space's rim, the magnolia and the leaning
     }
   });
 
-  it("go into the ground as far as it can fall away under them: each piece that comes down to the ground goes on down to its landmark's depth, and no foot shows on any slope of the path", () => {
+  // This test stands nine outlines at every second metre of the path, some two seconds of standClear: it has 20 s, not the usual 5.
+  it("go into the ground as far as it can fall away under them: each piece that comes down to the ground goes on down to its landmark's depth, and no foot shows on any slope of the path", { timeout: 20000 }, () => {
     tiers(({ position, pieces }, title, phone, where) => {
       // A piece that comes down to the ground goes on down: none ends between the ground and the landmark's depth, where a slope's
       // lower side would show daylight under it. Every other piece begins well over the ground.
@@ -1734,8 +1735,9 @@ describe("the drum circle, the banner, Space's rim, the magnolia and the leaning
     expect(FIVE.reduce((sum, title) => sum + cost(title, true), 0)).toBeLessThan(3300);
   });
 
-  // The three drums: where each stands, how high its head is, its shell's radius at its rim, and its wood.
-  const DRUMS = [{ name: "bass", x: 2.4, z: -1, tall: 1.85, rim: 1.62, wood: OXBLOOD }, { name: "goblet", x: 0.6, z: 1, tall: 2.98, rim: 0.92, wood: HONEY }, { name: "barrel", x: -2, z: 0, tall: 2.45, rim: 1.12, wood: TIMBER }];
+  // The three drums: where each stands, how high its head is, its shell's radius at its rim, its wood, and how far out its widest
+  // part stands (the bass drum's hoops, the goblet's rope at its hoop, the barrel's rods).
+  const DRUMS = [{ name: "bass", x: 2.4, z: -1, tall: 1.85, rim: 1.62, wood: OXBLOOD, wide: 1.71 }, { name: "goblet", x: 0.6, z: 1, tall: 2.98, rim: 0.92, wood: HONEY, wide: 1.02 }, { name: "barrel", x: -2, z: 0, tall: 2.45, rim: 1.12, wood: TIMBER, wide: 1.32 }];
   const HEAD = 0.16, HOOP = 0.14;
   const about = (piece: Piece, { x, z }: { x: number; z: number }) => Math.abs((piece.x0 + piece.x1) / 2 - x) < 0.06 && Math.abs((piece.z0 + piece.z1) / 2 - z) < 0.06;
   const reachFrom = (position: Corners, corners: number[], { x, z }: { x: number; z: number }) => Math.max(...corners.map((i) => Math.hypot(position.getX(i) - x, position.getZ(i) - z)));
@@ -1823,25 +1825,88 @@ describe("the drum circle, the banner, Space's rim, the magnolia and the leaning
     }
   });
 
+  it("fits each drum's rings to it: the bass drum's lower hoop and the goblet's ring at their ropes' lower ends, and the barrel's bands and rods proud of its staves", () => {
+    for (const phone of [false, true]) {
+      const drums = built("Drums", phone), { position } = drums, [bass, goblet, barrel] = DRUMS, where = phone ? "on a phone" : "on a desktop";
+      const iron = of(drums, IRON), ropes = of(drums, STRING), round = ropes.filter((rope) => rope.high < bass.tall), bowl = ropes.filter((rope) => rope.low > bass.tall - HEAD - HOOP);
+      // How far out from a drum's middle line a piece's corners stand, the least and the most; and where a rope or a rod ends, the
+      // middle of its lower corners or its upper: how far out, and how high.
+      const out = (piece: Piece, drum: { x: number; z: number }) => { const all = piece.corners.map((i) => Math.hypot(position.getX(i) - drum.x, position.getZ(i) - drum.z)); return { least: Math.min(...all), most: Math.max(...all) }; };
+      const end = (piece: Piece, drum: { x: number; z: number }, upper: boolean) => {
+        const half = piece.corners.slice().sort((i, j) => (position.getY(j) - position.getY(i)) * (upper ? 1 : -1)).slice(0, piece.corners.length / 2), mean = (axis: number) => half.reduce((sum, i) => sum + point(position, i)[axis], 0) / half.length;
+        return { out: Math.hypot(mean(0) - drum.x, mean(2) - drum.z), y: mean(1) };
+      };
+      // The iron: the goblet's hoop and the ring at its bowl's foot, and the barrel's hoop, its two bands and its rods. A ring left
+      // out leaves a rope's ends on bare wood.
+      expect(iron, where).toHaveLength(2 + 3 + (phone ? 4 : 6));
+      // The bass drum's lower hoop, of timber, near its foot: the rope's lower ends are at its top, inside its corners. A hoop set
+      // lower leaves them in the air.
+      const hoop = of(drums, DARK_TIMBER).find((piece) => about(piece, bass) && piece.high < 1) as Piece;
+      expect(out(hoop, bass).most, where).toBeCloseTo(bass.wide, 4);
+      for (const rope of round) {
+        const foot = end(rope, bass, false);
+        if (Math.abs(foot.y - hoop.high) > 0.01 || foot.out > out(hoop, bass).most || foot.out < bass.rim) expect.fail(`a rope of the bass drum ${where} ends ${foot.out} m out and ${foot.y} m up, where its lower hoop's top is ${hoop.high} m up`);
+      }
+      // The goblet's ring, of iron, round the foot of its bowl: the rope's lower ends are at its top, inside its corners.
+      const ring = iron.find((piece) => about(piece, goblet) && piece.high < 2) as Piece;
+      for (const rope of bowl) {
+        const foot = end(rope, goblet, false);
+        if (Math.abs(foot.y - ring.high) > 0.01 || foot.out > out(ring, goblet).most) expect.fail(`a rope of the goblet drum ${where} ends ${foot.out} m out and ${foot.y} m up, where its ring's top is ${ring.high} m up and ${out(ring, goblet).most} m out`);
+      }
+      // The barrel's staves, ring by ring: how far out their corners stand at a height.
+      const staves = of(drums, barrel.wood).find((piece) => about(piece, barrel) && piece.low < -3) as Piece;
+      const rings = [...new Map(staves.corners.map((i) => [Math.round(position.getY(i) * 1e4), [position.getY(i), Math.hypot(position.getX(i) - barrel.x, position.getZ(i) - barrel.z)]])).values()].sort((p, q) => p[0] - q[0]);
+      const stavesAt = (y: number) => { const n = rings.findIndex(([at]) => at > y), [y0, r0] = rings[n - 1], [y1, r1] = rings[n]; return r0 + ((r1 - r0) * (y - y0)) / (y1 - y0); };
+      // Its two bands stand a centimetre or more proud of the staves, corner over corner: a band drawn in is lost inside them.
+      const bands = iron.filter((piece) => about(piece, barrel) && piece.high < barrel.tall - HEAD - HOOP && piece.x1 - piece.x0 > 1);
+      expect(bands, where).toHaveLength(2);
+      for (const band of bands) {
+        const proud = out(band, barrel).least - stavesAt((band.low + band.high) / 2);
+        if (proud < 0.01 || proud > 0.06) expect.fail(`a band of the barrel drum ${where} stands ${proud} m proud of its staves`);
+      }
+      // And its rods stand outside the staves at their feet, which are within the upper band's height, and outside the hoop's
+      // face at their heads: a rod's foot drawn in is inside the barrel.
+      const upper = bands.reduce((p, q) => (p.low > q.low ? p : q));
+      for (const rod of iron.filter((piece) => piece.x1 - piece.x0 < 0.2 && piece.z1 - piece.z0 < 0.2)) {
+        const foot = end(rod, barrel, false), head = end(rod, barrel, true);
+        if (foot.out - stavesAt(foot.y) < 0.01 || foot.out - stavesAt(foot.y) > 0.08 || foot.y < upper.low || foot.y > upper.high + 0.03) expect.fail(`a rod of the barrel drum ${where}: its foot ${foot.out - stavesAt(foot.y)} m outside the staves, ${foot.y} m up`);
+        if (head.out < barrel.rim + 0.09 || head.out > barrel.rim + 0.15) expect.fail(`a rod of the barrel drum ${where}: its head ${head.out} m out, where the hoop's corners stand ${barrel.rim + 0.09} m`);
+      }
+    }
+  });
+
   it("stands the drums level on a slope: each drum's hoop is over the ground at the left cave, where Drums is pinned, and the goblet's and the barrel's anywhere on the path", () => {
     const [bass, goblet, barrel] = DRUMS;
-    // The highest ground under a drum's own place, over the landmark's own ground.
+    // The highest ground under a drum, out to its widest part, over the landmark's own ground.
     const under = (stand: Stand, drum: (typeof DRUMS)[number]) => {
       let most = -Infinity;
-      for (let k = 0; k < 24; k++) for (const share of [0.5, 1]) most = Math.max(most, groundAt(stand, drum.x + share * (drum.rim + 0.09) * Math.cos((k * Math.PI) / 12), drum.z + share * (drum.rim + 0.09) * Math.sin((k * Math.PI) / 12)));
+      for (let k = 0; k < 72; k++) for (const share of [0.5, 1]) most = Math.max(most, groundAt(stand, drum.x + share * drum.wide * Math.cos((k * Math.PI) / 36), drum.z + share * drum.wide * Math.sin((k * Math.PI) / 36)));
       return most;
     };
     const hoopFoot = (drum: (typeof DRUMS)[number]) => drum.tall - HEAD - HOOP;
     // The left cave is loop point 13: the drums stand on its own point, where the ground climbs a metre under the bass drum.
-    const cave = standAt(path.pointU(13), built("Drums").outline);
+    const { outline } = built("Drums"), cave = standAt(path.pointU(13), outline);
     expect(cave.off).toBe(0);
     for (const drum of DRUMS) expect(under(cave, drum), drum.name).toBeLessThan(hoopFoot(drum) - 0.05);
     expect(under(cave, bass)).toBeGreaterThan(0.9);
-    // Anywhere on the path: the goblet's hoop and the barrel's clear the ground. The bass drum's, 1.55 m up, does not everywhere,
-    // and this test does not ask it to: the ground stands over it along some 7 % of the path, where no show has yet stood the
-    // drums. It asks only that this grows no worse; a bass drum that cleared the whole path would pass it.
+    // Anywhere on the path: the highest ground under a drum, found at every second metre and then to a tenth of a metre round
+    // the worst of those.
     const stands = along("Drums");
-    for (const stand of stands) for (const drum of [goblet, barrel]) if (under(stand, drum) >= hoopFoot(drum)) expect.fail(`the ${drum.name} drum: the ground stands ${under(stand, drum)} m under it, over its hoop's foot`);
+    const highest = (drum: (typeof DRUMS)[number]) => {
+      const worst = stands.reduce((best, stand, n) => (under(stand, drum) > under(stands[best], drum) ? n : best), 0);
+      let most = -Infinity;
+      for (let d = 2 * worst - 2; d <= 2 * worst + 2; d += 0.1) most = Math.max(most, under(standAt(d / path.curveLength, outline), drum));
+      return most;
+    };
+    // Under the goblet it stands 2.64 m at the most, and the goblet's hoop begins 2.68 m up: 4 cm clear, at the one steepest
+    // place. Under the barrel, 1.6 m, and its hoop begins 2.15 m up.
+    expect(highest(goblet)).toBeGreaterThan(2.6);
+    expect(highest(goblet)).toBeLessThan(hoopFoot(goblet) - 0.03);
+    expect(highest(barrel)).toBeGreaterThan(1.55);
+    expect(highest(barrel)).toBeLessThan(hoopFoot(barrel) - 0.5);
+    // The bass drum's hoop, 1.55 m up, does not clear the ground everywhere, and this test does not ask it to: the ground stands
+    // over it along some 7 % of the path, where no show has yet stood the drums. It asks only that this grows no worse; a bass
+    // drum that cleared the whole path would pass it.
     expect(stands.filter((stand) => under(stand, bass) >= hoopFoot(bass)).length / stands.length).toBeLessThan(0.08);
   });
 
@@ -1885,6 +1950,9 @@ describe("the drum circle, the banner, Space's rim, the magnolia and the leaning
       expect(halyard.high, where).toBeCloseTo(yard.low, 5);
       expect(halyard.low, where).toBeGreaterThan(cleat.low);
       expect(halyard.low, where).toBeLessThan(cleat.high);
+      // It hangs clear of the pole, whose collars stand 0.125 m out, and short of the banner's near edge: not through the cloth.
+      expect(halyard.x0, where).toBeGreaterThan(0.125);
+      expect(halyard.x1, where).toBeLessThan(banner.x0);
       expect(cleat.x0, where).toBeLessThan(girth(1.4));
       expect(lift.x0, where).toBeLessThan(girth(11.5));
       expect(lift.high, where).toBeGreaterThan(yard.high + 0.3);
@@ -1927,6 +1995,11 @@ describe("the drum circle, the banner, Space's rim, the magnolia and the leaning
         const [down] = met(position, pieces[0], [4.6 * cos, 3, 4.6 * sin], [0, -1, 0]);
         if (!down?.front) expect.fail(`no stone's head looks up ${turn} degrees round the rim${phone ? ", on a phone" : ""}`);
         highest = Math.max(highest, 3 - down.along); lowest = Math.min(lowest, 3 - down.along);
+        // And a level line from the disc's middle, a centimetre over the disc, meets a stone's inner face from its outside, well
+        // inside the disc's edge: the stones' inner feet are under the disc. Were they over it, the line would pass under a
+        // stone's face and into the stone.
+        const [inner] = met(position, pieces[0], [0, 0.16, 0], [cos, 0, sin]);
+        if (!inner?.front || inner.along > 4.7) expect.fail(`a gap into a stone of the rim over the disc, ${turn} degrees round${phone ? ", on a phone" : ""}: ${inner?.along} m out`);
       }
       expect(lowest).toBeGreaterThan(0.15 + 0.02);
       expect(highest).toBeLessThanOrEqual(0.8);
@@ -1986,7 +2059,14 @@ describe("the drum circle, the banner, Space's rim, the magnolia and the leaning
         // It is a great blossom, half a metre long or so, pale over a blush foot.
         expect(far, where).toBeGreaterThan(0.38);
         expect(far, where).toBeLessThan(0.75);
-        expect(bud.corners.some((i) => isTone(tree.color, i, PETALS[2])) && bud.corners.some((i) => isTone(tree.color, i, PETALS[0])), where).toBe(true);
+        // Its petals are pale and flushed by turns over a blush foot: every face one of the three, and each of the three there.
+        expect(bud.corners.every((i) => PETALS.some((hex) => isTone(tree.color, i, hex))), where).toBe(true);
+        for (const hex of PETALS) expect(bud.corners.some((i) => isTone(tree.color, i, hex)), where).toBe(true);
+        // And most of it shows: six tenths of its faces or more have their middles outside every clump. A bud that stands under
+        // another clump's leaves is mostly inside them.
+        const faces = bud.corners.filter((_, k) => k % 3 === 0), middle = (i: number) => [0, 1, 2].map((axis) => (point(position, i)[axis] + point(position, i + 1)[axis] + point(position, i + 2)[axis]) / 3) as [number, number, number];
+        const shown = faces.filter((i) => inLeaves(middle(i)) === 0).length / faces.length;
+        if (shown < 0.6) expect.fail(`a blossom of the magnolia ${where}, its tip at ${point(position, ends[inside[0] ? 1 : 0])}, shows ${shown} of its faces`);
       }
     }
   });

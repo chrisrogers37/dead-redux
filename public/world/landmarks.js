@@ -748,11 +748,13 @@ export function makeBuilders(phone) {
      be: a bass drum, broad and low, laced with rope from hoop to hoop, two beaters left on its head; a goblet drum behind it, the
      tallest, laced round its bowl; and a barrel drum with iron bands and the rods that draw its head down. Each head is a pale
      skin whose edge is turned down over the shell's rim, with a hoop under it, which is what says drum from the side.
-     They stand level on a slope, and wide. Under the bass drum's place the ground falls 2.9 m at the path's steepest, so the
-     shells go on down DRUM_SUNK. And it rises: 1.4 m over the landmark's own ground under the bass drum at the steepest stand
-     the maps give it, 1.5 m under the barrel and 2.6 m under the goblet anywhere on the path. Each drum's hoop begins over that
-     (BASS, less its head and its hoop, is 1.55 m), so its head and its hoop show wherever a show has stood it; only the bass drum
-     can lose them, where the ground rises more than that under it, which it does along some 7 % of the path. */
+     They stand level on a slope, and wide. Under the bass drum the ground falls 2.8 m at the path's steepest, so the shells go
+     on down DRUM_SUNK. And it rises, over the landmark's own ground: under the bass drum, 1.36 m at the steepest stand the maps
+     give it; under the barrel, out to its rods, 1.6 m anywhere on the path; and under the goblet, out to its rope, 2.64 m. Each
+     drum's hoop begins over that: the bass drum's 1.55 m up (BASS less its head and its hoop), the barrel's 2.15 m, and the
+     goblet's 2.68 m, which clears the path's one steepest place by 4 cm. So a drum's head and its hoop show wherever a show has
+     stood it; only the bass drum can lose them, where the ground rises more than 1.55 m under it, which it does along some 7 %
+     of the path. */
   const SKIN = 0xd9c9a0, WORN = 0xc2a878, BEATER = 0x8f6c3e, OXBLOOD = 0x8a3d2b, HONEY = 0xa3733f, DRUM_SUNK = 3.2, BASS = 1.85;
   /* A head is HEAD of skin down from its top, LIP wider than the shell all round; the hoop under it is HOOP tall and PROUD of the
      shell. */
@@ -843,13 +845,15 @@ export function makeBuilders(phone) {
   }
 
   /* Space: main's black disc, level, 0.15 m over its own ground, in a ring of rough blue-grey stones on a wall of them. A level
-     disc 10 m across lies in a slope: in the right cave, where Space is pinned, the ground stands 3 m over the disc's edge on the
-     hill's side, which buries half of it there as it always did, and falls 2.2 m under its edge on the other; nowhere on the path
-     does the ground fall further under the disc than 4.8 m. So the wall goes down RIM_SUNK, and stands at the disc's very edge
-     all round: the disc is a polygon, and the wall's corners are the disc's own corners, bit for bit, from the stones' shoulders,
-     which are over the disc, to under it, so none of the disc shows past the wall and no gap lets the eye in under it. Further
-     down the wall is rough, drawn in from that edge. Over the shoulders each stone is its own: a belly that swells in over the
-     disc, and a rough head, some tall and some low, RIM_TOP up at the most, with a cleft between it and the next. */
+     disc 10 m across lies in a slope: in the right cave, where Space is pinned, the ground stands 3.05 m over the disc at its
+     edge on the hill's side, which buries half of it there as it always did, and falls 2.19 m under it on the other. Nowhere
+     on the path does the ground at the disc's edge fall further than 4.64 m under the landmark's own ground, which is 4.79 m
+     under the disc. So the wall goes down RIM_SUNK under that ground, and stands at the disc's very edge all round: the disc
+     is a polygon, and the wall's corners are the disc's own corners, bit for bit, from the stones' shoulders, which are over
+     the disc, to under it, so none of the disc shows past the wall and no gap lets the eye in under it. Further down the wall
+     is rough, drawn in from that edge. Over the shoulders each stone is its own: a belly that swells in over the disc, and a
+     rough head, some tall and some low, RIM_TOP up at the most, with a cleft between it and the next; its inner foot is
+     RIM_UNDER up, under the disc, so its inner face comes up through the disc with no gap under it. */
   const VOID = { r: 5, sides: 24, y: 0.15 }, RIM_SUNK = 5, RIM_IN = 3.95, RIM_SHOULDER = 0.3, RIM_UNDER = 0.05, RIM_TOP = 0.8;
   /* The rim's own three blue-greys, dark to light. */
   const RIM_TONES = [0x5f6570, 0x6f7782, 0x80868f];
@@ -916,10 +920,11 @@ export function makeBuilders(phone) {
     /* The clumps: where each is, its radius `r`, how far its blossom leans from upright, and how much broader the clump is
        across the path. A low tier out toward the old bush's six corners, a middle tier that fills its breadth across the path,
        a high tier at its shoulders, and the top. A phone's tree has the low tier, four of the middle one, and one broad top in
-       place of the high tier. */
+       place of the high tier. The two middle clumps at the tree's sides stand under the high tier's broad ones, so their
+       blossoms `swing` round toward the walker and lean further, out from under the leaves over them. */
     const clumps = [];
     [[0.99, 0.61], [0, 1.02], [-0.99, 0.61], [-0.99, -0.61], [0, -1.02], [0.99, -0.61]].forEach(([x, z], k) => clumps.push({ x, y: k % 2 ? 1.12 : 0.98, z, r: 0.6, lean: 0.8, wide: 1 }));
-    [[1.08, 0, 0.55], [0.5, 0.85, 0.52], [-0.5, 0.85, 0.52], [-1.08, 0, 0.55], [-0.5, -0.85, 0.52], [0.5, -0.85, 0.52]].forEach(([x, z, r], k) => { if (!phone || k !== 1 && k !== 4) clumps.push({ x, y: k % 2 ? 2.04 : 1.9, z, r, lean: 0.6, wide: 1 }); });
+    [[1.08, 0, 0.55, -1.1], [0.5, 0.85, 0.52], [-0.5, 0.85, 0.52], [-1.08, 0, 0.55, 1.1], [-0.5, -0.85, 0.52], [0.5, -0.85, 0.52]].forEach(([x, z, r, swing], k) => { if (!phone || k !== 1 && k !== 4) clumps.push({ x, y: k % 2 ? 2.04 : 1.9, z, r, lean: swing ? 1 : 0.6, wide: 1, swing }); });
     if (!phone) for (const [x, z, wide] of [[0.85, 0.1, 1.3], [-0.85, 0.1, 1.3], [0, -0.62, 1]]) clumps.push({ x, y: 2.66, z, r: 0.56, lean: 0.4, wide });
     clumps.push(phone ? { x: 0.03, y: 2.78, z: -0.03, r: 0.72, lean: 0.1, wide: 1.55 } : { x: 0.03, y: 2.98, z: -0.03, r: 0.56, lean: 0.1, wide: 1 });
     clumps.forEach(({ x, y, z, r, wide }, k) => {
@@ -942,7 +947,7 @@ export function makeBuilders(phone) {
       const top = k === clumps.length - 1, outward = Math.atan2(clump.z, clump.x);
       /* A clump straight ahead of the tree's middle or behind it leans its blossom to one side: the old bush's outline is
          nearest there. */
-      blossom(clump, clump.lean, top ? 0.6 : outward + (Math.abs(clump.x) < 0.1 ? 0.9 : 0.5 * (roll(k, 0, 0, 64) - 0.5)), top ? 0.66 : 0.84 + 0.14 * roll(k, 1, 0, 64));
+      blossom(clump, clump.lean, top ? 0.6 : outward + (clump.swing ?? (Math.abs(clump.x) < 0.1 ? 0.9 : 0.5 * (roll(k, 0, 0, 64) - 0.5))), top ? 0.66 : 0.84 + 0.14 * roll(k, 1, 0, 64));
       if (top && phone) blossom(clump, 0.85, 3.6, 0.8);
     });
   }
