@@ -8,8 +8,8 @@ import { buildBears, drawLegs, stride } from "./bears.js";
 import { buildAvatar } from "./avatar.js";
 import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
-import { confine, DESCENT_S, enterMode, keepSpot, modeRules, slotAt, slotDistance, walkLimits } from "./modes.js";
-import { postPose as poseOver } from "./pose.js";
+import { BEAR_GAP, confine, DESCENT_S, enterMode, keepSpot, modeRules, slotAt, slotDistance, walkLimits } from "./modes.js";
+import { CRANE, DESCENT_FROM, postPose as poseOver } from "./pose.js";
 import { cueClock } from "./clock.js";
 import { analyse, analysisStats, listen, mappings, onsetAt, soundStats, startSound } from "./audio.js";
 import { buildUp, loadMap, mapDrive, passesPeak } from "./maps.js";
@@ -19,7 +19,7 @@ import { buildCrowd } from "./crowd.js";
 import { crowdPlan, isBetweenSongs, isDrums, isSpace } from "./seats.js";
 import { budgetFor, frameSampler, pickTier, stepDown } from "./quality.js";
 import { followHour, lookAt, newLook, nightPlan } from "./night.js";
-import { buildTrees, cameraWays, placeTrees, TARGET, trunkIndex } from "./trees.js";
+import { buildTrees, cameraWays, placeTrees, TARGET, TREE_REACH, TRUNK_ROOM } from "./trees.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
    The setlist is the path; each song is a landmark; five bears walk it ahead of the listener. */
@@ -137,19 +137,25 @@ function start(gl) {
 
   /* ---------- the trees and the island ---------- */
   /* Where the trees stand (trees.js): clear of the path, the bears' line, each landmark's outline, read before the landmarks merge,
-     and the cameras' ways, among them the view of each landmark from the path (path.js nearStand) and from where the bears stand
-     as its song begins. */
+     and the ways of this tier's cameras, with each number of bears it can show, its own and each the downgrade leaves (quality.js):
+     among them the view of each landmark from the path (path.js nearStand) and from where the bears stand as its song begins. */
   const treeStart = performance.now();
-  const spots = placeTrees({
+  const bearCounts = [];
+  for (let q = quality; q; q = stepDown(q)) if (!bearCounts.includes(q.bears)) bearCounts.push(q.bears);
+  const placed = placeTrees({
     count: TARGET[tier], loop,
     line: Array.from({ length: Math.ceil(line.length) }, (_, d) => { const p = line.at(d); return [p.x, p.z]; }),
     landmarks: landmarks.map((g) => ({ x: g.position.x, z: g.position.z, rot: g.rotation.y, poly: outline(g, moving) })),
-    ...cameraWays({ line, height, stands: landmarks.flatMap((g, k) => { const s = nearStand(path, landmarkU, landmarks, k); return s ? [{ x: s.x, z: s.z, to: [g.position.x, g.position.z], d: line.dOf(landmarkU[k]) }] : []; }) }),
+    ...cameraWays({
+      line, height, phone, bears: bearCounts,
+      stands: landmarks.flatMap((g, k) => { const s = nearStand(path, landmarkU, landmarks, k); return s ? [{ x: s.x, z: s.z, to: [g.position.x, g.position.z], d: line.dOf(landmarkU[k]) }] : []; }),
+    }),
   });
   /* How long the trees took to place, the cameras' ways among it; the stats report it beside the landmarks'. */
   window.__hill.treesMs = Math.round((performance.now() - treeStart) * 10) / 10;
-  const { caves, shade, flora, lit } = buildIsland(scene, budget.grid, phone, loop, trunkIndex(spots));
-  const trees = buildTrees(scene, spots, { lit, phone });
+  /* Nothing grows or lies within TRUNK_ROOM of a trunk. */
+  const { caves, shade, flora, lit } = buildIsland(scene, budget.grid, phone, loop, (x, z) => placed.near(x, z, TRUNK_ROOM));
+  const trees = buildTrees(scene, placed.spots, { lit, phone });
   /* The lit bands that join a song to the one it runs into, and their own glow, which the night dims (null with no such song). */
   const segues = hasShow ? buildSegues(scene, path, tracks, landmarkU) ?? null : null;
   const segueGlow = segues?.emissiveIntensity ?? 0;
@@ -329,13 +335,14 @@ function start(gl) {
   let elapsed = 0;
   /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
   let followBase = 0;
-  /* The bears walk their own line at a lively pace, five 7 m apart by distance along it, and pass the landmarks rather than walk
-     through them (path.js). */
-  const BEAR_GAP = 7, BEAR_SPEED = 2.5;
+  /* The bears walk their own line at a lively pace, five BEAR_GAP m apart by distance along it (modes.js), and pass the landmarks
+     rather than walk through them (path.js). */
+  const BEAR_SPEED = 2.5;
   /* What a walk keeps the walker to (modes.js): within the island's bound, out of the stage's reach, since its platform is solid too, out
-     of each tree's trunk, and out of each bear's, whose spots `bearSpots` holds live: the downgrade drops a bear's spot with the bear. */
+     of the trunk of each tree near it, and out of each bear's reach, whose spots `bearSpots` holds live: the downgrade drops a bear's
+     spot with the bear. */
   const bearSpots = bears.map((b) => b.g.position);
-  const limits = walkLimits(bearSpots, spots);
+  const limits = walkLimits(bearSpots, trees.trunks, TREE_REACH);
   /* How far the lead bear is along its line. Until the show first plays the bears stand where it is, from the world's first frame
      even if it is already playing; then they set off and keep their own pace while it plays. Under reduced motion they stand at the
      landmark of the song that plays. */
@@ -701,7 +708,7 @@ function start(gl) {
         /* From above the summit, where the island reads as the mark, north up the screen, down to the camera that walks with the bears. */
         const k = easeOut(elapsed / DESCENT_S);
         const end = postPose(0, 0);
-        camera.position.set(end.pos.x * k, 140 + (end.pos.y - 140) * k, end.pos.z * k);
+        camera.position.set(end.pos.x * k, DESCENT_FROM + (end.pos.y - DESCENT_FROM) * k, end.pos.z * k);
         aim(lookTarget.set(end.look.x * k, end.look.y * k, -3 + (end.look.z + 3) * k), true);
       } else if (mode === "attract" || mode === "follow") {
         /* In follow, turning adds an offset to the look. */
@@ -715,14 +722,14 @@ function start(gl) {
           camera.position.set(0, height(0, 0) + 8, 0);
           camera.lookAt(lookTarget.set(p0.x, p0.y, p0.z));
         } else {
-          /* A slow crane high above the bears, 14 m behind the visitor's bear along their line. */
-          const dd = slotD() - 14;
+          /* A slow crane high above the bears, behind the visitor's bear along their line (pose.js CRANE). */
+          const dd = slotD() - CRANE.back;
           const p = line.at(dd), tg = line.tangentAt(dd);
           const side = new THREE.Vector3().crossVectors(tg, up).normalize();
-          const sway = 2 * Math.sin((elapsed * Math.PI * 2) / 30);
+          const sway = CRANE.sway * Math.sin((elapsed * Math.PI * 2) / 30);
           const x = p.x + side.x * sway, z = p.z + side.z * sway;
           camera.position.set(x, height(x, z) + 9, z);
-          const ahead = line.at(dd + 28);
+          const ahead = line.at(dd + CRANE.ahead);
           aim(lookTarget.set(ahead.x, ahead.y + 8, ahead.z));
         }
       }

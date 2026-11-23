@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BODY_REACH, CLEAR, enterColumn, hull, keepOut, outside, standClear, TREE_REACH, TRUNK_R_MAX } from "../../../public/world/collide.js";
+import { BODY_REACH, CLEAR, enterColumn, hull, keepOut, outside, standClear } from "../../../public/world/collide.js";
 
 // keepOut's own tests use any reach (REACH); BODY_REACH (public/world/collide.js) is the one the world keeps a walk from each bear's
 // centre, in either view.
@@ -289,15 +289,6 @@ describe("enterColumn", () => {
     const moved = { x: 10, z: 20, r: 10, top: 8 };
     expect(enterColumn({ x: 1, y: 2, z: 8 }, { x: 9 / 15, y: 0, z: 12 / 15 }, moved)).toBeCloseTo(5, 9);
     expect(enterColumn({ x: 16, y: 2, z: 2 }, { x: 0, y: 0, z: 1 }, moved)).toBeCloseTo(10, 9);
-  });
-});
-
-describe("TREE_REACH", () => {
-  it("keeps a walk a bear's half-width and a quarter metre off the widest trunk", () => {
-    expect(TRUNK_R_MAX).toBe(0.9);
-    expect(TREE_REACH).toBe(TRUNK_R_MAX + CLEAR);
-    // The first-person view's near plane, 0.5 m, stays clear of the bark.
-    expect(TREE_REACH - TRUNK_R_MAX).toBeGreaterThan(0.5);
   });
 });
 

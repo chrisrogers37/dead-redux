@@ -47,9 +47,6 @@ export function offTracks(x, z, room) {
 const CROWD_ROOM = 4.5;
 /* How far from the setlist's path anything grows, and the side of the squares its points are sorted into (no less than that). */
 const LOOP_ROOM = 2.2, LOOP_SQUARE = 4;
-/* How far from the middle of a tree's foot anything grows or lies: the widest trunk (collide.js TRUNK_R_MAX) and the widest stone's
-   reach. */
-export const TRUNK_ROOM = 2.2;
 /* The stage's light on the water: its colour at its fullest, as the screen shows it, and where it lies, from SHINE_OUT m past the stage's
    centre out to sea along the stage's axis, SHINE_LONG m along it and SHINE_WIDE m across. The shore stands 25 m past the stage. */
 const SHINE = [0.4, 0.25, 0.1], SHINE_OUT = 36, SHINE_LONG = 30, SHINE_WIDE = 28;
@@ -61,25 +58,32 @@ const POOL = new THREE.Color(0xff7a30).multiplyScalar(5), POOL_UP = 7, POOL_HALF
 const f = (v) => v.toFixed(4);
 
 /* Has a Lambert material take the stage's glow (`uPool`, its colour times its strength) as one more light on it, by the angle its
-   face turns to the stage. */
-export function takesPool(material, uPool) {
+   face turns to the stage. With `stands`, the material draws instances that stand on the ground, each one's root `stands.sunk` m
+   under it, as a tree's is: a face that turns squarely to the stage would take the glow several times more strongly than the ground
+   it stands on, which lies nearly edge-on to it. So such a thing takes it no more strongly than level ground at its foot does, and
+   `stands.share` of that, its colours being paler than the turf's. */
+export function takesPool(material, uPool, stands = null) {
+  const from = `vec3(${f(STAGE[0])}, ${f(SHELF_Y + POOL_UP)}, ${f(STAGE[1])})`, most = stands ? "\nvarying float vPoolMost;" : "";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uPool = uPool;
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vPoolAt;")
+      .replace("#include <common>", `#include <common>\nvarying vec3 vPoolAt;${most}`)
       /* Where the point stands in the world: for an instanced mesh, where its instance puts it. */
       .replace("#include <project_vertex>", `#include <project_vertex>
         #ifdef USE_INSTANCING
           vPoolAt = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
         #else
           vPoolAt = (modelMatrix * vec4(transformed, 1.0)).xyz;
-        #endif`);
+        #endif${stands ? `
+        /* How squarely level ground at the instance's foot turns to the glow. */
+        vPoolMost = max(normalize(${from} - (modelMatrix * instanceMatrix[3]).xyz - vec3(0.0, ${f(stands.sunk)}, 0.0)).y, 0.0);` : ""}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform vec3 uPool;\nvarying vec3 vPoolAt;")
+      .replace("#include <common>", `#include <common>\nuniform vec3 uPool;\nvarying vec3 vPoolAt;${most}`)
       .replace("#include <lights_fragment_end>", `#include <lights_fragment_end>
-        vec3 poolTo = vec3(${f(STAGE[0])}, ${f(SHELF_Y + POOL_UP)}, ${f(STAGE[1])}) - vPoolAt;
+        vec3 poolTo = ${from} - vPoolAt;
         float poolFar = length(poolTo) / ${f(POOL_HALF)};
-        float poolLit = max(dot(normal, normalize((viewMatrix * vec4(poolTo, 0.0)).xyz)), 0.0);
+        float poolLit = max(dot(normal, normalize((viewMatrix * vec4(poolTo, 0.0)).xyz)), 0.0);${stands ? `
+        poolLit = min(poolLit, vPoolMost) * ${f(stands.share)};` : ""}
         reflectedLight.directDiffuse += uPool * diffuseColor.rgb * poolLit * (1.0 - smoothstep(${f(0.6 * POOL_END / POOL_HALF)}, ${f(POOL_END / POOL_HALF)}, poolFar)) / (1.0 + poolFar * poolFar);`);
   };
   return material;
@@ -279,12 +283,12 @@ export function landColour(x, y, z, ny, out) {
 
 /* The ground (a grid of the tier's size, coloured by vertex, with the ring road and the lightning path worn into it) and the sea,
    then what grows, lies and flies on the land (flora.js), then the caves' pools and lights. `loop` is the setlist's path as points
-   [x, z] every couple of metres, which nothing grows on, and `trunks` the trees' (trees.js trunkIndex), whose `near(x, z, r)` is
-   whether a trunk stands within `r` m: nothing grows or lies within TRUNK_ROOM of one. It returns the caves, the flora, `lit`, which has
-   a material take the stage's glow as the ground does, and `shade`, which draws a look of the night on the island at a time: the
-   water's colour, the light lying on it and its swell, the stage's glow on the ground (buildSea, takesPool), the wind in the tufts,
-   and the fireflies. */
-export function buildIsland(scene, grid, phone, loop = [], trunks = { near: () => false }) {
+   [x, z] every couple of metres, which nothing grows on, and `trunks(x, z)` whether a tree's trunk stands too near (x, z) for
+   anything to grow or lie there (trees.js). It returns the caves, the flora, `lit`, which has a material take the stage's glow as
+   the ground does, or as a thing that stands on it does (takesPool), and `shade`, which draws a look of the night on the island
+   at a time: the water's colour, the light lying on it and its swell, the stage's glow on the ground (buildSea, takesPool), the
+   wind in the tufts, and the fireflies. */
+export function buildIsland(scene, grid, phone, loop = [], trunks = () => false) {
   const ground = new THREE.PlaneGeometry(260, 260, grid, grid);
   ground.rotateX(-Math.PI / 2);
   const pos = ground.attributes.position;
@@ -324,11 +328,11 @@ export function buildIsland(scene, grid, phone, loop = [], trunks = { near: () =
     }
     return true;
   };
-  const lit = (material) => takesPool(material, uPool);
+  const lit = (material, stands = null) => takesPool(material, uPool, stands);
   const flora = buildFlora(scene, { tufts: Math.round(grid * grid * thick), stones: Math.round(grid * (phone ? 2.5 : 4)), flies: Math.round(grid * (phone ? 8 : 14)),
     extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6], surface: surfaceOf(grid),
     colour: landColour, lit,
-    clear: (x, z) => offTracks(x, z, FEATHER + 0.4) && offLoop(x, z) && !trunks.near(x, z, TRUNK_ROOM), trodden: (x, z) => onCrowdGround(x, z, CROWD_ROOM) });
+    clear: (x, z) => offTracks(x, z, FEATHER + 0.4) && offLoop(x, z) && !trunks(x, z), trodden: (x, z) => onCrowdGround(x, z, CROWD_ROOM) });
 
   /* The caves light for Drums (left) and Space (right): a pool on each floor and, but on a phone, a light inside. */
   const caves = CAVES.map(([cx, cz]) => {

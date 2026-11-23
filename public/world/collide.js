@@ -60,15 +60,6 @@ export function enterColumn(o, d, { x, z, r, top, base = -Infinity }) {
    half-width, 1.5 m (bears.js), and a quarter metre more. */
 export const CLEAR = 1.75;
 
-/* The widest a tree's trunk stands from the middle of its foot, as high as a bear is tall: no more than the widest crown's 4 m by the
-   fifth of it a trunk is across its half at its sunk foot, and what a lean carries it over by that height (trees.js). */
-export const TRUNK_R_MAX = 0.9;
-/* How near a walk comes to the middle of a trunk's foot: a bear's half-width and a quarter metre (CLEAR) outside the widest trunk. Its
-   bark is then at least 1.75 m from the walker's middle, clear of the first-person view's near plane (0.5 m). Two such reaches, 5.3 m,
-   fit between any two trees (trees.js MIN_APART, 6.5 m), so a walk passes between any two trunks with 1.2 m to spare and slides
-   round any one of them. */
-export const TREE_REACH = TRUNK_R_MAX + CLEAR;
-
 /* The convex hull of points [x, z], counter-clockwise: a landmark's outline seen from above (path.js). */
 export function hull(points) {
   const p = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);

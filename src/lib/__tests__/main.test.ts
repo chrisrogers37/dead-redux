@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BODY_REACH, TREE_REACH } from "../../../public/world/collide.js";
+import { BODY_REACH } from "../../../public/world/collide.js";
 import { BOUND, height, STAGE, STAGE_COLUMN, STAGE_REACH } from "../../../public/world/ground.js";
 import { DEAD, REACH } from "../../../public/world/input.js";
-import { DESCENT_S } from "../../../public/world/modes.js";
+import { BEAR_GAP, DESCENT_S } from "../../../public/world/modes.js";
 import { DEEP, HOUR_RATE, lookAt, newLook } from "../../../public/world/night.js";
-import { postPose } from "../../../public/world/pose.js";
+import { CRANE, DESCENT_FROM, postPose } from "../../../public/world/pose.js";
 import { WINDOW } from "../../../public/world/quality.js";
 
 // public/world/main.js runs here as a page runs it, frame by frame, with the modules it imports: what keeps a walk in bounds (confine,
@@ -49,6 +49,12 @@ const fake = vi.hoisted(() => {
     setScalar(s: number) {
       return this.set(s, s, s);
     }
+    crossVectors(a: Point3, b: Point3) {
+      return this.set(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+    }
+    normalize() {
+      return this.multiplyScalar(1 / (Math.hypot(this.x, this.y, this.z) || 1));
+    }
   }
   type Bear = { g: { position: Vec; rotation: { y: number }; visible?: boolean }; legs: { rotation: { x: number } }[]; phase: number };
   type Stage = {
@@ -78,13 +84,16 @@ const fake = vi.hoisted(() => {
     landmarks: [] as { position: Point3; rotation: { y: number } }[],
     // The trees (trees.js). Where the stand-in stands them, which a test gives; what main.js gave it to place them by, and what to
     // reckon the cameras' ways by; each time they were built, and with what; the order the trees and the island were made in; what
-    // the island was told of the trunks; and the time of the wind in them, as the last frame set it.
+    // the island was given to ask of the trunks, and each time the placing was asked whether a tree stands near a place, as [x, z, r];
+    // each time the trees were asked for the trunks near a place, the same; and the time of the wind in them, as the last frame set it.
     treeSpots: [] as Point[],
     treesAsked: [] as { count: number; loop: unknown[]; line: number[][]; landmarks: { x: number; z: number; rot: number; poly: unknown }[]; eyes: unknown; views: unknown }[],
-    waysAsked: [] as { line: unknown; height: unknown; stands: { x: number; z: number; to: number[]; d: number }[] }[],
+    waysAsked: [] as { line: unknown; height: unknown; phone: boolean; bears: number[]; stands: { x: number; z: number; to: number[]; d: number }[] }[],
     treesBuilt: [] as { spots: Point[]; lit: unknown; phone: boolean }[],
     made: [] as string[],
     trunks: undefined as unknown,
+    nearAsks: [] as number[][],
+    trunkAsks: [] as number[][],
     wind: NaN,
     // The columns the walk's camera keeps out of: the array the visitor's bear was built with, what it held at the last boom, and each
     // time the trees were asked for those near a place, as [x, z, how many the array held then].
@@ -170,9 +179,10 @@ const fake = vi.hoisted(() => {
   }
   // How far a third-person view turns down to keep the visitor's bear in the frame (avatar.js's turnDown).
   const TURN = 0.05;
-  // The stand-ins' own: the light the island hands on, a landmark's outline, the cameras' ways, the trunks' index and a tree's column.
+  // The stand-ins' own: the light the island hands on, a landmark's outline, the cameras' ways, a tree's column, how near a walk comes
+  // to a trunk and how far from one anything grows.
   const LIT = (material: unknown) => material, OUTLINE = [[0, 0], [1, 0], [0, 1]], WAYS = { eyes: [[1, 2, 3]], views: [{ from: [0, 0], to: [1, 1], half: 5 }] };
-  const TRUNKS = { near: () => false }, TREE_COLUMN = { x: 0, z: 0, r: 1, top: 9 };
+  const TREE_COLUMN = { x: 0, z: 0, r: 1, top: 9 }, TREE_REACH = 2.5, TRUNK_ROOM = 2.25;
   const three = {
     WebGLRenderer: class {
       shadowMap = (world.shadowMap = { enabled: false, autoUpdate: true, needsUpdate: false });
@@ -203,9 +213,15 @@ const fake = vi.hoisted(() => {
     // The trees stand where a test puts them and draw nothing; what main.js gives them and takes from them is kept.
     trees: {
       TARGET: { desktop: 100, tv: 75, phone: 45 },
+      TREE_REACH,
+      TRUNK_ROOM,
       cameraWays: (ask: (typeof world.waysAsked)[number]) => { world.waysAsked.push(ask); return WAYS; },
-      placeTrees: (ask: (typeof world.treesAsked)[number]) => { world.made.push("places"); world.treesAsked.push(ask); return world.treeSpots; },
-      trunkIndex: (spots: Point[]) => ({ ...TRUNKS, spots }),
+      // A tree stands near a place, the stand-in says, wherever x is over 0.
+      placeTrees: (ask: (typeof world.treesAsked)[number]) => {
+        world.made.push("places");
+        world.treesAsked.push(ask);
+        return { spots: world.treeSpots, near: (x: number, z: number, r: number) => { world.nearAsks.push([x, z, r]); return x > 0; } };
+      },
       buildTrees: (_scene: unknown, spots: Point[], { lit, phone }: { lit: unknown; phone: boolean }) => {
         world.made.push("trees");
         world.treesBuilt.push({ spots, lit, phone });
@@ -213,6 +229,8 @@ const fake = vi.hoisted(() => {
           count: spots.length,
           wind: (time: number) => { world.wind = time; },
           columns: (x: number, z: number, into: unknown[]) => { world.columnAsks.push([x, z, into.length]); into.push(TREE_COLUMN); return into; },
+          // Every trunk is near, the stand-in says: the walk keeps out of whichever it is handed.
+          trunks: (x: number, z: number, r: number) => { world.trunkAsks.push([x, z, r]); return spots; },
         };
       },
     },
@@ -353,7 +371,7 @@ const fake = vi.hoisted(() => {
       }),
     },
   };
-  return { world, three, modules, TURN, LIT, OUTLINE, WAYS, TREE_COLUMN };
+  return { world, three, modules, TURN, LIT, OUTLINE, WAYS, TREE_COLUMN, TREE_REACH, TRUNK_ROOM };
 });
 
 vi.mock("three", () => fake.three);
@@ -463,7 +481,9 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
     appendChild: () => {},
     getBoundingClientRect: () => ({ top: 0 }),
   });
-  const main = { dataset: { state: playing ? "playing" : "paused", routing, view, ...(search && hooks ? { testHooks: "1" } : {}) } };
+  const main: { dataset: Record<string, string> } = { dataset: { state: playing ? "playing" : "paused", routing, view, ...(search && hooks ? { testHooks: "1" } : {}) } };
+  // What main.js asked to be told of <main>'s changes with.
+  const observers: (() => void)[] = [];
   const { plate: plateTop = null, away = false, stick: stickTop = 0, hint: hintTop = null } = hud;
   // The stick on a phone (input.js), 112 px across with its centre at (56, 56) unless a test puts it lower; hidden, its box is empty.
   const stick = Object.assign(new EventTarget(), {
@@ -514,7 +534,7 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
     queued = null;
   });
   vi.stubGlobal("ResizeObserver", class { observe() {} });
-  vi.stubGlobal("MutationObserver", class { observe() {} });
+  vi.stubGlobal("MutationObserver", class { constructor(told: () => void) { observers.push(told); } observe() {} });
   fake.world.line = LINE;
   fake.world.landmarks = landmarks;
   fake.world.treeSpots = trees;
@@ -522,6 +542,8 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
   fake.world.waysAsked = [];
   fake.world.treesBuilt = [];
   fake.world.made = [];
+  fake.world.nearAsks = [];
+  fake.world.trunkAsks = [];
   fake.world.columnAsks = [];
   fake.world.columnsAtBoom = [];
   fake.world.meshes = [];
@@ -574,6 +596,8 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
     beam: () => fake.world.meshes[0].material as { opacity: number; color: number },
     // The page's clock, in ms.
     now: () => now,
+    // Turns lean-back on or off, as the page does on <main>.
+    lean: (on: boolean) => { main.dataset.mode = on ? "leanback" : ""; for (const told of observers) told(); },
   };
 }
 
@@ -674,27 +698,46 @@ describe("main.js's frames", () => {
       expect(asked.line[37]).toEqual([LINE.at(37).x, LINE.at(37).z]);
       // Each landmark: where it stands, how it is turned, and its outline.
       expect(asked.landmarks).toEqual(landmarks.map((g) => ({ x: g.position.x, z: g.position.z, rot: g.rotation.y, poly: fake.OUTLINE })));
-      // The cameras' ways, reckoned from the line, the ground, where the visitor stands by each landmark to see it, and how far along
-      // the line the bears stand as its song begins: the stand-in lays the songs out a tenth of the loop apart from its middle, and the
-      // line here is 100 m to the loop.
+      // The ways of this tier's cameras, reckoned from the line, the ground, where the visitor stands by each landmark to see it, and
+      // how far along the line the bears stand as its song begins: the stand-in lays the songs out a tenth of the loop apart from its
+      // middle, and the line here is 100 m to the loop. A desktop's cameras, with each number of bears its ladder shows (quality.js).
       expect(asked.eyes).toBe(fake.WAYS.eyes);
       expect(asked.views).toBe(fake.WAYS.views);
       expect(fake.world.waysAsked).toHaveLength(1);
       expect(fake.world.waysAsked[0].line).toBe(LINE);
       expect((fake.world.waysAsked[0].height as typeof height)(31.7, -27.5)).toBe(height(31.7, -27.5));
       expect(fake.world.waysAsked[0].stands).toEqual(landmarks.map((g, k) => ({ x: 10 + k, z: 20 + k, to: [g.position.x, g.position.z], d: expect.closeTo(50 + 10 * k, 9) })));
-      // The island is told of the trunks, and the trees take its light; a desktop's are not a phone's.
-      expect((fake.world.trunks as { spots: unknown }).spots).toBe(trees);
+      expect(fake.world.waysAsked[0].phone).toBe(false);
+      expect(fake.world.waysAsked[0].bears).toEqual([5, 3, 1]);
+      // The island is given the placing's own word on whether a trunk stands within TRUNK_ROOM of a place, and the trees take its
+      // light; a desktop's are not a phone's.
+      const trunks = fake.world.trunks as (x: number, z: number) => boolean;
+      expect([trunks(3, 4), trunks(-3, 4)]).toEqual([true, false]);
+      expect(fake.world.nearAsks).toEqual([[3, 4, fake.TRUNK_ROOM], [-3, 4, fake.TRUNK_ROOM]]);
       expect(fake.world.treesBuilt).toEqual([{ spots: trees, lit: fake.LIT, phone: false }]);
       expect(fake.world.treesBuilt[0].spots).toBe(trees);
       expect((hill() as unknown as { trees: number }).trees).toBe(1);
     });
 
-    it("are as many as the tier draws: a phone's 45, built as a phone's", async () => {
+    it("are as many as the tier draws, placed clear of the tier's own cameras: a phone's 45 by its three bears and one, a TV's 75 by a desktop's", async () => {
       await startWorld({ screen: { width: 390, height: 844, touch: true } });
       expect(hill().tier).toBe("phone");
       expect(fake.world.treesAsked[0].count).toBe(45);
       expect(fake.world.treesBuilt[0].phone).toBe(true);
+      expect(fake.world.waysAsked[0].phone).toBe(true);
+      expect(fake.world.waysAsked[0].bears).toEqual([3, 1]);
+      await startWorld({ search: "?tier=tv" });
+      expect(hill().tier).toBe("tv");
+      expect(fake.world.treesAsked[0].count).toBe(75);
+      expect(fake.world.treesBuilt[0].phone).toBe(false);
+      expect(fake.world.waysAsked[0].phone).toBe(false);
+      expect(fake.world.waysAsked[0].bears).toEqual([5, 3, 1]);
+      // Those are the bears the world shows as it steps down: frames of 50 ms a window each, to the ladder's foot.
+      const page = await startWorld();
+      page.run(DESCENT_S + 0.1);
+      const shown = new Set([page.shown().length]);
+      for (let k = 0; k < 12; k++) { page.run((WINDOW * 50) / 1000, { ms: 50 }); shown.add(page.shown().length); }
+      expect([...shown]).toEqual(fake.world.waysAsked[0].bears);
       // A day with no recording has no landmarks, and trees all the same.
       await startWorld({ recording: false });
       expect(fake.world.treesAsked[0].landmarks).toEqual([]);
@@ -702,16 +745,62 @@ describe("main.js's frames", () => {
       expect(fake.world.made).toEqual(["places", "island", "trees"]);
     });
 
-    it("are solid to a walk: a step sideways into a trunk stops TREE_REACH from its middle, on the line to it", async () => {
+    it("flies the cameras the trees are placed clear of: the descent from DESCENT_FROM m over the island's middle, the bears BEAR_GAP m apart, and lean-back's crane as pose.js's CRANE has it", async () => {
+      const page = await startWorld();
+      page.run(0.02);
+      // One frame in, the descent has hardly left where it starts; and it comes down a straight line, which a second place on it
+      // shows to start DESCENT_FROM m over the island's middle.
+      expect(page.mode()).toBe("descent");
+      const first = { ...fake.world.camera.position };
+      expect(first.y).toBeGreaterThan(DESCENT_FROM - 2);
+      expect(first.y).toBeLessThan(DESCENT_FROM);
+      expect(Math.hypot(first.x, first.z)).toBeLessThan(2);
+      page.run(2);
+      const second = fake.world.camera.position;
+      expect(second.y).toBeLessThan(DESCENT_FROM - 40);
+      expect(first.y - first.x * ((second.y - first.y) / (second.x - first.x))).toBeCloseTo(DESCENT_FROM, 6);
+      expect(first.z / first.x).toBeCloseTo(second.z / second.x, 6);
+      page.run(DESCENT_S + 0.1);
+      const bears = page.shown().map((b) => along(b.g.position));
+      for (let k = 1; k < bears.length; k++) expect(bears[k - 1] - bears[k]).toBeCloseTo(BEAR_GAP, 9);
+      // The visitor's bear, one gap behind the last.
+      expect(bears[bears.length - 1] - along(page.stepped())).toBeCloseTo(BEAR_GAP, 9);
+      // Lean-back: the crane hangs CRANE.back m behind the visitor's bear on the line, 9 m up, to one side by its sway, and looks
+      // at the line CRANE.ahead m on from there, 8 m up.
+      page.lean(true);
+      let widest = 0;
+      page.run(30, {
+        ms: 50,
+        each: () => {
+          const at = fake.world.camera.position, look = fake.world.camera.target;
+          expect(page.mode()).toBe("drift");
+          expect(along(at)).toBeCloseTo(along(page.stepped()) - CRANE.back, 6);
+          expect(along(look)).toBeCloseTo(along(at) + CRANE.ahead, 6);
+          expect(across(look)).toBeCloseTo(0, 6);
+          expect(at.y).toBeCloseTo(height(at.x, at.z) + 9, 6);
+          widest = Math.max(widest, Math.abs(across(at)));
+        },
+      });
+      // Over one sway, 30 s, it reaches CRANE.sway m to the side and no further.
+      expect(widest).toBeLessThanOrEqual(CRANE.sway + 1e-9);
+      expect(widest).toBeGreaterThan(CRANE.sway - 0.01);
+    });
+
+    it("are solid to a walk: a step sideways into a trunk stops TREE_REACH from its middle, on the line to it, the walk asking only for the trunks near it", async () => {
+      const TREE_REACH = fake.TREE_REACH;
       // One to either side of the visitor's place in the line, 15 m along it, 20 m off.
       const page = await startWorld({ trees: [off(15, 20), off(15, -20)] });
       page.run(DESCENT_S + 0.1);
       expect(along(page.stepped())).toBeCloseTo(15, 9);
       const tree = (p: Point) => Math.min(distance(p, off(15, 20)), distance(p, off(15, -20)));
+      fake.world.trunkAsks = [];
       page.hold("KeyE", 3, () => expect(tree(page.stepped())).toBeGreaterThan(TREE_REACH - 1e-9));
       expect(page.mode()).toBe("walk");
       expect(Math.abs(across(page.stepped()))).toBeCloseTo(20 - TREE_REACH, 9);
       expect(along(page.stepped())).toBeCloseTo(15, 9);
+      // Each frame of the walk asked the trees for the trunks within their reach of the walker, and for none else.
+      expect(fake.world.trunkAsks.length).toBeGreaterThanOrEqual(150);
+      for (const [x, z, r] of fake.world.trunkAsks) { expect(r).toBe(TREE_REACH); expect(along({ x, z })).toBeCloseTo(15, 6); }
       // The same walk with no tree there goes on by.
       const open = await startWorld();
       open.run(DESCENT_S + 0.1);

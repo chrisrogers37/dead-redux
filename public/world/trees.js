@@ -1,10 +1,12 @@
 /* eslint-disable */
 import * as THREE from "three";
-import { outside } from "./collide.js";
-import { chance } from "./flora.js";
+import { boomLength, TOP } from "./avatar.js";
+import { CLEAR, outside } from "./collide.js";
+import { chance, STONE_REACH } from "./flora.js";
 import { CAVES, height, STAGE, TEST_POSES, TRAILHEAD } from "./ground.js";
 import { FEATHER, offTracks, RING } from "./island.js";
-import { postPose } from "./pose.js";
+import { BEAR_GAP } from "./modes.js";
+import { CRANE, DESCENT_FROM, postPose } from "./pose.js";
 import { onCrowdGround } from "./seats.js";
 
 /* The trees: groves of tall pines and broad-crowned trees between the landmarks, so the island has an outline against the sky. All
@@ -15,11 +17,28 @@ import { onCrowdGround } from "./seats.js";
 
 /* A tree stands TALL m over the ground, its foot SUNK m under it, since on a slope the ground falls away under its lower side. Its
    crown is the upper part of it, from BASE_FRAC of the way up from its foot, and CROWN_R m across its half; and there are CROWN_BASE m
-   of air under a crown wherever a walker can stand below it, so a bear walks under any crown with its head 1.65 m clear, and the walk's
-   camera's boom starts 2.9 m under it. A tree leans up to LEAN rad, and the wind moves a crown's top SWAY m to either side, so no part
-   of a crown is ever further than CROWN_R_MAX m from its tree's foot. */
+   of air under a crown wherever a walker can stand below it, so a bear walks under any crown with its head clear (avatar.js TOP),
+   and the walk's camera's boom starts under it with room for the camera (boom.js). A tree leans up to LEAN rad, and the wind moves a
+   crown's top SWAY m to either side. Where a crown's edge or a bough crosses a bright sky, the pixels it crosses flicker for a
+   frame or two as it passes, and the wider the sway the more of them do (scripts/flash counts them). */
 export const SUNK = 1.6, TALL = [11, 18], CROWN_BASE = 6.5, BASE_FRAC = 0.66;
-export const CROWN_R = [2.8, 4.0], LEAN = 0.04, SWAY = 0.25, CROWN_R_MAX = 5;
+export const CROWN_R = [2.8, 4.0], LEAN = 0.04, SWAY = 0.125;
+/* A tree's shape is built with its crown's radius for a unit across (the shapes, below). In those: a trunk's half-width at its sunk
+   foot, where it is widest, with no part of a trunk, a pine's stubs among them, further from its middle line; and how far a crown's
+   corners reach. */
+export const TRUNK_FOOT = 0.2, CROWN_REACH = 0.98;
+/* How far a crown `wide` m across its half reaches from the middle of its tree's foot: its corners, what its lean (rad) carries its
+   top over, and the wind's sway. And a trunk, no higher than `up` m over its sunk foot: its foot's half-width, and its lean by there. */
+const crownOut = (wide, lean, tall) => wide * CROWN_REACH + lean * (tall + SUNK) + SWAY;
+const trunkOut = (wide, lean, up) => wide * TRUNK_FOOT + lean * up;
+/* The furthest any crown reaches from its tree's foot, and any trunk no higher than a bear is tall. */
+export const CROWN_R_MAX = crownOut(CROWN_R[1], LEAN, TALL[1]), TRUNK_R_MAX = trunkOut(CROWN_R[1], LEAN, SUNK + TOP);
+/* How near a walk comes to the middle of a trunk's foot: a bear's half-width and a quarter metre (collide.js CLEAR) outside the
+   widest trunk, so its bark is that far from the walker's middle, clear of the first-person view's near plane. Two such reaches fit
+   between any two trees (MIN_APART), so a walk passes between any two trunks and slides round any one of them. */
+export const TREE_REACH = TRUNK_R_MAX + CLEAR;
+/* How far from the middle of a tree's foot anything grows or lies (island.js): the widest trunk and the largest stone's reach. */
+export const TRUNK_ROOM = TRUNK_R_MAX + STONE_REACH;
 /* How far a tree's foot keeps from the setlist's path, from the bears' line, from a landmark's outline, from the crowd's ground, from
    the stage's centre and from a cave's; from the tracks' edges and inside the ring road; from every place the camera that walks with
    the bears stands (EYE_ROOM); and from each other. A view (cameraWays) is kept clear to VIEW_HALF m either side of its line, which
@@ -47,8 +66,6 @@ export const GROVE_CORE = 0.7, LONE = 0.2;
 export const DROP = 0.3, UNDER = 1.5;
 /* The way the wind blows across the island, [x, z]: the crowns sway along it and the trees lean down it. */
 const WIND = [0.86, 0.51];
-/* The bears walk this far apart on their line (main.js). */
-const GAP = 7;
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 /* How thickly the groves grow at a place, 0 to 1, and the share of pines there: the thickest grove's that reaches it. */
@@ -61,25 +78,35 @@ export function grove(x, z) {
   return { thick, pines };
 }
 
-/* Points [x, z] by the square of `square` m each lies in, so a place is tried against the few points near it. `within(x, z, r)` is
-   whether any point lies nearer than `r`; `add` takes one more, with a number of its own, which `each(x, z, r, see)` hands back with
-   every point in the squares within `r`. */
-function index(points, square) {
-  const cells = new Map(), cell = (v) => Math.floor(v / square), key = (i, j) => i * 4096 + j;
-  const add = (x, z, value = 0) => {
-    const k = key(cell(x), cell(z));
-    if (!cells.has(k)) cells.set(k, []);
-    cells.get(k).push(x, z, value);
+/* Things by the square of `side` m each lies in, so what is near a place is found without trying everything. `add(x, z, thing)` puts
+   one in the square (x, z) lies in, and `put(i, j, thing)` in the square numbered (i, j), as `cell` numbers a coordinate.
+   `some(x, z, r, see)` hands `see` each thing in the squares that come within `r` m of (x, z), until it answers true for one, and
+   says whether it did. */
+function squares(side) {
+  const cells = new Map(), cell = (v) => Math.floor(v / side);
+  /* A square's key: the island is far narrower than 4096 squares of any size used here. */
+  const key = (i, j) => i * 4096 + j;
+  const put = (i, j, thing) => { const k = key(i, j), list = cells.get(k); if (list) list.push(thing); else cells.set(k, [thing]); };
+  return {
+    cell, put, add: (x, z, thing) => put(cell(x), cell(z), thing),
+    some(x, z, r, see) {
+      for (let i = cell(x - r); i <= cell(x + r); i++) for (let j = cell(z - r); j <= cell(z + r); j++) {
+        const list = cells.get(key(i, j));
+        if (list) for (let k = 0; k < list.length; k++) if (see(list[k])) return true;
+      }
+      return false;
+    },
   };
+}
+
+/* Points [x, z] in squares of `side` m, so a place is tried against the few points near it. `within(x, z, r)` is whether any point
+   lies nearer than `r`; `add` takes one more, with a number of its own, which `each(x, z, r, see)` hands back with every point in the
+   squares within `r`. */
+function index(points, side) {
+  const grid = squares(side);
+  const add = (x, z, value = 0) => grid.add(x, z, [x, z, value]);
   for (const [x, z, value] of points) add(x, z, value);
-  const each = (x, z, r, see) => {
-    for (let i = cell(x - r); i <= cell(x + r); i++) for (let j = cell(z - r); j <= cell(z + r); j++) {
-      const list = cells.get(key(i, j));
-      if (!list) continue;
-      for (let k = 0; k < list.length; k += 3) if (see(list[k], list[k + 1], list[k + 2])) return true;
-    }
-    return false;
-  };
+  const each = (x, z, r, see) => grid.some(x, z, r, (p) => see(p[0], p[1], p[2]));
   return { add, each, within: (x, z, r) => each(x, z, r, (px, pz) => (x - px) ** 2 + (z - pz) ** 2 < r * r) };
 }
 
@@ -91,24 +118,16 @@ function fromSegment(x, z, ax, az, bx, bz) {
 
 /* Views ({ from: [x, z], to: [x, z], half }) by the squares each passes within `half` of, so a place is tried against the few views
    near it. `crosses(x, z)` is whether the place lies within a view's `half` of its line. */
-function corridors(views, square = 16) {
-  const cells = new Map(), cell = (v) => Math.floor(v / square), key = (i, j) => i * 4096 + j;
+function corridors(views, side = 16) {
+  const grid = squares(side);
   for (const view of views) {
     const { from: [ax, az], to: [bx, bz], half } = view;
-    for (let i = cell(Math.min(ax, bx) - half); i <= cell(Math.max(ax, bx) + half); i++) for (let j = cell(Math.min(az, bz) - half); j <= cell(Math.max(az, bz) + half); j++) {
+    for (let i = grid.cell(Math.min(ax, bx) - half); i <= grid.cell(Math.max(ax, bx) + half); i++) for (let j = grid.cell(Math.min(az, bz) - half); j <= grid.cell(Math.max(az, bz) + half); j++) {
       /* Only the squares the view comes near: its line's distance from a square's middle, less the square's half diagonal. */
-      if (fromSegment((i + 0.5) * square, (j + 0.5) * square, ax, az, bx, bz) > half + square * 0.7072) continue;
-      const k = key(i, j);
-      if (!cells.has(k)) cells.set(k, []);
-      cells.get(k).push(view);
+      if (fromSegment((i + 0.5) * side, (j + 0.5) * side, ax, az, bx, bz) <= half + side * 0.7072) grid.put(i, j, view);
     }
   }
-  return {
-    crosses(x, z) {
-      const list = cells.get(key(cell(x), cell(z)));
-      return list ? list.some(({ from, to, half }) => fromSegment(x, z, from[0], from[1], to[0], to[1]) < half) : false;
-    },
-  };
+  return { crosses: (x, z) => grid.some(x, z, 0, ({ from, to, half }) => fromSegment(x, z, from[0], from[1], to[0], to[1]) < half) };
 }
 
 /* The rules of where a tree may not stand, each `(x, z, ctx)` and true where it may not: `ctx` is what placeTrees gathers of the
@@ -135,21 +154,19 @@ export const RULES = {
   }),
   nearEye: (x, z, ctx) => ctx.eyes.within(x, z, EYE_ROOM),
   inView: (x, z, ctx) => ctx.views.crosses(x, z),
-  /* The opening's descent comes straight down from DESCENT_FROM m over the island's middle to one of those eyes (main.js), so it
-     is as low as a tree only near the eye: no tree stands within a crown's reach of the part of that line that is lower than the
-     tallest tree its place could grow. */
+  /* The opening's descent comes straight down from DESCENT_FROM m over the island's middle to one of those eyes (pose.js), so it is
+     as low as a tree only near the eye: no tree stands within a crown's reach of the part of that line that is lower than the
+     tallest tree its place could grow. That part is the last `low` of the line at the most, as far as the eye stands from the
+     middle; so an eye whose line could be that low within a crown's reach of the place stands no further from it than a crown's
+     reach and `low` of the place's own way out, over 1 - `low`, and only the eyes that near are tried. */
   underDescent: (x, z, ctx) => {
-    const top = height(x, z) + TALL[1] + 1;
-    return ctx.eyes.each(x, z, DESCENT_NEAR, (ex, ez, ey) => {
+    const top = height(x, z) + TALL[1] + 1, low = top / DESCENT_FROM;
+    return ctx.eyes.each(x, z, (low * Math.hypot(x, z) + CROWN_R_MAX) / (1 - low), (ex, ez, ey) => {
       const from = (DESCENT_FROM - top) / (DESCENT_FROM - ey);
       return from < 1 && fromSegment(x, z, ex * from, ez * from, ex, ez) < CROWN_R_MAX;
     });
   },
 };
-/* The descent starts this high over the island's middle (main.js). It is lower than any tree only within DESCENT_NEAR m of the eye
-   it ends at: the tallest tree on the highest ground tops out under 50 m, where the line has 0.31 of its way to go, and no eye
-   stands further than 126 m from the middle. */
-const DESCENT_FROM = 140, DESCENT_NEAR = 0.31 * 126 + CROWN_R_MAX;
 
 /* The highest the ground stands under a crown that reaches `reach` m from (x, z), and UNDER m past it: read at the middle and round
    three rings, which finds it to a few centimetres on this island's slopes. */
@@ -162,12 +179,13 @@ function groundUnder(x, z, reach) {
   return over;
 }
 
-/* Where the trees stand: at most `count` of them, each { x, y, z, tall, wide, turn, lean, kind, tint, reach, base, top }. `loop` is the
-   setlist's path and `line` the bears' line, as points [x, z] no more than 2 m apart; `landmarks` each { x, z, rot, poly }, where one
-   stands, how it is turned and its outline from above in its own frame (path.js outline); `eyes` and `views` what the cameras need
-   kept clear (cameraWays).
+/* Where the trees stand: `spots`, at most `count` of them, each { x, y, z, tall, wide, turn, lean, kind, tint, reach, base, top }; and
+   `near(x, z, r)`, whether one's foot stands within `r` m of a place. `loop` is the setlist's path and `line` the bears' line, as
+   points [x, z] no more than 2 m apart; `landmarks` each { x, z, rot, poly }, where one stands, how it is turned and its outline from
+   above in its own frame (path.js outline); `eyes` and `views` what the tier's cameras need kept clear (cameraWays).
    One place is tried in each square of CELL m, in an order shuffled by the squares' own numbers, and kept where the groves grow and
-   no rule forbids it; so the trees of a tier that draws fewer are the first of a tier's that draws more, and the same on every visit.
+   no rule forbids it; so with the same cameras' ways a tier that draws fewer draws the first of a tier's that draws more, as a TV
+   does of a desktop's, and the trees are the same on every visit.
    A tree is as tall as its place gives it, or taller where the ground under its crown stands higher than its foot: its crown starts
    CROWN_BASE m over the highest ground under it. `reach`, `base` and `top` bound its crown for the walk's camera: no part of it is
    further out than `reach` from (x, z), lower than `base` or higher than `top`. */
@@ -187,67 +205,64 @@ export function placeTrees({ count, loop = [], line = [], landmarks = [], eyes =
     const { thick, pines } = groves(x, z);
     if (chance(a, b, 3) >= Math.max(thick, LONE)) continue;
     if (rules.some((rule) => rule(x, z, ctx))) continue;
-    const y = height(x, z), wide = CROWN_R[0] + (CROWN_R[1] - CROWN_R[0]) * chance(a, b, 7), reach = wide + CROWN_R_MAX - CROWN_R[1];
-    /* The height that puts the crown's lowest corner CROWN_BASE m over the highest ground under it. */
-    const need = (groundUnder(x, z, reach) + CROWN_BASE + DROP - (y - SUNK)) / BASE_FRAC - SUNK;
-    const tall = Math.max(TALL[0] + (TALL[1] - TALL[0]) * chance(a, b, 6), need);
-    if (tall > TALL[1]) continue;
+    const y = height(x, z), wide = CROWN_R[0] + (CROWN_R[1] - CROWN_R[0]) * chance(a, b, 7);
     /* It leans down the wind, give or take, by a share of LEAN. */
     const way = Math.atan2(WIND[1], WIND[0]) + 1.8 * (chance(a, b, 10) - 0.5), lean = LEAN * (0.25 + 0.75 * chance(a, b, 11));
+    /* The height that puts the crown's lowest corner CROWN_BASE m over the highest ground under it, as far as the tallest it could be
+       would reach. */
+    const need = (groundUnder(x, z, crownOut(wide, lean, TALL[1])) + CROWN_BASE + DROP - (y - SUNK)) / BASE_FRAC - SUNK;
+    const tall = Math.max(TALL[0] + (TALL[1] - TALL[0]) * chance(a, b, 6), need);
+    if (tall > TALL[1]) continue;
     ctx.trees.add(x, z);
     spots.push({
       x, y, z, tall, wide, turn: 2 * Math.PI * chance(a, b, 5), lean: [lean * Math.cos(way), lean * Math.sin(way)],
       kind: chance(a, b, 8) < pines ? "pine" : "broad", tint: chance(a, b, 9),
-      reach, base: y - SUNK + (tall + SUNK) * BASE_FRAC - DROP, top: y + tall + 0.1,
+      reach: crownOut(wide, lean, tall), base: y - SUNK + (tall + SUNK) * BASE_FRAC - DROP, top: y + tall + 0.1,
     });
   }
-  return spots;
+  return { spots, near: ctx.trees.within };
 }
 
-/* What the cameras that fly the island need kept clear of trees, for placeTrees. `line` is the bears' line (path.js), `height` the
-   ground's, and `stands` where the visitor stands by each landmark to look at it, each { x, z, to: [x, z], d }: the stand (path.js
+/* What a tier's cameras need kept clear of trees, for placeTrees. `line` is the bears' line (path.js), `height` the ground's, `phone`
+   whether the tier is a phone's, `bears` how many bears it can show, its own number first and then each a downgrade leaves
+   (quality.js), and `stands` where the visitor stands by each landmark to look at it, each { x, z, to: [x, z], d }: the stand (path.js
    nearStand), the landmark's place and how far along the line the bears stand as its song begins.
-   `eyes` are the places [x, z, y] the camera that walks with the bears stands at (pose.js), for a desktop and a phone and five, three
-   and one bears, the lead bear every 2 m along the line. `views` are the lines of sight, each { from, to, half }: from each of those
-   eyes to each bear and the visitor's; from lean-back's crane, 14 m behind the visitor's bear on the line, to the bears and to where it
-   looks; from behind each test pose (ground.js) to the stage; from the summit to the trailhead, as lean-back looks under reduced
-   motion; from 20 m behind each stand, where a phone's boom hangs, to its landmark and BEHIND m past it, so a landmark is seen
-   whole with nothing close behind it; and from that camera and the crane, as a song begins and the beam stands on its landmark, to
-   the landmark and BACKDROP m past it, so no tree stands behind the beam in the opening or at any song's start. */
-const BEHIND = 10, BACKDROP = 24;
-export function cameraWays({ line, height, stands = [] }) {
-  const eyes = [], views = [], at = (d) => { const p = line.at(d); return [p.x, p.z]; };
+   `eyes` are the places [x, z, y] the camera that walks with the bears stands at (pose.js postPose), for each of those numbers of
+   bears, the lead bear every 2 m along the line. `views` are the lines of sight, each { from, to, half }: from each of those eyes to
+   each bear and the visitor's; from lean-back's crane (pose.js CRANE) to the visitor's bear, to the bears and to where it looks; from
+   behind each test pose (ground.js), where the walk's camera hangs on its boom (avatar.js) and BOOM_BACK m more, to the stage; from
+   the summit to the trailhead, as lean-back looks under reduced motion; from a boom's length behind each stand to its landmark and
+   BEHIND m past it, so a landmark is seen whole with nothing close behind it; and from that camera and the crane, as a song begins
+   and the beam stands on its landmark with all the tier's bears, to the landmark and BACKDROP m past it, so no tree stands behind
+   the beam in the opening or at any song's start. */
+const BOOM_BACK = 2, BEHIND = 10, BACKDROP = 24;
+export function cameraWays({ line, height, stands = [], phone = false, bears = [5] }) {
+  const eyes = [], views = [], at = (d) => { const p = line.at(d); return [p.x, p.z]; }, most = Math.max(...bears);
+  const eye = (d, count) => postPose({ third: true, phone, bearD: d, count, gap: BEAR_GAP, line, height, keepInView: () => 0 }, 0, 0).pos;
+  /* How far on from the crane the things it sees stand: the visitor's bear, each bear a gap further, and where it looks. */
+  const craneSees = [...new Set([...Array.from({ length: most + 1 }, (_, k) => CRANE.back + k * BEAR_GAP), CRANE.ahead])];
   for (let d = 0; d < line.length; d += 2) {
-    for (const phone of [false, true]) for (const count of [5, 3, 1]) {
-      const { pos } = postPose({ third: true, phone, bearD: d, count, gap: GAP, line, height, keepInView: () => 0 }, 0, 0);
+    for (const count of bears) {
+      const pos = eye(d, count);
       eyes.push([pos.x, pos.z, pos.y]);
-      for (let k = 0; k <= count; k += 1) views.push({ from: [pos.x, pos.z], to: at(d - k * GAP), half: SIGHT_HALF });
+      for (let k = 0; k <= count; k += 1) views.push({ from: [pos.x, pos.z], to: at(d - k * BEAR_GAP), half: SIGHT_HALF });
     }
-    /* The crane, `d` m along: the visitor's bear 14 m on, the bears each GAP m further, and its look 28 m on. */
-    for (let k = 2; k <= 7; k++) views.push({ from: at(d), to: at(d + k * GAP), half: SIGHT_HALF });
+    for (const on of craneSees) views.push({ from: at(d), to: at(d + on), half: SIGHT_HALF });
   }
+  const back = boomLength(phone) + BOOM_BACK;
   for (const pose of Object.values(TEST_POSES)) {
-    views.push({ from: [pose.x + 22 * Math.sin(pose.heading), pose.z + 22 * Math.cos(pose.heading)], to: STAGE, half: VIEW_HALF });
+    views.push({ from: [pose.x + back * Math.sin(pose.heading), pose.z + back * Math.cos(pose.heading)], to: STAGE, half: VIEW_HALF });
   }
   views.push({ from: [0, 0], to: TRAILHEAD, half: VIEW_HALF });
   /* The point `past` m beyond `to` on the line from `from`. */
   const beyond = (from, to, past) => { const dx = to[0] - from[0], dz = to[1] - from[1], far = Math.hypot(dx, dz) || 1; return [to[0] + (dx / far) * past, to[1] + (dz / far) * past]; };
   for (const { x, z, to, d } of stands) {
-    views.push({ from: beyond(to, [x, z], 20), to: beyond([x, z], to, BEHIND), half: VIEW_HALF });
+    views.push({ from: beyond(to, [x, z], boomLength(phone)), to: beyond([x, z], to, BEHIND), half: VIEW_HALF });
     if (d === undefined) continue;
-    /* With all the bears a tier draws: a desktop's and a TV's five, a phone's three. */
-    for (const [phone, count] of [[false, 5], [true, 3]]) {
-      const { pos } = postPose({ third: true, phone, bearD: d, count, gap: GAP, line, height, keepInView: () => 0 }, 0, 0);
-      for (const from of [[pos.x, pos.z], at(d - count * GAP - 14)]) views.push({ from, to: beyond(from, to, BACKDROP), half: SIGHT_HALF });
-    }
+    const pos = eye(d, most);
+    for (const from of [[pos.x, pos.z], at(d - most * BEAR_GAP - CRANE.back)]) views.push({ from, to: beyond(from, to, BACKDROP), half: SIGHT_HALF });
   }
   return { eyes, views };
-}
-
-/* The trunks by where they stand, for what lies on the land (island.js): `near(x, z, r)` is whether one stands within `r` m. */
-export function trunkIndex(spots) {
-  const trunks = index(spots.map(({ x, z }) => [x, z]), 8);
-  return { near: trunks.within };
 }
 
 /* ---------- the shapes ---------- */
@@ -299,37 +314,54 @@ function limb(out, rings, sides, dark, pale, moves) {
   }
 }
 
-/* A mass of leaves: a ball of `detail` (an icosahedron's faces each split so many times, or, under 0, an octahedron's) pulled into
-   the radii `rad` round `at`, flatter underneath than on top, its corners in or out by up to `rough` of that, each by its own place so
-   the corners that faces share move together. Its faces take the light as one soft round thing does, the whole crown's (`heart` its
-   middle, `span` its radii): a share `round` of each corner's normal is the crown's. Its colour runs from `under` at `low` to `over`
-   at `high`, mottled by the corner, and each face a shade of its own. */
-function mass(out, at, rad, detail, rough, salt, { heart, span, round, under, over, low, high }) {
-  const ball = detail < 0 ? new THREE.OctahedronGeometry(1, -detail) : new THREE.IcosahedronGeometry(1, detail), pos = ball.attributes.position;
-  const corners = [];
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), i1 = Math.round(x * 1000), i2 = Math.round(y * 1000) * 31 + Math.round(z * 1000);
-    const k = 1 - rough + 2 * rough * chance(i1, i2, salt);
-    const p = [at[0] + x * rad[0] * k, Math.min(1, at[1] + y * rad[1] * (y < 0 ? 0.55 : k)), at[2] + z * rad[2] * k];
-    /* No corner of a crown stands further out than CROWN_REACH of its radius. */
+/* How far down from its top a lobe's last ring stands, in rad: past its widest, so its rim tucks in under it. And how far a lobe's
+   corners stand in or out of its radii. */
+const TUCK = 1.85;
+export const LOBE_ROUGH = 0.14;
+
+/* A lobe of a broad crown: a dome of leaves round `at`, `rad` its radii, of `sides` sides and `rings` rings under its top, the last of
+   them tucked in under its widest (TUCK rad down from its top) and drooping unevenly, and closed underneath, where it bellies down
+   a little (with `belly`; flat without). Its corners stand in or out by up to `rough` of its radii, each by its own number, and
+   none further from the tree's middle line than CROWN_REACH. It takes the light as a round thing of its own does, a share `round`
+   of each corner's normal being the whole crown's (`heart` its middle, `span` its radii), so a crown reads as one soft thing made
+   of several. Its colour runs from `over` on its top, down its flanks to `flank` at its widest, and to `under` beneath, so that from
+   above each lobe shows its own round top and from below the crown is in its own shade; the lower a lobe sits in the crown (`low`
+   to `high`), the deeper its colour; each corner mottled, each face a shade of its own. `top` moves the dome's top up to that
+   height exactly. */
+function lobe(out, at, rad, sides, rings, salt, { rough, heart, span, round, under, flank, over, low, high }, { belly = false, top = null } = {}) {
+  const corner = (unit, k, drop, mottle) => {
+    const p = [at[0] + unit[0] * rad[0] * k, at[1] + (unit[1] * k - drop) * rad[1], at[2] + unit[2] * rad[2] * k];
     const far = Math.hypot(p[0], p[2]);
     if (far > CROWN_REACH) { p[0] *= CROWN_REACH / far; p[2] *= CROWN_REACH / far; }
-    const own = [x / rad[0], y / rad[1], z / rad[2]], l = Math.hypot(...own);
+    /* Its own normal, a dome's; and the whole crown's there. */
+    const own = [unit[0] / rad[0], unit[1] / rad[1], unit[2] / rad[2]], l = Math.hypot(...own) || 1;
     const whole = [(p[0] - heart[0]) / (span[0] * span[0]), (p[1] - heart[1]) / (span[1] * span[1]), (p[2] - heart[2]) / (span[2] * span[2])], w = Math.hypot(...whole) || 1;
-    const c = times(mix(under, over, clamp01((p[1] - low) / (high - low))), 0.84 + 0.32 * chance(i1, i2, salt + 100));
-    corners.push({ p, c, n: [(own[0] / l) * (1 - round) + (whole[0] / w) * round, (own[1] / l) * (1 - round) + (whole[1] / w) * round, (own[2] / l) * (1 - round) + (whole[2] / w) * round] });
+    const tone = unit[1] >= 0 ? mix(flank, over, unit[1] ** 1.4) : mix(flank, under, Math.min(1, -3 * unit[1]));
+    const deep = 0.8 + 0.2 * clamp01((p[1] - low) / (high - low));
+    return { p, c: times(tone, deep * (0.86 + 0.28 * mottle)), n: [(own[0] / l) * (1 - round) + (whole[0] / w) * round, (own[1] / l) * (1 - round) + (whole[1] / w) * round, (own[2] / l) * (1 - round) + (whole[2] / w) * round] };
+  };
+  const apex = corner([0.08 * (chance(salt, 0, 71) - 0.5), 1, 0.08 * (chance(salt, 0, 72) - 0.5)], 1 - rough + 2 * rough * chance(salt, 0, 73), 0, chance(salt, 0, 74));
+  if (top !== null) apex.p[1] = top;
+  /* The rings, from just under the top out and down to the tuck, every other one turned half a side. */
+  const ring = Array.from({ length: rings }, (_, j) => Array.from({ length: sides }, (_, i) => {
+    const down = ((j + 1) / rings) * TUCK, turn = ((i + 0.5 * (j % 2) + 0.5 * (chance(i, j, salt) - 0.5)) / sides) * 2 * Math.PI;
+    return corner([Math.sin(down) * Math.cos(turn), Math.cos(down), Math.sin(down) * Math.sin(turn)], 1 - rough + 2 * rough * chance(i, j, salt + 1), j === rings - 1 ? 0.25 * chance(i, j, salt + 2) : 0, chance(i, j, salt + 3));
+  }));
+  let face = 0;
+  const tri = (a, b, c) => { const shade = 0.95 + 0.1 * chance(face++, salt, 41); for (const { p, n, c: tone } of [a, b, c]) out.corner(p, n, times(tone, shade), true); };
+  for (let i = 0; i < sides; i++) tri(apex, ring[0][(i + 1) % sides], ring[0][i]);
+  for (let j = 0; j < rings - 1; j++) for (let i = 0; i < sides; i++) {
+    /* The ring below is turned half a side one way or the other, and the faces between the two follow it. */
+    const upper = ring[j], lower = ring[j + 1], i1 = (i + 1) % sides, shift = j % 2 === 0 ? 0 : 1, l0 = lower[(i + shift) % sides], l1 = lower[(i + shift + 1) % sides];
+    tri(upper[i], upper[i1], l0); tri(upper[i1], l1, l0);
   }
-  for (let f = 0; f < corners.length; f += 3) {
-    const shade = 0.94 + 0.12 * chance(f, salt, 41);
-    for (const { p, n, c } of [corners[f], corners[f + 1], corners[f + 2]]) out.corner(p, n, times(c, shade), true);
-  }
-  ball.dispose();
+  /* Underneath: in the crown's own shade, and facing down. */
+  const rim = ring[rings - 1].map(({ p, n }) => ({ p, c: times(under, 1.35), n: [n[0] * 0.5, n[1] * 0.5 - 0.5, n[2] * 0.5] }));
+  if (belly) {
+    const foot = { p: [at[0], Math.min(...rim.map(({ p }) => p[1])) - 0.2 * rad[1], at[2]], c: under, n: [0, -1, 0] };
+    for (let i = 0; i < sides; i++) tri(foot, rim[i], rim[(i + 1) % sides]);
+  } else for (let i = 1; i < sides - 1; i++) tri(rim[0], rim[i], rim[i + 1]);
 }
-
-/* A trunk's half-width at its foot, where it spreads into the ground, in crown radii: no part of a trunk, a pine's stubs among them,
-   stands further from its middle line. And how far a crown's corners reach, in the same: a little under 1, which leaves the widest
-   crown, leant and swaying, inside CROWN_R_MAX. */
-const TRUNK_FOOT = 0.2, CROWN_REACH = 0.98;
 
 /* A pine: a straight trunk, bare but for a few dead stubs, and a crown of tiers of boughs, each a cone whose rim droops in points and
    is closed underneath, since a walker under it looks up into it. A phone's has fewer tiers and sides. */
@@ -380,23 +412,34 @@ export function pineGeometry(phone) {
   return out.geometry();
 }
 
+/* The lobes of a broad crown, each [its middle, its radii, its sides, its rings, its salt] (lobe). The first tops the trunk; the
+   others stand round it, each lower than it by its own measure and far enough out that its own top shows from above. A phone's
+   crown has fewer, of fewer sides. */
+export const broadLobes = (phone) => phone
+  ? [
+    [[0.03, 0.885, 0.03], [0.5, 0.115, 0.48], 7, 2, 61], [[-0.5, 0.83, 0.26], [0.45, 0.085, 0.43], 5, 2, 62],
+    [[0.44, 0.862, -0.36], [0.45, 0.085, 0.43], 5, 2, 63], [[0.12, 0.806, 0.54], [0.41, 0.075, 0.39], 5, 2, 64],
+  ]
+  : [
+    [[0.03, 0.885, 0.0], [0.5, 0.115, 0.48], 9, 3, 61], [[-0.5, 0.83, 0.24], [0.45, 0.088, 0.43], 7, 3, 62],
+    [[0.45, 0.862, -0.34], [0.45, 0.085, 0.43], 7, 3, 63], [[0.13, 0.806, 0.55], [0.41, 0.075, 0.4], 7, 2, 64],
+    [[-0.19, 0.846, -0.54], [0.41, 0.085, 0.39], 7, 2, 65], [[0.58, 0.83, 0.2], [0.36, 0.07, 0.36], 6, 2, 66],
+  ];
+
 /* A broad-crowned tree, as a stone pine grows: a trunk that bends a little and forks high up into boughs that fan out and up, each
-   holding a flat mass of leaves, the masses round a larger one at the top, so the crown is an umbrella with an outline of its own
-   from every side and the sky shows between its boughs. */
+   holding a lobe of leaves, the lobes at heights of their own round a dome at the top, so the crown is an umbrella with an outline
+   of its own from every side, a canopy of round tops from above, and the sky shows between its boughs. */
 export function broadGeometry(phone) {
   const out = shape(), bark = rgb(0x86694f), barkDark = rgb(0x4d3b2e);
   const sides = phone ? 5 : 6, fork = [0.035, 0.685, 0.01];
   limb(out, [{ at: [0, 0, 0], r: TRUNK_FOOT }, { at: [0, 0.16, 0], r: 0.14 }, { at: [-0.035, 0.42, 0.02], r: 0.115 }, { at: fork, r: 0.085 }].filter((_, k) => !phone || k !== 2), sides, barkDark, bark, false);
-  const leaf = { heart: [0.04, 0.84, 0], span: [1, 0.16, 1], round: 0.7, under: rgb(0x2c3a1e), over: rgb(0x778c42), low: 0.76, high: 0.99 };
-  /* Each mass: its middle, its radii, its detail and its salt. The first tops the trunk; the others stand round it. */
-  const masses = phone
-    ? [[[0.04, 0.895, 0.06], [0.66, 0.105, 0.62], -1, 61], [[-0.44, 0.855, 0.3], [0.5, 0.088, 0.46], 0, 62], [[0.42, 0.86, -0.36], [0.5, 0.088, 0.46], 0, 63]]
-    : [[[0.04, 0.895, 0.0], [0.62, 0.105, 0.6], 1, 61], [[-0.47, 0.855, 0.24], [0.45, 0.088, 0.43], -1, 62], [[0.42, 0.862, -0.34], [0.46, 0.088, 0.44], -1, 63], [[0.14, 0.848, 0.53], [0.4, 0.08, 0.39], -1, 64], [[-0.2, 0.86, -0.52], [0.4, 0.082, 0.38], -1, 65]];
-  for (const [at, rad, detail, salt] of masses) mass(out, at, rad, detail, 0.16, salt, leaf);
-  /* The trunk's own top goes on up into the first mass, and a bough from the fork out and up into each of the others. */
-  limb(out, [{ at: fork, r: 0.075 }, { at: [0.05, 0.86, 0.0], r: 0.035 }], 3, bark, bark, true);
-  for (const [at] of masses.slice(1)) {
-    const rings = [{ at: [fork[0], BASE_FRAC + 0.006, fork[2]], r: 0.06 }, { at: [at[0] * 0.5, at[1] - 0.075, at[2] * 0.5], r: 0.042 }, { at: [at[0] * 0.92, at[1] - 0.012, at[2] * 0.92], r: 0.02 }];
+  const leaf = { rough: LOBE_ROUGH, heart: [0.04, 0.84, 0], span: [1, 0.16, 1], round: 0.3, under: rgb(0x26331b), flank: rgb(0x46592a), over: rgb(0x8a9c4a), low: 0.78, high: 1 };
+  const lobes = broadLobes(phone);
+  lobes.forEach(([at, rad, around, rings, salt], k) => lobe(out, at, rad, around, rings, salt, leaf, { belly: !phone, top: k === 0 ? 1 : null }));
+  /* The trunk's own top goes on up into the first lobe, and a bough from the fork out and up into each of the others. */
+  limb(out, [{ at: fork, r: 0.075 }, { at: [0.05, lobes[0][0][1] - 0.01, 0.0], r: 0.035 }], 3, bark, bark, true);
+  for (const [at] of lobes.slice(1)) {
+    const rings = [{ at: [fork[0], BASE_FRAC + 0.006, fork[2]], r: 0.06 }, { at: [at[0] * 0.5, at[1] - 0.075, at[2] * 0.5], r: 0.042 }, { at: [at[0] * 0.92, at[1] - 0.008, at[2] * 0.92], r: 0.02 }];
     limb(out, phone ? [rings[0], rings[2]] : rings, 3, bark, bark, true);
   }
   return out.geometry();
@@ -405,17 +448,40 @@ export function broadGeometry(phone) {
 /* ---------- the meshes ---------- */
 
 const f = (v) => v.toFixed(4);
-/* The side of the squares the trees are sorted into for the walk's camera: its boom is 20 m on a phone and trails a run by a few
-   more, and a crown reaches CROWN_R_MAX past its tree, so the nine squares round the visitor hold every tree the boom can meet. */
+/* The side of the squares the trees are sorted into for the walk and its camera: its boom is longest on a phone and trails a run by
+   a few metres more, and a crown reaches CROWN_R_MAX past its tree, so the squares within SQUARE m of the visitor hold every tree the
+   boom can meet. */
 export const SQUARE = 30;
 /* The camera keeps this far from a trunk's bark: its near plane, 0.5 m (main.js), and a little more, so it never looks into one. */
 export const NEAR = 0.6;
+/* Of the stage's glow that level ground at its foot would take, a tree takes this share (island.js takesPool): its bark and leaves
+   are paler than the turf, and the ground at its foot may slope away from the stage, so with less than a half it is never the
+   brighter of the two. */
+export const GLOW_SHARE = 0.25;
 
-/* Builds the trees at `spots` (placeTrees): the pines as one instanced mesh and the broad-crowned as another. `lit(material)` has a
-   material take the light the ground takes (the stage's glow, island.js). Returns `count`; `meshes`; `wind(time)`, which sways the
-   crowns at a time; and `columns(x, z, into)`, which pushes onto `into` what the walk's camera keeps out of near (x, z): for each tree
-   there a column for its trunk and one, with a `base`, for its crown (collide.js enterColumn). The same objects every time, so a
-   frame makes nothing. */
+/* What a walk and its camera keep out of, near a place: `columns(x, z, into)` pushes onto `into`, for each tree in the squares within
+   SQUARE m of (x, z), a column for its trunk and one, with a `base`, for its crown (collide.js enterColumn); and `trunks(x, z, r)`
+   is the trunks' columns in the squares within `r` m, each with its foot's `x` and `z`, in an array that is the same one every
+   time. The same objects every time, so a frame makes nothing. */
+function keepOuts(spots) {
+  const grid = squares(SQUARE), feet = [];
+  for (const { x, z, tall, wide, lean, reach, base, top } of spots) {
+    /* The trunk's column takes in its foot's width, as far as its lean carries it by where its crown starts, and NEAR. */
+    const r = trunkOut(wide, Math.hypot(lean[0], lean[1]), (tall + SUNK) * BASE_FRAC) + NEAR;
+    grid.add(x, z, { trunk: { x, z, r, top }, crown: { x, z, r: reach, base, top } });
+  }
+  let into = feet;
+  const both = (tree) => { into.push(tree.trunk, tree.crown); }, trunk = (tree) => { feet.push(tree.trunk); };
+  return {
+    columns(x, z, list) { into = list; grid.some(x, z, SQUARE, both); return list; },
+    trunks(x, z, r) { feet.length = 0; grid.some(x, z, r, trunk); return feet; },
+  };
+}
+
+/* Builds the trees at `spots` (placeTrees): the pines as one instanced mesh and the broad-crowned as another. `lit(material, stands)`
+   has a material take the stage's glow as a thing that stands on the ground does (island.js takesPool). Returns `count`; `meshes`;
+   `wind(time)`, which sways the crowns at a time; and `columns` and `trunks`, what the walk's camera and the walk keep out of near a
+   place (keepOuts). */
 export function buildTrees(scene, spots, { lit, phone }) {
   const wind = { value: 0 };
   const dummy = new THREE.Object3D(), turn = new THREE.Quaternion(), axis = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), tint = new THREE.Color();
@@ -423,7 +489,7 @@ export function buildTrees(scene, spots, { lit, phone }) {
   for (const [kind, geometry] of [["pine", pineGeometry], ["broad", broadGeometry]]) {
     const mine = spots.filter((s) => s.kind === kind);
     if (mine.length === 0) continue;
-    const mat = lit(new THREE.MeshLambertMaterial({ vertexColors: true }));
+    const mat = lit(new THREE.MeshLambertMaterial({ vertexColors: true }), { sunk: SUNK, share: GLOW_SHARE });
     const litCompile = mat.onBeforeCompile;
     mat.onBeforeCompile = (shader) => {
       litCompile(shader);
@@ -458,21 +524,5 @@ export function buildTrees(scene, spots, { lit, phone }) {
     scene.add(mesh);
     meshes.push(mesh);
   }
-
-  const cells = new Map(), cell = (v) => Math.floor(v / SQUARE), key = (i, j) => i * 4096 + j;
-  for (const { x, y, z, tall, wide, lean, reach, base, top } of spots) {
-    const k = key(cell(x), cell(z));
-    if (!cells.has(k)) cells.set(k, []);
-    /* The trunk's column takes in its foot's width, as far as its lean carries it by where its crown starts, and NEAR. */
-    const r = TRUNK_FOOT * wide + Math.hypot(lean[0], lean[1]) * (tall + SUNK) * BASE_FRAC + NEAR;
-    cells.get(k).push({ x, z, r, top }, { x, z, r: reach, base, top });
-  }
-  function columns(x, z, into) {
-    for (let i = cell(x) - 1; i <= cell(x) + 1; i++) for (let j = cell(z) - 1; j <= cell(z) + 1; j++) {
-      const list = cells.get(key(i, j));
-      if (list) for (let k = 0; k < list.length; k++) into.push(list[k]);
-    }
-    return into;
-  }
-  return { count: spots.length, meshes, columns, wind: (time) => { wind.value = time; } };
+  return { count: spots.length, meshes, ...keepOuts(spots), wind: (time) => { wind.value = time; } };
 }

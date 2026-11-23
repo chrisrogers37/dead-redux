@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { listenerAt } from "../../../public/world/audio.js";
-import { BODY_REACH, TREE_REACH } from "../../../public/world/collide.js";
+import { BODY_REACH } from "../../../public/world/collide.js";
 import { BOUND, STAGE, STAGE_COLUMN, STAGE_POSE, STAGE_REACH } from "../../../public/world/ground.js";
 import { bindInput, REACH } from "../../../public/world/input.js";
 import {
+  BEAR_GAP,
   confine,
   DESCENT_S,
   enterMode,
@@ -13,7 +14,7 @@ import {
   slotAt,
   slotDistance,
   walkFrom,
-  walkLimits,
+  walkLimits as worldLimits,
 } from "../../../public/world/modes.js";
 
 const stage = { x: STAGE[0], z: STAGE[1] };
@@ -22,7 +23,14 @@ type Point = { x: number; z: number };
 type Spot = Point & { heading: number };
 type Walker = Spot & { pitch: number };
 // The tests keep a walker to the world's own limits (walkLimits, public/world/modes.js), with the bears and the trees each one gives.
-const limits = (bears: Point[] = [], trees: Point[] = []) => walkLimits(bears, trees);
+// A walk is handed the trees near a place and how far it keeps from one; here every tree is near, and the reach is a number of the
+// tests' own, as the world's is the trees' (trees.js).
+const TREE_REACH = 2.8;
+// walkLimits, with the shape of the trees' look-up, which the world's plain module does not spell out.
+const walkLimits = worldLimits as unknown as (bears: Point[], trees?: (x: number, z: number, r: number) => Point[], treeReach?: number) => {
+  bound: number; stages: (Point & { r: number; top: number })[]; stageReach: number; trees(x: number, z: number, r: number): Point[]; treeReach: number; bears: Point[]; bearReach: number;
+};
+const limits = (bears: Point[] = [], trees: Point[] = []) => walkLimits(bears, () => trees, TREE_REACH);
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.z - b.z);
 const spotOf = (w: Spot): Spot => ({ x: w.x, z: w.z, heading: w.heading });
 
@@ -119,15 +127,16 @@ describe("keepSpot", () => {
 });
 
 describe("walkLimits", () => {
-  it("holds the bears and the trees it is given, not copies, with the stage's column and the world's reaches", () => {
-    const bears = [{ x: -20, z: 30 }], trees = [{ x: 40, z: 60 }];
-    expect(walkLimits(bears, trees).bears).toBe(bears);
-    expect(walkLimits(bears, trees).trees).toBe(trees);
-    expect(walkLimits(bears, trees)).toEqual({ bound: BOUND, stages: [STAGE_COLUMN], stageReach: STAGE_REACH, trees, treeReach: TREE_REACH, bears, bearReach: BODY_REACH });
+  it("holds the bears it is given, not a copy, and the trees' look-up and reach, with the stage's column and the world's reaches", () => {
+    const bears = [{ x: -20, z: 30 }], trees = () => [{ x: 40, z: 60 }];
+    expect(walkLimits(bears, trees, 3).bears).toBe(bears);
+    expect(walkLimits(bears, trees, 3).trees).toBe(trees);
+    expect(walkLimits(bears, trees, 3)).toEqual({ bound: BOUND, stages: [STAGE_COLUMN], stageReach: STAGE_REACH, trees, treeReach: 3, bears, bearReach: BODY_REACH });
     expect(walkLimits(bears).stages[0]).toBe(STAGE_COLUMN);
-    // A world told of no trees has none.
-    expect(walkLimits(bears).trees).toEqual([]);
-    expect(TREE_REACH).toBe(2.65);
+    // A world told of no trees has none anywhere.
+    expect(walkLimits(bears).trees(40, 60, 3)).toEqual([]);
+    expect(walkLimits(bears).treeReach).toBe(0);
+    expect(fits({ x: 40, z: 60 }, walkLimits(bears))).toBe(true);
   });
 });
 
@@ -191,6 +200,30 @@ describe("confine", () => {
     expect(touched).toBeGreaterThan(10);
     expect(p.z).toBeGreaterThanOrEqual(1);
     expect(p.x).toBeGreaterThan(8);
+  });
+
+  it("asks for the trees near where the walker stands once the bound and the stage have moved it, within the trees' reach, and tries only those", () => {
+    // A walker past the bound, on the bearing of a tree that stands just inside it: the clamp brings it into the tree's reach.
+    const tree = { x: 0, z: BOUND - 1 }, asked: number[][] = [];
+    const near = (x: number, z: number, r: number) => { asked.push([x, z, r]); return Math.hypot(x - tree.x, z - tree.z) < 10 ? [tree] : []; };
+    const p: Spot = { x: 0, z: BOUND + 20, heading: 0 };
+    confine(p, walkLimits([], near, TREE_REACH));
+    // Asked once, where the clamp left it, on the bound.
+    expect(asked).toEqual([[0, BOUND, TREE_REACH]]);
+    expect(p.z).toBeCloseTo(tree.z + TREE_REACH, 9);
+    // A tree the look-up does not hand over is not tried, wherever it stands: the look-up is the walk's only word on the trees.
+    const far: Spot = { x: 50, z: 50, heading: 0 };
+    confine(far, walkLimits([], () => [], TREE_REACH));
+    expect(spotOf(far)).toEqual({ x: 50, z: 50, heading: 0 });
+    // And after the stage has moved it: a walker 3 m inside the stage's reach is asked about where the stage put it, on its reach.
+    asked.length = 0;
+    const inStage: Spot = { x: stage.x + STAGE_REACH - 3, z: stage.z, heading: 0 };
+    confine(inStage, walkLimits([], near, TREE_REACH));
+    expect(asked).toEqual([[expect.closeTo(stage.x + STAGE_REACH, 9), expect.closeTo(stage.z, 9), TREE_REACH]]);
+    // fits asks the same, where the walker would stand.
+    asked.length = 0;
+    expect(fits({ x: 1, z: BOUND - 2 }, walkLimits([], near, TREE_REACH))).toBe(false);
+    expect(asked).toEqual([[1, BOUND - 2, TREE_REACH]]);
   });
 
   it("gives the bears the last word over a tree too: a walker in a trunk's reach and a bear's ends on the bear's", () => {
@@ -351,7 +384,8 @@ const curving = {
 describe("slotDistance", () => {
   it("stands the visitor's bear one gap behind the last bear shown: as many gaps behind the lead as there are bears shown", () => {
     // Five bears 7 m apart, the lead 100 m along: the last stands at 72 m and the visitor's bear at 65 m.
-    expect(slotDistance(100, 5, 7)).toBe(65);
+    expect(BEAR_GAP).toBe(7);
+    expect(slotDistance(100, 5, BEAR_GAP)).toBe(65);
   });
 
   it("moves up the line with the rest when a downgrade drops bears", () => {
