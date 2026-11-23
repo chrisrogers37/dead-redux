@@ -373,7 +373,7 @@ export function makeBuilders(phone) {
     [{ test: isTuning }, tuningPeg],
     [/playin/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(0.15, 0.15, 7, 6), wood, 0, 3.5, 0)); const k = mesh(new THREE.BoxGeometry(1.8, 1.8, 0.08), new THREE.MeshLambertMaterial({ color: 0xd4607a, flatShading: true }), 0, 7.6, 0); k.rotation.z = Math.PI / 4; g.add(k); }],
     [/truckin/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(0.12, 0.12, 4.4, 6), stone, 0, 2.2, 0)); const s = mesh(new THREE.BoxGeometry(1.7, 1.7, 0.1), new THREE.MeshLambertMaterial({ color: 0xd4a056, flatShading: true }), 0, 4.6, 0.1); s.rotation.z = Math.PI / 4; g.add(s); }],
-    [/sugar magnolia|sugaree/i, (g) => { g.add(mesh(new THREE.IcosahedronGeometry(2, 0), new THREE.MeshLambertMaterial({ color: 0x78b070, flatShading: true }), 0, 1.6, 0)); const rose = new THREE.MeshLambertMaterial({ color: 0xd4607a, flatShading: true }); for (const [x, y, z] of [[1.2, 2.6, 0.8], [-1.1, 2.4, 1], [0.2, 3.4, -0.6], [-0.9, 1.6, -1.4], [1.5, 1.4, -0.9]]) g.add(mesh(new THREE.SphereGeometry(0.35, 6, 4), rose, x, y, z)); }],
+    [/sugar magnolia|sugaree/i, magnolia],
     [/ripple/i, (g) => { g.add(mesh(new THREE.CircleGeometry(3, 24).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x0e1014 }), 0, 0.12, 0)); const r = mesh(new THREE.TorusGeometry(3.2, 0.15, 6, 32), stone, 0, 0.15, 0); r.rotation.x = -Math.PI / 2; g.add(r); }],
     [/eyes/i, (g) => { for (const x of [-0.9, 0.9]) g.add(mesh(new THREE.CylinderGeometry(0.12, 0.12, 3.2, 6), wood, x, 1.6, 0), mesh(new THREE.SphereGeometry(0.45, 8, 6), amber, x, 3.5, 0)); }],
     [/scarlet/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(0.12, 0.12, 6.5, 6), wood, -1.1, 3.25, 0), mesh(new THREE.BoxGeometry(2, 3, 0.06), new THREE.MeshLambertMaterial({ color: 0xb8333a, flatShading: true }), 0, 4.6, 0)); }],
@@ -396,12 +396,12 @@ export function makeBuilders(phone) {
     [/wheel/i, (g) => { const w = mesh(new THREE.TorusGeometry(3.2, 0.4, 6, 16), wood, 0, 3.6, 0); g.add(w); moving.push({ obj: w, kind: "spin" }); }],
     [/miracle/i, (g) => { const s = mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.9 }), 0, 4, 0); g.add(s); moving.push({ obj: s, kind: "bob" }); }],
     [/band/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(4, 4, 0.8, 8), wood, 0, 0.4, 0)); if (!phone) for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; g.add(mesh(new THREE.CylinderGeometry(0.2, 0.2, 3, 5), wood, Math.cos(a) * 3.6, 2.3, Math.sin(a) * 3.6)); } g.add(mesh(new THREE.ConeGeometry(4.6, 2, 8), stone, 0, 4.8, 0)); }],
-    [{ test: isDrums }, (g) => { g.add(mesh(new THREE.CylinderGeometry(1.4, 1.4, 2, 10), wood, -2, 1, 0), mesh(new THREE.CylinderGeometry(1.1, 1.1, 3, 10), wood, 0.6, 1.5, 1), mesh(new THREE.CylinderGeometry(1.8, 1.8, 1.5, 10), wood, 2.4, 0.75, -1)); }],
-    [{ test: isSpace }, (g) => { g.add(mesh(new THREE.CircleGeometry(5, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000 }), 0, 0.15, 0)); }],
-    [/lovin/i, (g) => { const a = mesh(new THREE.BoxGeometry(1, 6, 1), stone, -1.6, 2.8, 0); a.rotation.z = -0.35; const b = mesh(new THREE.BoxGeometry(1, 6, 1), stone, 1.6, 2.8, 0); b.rotation.z = 0.35; g.add(a, b); }],
+    [{ test: isDrums }, drumCircle],
+    [{ test: isSpace }, spaceRim],
+    [/lovin/i, leaningStones],
     [/road/i, (g) => { g.add(mesh(new THREE.BoxGeometry(4, 0.2, 18), stone, 0, 0.4, 0)); }],
     [/lovelight|light/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(1.2, 1.6, 10, 8), new THREE.MeshLambertMaterial({ color: 0xeceae4, flatShading: true }), 0, 5, 0)); const b = mesh(new THREE.BoxGeometry(1, 1, 1), amber, 0, 10.6, 0); g.add(b); moving.push({ obj: b, kind: "spin" }); }],
-    [/blues/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(0.15, 0.15, 12, 6), stone, 0, 6, 0), mesh(new THREE.BoxGeometry(3, 1.8, 0.05), new THREE.MeshLambertMaterial({ color: 0xd6508a }), 1.6, 11, 0)); }],
+    [/blues/i, bannerPole],
   ];
   /* ---------- the standing stones ---------- */
   /* A song no rule matches gets a standing stone: one of eight kinds, by its title's number, the same on every visit. Each is cut
@@ -622,6 +622,255 @@ export function makeBuilders(phone) {
   /* The kinds, in the order of a title's kind (stoneKind), and the title's own stone. */
   const STONES = [menhir, leaningSlab, splitStone, cairn, trilithon, stonePair, stele, balancedBoulder];
   const standingStone = (g, title = "") => STONES[stoneKind(title)](g, stoneOf(titleHash(title)));
+
+  /* ---------- Drums, the blues, Space, Sugar Magnolia and Lovin' ---------- */
+  /* Each of these five keeps inside the outline, seen from above, of the plain shape it replaced: the hull of that shape's parts,
+     which is what a landmark is stood off its song's point by (path.js). Keeping within the old shape's furthest reach is not
+     enough: a rounder shape inside that reach is wider somewhere than the old one was. None is taller than the shape it replaced
+     but Space's rim, which stands round a disc that lay flat.
+     A wide landmark sees more of a slope than a stone does: it stands level, and under its far side the ground falls further than
+     SUNK. So each foot here goes down as far as the ground falls under its own place anywhere on the path, and a hand more. */
+  const UP = new THREE.Vector3(0, 1, 0);
+  /* A rod from one place to another: `r` thick at its near end and `r1` at its far one, of `sides` flat sides, open at its ends
+     unless `capped`. */
+  const rod = (g, mat, from, to, r, sides = 4, r1 = r, capped = false) => {
+    const along = new THREE.Vector3(...to).sub(new THREE.Vector3(...from)), length = along.length();
+    const m = mesh(new THREE.CylinderGeometry(r1, r, length, sides, 1, !capped), mat, (from[0] + to[0]) / 2, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2);
+    m.quaternion.setFromUnitVectors(UP, along.divideScalar(length));
+    g.add(m);
+    return m;
+  };
+  /* A shape turned about the upright from a profile of [radius, height], foot first, with `sides` flat sides. Where the profile
+     meets the upright it closes on a point, with no face of no area there. */
+  const turned = (profile, sides) => {
+    const corners = [], at = ([r, y], i) => { const a = (i / sides) * 2 * Math.PI; return [r * Math.sin(a), y, r * Math.cos(a)]; };
+    for (let k = 0; k < profile.length - 1; k++) {
+      const low = profile[k], high = profile[k + 1];
+      for (let i = 0; i < sides; i++) {
+        if (low[0] > 0) corners.push(...at(low, i), ...at(low, i + 1), ...at(high, i + 1));
+        if (high[0] > 0) corners.push(...at(low, i), ...at(high, i + 1), ...at(high, i));
+      }
+    }
+    return new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(corners, 3));
+  };
+
+  /* Drums: a drum circle, three great drums where the three plain ones stood, each as broad as the old one's ten sides let it
+     be: a bass drum, broad and low, laced with rope from hoop to hoop, two beaters left on its head; a goblet drum behind it, the
+     tallest, laced round its bowl; and a barrel drum with iron bands and the rods that draw its head down. Each head is a pale
+     skin whose edge is turned down over the shell's rim, with a hoop under it, which is what says drum from the side.
+     They stand level on a slope, and wide. Under the bass drum's place the ground falls 2.9 m at the path's steepest, so the
+     shells go on down DRUM_SUNK. And it rises: 1.4 m over the landmark's own ground under the bass drum at the steepest stand
+     the maps give it, 1.5 m under the barrel and 2.6 m under the goblet anywhere on the path. Each drum's hoop begins over that
+     (BASS, less its head and its hoop, is 1.55 m), so its head and its hoop show wherever a show has stood it; only the bass drum
+     can lose them, where the ground rises more than that under it, which it does along some 7 % of the path. */
+  const SKIN = 0xd9c9a0, WORN = 0xc2a878, BEATER = 0x8f6c3e, OXBLOOD = 0x8a3d2b, HONEY = 0xa3733f, DRUM_SUNK = 3.2, HEAD = 0.16, HOOP = 0.14, BASS = 1.85;
+  /* A drum in its own frame, its foot at its own ground: a shell turned from `profile` ([radius, height], foot first), which goes
+     straight on down from its foot; its head, as high as the profile's top; and under the head the hoop that holds it. */
+  const drum = (profile, wood, band, sides) => {
+    const parts = new THREE.Group(), [rim, tall] = profile[profile.length - 1];
+    put(parts, new THREE.LatheGeometry([[profile[0][0], -DRUM_SUNK], ...profile].map(([r, y]) => new THREE.Vector2(r, y)), sides), tone(wood, true), 0, 0, 0);
+    /* The head: the skin's edge turned down over the rim, and on top a ring of it round its middle, which is worn where it is
+       played. */
+    put(parts, new THREE.CylinderGeometry(rim + 0.04, rim + 0.04, HEAD, sides, 1, true), tone(SKIN, true), 0, tall - HEAD / 2, 0);
+    put(parts, new THREE.RingGeometry(0.55 * rim, rim + 0.04, sides).rotateX(-Math.PI / 2), tone(SKIN, true), 0, tall, 0);
+    put(parts, new THREE.CircleGeometry(0.55 * rim, sides).rotateX(-Math.PI / 2), tone(WORN, true), 0, tall, 0);
+    put(parts, new THREE.CylinderGeometry(rim + 0.09, rim + 0.09, HOOP, sides), tone(band, true), 0, tall - HEAD - HOOP / 2, 0);
+    return parts;
+  };
+  /* A drum's lacing: one rope in `n` V's round it, between two rings, each given as the rope's own [radius, height] there. */
+  const lace = (parts, n, [r0, y0], [r1, y1]) => {
+    const at = (r, y, k) => { const a = (k / (2 * n)) * 2 * Math.PI; return [r * Math.sin(a), y, r * Math.cos(a)]; };
+    for (let k = 0; k < 2 * n; k++) rod(parts, tone(STRING), k % 2 ? at(r1, y1, k) : at(r0, y0, k), k % 2 ? at(r0, y0, k + 1) : at(r1, y1, k + 1), 0.03);
+  };
+  function drumCircle(g) {
+    const sides = phone ? 8 : 12;
+    /* The bass drum: a straight shell, a hoop under its head and one near its foot, and the rope between them. Its eight V's
+       turn where a phone's eight-sided shell has its corners, so each length of rope lies over a flat of the shell, clear of it. */
+    const bass = drum([[1.62, BASS]], OXBLOOD, DARK_TIMBER, sides);
+    put(bass, new THREE.CylinderGeometry(1.71, 1.71, HOOP, sides), tone(DARK_TIMBER, true), 0, 0.37, 0);
+    lace(bass, 8, [1.68, BASS - HEAD - HOOP], [1.68, 0.44]);
+    /* The beaters lie on the head, a centimetre or two into it: a stick's foot and its padded end both rest there. */
+    for (const [x, z, turn] of [[-0.3, -0.4, 0.5], [0.2, 0.45, -0.4]]) {
+      const beater = new THREE.Group();
+      rod(beater, tone(BEATER), [-0.75, 0.025, 0], [0.62, 0.105, 0], 0.045, phone ? 4 : 6, 0.045, true);
+      put(beater, new THREE.SphereGeometry(0.13, phone ? 5 : 6, phone ? 3 : 4), tone(LEATHER), 0.7, 0.11, 0);
+      stand(bass, beater, x, BASS, z, 0, turn, 0);
+    }
+    stand(g, bass, 2.4, 0, -1);
+    /* The goblet drum: a foot that flares, a waist, and a bowl that widens straight to its head, so the rope lies along it; its
+       V's turn at the shell's corners on both tiers. */
+    const goblet = drum([[0.9, 0], [0.92, 0.08], [0.68, 0.6], [0.54, 1.12], [0.57, 1.38], [0.7, 1.66], [0.94, 2.72], [0.92, 2.98]], HONEY, IRON, sides);
+    put(goblet, new THREE.CylinderGeometry(0.78, 0.75, 0.1, sides), tone(IRON, true), 0, 1.66, 0);
+    lace(goblet, phone ? 4 : 6, [0.99, 2.98 - HEAD - HOOP], [0.76, 1.71]);
+    stand(g, goblet, 0.6, 0, 1);
+    /* The barrel drum: staves that swell to its belly, two iron bands, and rods from the upper band up into the hoop. */
+    const barrel = drum([[1.06, 0], [1.13, 0.45], [1.22, 1.2], [1.25, 1.62], [1.19, 2.06], [1.12, 2.45]], TIMBER, IRON, sides);
+    for (const [r, y] of [[1.185, 0.72], [1.275, 1.58]]) put(barrel, new THREE.CylinderGeometry(r, r, 0.1, sides, 1, true), tone(IRON, true), 0, y, 0);
+    const lugs = phone ? 4 : 6;
+    for (let k = 0; k < lugs; k++) {
+      const a = ((k + 0.5) / lugs) * 2 * Math.PI, s = Math.sin(a), c = Math.cos(a);
+      rod(barrel, tone(IRON), [1.29 * s, 1.6, 1.29 * c], [1.235 * s, 2.45 - HEAD - HOOP / 2, 1.235 * c], 0.03);
+    }
+    stand(g, barrel, -2, 0, 0);
+  }
+
+  /* The blues: a banner pole. The plain one was a thin pole with a flag out to one side, and seen from above that is all the room
+     there is: a pole no thicker than 0.26 m, and a banner no thicker than the old flag's 5 cm that reaches 3.1 m. So it is a
+     pale turned pole with brass collars and a finial, a yard near its top, a cord from the pole's head to the yard's end, and a
+     long banner in the blues' own colour hung from the yard, broad face to the walker: banded, and cut to two tails. Its bands
+     are the banner's own cloth, not laid on it. */
+  const BLUE = 0x5c86e0, PALE_BLUE = 0xdce8fa, POLE = 0xd8d2c4, YARD = 11.31;
+  function bannerPole(g) {
+    const sides = phone ? 6 : 8, pole = [[0.125, -SUNK], [0.125, 0.45], [0.095, 0.7], [0.085, 2.2], [0.118, 2.32], [0.118, 2.5], [0.08, 2.64], [0.07, 11], [0.105, 11.12], [0.105, 11.5], [0.07, 11.6]];
+    put(g, new THREE.LatheGeometry(pole.map(([r, y]) => new THREE.Vector2(r, y)), sides), tone(POLE), 0, 0, 0);
+    for (const y of [2.41, YARD]) put(g, new THREE.CylinderGeometry(0.125, 0.125, 0.1, sides, 1, true), tone(BRASS), 0, y, 0);
+    put(g, turned([[0.07, 11.6], [0.115, 11.66], [0.125, 11.76], [0.085, 11.86], [0.035, 11.9], [0, 11.99]], sides), tone(BRASS, true), 0, 0, 0);
+    /* The yard, from the pole's middle, and the cord that holds its far end up, from the pole's head to the yard's top. */
+    put(g, new THREE.BoxGeometry(3.08, 0.12, 0.05), tone(DARK_TIMBER, true), 1.54, YARD, 0);
+    rod(g, tone(STRING), [0, 11.8, 0], [2.9, YARD + 0.09, 0], 0.03);
+    /* The banner hangs from the yard's underside: three bands of blue with two pale ones between, then the tails. */
+    const left = 0.3, wide = 2.75;
+    let y = YARD - 0.06;
+    for (const [deep, colour] of [[0.85, BLUE], [0.27, PALE_BLUE], [0.9, BLUE], [0.27, PALE_BLUE], [1.05, BLUE]]) {
+      put(g, new THREE.BoxGeometry(wide, deep, 0.05), tone(colour, true), left + wide / 2, y - deep / 2, 0);
+      y -= deep;
+    }
+    const tails = new THREE.Shape([[0, 0], [0, -1.9], [wide / 2, -0.75], [wide, -1.9], [wide, 0]].map(([x, drop]) => new THREE.Vector2(x, drop)));
+    put(g, new THREE.ExtrudeGeometry(tails, { depth: 0.05, bevelEnabled: false }), tone(BLUE, true), left, y, -0.025);
+    /* The halyard comes down the pole from the yard to a cleat set into it. */
+    rod(g, tone(STRING), [0.17, YARD - 0.06, 0], [0.17, 1.45, 0], 0.03);
+    put(g, new THREE.BoxGeometry(0.14, 0.3, 0.06), tone(BRASS, true), 0.13, 1.4, 0);
+  }
+
+  /* Space: main's black disc, level, 0.15 m over its own ground, in a ring of rough blue-grey stones on a wall of them. A level
+     disc 10 m across lies in a slope: in the right cave, where Space is pinned, the ground stands 3 m over the disc's edge on the
+     hill's side, which buries half of it there as it always did, and falls 2.2 m under its edge on the other; nowhere on the path
+     does the ground fall further under the disc than 4.8 m. So the wall goes down RIM_SUNK, and stands at the disc's very edge
+     all round: the disc is a polygon, and the wall's corners are the disc's own corners, bit for bit, from the stones' shoulders,
+     which are over the disc, to under it, so none of the disc shows past the wall and no gap lets the eye in under it. Further
+     down the wall is rough, drawn in from that edge. Over the shoulders each stone is its own: a belly that swells in over the
+     disc, and a rough head, some tall and some low, RIM_TOP up at the most, with a cleft between it and the next. */
+  const VOID = { r: 5, sides: 24, y: 0.15 }, RIM_SUNK = 5, RIM_IN = 3.95, RIM_SHOULDER = 0.3, RIM_UNDER = 0.05, RIM_TOP = 0.8;
+  const RIM_TONES = [0x5f6570, 0x6f7782, 0x80868f];
+  /* How many of the disc's sides each stone stands along, round the ring. */
+  const RIM_SPANS = [2, 1, 2, 1, 1, 2, 2, 1, 2, 1, 1, 2, 1, 2, 1, 2];
+  /* The wall's levels: the shoulder and a level under the disc, both at the disc's edge, then the rough ones, and the foot. */
+  const RIM_LEVELS = phone ? [RIM_SHOULDER, 0.1, -1.2, -2.6, -RIM_SUNK] : [RIM_SHOULDER, 0.1, -0.5, -1.2, -2, -2.9, -RIM_SUNK];
+  /* A face of the rim: a shade darker or lighter here and there. */
+  const rimGrain = (tint, salt, lit = () => 1) => (x, y, z) => { const rough = roll(x, y, z, salt); return shade(tint, lit(y) * (rough > 0.7 ? 0.84 : rough < 0.25 ? 1.14 : 1)); };
+  function spaceRim(g) {
+    const disc = mesh(new THREE.CircleGeometry(VOID.r, VOID.sides).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000 }), 0, VOID.y, 0);
+    g.add(disc);
+    /* The disc's own corners [x, z], round from +x toward +z. */
+    const edge = Array.from({ length: VOID.sides }, (_, k) => { const i = ((VOID.sides - k) % VOID.sides) + 1; return [disc.geometry.attributes.position.getX(i), disc.geometry.attributes.position.getZ(i)]; });
+    const face = (corners, a, b, c) => corners.push(...a, ...b, ...c), shape = (corners) => new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(corners, 3));
+    /* The wall: a corner under each of the disc's, at each level. A rough one is drawn in toward the middle, and stands a little
+       higher or lower than its level. */
+    const wall = [], at = edge.map(([x, z], i) => RIM_LEVELS.map((y, j) => {
+      if (j < 2) return [x, y, z];
+      const k = 1 - (0.04 + 0.2 * roll(i, j, 0, 55)) / VOID.r;
+      return [x * k, y + (j < RIM_LEVELS.length - 1 ? 0.35 * (roll(i, j, 1, 55) - 0.5) : 0), z * k];
+    }));
+    for (let i = 0; i < VOID.sides; i++) for (let j = 0; j < RIM_LEVELS.length - 1; j++) {
+      const n = (i + 1) % VOID.sides;
+      face(wall, at[n][j + 1], at[i][j + 1], at[i][j]); face(wall, at[n][j + 1], at[i][j], at[n][j]);
+    }
+    put(g, paint(shape(wall), rimGrain(shade(RIM_TONES[0], 0.8), 54)), painted, 0, 0, 0);
+    /* The stones, each on its sides of the disc; every third one tall. */
+    let first = 0;
+    RIM_SPANS.forEach((span, k) => {
+      const tall = k % 3 ? 0.4 + 0.25 * roll(k, 1, 0, 52) : RIM_TOP - 0.16 * roll(k, 1, 0, 52), r = (i, n) => roll(i, n, 0, 60 + k);
+      /* Its ground: the disc's corners along it, then the same ones drawn in toward the disc's middle, back again, as far in as
+         this stone is deep; and its heart. */
+      const outer = Array.from({ length: span + 1 }, (_, i) => edge[(first + i) % VOID.sides]), m = outer.length, loop = 2 * m, deep = (RIM_IN + 0.6 * (r(0, 0) - 0.6)) / VOID.r;
+      const ground = [...outer, ...outer.slice().reverse().map(([x, z]) => [x * deep, z * deep])];
+      const heart = [0, 1].map((axis) => ground.reduce((sum, corner) => sum + corner[axis], 0) / loop);
+      /* A ring of it: corner i is drawn `inn` of its way to the heart (past its own place, away from the heart, under 0: an
+         inner corner only, which then swells in over the disc) and stands `y` up. */
+      const ring = (inn, y) => ground.map(([x, z], i) => [x + (heart[0] - x) * inn(i), y(i), z + (heart[1] - z) * inn(i)]);
+      const up = (i, share) => (i < m ? RIM_SHOULDER : VOID.y) + (tall - RIM_SHOULDER) * share;
+      const rings = [ring(() => 0, (i) => (i < m ? RIM_SHOULDER : RIM_UNDER))];
+      if (!phone) rings.push(ring((i) => (i < m ? 0.03 + 0.08 * r(i, 1) : 0.1 - 0.3 * r(i, 2)), (i) => up(i, 0.38 + 0.22 * r(i, 3))));
+      rings.push(ring((i) => (i < m ? 0.28 + 0.25 * r(i, 4) : 0.22 + 0.3 * r(i, 5)), (i) => up(i, 0.7 + 0.22 * r(i, 6))));
+      const top = [heart[0] * (1 + 0.06 * (r(0, 7) - 0.5)), tall, heart[1] * (1 + 0.06 * (r(1, 7) - 0.5))];
+      const corners = [];
+      for (let n = 0; n < rings.length - 1; n++) for (let i = 0; i < loop; i++) {
+        const next = (i + 1) % loop;
+        face(corners, rings[n][next], rings[n][i], rings[n + 1][i]); face(corners, rings[n][next], rings[n + 1][i], rings[n + 1][next]);
+      }
+      const last = rings[rings.length - 1];
+      for (let i = 0; i < loop; i++) face(corners, last[(i + 1) % loop], last[i], top);
+      /* Its upward faces are the lighter, as the sky lights them. */
+      put(g, paint(shape(corners), rimGrain(RIM_TONES[Math.floor(3 * roll(k, 2, 0, 53))], 56 + k, (y) => (y > RIM_SHOULDER + 0.7 * (tall - RIM_SHOULDER) ? 1.18 : 1))), painted, 0, 0, 0);
+      first += span;
+    });
+  }
+
+  /* Sugar Magnolia and Sugaree: a magnolia in flower, as broad and as tall as the plain bush it replaces, which was a ball 4 m
+     across on the ground. A short stout trunk; a crown of leaf clumps in tiers, dark beneath and lighter where the sky is on
+     them, out to the old bush's own corners seen from above and down to half a metre over the ground, with the trunk showing
+     under it; and its great blossoms standing in the leaves like pale candles, each a bud of six petals (a phone's, five),
+     blush at its foot. */
+  const BARK = 0x6a5a4a, LEAF = 0x6da564, LEAF_LIT = 0x8cc47e, LEAF_SHADE = 0x538550, PETAL = 0xf6eee2, FLUSH = 0xf2c6d1, BLUSH = 0xd9879f;
+  function magnolia(g) {
+    /* The trunk goes up into the crown's middle, which the clumps stand round. */
+    put(g, new THREE.CylinderGeometry(0.2, 0.38, 1.7 + SUNK, 7), tone(BARK, true), 0, (1.7 - SUNK) / 2, 0);
+    /* The clumps, [x, y, z, r, its blossom's lean from upright, how much broader it is across the path]: a low tier out toward
+       the old bush's six corners, a middle tier that fills its breadth across the path, a high tier at its shoulders, and the
+       top. A phone's tree has the low tier, four of the middle one, and one broad top in place of the high tier. */
+    const clumps = [];
+    [[0.99, 0.61], [0, 1.02], [-0.99, 0.61], [-0.99, -0.61], [0, -1.02], [0.99, -0.61]].forEach(([x, z], k) => clumps.push([x, k % 2 ? 1.12 : 0.98, z, 0.6, 0.8]));
+    [[1.08, 0, 0.55], [0.5, 0.85, 0.52], [-0.5, 0.85, 0.52], [-1.08, 0, 0.55], [-0.5, -0.85, 0.52], [0.5, -0.85, 0.52]].forEach(([x, z, r], k) => { if (!phone || k !== 1 && k !== 4) clumps.push([x, k % 2 ? 2.04 : 1.9, z, r, 0.6]); });
+    if (!phone) for (const [x, z, wide] of [[0.85, 0.1, 1.3], [-0.85, 0.1, 1.3], [0, -0.62, 1]]) clumps.push([x, 2.66, z, 0.56, 0.4, wide]);
+    clumps.push(phone ? [0.03, 2.78, -0.03, 0.72, 0.1, 1.55] : [0.03, 2.98, -0.03, 0.56, 0.1]);
+    clumps.forEach(([x, y, z, r, , wide = 1], k) => {
+      const leaves = (fx, fy, fz) => (fy > 0.28 * r ? (roll(fx, fy, fz, 61) > 0.3 ? LEAF_LIT : LEAF) : fy < -0.3 * r ? LEAF_SHADE : roll(fx, fy, fz, 62) > 0.6 ? LEAF_SHADE : LEAF);
+      put(g, paint(rock(r, 1, 0.1, 63 + k).scale(wide, 0.84, 1), leaves), painted, x, y, z);
+    });
+    /* The crown's heart: one dark clump inside the others, so that a gap between two of them shows leaves in shade, not the sky. */
+    put(g, rock(0.95, 0, 0.1, 62).scale(1, 1.15, 1), tone(LEAF_SHADE, true), 0, 1.8, 0);
+    /* The blossoms: a bud turned from a profile, its petals pale and flushed by turns, blush at its foot. One stands on each
+       clump, leaning out from the tree's middle, and on a phone a second on the top; its foot is a little way into the leaves. */
+    const petals = phone ? 5 : 6;
+    const bud = (size) => paint(turned([[0, 0], [0.15, 0.1], [0.2, 0.3], [0.13, 0.5], [0, 0.62]].map(([r, y]) => [r * size, y * size]), petals), (x, y, z) => (y < 0.11 * size ? BLUSH : Math.floor((Math.atan2(x, z) / (2 * Math.PI) + 1) * petals) % 2 ? FLUSH : PETAL));
+    const blossom = ([x, y, z, r, , wide = 1], lean, turn, size) => {
+      const way = new THREE.Vector3(Math.sin(lean) * Math.cos(turn), Math.cos(lean), Math.sin(lean) * Math.sin(turn));
+      /* How far out the clump's face is that way: it is flattened, 0.84 of its radius up and down. The foot is 0.1 m in. */
+      const out = (r * 0.9) / Math.hypot(way.x / wide, way.y / 0.84, way.z) - 0.1;
+      put(g, bud(size), painted, x + way.x * out, y + way.y * out, z + way.z * out).quaternion.setFromUnitVectors(UP, way);
+    };
+    clumps.forEach((clump, k) => {
+      const top = k === clumps.length - 1, outward = Math.atan2(clump[2], clump[0]);
+      /* A clump straight ahead of the tree's middle or behind it leans its blossom to one side: the old bush's outline is
+         nearest there. */
+      blossom(clump, clump[4], top ? 0.6 : outward + (Math.abs(clump[0]) < 0.1 ? 0.9 : 0.5 * (roll(k, 0, 0, 64) - 0.5)), top ? 0.66 : 0.84 + 0.14 * roll(k, 1, 0, 64));
+      if (top && phone) blossom(clump, 0.85, 3.6, 0.8);
+    });
+  }
+
+  /* Good Lovin' and Gimme Some Lovin': two great slabs that lean on each other, where the two plain blocks leaned, each broader
+     than a block was and its broad face to the walker. The taller leans in over the middle, and the other is brought in to it
+     until the two touch, and LAP further, so its head lies in the taller one's side and they hold each other up, with the sky
+     between them below. They are hewn like the standing stones and wear their skins, one pale and one warm, and keep inside the
+     two blocks' ground: 6.2 m by 1 m. Under an end of that ground the ground falls 1.5 m at the path's steepest, so their feet go
+     LEAN_SUNK under. */
+  const LEAN_SUNK = 2;
+  const LEANING = {
+    taller: { rings: [[-LEAN_SUNK, 0.72, 0.45, -2.3], [0.3, 0.74, 0.46, -2.26], [1.2, 0.74, 0.45, -1.93], [2.1, 0.73, 0.44, -1.6], [3, 0.72, 0.43, -1.27], [3.9, 0.7, 0.41, -0.94], [4.7, 0.66, 0.38, -0.65], [5.35, 0.56, 0.33, -0.41]], tip: [-0.3, 5.76, 0.02], sides: [10, 7], fine: 3, rough: 0.06, square: 3 },
+    other: { rings: [[-LEAN_SUNK, 0.72, 0.45, 2.3], [0.3, 0.74, 0.46, 2.26], [1.1, 0.74, 0.45, 1.95], [1.9, 0.73, 0.44, 1.64], [2.7, 0.72, 0.43, 1.33], [3.5, 0.7, 0.41, 1.03], [4.2, 0.62, 0.38, 0.76], [4.85, 0.48, 0.33, 0.55]], tip: [0.42, 5.3, -0.02], sides: [10, 7], fine: 3, rough: 0.06, square: 3 },
+  };
+  /* A shape with its side up: what stood to its +x is over it, so that how near two stones stand, side by side, is how far one
+     can fall on the other. */
+  const onItsSide = (geo) => geo.clone().rotateZ(Math.PI / 2);
+  function leaningStones(g) {
+    const taller = hewnAs(LEANING.taller, 1, 1, 71), other = hewnAs(LEANING.other, 1, 1, 72);
+    other.translate(-fall(onItsSide(other), onItsSide(taller)) - LAP, 0, 0);
+    /* Their skins are a standing stone's with two fifths of its moss and lichen: on faces this large a patch is a whole face. */
+    const sparse = (tones, salt) => { const full = skin(tones, salt); return (x, y, z) => { const hex = full(x, y, z); return (hex === MOSS || hex === LICHEN) && roll(x, y, z, salt + 2) > 0.4 ? full(x, 0, z) : hex; }; };
+    put(g, paint(taller, sparse(STONE_TONES[1], 71)), painted, 0, 0, 0);
+    put(g, paint(other, sparse(STONE_TONES[3], 72)), painted, 0, 0, 0);
+  }
+
   /* Each landmark's still parts merge into one mesh once it is built; a part that moves stays apart. The standing stone alone is
      built for its song's title. */
   const merged = (build) => (g) => { build(g); mergeStill(g, moving.map((m) => m.obj)); };
