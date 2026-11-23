@@ -2,9 +2,11 @@ import { readFileSync } from "fs";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
 import { swift } from "../../../public/world/avatar.js";
+import { height } from "../../../public/world/ground.js";
 import { makeBuilders } from "../../../public/world/landmarks.js";
 import { confine } from "../../../public/world/modes.js";
-import { buildPath, buildWalkLine, layout, placeLandmarks } from "../../../public/world/path.js";
+import { buildPath, buildWalkLine, layout, nearStand, outline, placeLandmarks } from "../../../public/world/path.js";
+import { buildTrees, cameraWays, placeTrees, TARGET } from "../../../public/world/trees.js";
 
 // What the tests that walk the world share: a show's songs and its landmarks placed, a frame of a walk, the walk's camera stepped
 // through one, and the test of a point against what is drawn. Not a test.
@@ -37,6 +39,35 @@ export function landmarksOf(tracks: { title: string; duration: number }[], set2:
   const landmarkU = layout(tracks, set2, path), builders = makeBuilders(phone), titles = new Map(as);
   const landmarks = placeLandmarks(new THREE.Scene(), path, tracks.map((t, k) => ({ ...t, title: titles.get(k) ?? t.title })), true, builders, landmarkU, line);
   return { landmarkU, builders, landmarks };
+}
+
+/** What a show's trees give a walk and its camera (trees.js): the trunks near a place, and the camera's way round one and under a crown. */
+export type Wood = {
+  trunks(x: number, z: number, r: number): { x: number; z: number }[];
+  slide(p: unknown, room: number, toward?: unknown): void;
+  ceiling(x: number, y: number, z: number, room: number): number;
+};
+
+/**
+ * A show's trees planted and built as main.js plants them for a tier: by its landmarks' outlines and the ways of its cameras.
+ *
+ * @param placed The show's landmarks (landmarksOf).
+ * @param phone Whether they are a phone's trees, which are fewer.
+ * @returns The trees' keep-outs.
+ */
+export function treesOf({ landmarkU, builders, landmarks }: ReturnType<typeof landmarksOf>, phone: boolean) {
+  const all = landmarks as { position: { x: number; z: number }; rotation: { y: number } }[];
+  const marks = all.map((g, k) => {
+    const s = nearStand(path, landmarkU, all, k) as { x: number; z: number } | null;
+    return { x: g.position.x, z: g.position.z, rot: g.rotation.y, poly: outline(g, builders.moving), d: line.dOf(landmarkU[k]), stand: s ? { x: s.x, z: s.z } : null };
+  });
+  const loop = Array.from({ length: Math.ceil(path.curveLength / 2) }, (_, k) => { const p = path.at((2 * k) / path.curveLength); return [p.x, p.z]; });
+  const along = Array.from({ length: Math.ceil(line.length) }, (_, d) => { const p = line.at(d); return [p.x, p.z]; });
+  const ways = (cameraWays as unknown as (ask: unknown) => object)({ line, height, marks, phone, bears: phone ? [3, 1] : [5, 3, 1] });
+  const { spots } = (placeTrees as unknown as (ask: unknown) => { spots: unknown[] })({ count: phone ? TARGET.phone : TARGET.desktop, loop, line: along, landmarks: marks, ...ways });
+  // A stand-in for the light the ground takes.
+  const lit = (material: { onBeforeCompile: (shader: unknown) => void }) => { material.onBeforeCompile = () => {}; return material; };
+  return (buildTrees as unknown as (scene: unknown, spots: unknown[], how: unknown) => Wood)(new THREE.Scene(), spots, { lit, phone });
 }
 
 /**
@@ -110,6 +141,8 @@ export function stride(walker: Walker, [spd, side, turn, run, tilt]: number[], l
 
 /** The visitor's bear and its camera, as avatar.js builds them. */
 export type Avatar = {
+  /** The bear: its group, which holds all it draws. */
+  g: unknown;
   step(x: number, z: number, heading: number, dt: number): void;
   boom(camera: unknown, walker: Walker, dt: number, cut: boolean): unknown;
   settle(position: unknown, aim: unknown): void;

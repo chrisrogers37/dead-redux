@@ -210,18 +210,18 @@ describe("standOff", () => {
       [{ x: 10, y: 11, z: 0 }, { x: 10, y: 12 + ROOM, z: 0 }],
     ]) {
       const p = { ...from };
-      standOff(p, AWAY, [TOWER], [], ROOM);
+      standOff(p, AWAY, AWAY, [TOWER], [], ROOM);
       expect(p).toEqual(to);
     }
     // In the room and not in the box: half the room out from a side, and over the top.
     const beside = { x: 8 - ROOM / 2, y: 5, z: 1 }, over = { x: 9, y: 12 + ROOM / 2, z: 1 };
-    standOff(beside, AWAY, [TOWER], [], ROOM);
-    standOff(over, AWAY, [TOWER], [], ROOM);
+    standOff(beside, AWAY, AWAY, [TOWER], [], ROOM);
+    standOff(over, AWAY, AWAY, [TOWER], [], ROOM);
     expect([beside, over]).toEqual([{ x: 8 - ROOM, y: 5, z: 1 }, { x: 9, y: 12 + ROOM, z: 1 }]);
     // Outside the room, by a centimetre: left where it is.
     for (const from of [{ x: 8 - ROOM - 0.01, y: 5, z: 0 }, { x: 10, y: 12 + ROOM + 0.01, z: 0 }, { x: 10, y: 5, z: 2 + ROOM + 0.01 }]) {
       const p = { ...from };
-      standOff(p, AWAY, [TOWER], [], ROOM);
+      standOff(p, AWAY, AWAY, [TOWER], [], ROOM);
       expect(p).toEqual(from);
     }
   });
@@ -229,23 +229,50 @@ describe("standOff", () => {
   it("takes a box to stand on the ground: a point under one that hangs in the air is put out by its side, never left under it", () => {
     // As the miracle hangs: 2 m square, from 3 m over the ground to 5.
     const hung: Box = { min: { x: 9, y: 3, z: -1 }, max: { x: 11, y: 5, z: 1 } }, p = { x: 9.5, y: 1.5, z: 0.2 };
-    standOff(p, AWAY, [hung], [], ROOM);
+    standOff(p, AWAY, AWAY, [hung], [], ROOM);
     expect(p).toEqual({ x: 9 - ROOM, y: 1.5, z: 0.2 });
   });
 
-  it("takes no notice of a box that stands around the head, as the boom takes none", () => {
-    const p = { x: 9, y: 5, z: 0 };
-    standOff(p, { x: 10, y: 3.6, z: 0 }, [TOWER], [], ROOM);
+  it("takes no notice of a box that stands around the head and around where the boom's end hangs, the room goRound lets the camera's place into", () => {
+    const p = { x: 9, y: 5, z: 0 }, head = { x: 10, y: 3.6, z: 0 }, hangs = { x: 11, y: 6, z: 1 };
+    standOff(p, head, hangs, [TOWER], [], ROOM);
     expect(p).toEqual({ x: 9, y: 5, z: 0 });
     // A head just outside the box is not in it, though it is in its room.
-    standOff(p, { x: 8 - ROOM / 2, y: 3.6, z: 0 }, [TOWER], [], ROOM);
+    const beside = { ...p };
+    standOff(beside, { x: 8 - ROOM / 2, y: 3.6, z: 0 }, hangs, [TOWER], [], ROOM);
+    expect(beside).toEqual({ x: 8 - ROOM, y: 5, z: 0 });
+    // And with the head in the box and the boom's end out beyond its room, the point is put out: the camera's place is kept out
+    // of that room then, and a goal left in it would be one the place never came to.
+    standOff(p, head, { x: 20, y: 7, z: 0 }, [TOWER], [], ROOM);
     expect(p).toEqual({ x: 8 - ROOM, y: 5, z: 0 });
+  });
+
+  it("leaves a point in no room where two boxes' rooms overlap: put out of one by a side that lies in the other's, it goes up to that one's top", () => {
+    // A second box 1 m west of the tower, 5 m tall: its room and the tower's overlap by 0.68 m. A point 0.2 m inside the tower's
+    // west wall goes out by that side, to 0.16 m inside the low box's east wall, and so up to the low box's room's top.
+    const low: Box = { min: { x: 4, y: 0, z: -2 }, max: { x: 7, y: 5, z: 2 } }, from = { x: 8.2, y: 3, z: 0 };
+    for (const boxes of [[TOWER, low], [low, TOWER]]) {
+      const p = { ...from };
+      standOff(p, AWAY, AWAY, boxes, [], ROOM);
+      expect(boxes.some((b) => inRoom(p, b, 1e-6))).toBe(false);
+      // Whichever box is first: of the two places the two orders give, the nearer to where the point was, 3 m off on the low
+      // box's room's top, and not the other, 9.8 m off on the tower's.
+      expect(p).toEqual({ x: 8 - ROOM, y: 5 + ROOM, z: 0 });
+    }
+    // A point in one room only is put out by its nearest side, as before: no higher.
+    const alone = { x: 4.3, y: 3, z: 0 };
+    standOff(alone, AWAY, AWAY, [TOWER, low], [], ROOM);
+    expect(alone).toEqual({ x: 4 - ROOM, y: 3, z: 0 });
+    // And a box around the head is one of them where the boom's end hangs out beyond its room: the point is left in neither.
+    const held = { ...from };
+    standOff(held, { x: 10, y: 3.6, z: 0 }, { x: 20, y: 7, z: 0 }, [TOWER, low], [], ROOM);
+    expect(held).toEqual({ x: 8 - ROOM, y: 5 + ROOM, z: 0 });
   });
 
   it("puts a point out of a column's room by its side or its top, whichever is nearer", () => {
     const col: Column = { x: 10, z: 0, r: 5, top: 9 };
     const side = { x: 13, y: 4, z: 4 * 0.75 }, over = { x: 11, y: 8.5, z: 0 }, out = { x: 10 + 5 + ROOM + 0.01, y: 4, z: 0 }, high = { x: 10, y: 9 + ROOM + 0.01, z: 0 };
-    for (const p of [side, over, out, high]) standOff(p, AWAY, [], [col], ROOM);
+    for (const p of [side, over, out, high]) standOff(p, AWAY, AWAY, [], [col], ROOM);
     // Straight out from the column's middle to its room's edge; and straight up to the room's top.
     expect(Math.hypot(side.x - 10, side.z)).toBeCloseTo(5 + ROOM, 9);
     expect([side.z / (side.x - 10), side.y]).toEqual([expect.closeTo(1, 9), 4]);
@@ -351,8 +378,9 @@ describe("goRound", () => {
     expect(way.filter((q) => inRoom(q, TOWER, 0.002)).length).toBeLessThan(4);
   });
 
-  it("takes a place round a column by the side the goal lies to, or over one it stood over, never into its room", () => {
-    const col: Column = { x: 10, z: 0, r: 5, top: 9 };
+  it("takes a place round a tall column by the side the goal lies to, at its own height, or over one it stood over, never into its room", () => {
+    // 5 m across its room's rim to the far side is 18.3 m; up to this one's top and down again is 34.
+    const col: Column = { x: 10, z: 0, r: 5, top: 20 };
     for (const z of [0.5, -0.5, 3]) {
       const { frames, most, inside, way } = go({ x: 0, y: 4, z }, { x: 20, y: 4, z: 0 }, [], [col], 0.5);
       expect(inside, `z ${z}`).toBe(false);
@@ -363,9 +391,116 @@ describe("goRound", () => {
       expect(Math.max(...way.map((q) => q.y)), `z ${z}`).toBeCloseTo(4, 9);
     }
     // From over the column, coming down on it: stopped on its room's top, and on toward a lower goal, level.
-    const over = go({ x: 9, y: 12, z: 0 }, { x: 20, y: 4, z: 0 }, [], [col], 0.5);
+    const over = go({ x: 9, y: 23, z: 0 }, { x: 20, y: 15, z: 0 }, [], [col], 0.5);
     expect(over.inside).toBe(false);
     expect(over.frames).toBeLessThan(40);
-    expect(over.way.some((q) => Math.abs(q.y - (9 + ROOM)) < 1e-9 && Math.hypot(q.x - 10, q.z) < 5)).toBe(true);
+    expect(over.way.some((q) => Math.abs(q.y - (20 + ROOM)) < 1e-9 && Math.hypot(q.x - 10, q.z) < 5)).toBe(true);
+  });
+
+  it("takes a place over a low column where the climb is shorter than the way round, and never back down its near side", () => {
+    // 9 m tall: up 5.84 m to its room's top and down again is 11.7 m, against 18.3 m round.
+    const col: Column = { x: 10, z: 0, r: 5, top: 9 };
+    for (const z of [0.5, -0.5, 3]) {
+      const { frames, most, inside, way } = go({ x: 0, y: 4, z }, { x: 20, y: 4, z: 0 }, [], [col], 0.5);
+      expect(inside, `z ${z}`).toBe(false);
+      expect(frames, `z ${z}`).toBeLessThan(36 / 0.5);
+      expect(most, `z ${z}`).toBeLessThanOrEqual(0.5 + 1e-6);
+      // Up the side it met, across the top, and down beyond: it is over the column's middle at its room's top.
+      expect(Math.max(...way.map((q) => q.y)), `z ${z}`).toBeCloseTo(9 + ROOM, 2);
+      expect(way.some((q) => Math.hypot(q.x - 10, q.z) < 3.5 && Math.abs(q.y - (9 + ROOM)) < 1e-9), `z ${z}`).toBe(true);
+      // Once over the top it does not come back to the side it climbed.
+      const topped = way.findIndex((q) => q.y >= 9 + ROOM - 1e-9);
+      expect(Math.min(...way.slice(topped).map((q) => q.x)), `z ${z}`).toBeGreaterThanOrEqual(way[topped].x - 1e-9);
+    }
+  });
+
+  // The review of #191 found the camera swinging between two places for ever, 0.5 m apart, beside the stage's column with its
+  // goal over the column: the way round turned back each frame as the place passed under the goal.
+  it("goes up the side of a column or a box to a goal that stands over it, where no way round reaches: straight there, never swinging between two places", () => {
+    const col: Column = { x: 10, z: 0, r: 5, top: 9 };
+    // The place beside each, 4 m up; the goal over it, a metre in from its room's side, at three places along that side.
+    for (const [name, boxes, columns, from, goals] of [
+      ["column", [], [col], { x: 10 - 5 - ROOM, y: 4, z: 0 }, [{ x: 5.2, y: 10.5, z: 0 }, { x: 6, y: 9 + ROOM, z: 2 }, { x: 6, y: 12, z: -2 }]],
+      ["box", [TOWER], [], { x: 8 - ROOM, y: 4, z: 0 }, [{ x: 8.2, y: 13.5, z: 0 }, { x: 8.2, y: 12 + ROOM, z: 1.5 }, { x: 8.2, y: 14, z: -1.5 }]],
+    ] as [string, Box[], Column[], V, V[]][]) for (const goal of goals) for (const step of [0.3, 0.55, 1]) {
+      const { frames, most, inside, way } = go(from, goal, boxes, columns, step), at = `${name}, goal ${goal.x} ${goal.y} ${goal.z}, ${step} m a frame`;
+      expect(inside, at).toBe(false);
+      // It arrives: within twice the straight way, a frame for each step of it.
+      expect(frames, at).toBeLessThan((2 * apart(from, goal)) / step + 4);
+      expect(most, at).toBeLessThanOrEqual(step + 1e-9);
+      // And never turns back: no frame undoes the frame before it, as the swing did, whose every frame went straight back
+      // along the last (a cosine of -1 between them).
+      for (let k = 2; k < way.length; k++) {
+        const a = way[k - 1], b = way[k], o = way[k - 2];
+        expect(((b.x - a.x) * (a.x - o.x) + (b.y - a.y) * (a.y - o.y) + (b.z - a.z) * (a.z - o.z)) / (apart(a, b) * apart(o, a) || 1), `${at}, frame ${k}`).toBeGreaterThan(-0.05);
+      }
+      // Up, and never down again but by the millimetre it went past the top's edge.
+      expect(way.every((q, k) => k === 0 || q.y >= way[k - 1].y - 0.0011), at).toBe(true);
+    }
+  });
+
+  it("comes down a column's side as it goes round it, to a goal lower on the side: never held at its own height over a goal it stands above", () => {
+    // A column too tall to go over: 20 m.
+    const col: Column = { x: 10, z: 0, r: 5, top: 20 }, R = 5 + ROOM;
+    // On the room's side 8 m up; the goal on it 5 m lower, 0.05 rad round, which is 0.3 m, and 2 rad round, which is 11.7 m.
+    for (const turn of [0.05, 2]) {
+      const from = { x: 10 - R, y: 8, z: 0 }, goal = { x: 10 - R * Math.cos(turn), y: 3, z: R * Math.sin(turn) };
+      const { frames, most, inside, way } = go(from, goal, [], [col], 0.5), at = `${turn} rad round`;
+      expect(inside, at).toBe(false);
+      expect(frames, at).toBeLessThan((5 + R * turn) / 0.5 + 6);
+      expect(most, at).toBeLessThanOrEqual(0.5 + 1e-6);
+      // Down all the way, and round all the way: neither turns back.
+      expect(way.every((q, k) => k === 0 || q.y <= way[k - 1].y + 1e-9), at).toBe(true);
+      const bearing = (q: V) => Math.atan2(q.z, 10 - q.x);
+      expect(way.every((q, k) => k === 0 || bearing(q) >= bearing(way[k - 1]) - 1e-9), at).toBe(true);
+    }
+  });
+
+  it("goes no further round a column than the goal's bearing, however long its step: a place carried a long way in a frame stops at the goal's side of the column and does not turn back from beyond it", () => {
+    const col: Column = { x: 10, z: 0, r: 5, top: 20 }, R = 5 + ROOM;
+    // On the room's side; the goal on it 0.1 rad round, which is 0.58 m; and a step of 3 m into the room, as the walk may carry it.
+    const was = { x: 10 - R, y: 4, z: 0 }, goal = { x: 10 - R * Math.cos(0.1), y: 4, z: R * Math.sin(0.1) }, p = { x: was.x + 3, y: 4, z: 0.2 };
+    goRound(p, was, goal, AWAY, AWAY, [], [col], ROOM);
+    expect(apart(p, goal)).toBeLessThan(1e-9);
+    // And the next frame's step from there is its own: it is at its goal.
+    const next = { ...p };
+    goRound(next, p, goal, AWAY, AWAY, [], [col], ROOM);
+    expect(next).toEqual(p);
+  });
+
+  it("takes a place that stands a little way in a room, where the bear has pressed it, on round the box from the nearest side: it does not only come out by that side and stand there", () => {
+    // 0.05 m in from the tower's room's east side, the goal beyond the tower to the west, south of its middle: the way round is south.
+    const was = { x: 12 + ROOM - 0.05, y: 5, z: 0.5 }, goal = { x: 2, y: 5, z: 1 }, p = { x: was.x - 0.5, y: 5, z: 0.52 };
+    goRound(p, was, goal, AWAY, AWAY, [TOWER], [], ROOM);
+    // Out to the east side, and along it by the rest of its step of half a metre.
+    expect(p.x).toBeCloseTo(12 + ROOM, 9);
+    expect(p.z - was.z).toBeCloseTo(apart({ x: was.x - 0.5, y: 5, z: 0.52 }, was) - 0.05, 9);
+    expect(p.y).toBe(5);
+    // With no goal, or one on its own side of the box, it comes out by the nearest side and no more.
+    for (const to of [null, { x: 20, y: 5, z: 0 }]) {
+      const q = { x: was.x - 0.5, y: 5, z: 0.52 };
+      goRound(q, was, to, AWAY, AWAY, [TOWER], [], ROOM);
+      expect(q).toEqual({ x: expect.closeTo(12 + ROOM + 0.001, 9), y: 5, z: 0.5 });
+    }
+    // And a step no longer than the way out is spent on the way out.
+    const short = { x: was.x - 0.04, y: 5, z: 0.5 };
+    goRound(short, was, goal, AWAY, AWAY, [TOWER], [], ROOM);
+    expect(short).toEqual({ x: expect.closeTo(was.x + 0.04, 9), y: 5, z: 0.5 });
+  });
+
+  it("goes up out of the corner between two boxes whose rooms overlap, where the way round each leads into the other: it neither stands there nor swings, and comes to its goal", () => {
+    // The tower, and a wall 1 m south of it that runs 8 m further west and is 7 m tall: their rooms overlap. The place comes
+    // from the west at the tower's west side, south of its middle, so its way round the tower is south, into the corner the wall
+    // makes with it; and the wall, with the goal on its own north side, only stops it. Its goal is east of them both.
+    const wall: Box = { min: { x: 2, y: 0, z: 3 }, max: { x: 12, y: 7, z: 5 } };
+    for (const boxes of [[TOWER, wall], [wall, TOWER]]) for (const step of [0.3, 0.55, 1]) {
+      const { frames, most, inside, way } = go({ x: 4, y: 3, z: 1 }, { x: 18, y: 3, z: 1.5 }, boxes, [], step), at = `${boxes.indexOf(TOWER)}, ${step} m a frame`;
+      expect(frames, at).toBeLessThan(400);
+      expect(inside, at).toBe(false);
+      expect(most, at).toBeLessThanOrEqual(step + 1e-9);
+      // Over the wall, the lower of the two, and no higher than it need be for that.
+      expect(Math.max(...way.map((q) => q.y)), at).toBeGreaterThanOrEqual(7 + ROOM);
+      expect(Math.max(...way.map((q) => q.y)), at).toBeLessThan(7 + ROOM + step + 0.01);
+    }
   });
 });

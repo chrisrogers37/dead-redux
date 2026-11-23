@@ -6,7 +6,8 @@ import { boomLength, buildAvatar, eyeRoom, GATHER, GRACE, HEAD, keepOutBox, LAND
 import { LEAST } from "../../../public/world/boom.js";
 import { BOUND, height, STAGE, STAGE_COLUMN, STAGE_REACH } from "../../../public/world/ground.js";
 import { confine, walkLimits } from "../../../public/world/modes.js";
-import { type Avatar, crossings, DT, landmarksOf, pace, path, stride, tracksOf, type Walker, walkCamera, within } from "./world-walks";
+import { TREE_REACH } from "../../../public/world/trees.js";
+import { type Avatar, crossings, DT, landmarksOf, pace, path, stride, tracksOf, treesOf, type Walker, walkCamera, within } from "./world-walks";
 
 // The walk's camera at the landmarks and the stage (issue #178), stepped here with the world's own avatar.js, boom.js and collide.js
 // and no browser, as main.js steps it: the visitor walks, the bear takes its step, the boom places the camera. The landmarks are a
@@ -19,6 +20,11 @@ import { type Avatar, crossings, DT, landmarksOf, pace, path, stride, tracksOf, 
 // - 1970-12-31 from track 11, which stands Uncle John's bandstand where the ground falls 6.6 m across it;
 // - 1987-09-12 from track 18, with Space at its cave's mouth.
 const SHOWS: [string, number][] = [["1986-07-04", 7], ["1971-12-09", 17], ["1970-12-31", 11], ["1987-09-12", 18]];
+// Three more that the review of #191 walked, where it found the camera swinging between two places beside the stage and between
+// two landmarks that stand close. No one has said where their second sets open, so each is taken to open partway, as
+// trees.test.ts takes it.
+const MORE = ["1980-05-15", "1991-09-12", "1973-11-28"];
+const partway = (date: string) => Math.floor(tracksOf(date).length * 0.45);
 
 // Every Vector3, Box3 and Matrix4 the world's modules make is counted, so that a test can say how many a frame of the camera made.
 // They are three's own classes with nothing changed but the count.
@@ -69,10 +75,11 @@ function meets(b: Box, ax: number, ay: number, az: number, bx: number, by: numbe
 const seeded = (seed: number) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 
 // A show's landmarks placed, with what each draws, the box the camera keeps out of, and the box of all it draws.
-function world(date: string, set2: number, phone: boolean) {
-  const tracks = tracksOf(date), marks = landmarksOf(tracks, set2, phone).landmarks as unknown as Mark[];
-  const solids = marks.map((mark) => ({ tris: trianglesOf(mark), drawn: new THREE.Box3().setFromObject(mark) as Box, keep: keepOutBox(mark as never) as unknown as Box }));
-  return { date, set2, phone, tracks, marks, solids };
+// `drawn` false leaves out what each draws, for a test that does not try the eye against it.
+function world(date: string, set2: number, phone: boolean, drawn = true) {
+  const tracks = tracksOf(date), placed = landmarksOf(tracks, set2, phone), marks = placed.landmarks as unknown as Mark[];
+  const solids = (drawn ? marks : []).map((mark) => ({ tris: trianglesOf(mark), drawn: new THREE.Box3().setFromObject(mark) as Box, keep: keepOutBox(mark as never) as unknown as Box }));
+  return { date, set2, phone, tracks, placed, marks, solids };
 }
 type World = ReturnType<typeof world>;
 
@@ -96,6 +103,8 @@ function walksOf({ marks }: World, every = 1): Walk[] {
     walk([q, -len], [q, len], "along at a run", { run: 1 }); walk([-len, o], [len, o], "backwards across", { spd: -1 }); walk([o, len], [o, -len], "backwards along at a run", { spd: -1, run: 1 });
     walk([-len, o], [len, o], "sideways across", { spd: 0, side: 1 }); walk([o, -len], [o, len], "along looking up", { pitch: 0.6 }); walk([-len, q], [len, q], "across looking up", { pitch: 0.8 });
     walk([len, o], [-len, o], "across looking down", { pitch: -0.6 });
+    // Backwards while looking up as far as the look goes: the camera goes first and low, between the bear and what it backs into.
+    walk([o, -len], [o, len], "backwards along at a run looking up", { spd: -1, run: 1, pitch: 0.8 }); walk([len, q], [-len, q], "backwards across looking up", { spd: -1, pitch: 0.8 });
     // Round it, and turning on the spot inside it, beside it and further off.
     const [x, z] = to(R + 1, 0);
     out.push({ of: `song ${k}`, name: `round song ${k}`, start: { x, z, heading: mark.rotation.y, pitch: 0 }, frames: Math.ceil((2 * Math.PI * (R + 1)) / (WALK * DT)), swings: true, keys: hold(1, 0, -WALK / (TURN * (R + 1)), 0, 0) });
@@ -149,15 +158,43 @@ function walksOf({ marks }: World, every = 1): Walk[] {
 // The walk's limits with no bear and no tree: the island's edge and the stage's reach.
 const limits = walkLimits([]);
 
+// How near the bear the eye must be for it to be tried against the bear, in m, as `measure` tells how near: the bear's furthest
+// corner from its head's point that is no lower than it, its nose, is 2.4 m from there as it stands, and lower than that none is
+// further than that from the bear's own line.
+const BEAR_NEAR = 4.5;
+// What the bear draws, as avatar.js builds it: each mesh of its group, the body and the four legs, with its triangles in the mesh's
+// own frame. The eye is brought into that frame and tried there, which costs a frame nothing but the trying.
+type BearPart = Part & { matrixWorld: unknown };
+function bearOf(avatar: Avatar) {
+  const parts: { mesh: BearPart; tris: Float64Array }[] = [], v = new THREE.Vector3();
+  (avatar.g as Mark).traverse((o) => {
+    if (!o.isMesh) return;
+    const { index, attributes: { position } } = o.geometry, n = index ? index.count : position.count, out: number[] = [];
+    for (let i = 0; i < n; i++) { v.fromBufferAttribute(position, index ? index.getX(i) : i); out.push(v.x, v.y, v.z); }
+    parts.push({ mesh: o as BearPart, tris: Float64Array.from(out) });
+  });
+  const inverse = new THREE.Matrix4(), eye = new THREE.Vector3();
+  // Whether the point is inside any of them, where they stand now.
+  return (x: number, y: number, z: number) => {
+    (avatar.g as Mark).updateMatrixWorld(true);
+    return parts.some(({ mesh, tris }) => { eye.set(x, y, z).applyMatrix4(inverse.copy(mesh.matrixWorld).invert()); return within(tris, eye.x, eye.y, eye.z); });
+  };
+}
+
 // Walks the walks with the world's camera, and each walk that swings with a camera that nothing is in the way of besides: a walk
 // that does not swing, straight or turning on the spot, moves that camera less than the swift pace, so it has no need of one. Tells,
 // of every frame: how far the camera moved, in a walk that swings and in one that does not, and how far the other camera did;
-// whether the eye is under the ground, lower over it than the camera keeps, in the stage's column or in something a landmark draws;
-// how near the head it is; and whether a landmark stands between it and the bear's head, with the head in no landmark's box.
+// whether the eye is under the ground, lower over it than the camera keeps or in the stage's column; whether it is in something a
+// landmark draws, and which of three ways (below); how near the bear it is, and whether it is in what the bear itself draws; and
+// whether a landmark stands between it and the bear's head, with the head in no landmark's box.
+// The eye in something a landmark draws is one of three things. With the bear's head in that landmark's box, it is the camera in
+// the landmark with the bear (`inOwn`). Out of the box the camera keeps out of for that landmark, it is in what the landmark has
+// higher than that box, which is open to it as a handrail is (avatar.js keepOutBox; `inOpen`). Any other is the eye where the
+// camera's own rules say it never is (`inDrawn`).
 function measure(w: World, walks: Walk[]) {
-  const { phone, marks, solids } = w, mine = avatarOf(marks, phone), bare = bareOf(phone);
+  const { phone, marks, solids } = w, mine = avatarOf(marks, phone), bare = bareOf(phone), inBear = bearOf(mine);
   const camera = cameraOf(phone), other = cameraOf(phone), was = new THREE.Vector3(), otherWas = new THREE.Vector3(), head = new THREE.Vector3();
-  const told = { frames: 0, most: 0, mostAt: "", steadyMost: 0, steadyAt: "", bareMost: 0, under: 0, low: 0, inColumn: 0, inDrawn: [] as string[], nearer: 0, nearest: Infinity, hidden: 0, run: 0, runAt: "" };
+  const told = { frames: 0, most: 0, mostAt: "", steadyMost: 0, steadyAt: "", bareMost: 0, under: 0, low: 0, inColumn: 0, inDrawn: [] as string[], inOwn: 0, inOpen: 0, nearer: 0, nearest: Infinity, inBear: [] as string[], tried: 0, hidden: 0, run: 0, runAt: "" };
   for (const walk of walks) {
     const walker = { ...walk.start };
     confine(walker, limits);
@@ -176,7 +213,8 @@ function measure(w: World, walks: Walk[]) {
         else if (moved > told.steadyMost) { told.steadyMost = moved; told.steadyAt = `${walk.name}, frame ${f}`; }
       }
       was.copy(camera.position); otherWas.copy(other.position);
-      const ground = height(x, z), from = Math.hypot(x - walker.x, y - hy, z - walker.z);
+      // How near the bear: from its head's point where the eye is higher than that, and from the bear's own line where it is lower.
+      const ground = height(x, z), from = Math.hypot(x - walker.x, Math.max(0, y - hy), z - walker.z);
       if (y < ground) told.under += 1;
       if (y < ground + 1.2 - 1e-6) told.low += 1;
       if (Math.hypot(x - STAGE_COLUMN.x, z - STAGE_COLUMN.z) < STAGE_COLUMN.r && y < STAGE_COLUMN.top) told.inColumn += 1;
@@ -185,11 +223,16 @@ function measure(w: World, walks: Walk[]) {
       let hidden = false, headIn = false;
       head.set(walker.x, hy, walker.z);
       for (const s of solids) {
-        if (s.keep.containsPoint(head)) headIn = true;
-        if (s.drawn.containsPoint(camera.position) && within(s.tris, x, y, z)) told.inDrawn.push(`${walk.name}, frame ${f}`);
+        const own = s.keep.containsPoint(head);
+        if (own) headIn = true;
+        if (s.drawn.containsPoint(camera.position) && within(s.tris, x, y, z)) {
+          if (own) told.inOwn += 1; else if (!s.keep.containsPoint(camera.position)) told.inOpen += 1; else told.inDrawn.push(`${walk.name}, frame ${f}`);
+        }
         if (!hidden && meets(s.drawn, x, y, z, walker.x, hy, walker.z) && crossings(s.tris, x, y, z, [walker.x - x, hy - y, walker.z - z], 1) > 0) hidden = true;
       }
       if (hidden && !headIn) { told.hidden += 1; run += 1; if (run > told.run) { told.run = run; told.runAt = `${walk.name}, to frame ${f}`; } } else run = 0;
+      // The bear's own body and legs, where they stand this frame.
+      if (from < BEAR_NEAR) { told.tried += 1; if (inBear(x, y, z)) told.inBear.push(`${walk.name}, frame ${f}`); }
       told.frames += 1;
     }
   }
@@ -208,6 +251,14 @@ function across(mark: Mark, a: number[], b: number[], name: string): Walk {
   return { of: name, name, start: { x: ax, z: az, heading: Math.atan2(ax - bx, az - bz), pitch: 0 }, frames: Math.ceil(Math.hypot(bx - ax, bz - az) / (WALK * DT)), keys: () => [1, 0, 0, 0, 0] };
 }
 
+// Turning on the spot a metre outside a landmark's reach, at one of eight places round it, as the review's sweeps turned: left at
+// the odd places, looking up a little, and right at the even ones, looking level.
+function turningBeside(mark: Mark, k: number, a: number, frames = 240): Walk {
+  const r = Math.max(4, mark.userData.reach ?? 5) + 1, c = Math.cos(mark.rotation.y), s = Math.sin(mark.rotation.y), x = r * Math.cos((a * Math.PI) / 4 + 0.2), z = r * Math.sin((a * Math.PI) / 4 + 0.2);
+  const name = `turning beside song ${k}, place ${a}`;
+  return { of: `song ${k}`, name, start: { x: mark.position.x + x * c + z * s, z: mark.position.z - x * s + z * c, heading: a, pitch: a % 2 ? 0.3 : 0 }, frames, keys: () => [0, 0, a % 2 ? 1 : -1, 0, 0] };
+}
+
 let WORLDS: World[];
 const on = (date: string, phone: boolean) => WORLDS.find((w) => w.date === date && w.phone === phone)!;
 // Placing four shows' landmarks on two tiers takes a second or two, most of it their search for room beside the bears' line.
@@ -224,14 +275,13 @@ describe("the walk's camera at a landmark and the stage", () => {
     expect([pace(false), pace(true)]).toEqual([0.55, 1]);
   });
 
-  // 380,000 frames a tier over the four shows, and the eye tried against every triangle of a landmark it comes near: three seconds
-  // here, and more on a busy machine.
-  it("never cuts: walking, running, backwards, sideways, in arcs and turning on the spot, at and across every landmark of four shows and round the stage, the camera moves no further in a frame than its swift pace or the same walk moves it with nothing in its way; the eye is over the ground, out of the stage's column and in nothing a landmark draws but where the bear itself is in it; and a landmark hides the bear's head only for a moment", { timeout: 60000 }, () => {
-    // The eye in something drawn, of the frames of a tier; how near the head the camera may come, in m; the share of frames a
-    // landmark may hide the head in; and the longest it may hide it, in frames: 0.9 s.
-    const IN_DRAWN = 8, NEAREST = 1.5, HIDDEN = 0.035, LOST = 54;
+  // 420,000 frames a tier over the four shows, and the eye tried against every triangle of a landmark it comes near and of the
+  // bear when it is near that: four seconds here, and more on a busy machine.
+  it("never cuts: walking, running, backwards, sideways, in arcs and turning on the spot, at and across every landmark of four shows and round the stage, the camera moves no further in a frame than its swift pace or the same walk moves it with nothing in its way; the eye is over the ground, out of the stage's column, no nearer the bear's head than the boom's least, never in the bear, and in nothing a landmark draws inside its keep-out box but where the bear itself is in that box; and a landmark hides the bear's head only for a moment", { timeout: 60000 }, () => {
+    // The share of frames a landmark may hide the head in; and the longest it may hide it, in frames: 0.9 s.
+    const HIDDEN = 0.035, LOST = 54;
     for (const phone of [false, true]) {
-      const sum = { frames: 0, most: 0, mostAt: "", bareMost: 0, under: 0, low: 0, inColumn: 0, inDrawn: [] as string[], nearer: 0, nearest: Infinity, hidden: 0, run: 0, runAt: "" };
+      const sum = { frames: 0, most: 0, mostAt: "", bareMost: 0, under: 0, low: 0, inColumn: 0, inDrawn: [] as string[], inOwn: 0, inOpen: 0, nearer: 0, nearest: Infinity, inBear: [] as string[], tried: 0, hidden: 0, run: 0, runAt: "" };
       for (const [date] of SHOWS) {
         const w = on(date, phone), told = measure(w, walksOf(w)), where = `${date} on a ${phone ? "phone" : "desktop"}`;
         // No cut. Main's camera moved up to 22 m in a frame on walks like these on a desktop and 36 m on a phone (issue #178).
@@ -241,11 +291,11 @@ describe("the walk's camera at a landmark and the stage", () => {
         if (told.most > sum.most) { sum.most = told.most; sum.mostAt = `${where}: ${told.mostAt}`; }
         if (told.run > sum.run) { sum.run = told.run; sum.runAt = `${where}: ${told.runAt}`; }
         sum.bareMost = Math.max(sum.bareMost, told.bareMost); sum.nearest = Math.min(sum.nearest, told.nearest);
-        sum.inDrawn.push(...told.inDrawn.map((at) => `${where}: ${at}`));
-        for (const key of ["frames", "under", "low", "inColumn", "nearer", "hidden"] as const) sum[key] += told[key];
+        sum.inDrawn.push(...told.inDrawn.map((at) => `${where}: ${at}`)); sum.inBear.push(...told.inBear.map((at) => `${where}: ${at}`));
+        for (const key of ["frames", "under", "low", "inColumn", "inOwn", "inOpen", "nearer", "tried", "hidden"] as const) sum[key] += told[key];
       }
       const tier = phone ? "phone" : "desktop";
-      expect(sum.frames, tier).toBeGreaterThan(350000);
+      expect(sum.frames, tier).toBeGreaterThan(400000);
       // With nothing in its way the camera's largest move is the walk's own: in the walks that swing, running and turning at
       // once swings the boom's end 0.71 m in a frame on a desktop and 0.87 m on a phone. With the landmarks and the stage it is
       // that, or its swift pace.
@@ -253,20 +303,42 @@ describe("the walk's camera at a landmark and the stage", () => {
       expect(sum.most, `${tier}: ${sum.mostAt}`).toBeLessThanOrEqual(Math.max(pace(phone), sum.bareMost) + OVER);
       // Over the ground by what the boom keeps, and out of the stage's column, in every frame.
       expect([sum.under, sum.low, sum.inColumn], tier).toEqual([0, 0, 0]);
-      // In something a landmark draws on 4 frames of a desktop's and 1 of a phone's, each as the bear itself goes through that
-      // landmark with the camera's place in its box: backwards, the camera going first, or looking up, the boom low.
-      expect(sum.inDrawn.length, `${tier}: ${sum.inDrawn.slice(0, 6).join("; ")}`).toBeLessThanOrEqual(IN_DRAWN);
-      // Nearer the head than the boom's least only where the bear runs at a landmark or the stage with the camera between them,
-      // and its place climbs the wall as fast as its pace allows: 1 frame in 2,800 on a desktop and 1 in 13,700 on a phone,
-      // never nearer than 2 m and 1.8 m.
-      expect(sum.nearer / sum.frames, tier).toBeLessThan(1 / 1500);
-      expect(sum.nearest, tier).toBeGreaterThan(NEAREST);
+      // In nothing a landmark draws inside the box the camera keeps out of for it, unless the bear's head is in that box. With
+      // the head in the box it is in something that landmark draws on 7 frames of a desktop's and none of a phone's, backing
+      // through the bandstand at a run; and on 3 frames of each it is in what the road has over its keep-out box, the open
+      // part of it, where the camera goes as it would with no road there (landmarks.test.ts).
+      expect(sum.inDrawn, tier).toEqual([]);
+      expect(sum.inOwn, tier).toBeLessThanOrEqual(12);
+      expect(sum.inOpen, tier).toBeLessThanOrEqual(6);
+      // No nearer the bear than the boom's least, in any frame: from its head's point, or lower than that from its own line.
+      // And never in the bear, which it is tried against in the frames that have it within BEAR_NEAR, 13,700 of a desktop's
+      // and 10,000 of a phone's. The camera of the commit before this rule was nearer the head's point than the least on 972
+      // of these frames on a desktop, 1.34 m at the nearest, and in the bear on 30: backing at a landmark while looking up, it
+      // went down under the bear's head.
+      expect(sum.nearer, tier).toBe(0);
+      expect(sum.nearest, tier).toBeGreaterThanOrEqual(LEAST - 1e-6);
+      expect(sum.tried, tier).toBeGreaterThan(5000);
+      expect(sum.inBear, tier).toEqual([]);
       // The bear is not lost. Main's camera, which cut, let no landmark stand between it and a head outside every box. This one
-      // does while it goes round or over: in 2.2 % of these frames on a desktop and 2.4 % on a phone, which walk at every
-      // landmark, and for 44 frames together at the longest.
+      // does while it goes round or over: in 2.0 % of these frames on a desktop and 2.3 % on a phone, which walk at every
+      // landmark, and for 43 frames together at the longest on a desktop and 49 on a phone. (These are frames with the head
+      // out of every landmark's box; with the frames it is in one counted too, the shares are half as much again.)
       expect(sum.hidden / sum.frames, tier).toBeLessThan(HIDDEN);
       expect(sum.hidden / sum.frames, tier).toBeGreaterThan(0.005);
       expect(sum.run, `${tier}: ${sum.runAt}`).toBeLessThanOrEqual(LOST);
+    }
+  });
+
+  it("holds its whole step to its pace on two more shows, where the review of #191 found a phone's camera moving 1.06 to 1.10 m in a frame: turning on the spot at eight places round every landmark, and across each looking up, on both tiers", { timeout: 60000 }, () => {
+    // What added to the pace there: the place is carried with the bear's turn, goes after its goal by what the turn leaves of the
+    // pace, and is then sent on along a landmark's side by the length of both together, and raised by the ground. Its whole
+    // step is now held to the pace (avatar.js): without that these walks move it 1.21 m in a frame on a phone.
+    for (const date of ["1976-06-26", "1969-04-17"]) for (const phone of [false, true]) {
+      const w = world(date, partway(date), phone, false), walks = walksOf(w).filter((walk) => !walk.swings && walk.name.includes("looking up"));
+      w.marks.forEach((mark, k) => { for (let a = 0; a < 8; a++) walks.push(turningBeside(mark, k, a)); });
+      expect(walks.length).toBeGreaterThan(100);
+      // The largest of them is now the pace and 4 mm on a desktop, and the pace to a fifth of a millimetre on a phone.
+      for (const walk of walks) expect(largestMove(w, walk), `${date} on a ${phone ? "phone" : "desktop"}: ${walk.name}`).toBeLessThanOrEqual(pace(phone) + 0.01);
     }
   });
 
@@ -357,7 +429,8 @@ describe("the walk's camera at a landmark and the stage", () => {
       // a place that stopped dead would have none.
       for (let f = 1; f <= 6; f++) expect(after[f] - after[f - 1], `${where}, frame ${f} after the stop`).toBeCloseTo(swift(phone) / GATHER / 3600, 2);
       expect(after.slice(fast + 1).filter((moved) => moved >= pace(phone) / 20).length, where).toBeGreaterThanOrEqual(5);
-      expect(LAND).toBe(0.08);
+      // What this test's own figures are reckoned from is held here, so that they cannot follow a change to it.
+      expect([GATHER, LAND, SLACK]).toEqual([0.4, 0.08, 0.02]);
       // In front of the tower: on the bear's side of it, out of its room, and nothing of it between the eye and the head.
       const out = Math.max(keep.min.x - x, x - keep.max.x, keep.min.z - z, z - keep.max.z, y - keep.max.y);
       expect(out, where).toBeGreaterThanOrEqual(room - 1e-6);
@@ -369,6 +442,126 @@ describe("the walk's camera at a landmark and the stage", () => {
       cut.step(walker.x, walker.z, walker.heading, 0);
       cut.boom(fresh, walker, 0, true);
       expect(camera.position.distanceTo(fresh.position), where).toBeLessThan(SLACK + 0.05);
+    }
+  });
+
+  // A walker who has stopped, and a camera that has not: the review of #191 found the camera swinging for ever between two places
+  // 0.5 m apart (1 m on a phone) beside the stage's column, its goal over the column, where the way round turned back each frame;
+  // and the same between two landmarks whose rooms overlap. Here every kind of walk is cut off at a frame of its own and the bear
+  // stands still. 1,771 stops a tier on seven shows, 1.6 million frames in all: four seconds, and more on a busy machine.
+  it("comes to rest once the bear stands still, whatever the walk before: after each kind of walk at every third landmark of seven shows, round the stage, along the path and at random, and after turning round at the stage's edge as the review did, it moves less than a centimetre a frame within three seconds and rests where a cut to that stand would put it", { timeout: 120000 }, () => {
+    // How long the bear stands, in frames; and by when the camera must be at rest, in frames: 3 s.
+    const STILL = 300, REST = 180;
+    const [sx, sz] = STAGE;
+    for (const phone of [false, true]) {
+      const tier = phone ? "phone" : "desktop";
+      let stops = 0, longest = 0, longestAt = "";
+      for (const [date, set2] of [...SHOWS, ...MORE.map((d): [string, number] => [d, partway(d)])]) {
+        const w = SHOWS.some(([d]) => d === date) ? on(date, phone) : world(date, set2, phone, false), random = seeded(31 + set2);
+        const avatar = avatarOf(w.marks, phone), cutter = avatarOf(w.marks, phone), camera = cameraOf(phone), fresh = cameraOf(phone), was = new THREE.Vector3();
+        // Each kind of the show's walks, those at a landmark at every third one, cut off between a third of a second in and its
+        // end, or 400 frames in at the latest.
+        const walks: Walk[] = walksOf(w, 3).filter((walk) => !walk.of.startsWith("song ") || Number(walk.of.slice(5)) % 3 === 0).map((walk) => ({ ...walk, frames: 20 + Math.floor(random() * Math.min(400, walk.frames - 20)) }));
+        // The review's: on the walk's limit at the stage, facing it, still for 120 frames; the turn key held for 90, which turns
+        // the bear round; and still. From twelve places round the stage, turning either way, looking level and looking up.
+        for (let a = 0; a < 12; a++) for (const turn of [1, -1]) for (const pitch of [0, 0.4]) {
+          const x = sx + STAGE_REACH * Math.cos((a * Math.PI) / 6), z = sz + STAGE_REACH * Math.sin((a * Math.PI) / 6);
+          walks.push({ of: "the stage", name: `turning round at the stage's edge, place ${a}, ${turn > 0 ? "left" : "right"}, pitch ${pitch}`, start: { x, z, heading: Math.atan2(x - sx, z - sz), pitch }, frames: 210, keys: (f) => [0, 0, f >= 120 ? turn : 0, 0, 0] });
+        }
+        // Two stands that sweeps of ten shows found, where the camera came to rest metres from where a cut would put it. In the
+        // corner between two landmarks whose rooms overlap, where each one's way round led into the other: 5.3 m short. And
+        // pressed a hand's breadth into a room's edge by the bear, which pressed it back in each frame it came out: 10.2 m short.
+        if (date === "1987-09-12") walks.push(turningBeside(w.marks[3], 3, 3, 34));
+        if (date === "1980-05-15") walks.push(turningBeside(w.marks[5], 5, 5, 225));
+        for (const walk of walks) {
+          const walker = { ...walk.start }, at = `${date} on a ${tier}: ${walk.name}, stopped at frame ${walk.frames}`;
+          confine(walker, limits);
+          let rested = 0;
+          for (let f = 0; f < walk.frames + STILL; f++) {
+            if (f > 0 && f < walk.frames) stride(walker, walk.keys(f, walker), limits);
+            avatar.step(walker.x, walker.z, walker.heading, DT);
+            avatar.boom(camera, walker, DT, f === 0);
+            // At rest from the frame after the last in which it moved a centimetre.
+            if (f >= walk.frames && camera.position.distanceTo(was) >= 0.01) rested = f - walk.frames + 1;
+            was.copy(camera.position);
+          }
+          cutter.step(walker.x, walker.z, walker.heading, 0);
+          cutter.boom(fresh, walker, 0, true);
+          expect(rested, at).toBeLessThanOrEqual(REST);
+          expect(camera.position.distanceTo(fresh.position), at).toBeLessThan(SLACK + 0.05);
+          if (rested > longest) { longest = rested; longestAt = at; }
+          stops += 1;
+        }
+      }
+      expect(stops, tier).toBeGreaterThan(1500);
+      // The longest it takes: 123 frames on a desktop and 118 on a phone, two seconds. Most of that is the boom's own: its goal goes on moving after the bear stops, as
+      // the boom eases, takes notice of a landmark the head has just left (GRACE) and rises for it, a step at a time; the place
+      // is at rest within its gathering, its way and its landing of the goal's last move.
+      expect(longest, `${tier}: ${longestAt}`).toBeGreaterThan(60);
+    }
+  });
+
+  it("goes round a trunk in its way as it goes after its goal, and under a crown no faster than the crown's slope makes it: in the woods beside the landmarks of two shows, turning on the spot at eight places round each, it never jumps from one side of a trunk to the other", { timeout: 120000 }, () => {
+    // A crown's ceiling comes down a metre for each metre nearer the crown (trees.js `ceiling`). So a place that goes level at its
+    // pace under a crown's edge takes the camera down as fast as it takes it along: the two together, the square root of two paces.
+    const SLOPE = Math.SQRT2;
+    for (const phone of [false, true]) for (const date of ["1973-11-28", "1991-09-12"]) {
+      const w = world(date, partway(date), phone, false), wood = treesOf(w.placed, phone), where = `${date} on a ${phone ? "phone" : "desktop"}`;
+      const among = walkLimits([], wood.trunks as never, TREE_REACH as never), trees = { slide: wood.slide, ceiling: wood.ceiling };
+      const mine = avatarOf(w.marks, phone, trees), open = buildAvatar(new THREE.Scene(), [], { phone, reduced: false, ...trees } as never) as unknown as Avatar, treeless = avatarOf(w.marks, phone);
+      const camera = cameraOf(phone), other = cameraOf(phone), third = cameraOf(phone), was = new THREE.Vector3(), otherWas = new THREE.Vector3();
+      let most = 0, mostAt = "", openMost = 0, moved = 0, frames = 0;
+      w.marks.forEach((mark, k) => {
+        // A landmark with a tree within 30 m of it: its wood is beside it.
+        if (wood.trunks(mark.position.x, mark.position.z, 30).length === 0) return;
+        for (let a = 0; a < 8; a++) {
+          const walk = turningBeside(mark, k, a), walker = { ...walk.start };
+          confine(walker, among);
+          for (let f = 0; f < walk.frames; f++) {
+            if (f > 0) stride(walker, walk.keys(f, walker), among);
+            mine.step(walker.x, walker.z, walker.heading, DT);
+            mine.boom(camera, walker, DT, f === 0); open.boom(other, walker, DT, f === 0);
+            if (f > 1) {
+              const went = camera.position.distanceTo(was);
+              if (went > most) { most = went; mostAt = `${walk.name}, frame ${f}`; }
+              openMost = Math.max(openMost, other.position.distanceTo(otherWas));
+            }
+            was.copy(camera.position); otherWas.copy(other.position);
+            // How far the trees have this camera from where it would be with none, told at every other place.
+            if (a % 2 === 0) { treeless.boom(third, walker, DT, f === 0); moved = Math.max(moved, camera.position.distanceTo(third.position)); }
+            frames += 1;
+          }
+        }
+      });
+      // The trees did move this camera from where it would be with none, by 3 m and more; and with the landmarks it goes no
+      // faster than its pace under a crown's slope, or than the same turns move a camera with the trees and no landmark. Its
+      // largest move is 0.66 m on a desktop and 1.19 m on a phone, under a crown; before the place itself went round a trunk
+      // (avatar.js `slide`), the camera was slid out of each trunk from wherever the place was, and where the place crossed a
+      // trunk's middle it jumped from one side of the trunk to the other: 2.98 m in a frame on a phone, in these turns.
+      expect(frames, where).toBeGreaterThan(10000);
+      expect(moved, where).toBeGreaterThan(1);
+      expect(most, `${where}: ${mostAt}`).toBeLessThanOrEqual(Math.max(SLOPE * pace(phone), openMost) + OVER);
+    }
+  });
+
+  it("stands as high as the crowd asks in every frame, on its way to its goal as at it: with a stand-in for the crowd that asks 9 m over the ground everywhere, a walk past the tower never has the camera lower", () => {
+    // crowd.js `over` raises a camera's place to clear the crowd's figures. It is asked of the boom's end and, last of all, of the
+    // camera's place, which a landmark has drawn in from there: this stand-in asks the same of both.
+    const HIGH = 9, over = (p: Point) => { p.y = Math.max(p.y, height(p.x, p.z) + HIGH); };
+    for (const phone of [false, true]) {
+      const w = on("1986-07-04", phone), walk = across(w.marks[17], [0, -20], [0, 7], "past the tower");
+      const raised = avatarOf(w.marks, phone, { over }), plain = avatarOf(w.marks, phone), camera = cameraOf(phone), other = cameraOf(phone), walker = { ...walk.start };
+      let lower = 0;
+      for (let f = 0; f < walk.frames + 90; f++) {
+        if (f > 0 && f < walk.frames) stride(walker, walk.keys(f, walker), limits);
+        raised.step(walker.x, walker.z, walker.heading, DT);
+        raised.boom(camera, walker, DT, f === 0); plain.boom(other, walker, DT, f === 0);
+        const { x, y, z } = camera.position as Point, low = other.position as Point;
+        expect(y, `frame ${f}`).toBeGreaterThanOrEqual(height(x, z) + HIGH - 1e-9);
+        lower = Math.max(lower, height(low.x, low.z) + HIGH - low.y);
+      }
+      // And it had to be raised: with no crowd the same walk has the camera 3.8 m lower than that on a desktop, drawn in at the tower.
+      expect(lower, phone ? "phone" : "desktop").toBeGreaterThan(3);
     }
   });
 
@@ -463,11 +656,12 @@ describe("the walk's camera at a landmark and the stage", () => {
     }
     // What a count of three's classes cannot see: a list walked by `for ... of` makes an iterator, an arrow or a function written in
     // a function is made at each call, and an object or a list written out is made where it stands. None is in the frame's code:
-    // boom.js's functions, and avatar.js's boom. (rise's Math.hypot is as it was: a root in its place is another number.)
+    // boom.js's functions, and avatar.js's boom and clear. (rise's Math.hypot is as it was: a root in its place is another number.)
     const made0 = /\bnew\b|=>|\bfunction\b.*\bfunction\b|\bfor \([^;)]*\bof\b|\.\.\.|return \{|[=(,] \[|= \{|\.(map|filter|some|every|forEach|slice|concat)\(/;
     const boomJs = readFileSync(new URL("../../../public/world/boom.js", import.meta.url), "utf8"), avatarJs = readFileSync(new URL("../../../public/world/avatar.js", import.meta.url), "utf8");
-    const bodies = ["nearest", "enters", "standOff", "goRound", "rise"].map((name) => { const from = boomJs.indexOf(`function ${name}(`); return [name, boomJs.slice(from, boomJs.indexOf("\n}\n", from))]; });
+    const bodies = ["nearest", "enters", "stoodOff", "standOff", "goRound", "rise"].map((name) => { const from = boomJs.indexOf(`function ${name}(`); return [name, boomJs.slice(from, boomJs.indexOf("\n}\n", from))]; });
     bodies.push(["boom", avatarJs.slice(avatarJs.indexOf("  function boom(camera, walker, dt, cut) {"), avatarJs.indexOf("  /* Another camera placed the view"))]);
+    bodies.push(["clear", avatarJs.slice(avatarJs.indexOf("  function clear(p) {"), avatarJs.indexOf("  /* The walk's camera. Its place and its aim ease after the bear"))]);
     for (const [name, text] of bodies) {
       expect(text.length, name).toBeGreaterThan(200);
       expect(text.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter((line) => made0.test(line)), name).toEqual([]);

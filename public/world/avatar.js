@@ -90,9 +90,9 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
   const raise = new Float64Array(1), way = Float64Array.of(0, 0, 0, AHEAD, LOOKS, CLIMB, 0, 0);
   const hung = new THREE.Vector3(), was = new THREE.Vector3();
   /* Where the landmarks and the stage would have the camera this frame (`goal`) and a frame ago, and its place, which goes there
-     at a pace of its own (`pace`, in m/s): it is behind while it is not where the goal was. Where the place stood, and a place
-     to step from; and where the boom's two ends stood a frame ago, the head and the place it hangs to. */
-  const goal = new THREE.Vector3(), goalWas = new THREE.Vector3(), place = new THREE.Vector3(), stood = new THREE.Vector3(), from = new THREE.Vector3();
+     at a pace of its own (`pace`, in m/s): it is behind while it is not where the goal was. Where the place stood, and places
+     to step from and to; and where the boom's two ends stood a frame ago, the head and the place it hangs to. */
+  const goal = new THREE.Vector3(), goalWas = new THREE.Vector3(), place = new THREE.Vector3(), stood = new THREE.Vector3(), from = new THREE.Vector3(), to = new THREE.Vector3();
   const hungWas = new THREE.Vector3(), pivotWas = new THREE.Vector3();
   const SWIFT = swift(phone);
   let pace = 0;
@@ -107,6 +107,23 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     if (p.y > top) p.y = near > 0 ? Math.max(top, Math.min(p.y, pivot.y + Math.sqrt(near))) : top;
   }
 
+  /* Puts the point `p` out from the bear to the boom's least, where it is nearer, and tells whether it did: straight out from the
+     head's point where it is higher than that, and level out from the bear's own line where it is lower, since the bear stands
+     under its head and a point sent straight out from the head would go down under it and into the bear. The last word on the
+     camera's goal and on its place, whatever stands there. So where a landmark's room and the bear leave the camera less than
+     the least between them, it is the room that gives, by what the bear takes; the room is the eye's margin round the landmark,
+     not the landmark. */
+  function clear(p) {
+    const dx = p.x - pivot.x, dy = p.y - pivot.y, dz = p.z - pivot.z, dd = dx * dx + dz * dz + (dy > 0 ? dy * dy : 0);
+    if (dd >= LEAST * LEAST * HAIR) return false;
+    const d = Math.sqrt(dd);
+    if (d >= LEAST) return false;
+    if (d > 1e-9) { p.x = pivot.x + dx * (LEAST / d); p.z = pivot.z + dz * (LEAST / d); if (dy > 0) p.y = pivot.y + dy * (LEAST / d); }
+    else if (dy > 0) p.y = pivot.y + LEAST;
+    else p.x = pivot.x + LEAST;
+    return true;
+  }
+
   /* The walk's camera. Its place and its aim ease after the bear (at once under reduced motion or on a cut), keep 1.2 m above the
      ground at the camera and halfway along the boom, and keep clear of the landmarks: in front of one between the camera and the
      head, never nearer the head than 2.5 m, the boom rising for one that starts within 3 m of the head (boom.js). Over the crowd it
@@ -117,14 +134,18 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
      in along that line.
      Where a landmark or the stage's column would have the camera is its goal, and the goal can leap: a landmark comes into the
      boom's way, or the bear's head leaves one. The camera's place does not. It stands on its goal while the goal moves with the
-     walk; when the goal leaps it goes after it, no faster than SWIFT, and what stands between sends it round (boom.js goRound), so
-     the view swings or rises where it used to cut. Meanwhile the landmark may stand between the camera and the bear. Its goal is
-     out of every landmark's room (boom.js standOff), over the ground, and no nearer the head than the boom's least. Under reduced
-     motion, and on a cut, the place is its goal.
+     walk; when the goal leaps it goes after it, its whole step in a frame no longer than SWIFT allows, and what stands between
+     sends it round (boom.js goRound), so the view swings or rises where it used to cut. Meanwhile the landmark may stand between
+     the camera and the bear. Its goal is out of every landmark's room (boom.js standOff) and over the ground; and neither goal
+     nor place is nearer the bear than the boom's least, whatever else would have it there (`clear`). Once the bear stands still
+     the place comes to its goal and rests there. Under reduced motion, and on a cut, the place is its goal.
      Among the trees (trees.js) the boom keeps its length. As it eases, the camera's place slides level round a trunk in its way
      (`slide`) and comes down under a crown (`ceiling`), never under what the ground asks, since a crown's ceiling stands over that;
-     and the same holds again where a landmark or the crowd has moved the camera from that place. The aim is as it would be with no
-     tree there. Returns the aim. */
+     and the same holds again where a landmark or the crowd has moved the camera from that place. A place that is going after its
+     goal goes round a trunk in its way itself, on the goal's side of it: slid out of the trunk afresh each frame instead, the
+     camera would jump from one side of the trunk to the other as its place crossed the trunk's middle. A crown still brings the
+     camera down from its place, a metre for each metre nearer, so under a crown's edge the camera goes up to 1.41 times as fast as
+     its place. The aim is as it would be with no tree there. Returns the aim. */
   function boom(camera, walker, dt, cut) {
     const k = reduced || cut ? 1 : 1 - Math.exp(-dt / 0.2);
     const fx = -Math.sin(walker.heading), fz = -Math.cos(walker.heading), e = 0.35 - walker.pitch;
@@ -165,14 +186,15 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     reach = r.room < reach ? r.room : reach + (r.room - reach) * k;
     goal.copy(pivot).addScaledVector(dir, len * reach);
     const gx = goal.x, gy = goal.y, gz = goal.z;
-    standOff(goal, pivot, boxes, columns, room);
+    standOff(goal, pivot, hung, boxes, columns, room);
     /* Where a landmark has drawn it in, raised it or put it out of its room, it still keeps no nearer the head than the boom's
        least and over the ground. Nearer the head, it goes straight up to the least: a landmark's sides stand upright, so that
        takes it into no room but one it comes up under, and it is put out of that again. */
     if (reach < 1 || lift > 0 || goal.x !== gx || goal.y !== gy || goal.z !== gz) {
       const dx = goal.x - pivot.x, dy = goal.y - pivot.y, dz = goal.z - pivot.z, short = LEAST * LEAST - dx * dx - dz * dz;
-      if (short > dy * dy) { goal.y = pivot.y + Math.sqrt(short); standOff(goal, pivot, boxes, columns, room); }
+      if (short > dy * dy) { goal.y = pivot.y + Math.sqrt(short); standOff(goal, pivot, hung, boxes, columns, room); }
       goal.y = Math.max(goal.y, height(goal.x, goal.z) + FLOOR);
+      clear(goal);
     }
     /* How far the walk itself moved the boom's ends this frame, squared. A goal that moved no further than that, and SLACK, moved
        with the walk; one that moved further leapt. Most frames need no root to tell. */
@@ -187,23 +209,51 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
       const bore = place.distanceTo(stood), togo = place.distanceTo(goal), most = Math.max(SWIFT * dt, bore);
       pace = Math.min(pace + (SWIFT / GATHER) * dt, Math.max(0, SWIFT - bore / dt), togo / LAND);
       place.lerp(goal, Math.min(1, (pace * dt) / (togo || 1)));
+      slide(place, room, goal);
       goRound(place, stood, goal, pivot, hung, boxes, columns, room);
-      /* No nearer the head than the boom's least: straight out from the head, stopped again at what that would take it into, and
+      /* No nearer the bear than the boom's least: put out from it (`clear`), stopped again at what that would take it into, and
          in all no further this frame than SWIFT takes it; then, where a landmark's room has kept it nearer, on toward the goal,
          which is no nearer, by what SWIFT leaves. */
-      const d = place.distanceToSquared(pivot) < LEAST * LEAST * HAIR ? place.distanceTo(pivot) : LEAST;
-      if (d < LEAST && d > 1e-9) {
-        from.copy(place);
-        place.sub(pivot).multiplyScalar(LEAST / d).add(pivot);
+      from.copy(place);
+      if (clear(place)) {
         goRound(place, from, null, pivot, hung, boxes, columns, room);
         const gone = place.distanceTo(stood);
         if (gone > most) { place.sub(stood).multiplyScalar(most / gone).add(stood); goRound(place, stood, null, pivot, hung, boxes, columns, room); }
         const still = place.distanceTo(goal), spare = most - place.distanceTo(stood);
-        if (place.distanceTo(pivot) < LEAST && still > 0 && spare > 0) {
+        /* (Whether it is nearer still, a copy of it tells: `clear` says whether it moved the point.) */
+        from.copy(place);
+        if (still > 0 && spare > 0 && clear(from)) {
           from.copy(place);
           place.lerp(goal, Math.min(1, spare / still));
           goRound(place, from, null, pivot, hung, boxes, columns, room);
         }
+      }
+      place.y = Math.max(place.y, height(place.x, place.z) + FLOOR);
+      /* A trunk it slid round, the side of a landmark it was sent along and the ground it rose over have added to its step: in
+         all it goes no further than `most`. It steps back along its step to that, is stopped again at what that takes it into,
+         and is raised again where the ground between stands higher, which adds a millimetre at the most. */
+      const all = place.distanceToSquared(stood);
+      if (all > most * most * HAIR) {
+        place.sub(stood).multiplyScalar(most / Math.sqrt(all)).add(stood);
+        goRound(place, stood, null, pivot, hung, boxes, columns, room);
+        place.y = Math.max(place.y, height(place.x, place.z) + FLOOR);
+      }
+      /* And whatever a room, the ground or its pace has made of that, it is no nearer the bear than the least (`clear`). Where
+         the bear, backing into it, has put it past `most` by that, it goes instead as far as `most` allows of the way from
+         where the bear's step alone would put it to there, halving for that five times: within a thirtieth of that way. */
+      if (clear(place) && place.distanceToSquared(stood) > most * most * HAIR) {
+        to.copy(place);
+        from.copy(stood);
+        clear(from);
+        let near = 0, far = 1;
+        for (let n = 0; n < 5; n++) {
+          const t = (near + far) / 2;
+          place.copy(from).lerp(to, t);
+          clear(place);
+          if (place.distanceToSquared(stood) > most * most) far = t; else near = t;
+        }
+        place.copy(from).lerp(to, near);
+        clear(place);
       }
       place.y = Math.max(place.y, height(place.x, place.z) + FLOOR);
       if (place.distanceToSquared(goal) <= SLACK * SLACK * HAIR && place.distanceTo(goal) <= SLACK) { place.copy(goal); pace = 0; }
