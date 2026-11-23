@@ -73,6 +73,14 @@ const fake = vi.hoisted(() => {
     bears: [] as Bear[],
     stepped: { x: NaN, z: NaN, heading: NaN },
     keptY: NaN,
+    // The landmarks the path places, one a song (none unless a test gives some); where ?pose=near-K stands the visitor by song k's,
+    // which a test sets; and whether the last frame told the third-person camera's boom to cut.
+    landmarks: [] as { position: Point3 }[],
+    nearSpot: (k: number) => ({ x: k, z: 0, heading: 0, pitch: 0, clear: true }),
+    cut: false,
+    // The songs' titles the path was last asked to lay out, and those it was asked to place landmarks for.
+    laidOut: [] as string[],
+    placed: [] as string[],
     flame: { scale: new Vec(1, 1, 1) },
     stage: undefined as unknown as Stage,
     crowd: undefined as unknown as CrowdMesh,
@@ -172,8 +180,17 @@ const fake = vi.hoisted(() => {
       // The loop, where the walker stands before a frame puts it in its place in the bears' line.
       buildPath: () => ({ at: () => new Vec(), tangentAt: () => new Vec(1, 0, 0) }),
       // Where each song's landmark stands along the loop, and the loop's end: the first song at 0.5.
-      layout: (tracks: unknown[]) => Array.from({ length: tracks.length + 1 }, (_, i) => 0.5 + 0.1 * i),
-      placeLandmarks: () => [],
+      layout: (tracks: { title: string }[]) => {
+        world.laidOut = tracks.map((t) => t.title);
+        return Array.from({ length: tracks.length + 1 }, (_, i) => 0.5 + 0.1 * i);
+      },
+      placeLandmarks: (_scene: unknown, _path: unknown, tracks: { title: string }[]) => {
+        world.placed = tracks.map((t) => t.title);
+        return world.landmarks;
+      },
+      // Where ?pose=near-K stands the visitor. path.js's own answer is tested with path.js; here song k's is the spot a test names, and a
+      // song with no landmark has none.
+      nearStand: (_path: unknown, _landmarkU: unknown, landmarks: unknown[], k: number) => (landmarks[k] ? world.nearSpot(k) : null),
       buildSegues: () => {},
       buildWalkLine: () => world.line,
     },
@@ -212,7 +229,10 @@ const fake = vi.hoisted(() => {
           world.stepped = { x, z, heading };
         },
         // The third-person camera's boom, which here only looks at the walker.
-        boom: (_camera: Camera, walker: Point) => new Vec(walker.x, 0, walker.z),
+        boom: (_camera: Camera, walker: Point, _dt: number, cut: boolean) => {
+          world.cut = cut;
+          return new Vec(walker.x, 0, walker.z);
+        },
         settle: () => {},
         turnDown: (_camera: Camera, _from: Point3, _look: Point3, _point: Vec, ndcY: number) => {
           world.keptY = ndcY;
@@ -358,7 +378,9 @@ function showMap({ rms = 0 as number | ((byte: number) => number), bass = 0 as n
 
 type Hill = {
   tier: string;
+  scale: number;
   mode: string;
+  near: { index: number; title: string; clear: boolean } | null;
   rung: number;
   crowd: { drawn: number; dance: number; sit: number; parted: number };
   analysis: { source: string | null; weight: number };
@@ -381,9 +403,10 @@ type Hud = { plate?: number | null; away?: boolean; stick?: number | null; hint?
 // matchMedia, innerWidth and navigator; the `hud`; the site, which serves `map` as the show's map, and no other; and the frames, which
 // `run` hands main.js, each `ms` long (a frame adds at most 50 ms of world time), calling `each` after each one. `playing` starts the
 // show playing; `routing` is how it sounds ("webaudio" through the world's graph, "plain" in plain stereo); `search` is the page's
-// query, on a preview; `reduced` asks for reduced motion; `title` names the track; `view` is "third" or "first" person; and a day with
-// no `recording` has no tracks. A page with a map waits until the world has read it.
-async function startWorld({ playing = false, routing = "webaudio", search = "", reduced = false, map = null as object | null, title = TRACK.title, view = "third", recording = true, screen = DESKTOP, hud = {} as Hud } = {}) {
+// query, on a preview, or anywhere else with `hooks` false; `reduced` asks for reduced motion; `title` names the track, the first of
+// `songs`, each with one of the `landmarks`; `view` is "third" or "first" person; and a day with no `recording` has no tracks. A page
+// with a map waits until the world has read it.
+async function startWorld({ playing = false, routing = "webaudio", search = "", hooks = true, reduced = false, map = null as object | null, title = TRACK.title, songs = 1, landmarks = [] as { position: Point3 }[], view = "third", recording = true, screen = DESKTOP, hud = {} as Hud } = {}) {
   let now = 0;
   let queued: FrameRequestCallback | null = null;
   const container = Object.assign(new EventTarget(), {
@@ -393,7 +416,7 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
     appendChild: () => {},
     getBoundingClientRect: () => ({ top: 0 }),
   });
-  const main = { dataset: { state: playing ? "playing" : "paused", routing, view, ...(search ? { testHooks: "1" } : {}) } };
+  const main = { dataset: { state: playing ? "playing" : "paused", routing, view, ...(search && hooks ? { testHooks: "1" } : {}) } };
   const { plate: plateTop = null, away = false, stick: stickTop = 0, hint: hintTop = null } = hud;
   // The stick on a phone (input.js), 112 px across with its centre at (56, 56) unless a test puts it lower; hidden, its box is empty.
   const stick = Object.assign(new EventTarget(), {
@@ -410,7 +433,7 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
   const play = plate && { closest: (selector: string) => (selector === ".plate" ? plate : null) };
   const hint = hintTop === null ? null : { getBoundingClientRect: () => ({ top: hintTop, height: 52 }) };
   const found: Record<string, unknown> = { main, "[data-stick]": stick, "[data-action='play']": play, "[data-hint]": hint };
-  const data = { showDate: SHOW, identifier: recording ? RECORDING : null, tracks: recording ? [{ ...TRACK, title }] : [], seed: 7 };
+  const data = { showDate: SHOW, identifier: recording ? RECORDING : null, tracks: recording ? Array.from({ length: songs }, (_, k) => ({ ...TRACK, title: k ? `${title} ${k + 1}` : title })) : [], seed: 7 };
   const byId: Record<string, unknown> = { world: container, "world-data": { textContent: JSON.stringify(data) } };
   const media = (query: string) => ({ matches: query === "(max-width: 639px)" ? screen.width < 640 : reduced && query === "(prefers-reduced-motion: reduce)" });
   const asked: string[] = [];
@@ -446,6 +469,7 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
   vi.stubGlobal("ResizeObserver", class { observe() {} });
   vi.stubGlobal("MutationObserver", class { observe() {} });
   fake.world.line = LINE;
+  fake.world.landmarks = landmarks;
   fake.world.meshes = [];
   fake.world.onset = null;
   fake.world.keyTurned = false;
@@ -576,6 +600,215 @@ describe("main.js's frames", () => {
     expect(fake.world.sparse).toBe(false);
     await startWorld({ search: "?pose=sweep" });
     expect(fake.world.sparse).toBe(true);
+  });
+
+  describe("?pose=near-K", () => {
+    // Four songs' landmarks, each 7 m to one side of the bears' line, about 20 m apart along it and none a whole number of metres along;
+    // and where the visitor stands by song k's: about 14 m short of it along the line, out of every bear's reach, facing a way of its own
+    // and looking up a little, with a clear view.
+    const beside = (d: number) => { const p = LINE.at(d); return { x: p.x + 7 * toCentre.z, y: p.y, z: p.z - 7 * toCentre.x }; };
+    const landmarks = [40.6, 60.3, 80.9, 100.1].map((d) => ({ position: beside(d) }));
+    const spot = (k: number) => ({ ...beside(26 + 20 * k), heading: 0.5 + k, pitch: 0.12, clear: k !== 3 });
+    const near = (search: string, options = {}) => {
+      fake.world.nearSpot = spot;
+      fake.world.sparse = false;
+      return startWorld({ search, songs: 4, landmarks, ...options });
+    };
+    const send = (detail: unknown) => document.dispatchEvent(new CustomEvent("world:near", { detail }));
+    const stood = (k: number) => ({ x: spot(k).x, z: spot(k).z, heading: spot(k).heading });
+    // The last bear stands where the line passes nearest song k's landmark, to the 0.25 m the search steps by, and the others on ahead
+    // of it, 7 m apart: none between the visitor and the landmark. Seen from over the landmark, the lead bear stands there.
+    const bearsBy = (k: number, count = 5, lead = false) => {
+      const bears = fake.world.bears.map((b) => along(b.g.position)), by = along(landmarks[k].position);
+      expect(bears).toHaveLength(count);
+      expect(Math.abs((lead ? bears[0] : bears[count - 1]) - by)).toBeLessThanOrEqual(0.125 + 1e-9);
+      bears.slice(1).forEach((d, i) => expect(bears[i] - d).toBeCloseTo(7, 9));
+    };
+
+    it("stands the visitor by song K's landmark in a walk with no descent, the last bear beside it, and says which song", async () => {
+      const page = await near("?pose=near-1");
+      expect(page.mode()).toBe("walk");
+      page.run(0.02);
+      expect(page.mode()).toBe("walk");
+      expect(page.stepped()).toEqual(stood(1));
+      expect(hill().near).toEqual({ index: 1, title: "Bertha 2", clear: true });
+      bearsBy(1);
+      // The spot is outside every limit of the walk, so the walk's own keep-out had nothing to move.
+      for (const b of fake.world.bears) expect(distance(page.stepped(), b.g.position)).toBeGreaterThan(BODY_REACH);
+    });
+
+    it("looks where the stand looks: up by its pitch, in first person", async () => {
+      const page = await near("?pose=near-1", { view: "first" });
+      page.run(0.02);
+      const eye = fake.world.camera.position, look = fake.world.camera.target;
+      expect(eye.x).toBeCloseTo(spot(1).x, 9);
+      expect(eye.z).toBeCloseTo(spot(1).z, 9);
+      expect(look.y - eye.y).toBeCloseTo(Math.sin(0.12), 9);
+      expect(Math.hypot(look.x - eye.x, look.z - eye.z)).toBeCloseTo(Math.cos(0.12), 9);
+    });
+
+    it("puts a phone's three bears the same way: the last by the landmark, the lead 14 m on", async () => {
+      // In first person: the stand-ins here do not frame a phone's third-person view.
+      const page = await near("?pose=near-2", { screen: { width: 390, height: 844, touch: true }, view: "first" });
+      page.run(0.02);
+      expect(hill().tier).toBe("phone");
+      bearsBy(2, 3);
+    });
+
+    it("cuts the camera to the spot in the first frame, and no frame after", async () => {
+      const page = await near("?pose=near-1");
+      page.run(0.02);
+      expect(fake.world.cut).toBe(true);
+      page.run(0.02);
+      expect(fake.world.cut).toBe(false);
+    });
+
+    it("moves to another song's landmark on a world:near event, with the camera cut and the bears by that one", async () => {
+      const page = await near("?pose=near-1");
+      page.run(0.1);
+      send({ index: 2 });
+      page.run(0.02);
+      expect(page.stepped()).toEqual(stood(2));
+      expect(fake.world.cut).toBe(true);
+      expect(hill().near).toEqual({ index: 2, title: "Bertha 3", clear: true });
+      bearsBy(2);
+      page.run(0.02);
+      expect(fake.world.cut).toBe(false);
+      // The first song, too: its index is 0.
+      send({ index: 0 });
+      page.run(0.02);
+      expect(hill().near).toEqual({ index: 0, title: "Bertha", clear: true });
+      bearsBy(0);
+    });
+
+    it("says where another landmark stands in the view", async () => {
+      const page = await near("?pose=near-3");
+      page.run(0.02);
+      expect(hill().near).toEqual({ index: 3, title: "Bertha 4", clear: false });
+      send({ index: 1 });
+      page.run(0.02);
+      expect(hill().near?.clear).toBe(true);
+    });
+
+    it("stays where it is on an event that names no landmark", async () => {
+      const page = await near("?pose=near-2");
+      page.run(0.1);
+      for (const detail of [{ index: 4 }, { index: -1 }, { index: 1.5 }, { index: "1" }, {}, null]) {
+        send(detail);
+        page.run(0.02);
+        expect(fake.world.cut, JSON.stringify(detail)).toBe(false);
+        expect(hill().near, JSON.stringify(detail)).toEqual({ index: 2, title: "Bertha 3", clear: true });
+        expect(page.stepped()).toEqual(stood(2));
+      }
+    });
+
+    it("keeps the frame's size and the land's tufts, which the draw-call sweep gives up", async () => {
+      const page = await near("?pose=near-1");
+      page.run(0.1);
+      send({ index: 2 });
+      page.run(0.1);
+      expect(hill().scale).toBe(1);
+      expect(fake.world.sparse).toBe(false);
+    });
+
+    it("holds its rung through frames as slow as a software renderer's, where any other page steps down", async () => {
+      // Three hundred frames half a second long: six windows over the downgrade's 34 ms.
+      const slow = (page: { run: (seconds: number, options: { ms: number }) => void }) => page.run(150, { ms: 500 });
+      fake.world.thinned = null;
+      const page = await near("?pose=near-1");
+      slow(page);
+      send({ index: 2 });
+      slow(page);
+      expect(hill().rung).toBe(0);
+      expect(hill().scale).toBe(1);
+      expect(fake.world.thinned).not.toBe(true);
+      const other = await startWorld({ search: "?pose=crowd" });
+      slow(other);
+      expect(hill().rung).toBeGreaterThan(1);
+      expect(hill().scale).toBeLessThan(1);
+    });
+
+    it("stands still under reduced motion, the bears by the landmark, and draws a frame for an event", async () => {
+      const page = await near("?pose=near-1", { reduced: true });
+      page.run(0.02);
+      expect(page.stepped()).toEqual(stood(1));
+      bearsBy(1);
+      // Nothing is drawn until something changes: the event is such a change.
+      expect(() => page.run(0.02)).toThrow("main.js queued no frame");
+      send({ index: 2 });
+      page.run(0.02);
+      expect(page.stepped()).toEqual(stood(2));
+      bearsBy(2);
+    });
+
+    it("answers only on a preview: elsewhere the world opens on its descent, and an event stands the visitor nowhere", async () => {
+      const page = await near("?pose=near-1", { hooks: false });
+      expect(page.mode()).toBe("descent");
+      expect(hill().near).toBeNull();
+      send({ index: 2 });
+      page.run(0.02);
+      expect(page.mode()).toBe("descent");
+      expect(hill().near).toBeNull();
+    });
+
+    it("is no pose for a song the show does not have, or a name that is not a song's number", async () => {
+      for (const search of ["?pose=near-4", "?pose=near-99", "?pose=near-", "?pose=near-1x", "?pose=near--1", "?pose=nearly-1"]) {
+        const page = await near(search);
+        expect(page.mode(), search).toBe("descent");
+        expect(hill().near, search).toBeNull();
+        send({ index: 1 });
+        page.run(0.02);
+        expect(page.mode(), search).toBe("descent");
+        expect(hill().near, search).toBeNull();
+      }
+    });
+
+    it("leaves ?pose=landmark-K as it was: the bears by the landmark, the view from over it, and no near song", async () => {
+      const page = await near("?pose=landmark-2");
+      page.run(0.02);
+      expect(page.mode()).toBe("attract");
+      expect(hill().near).toBeNull();
+      bearsBy(2, 5, true);
+      const o = landmarks[2].position;
+      expectNear(fake.world.camera.position, { x: o.x, y: o.y + 30, z: o.z });
+    });
+
+    describe("?as=K:Title", () => {
+      const real = ["Bertha", "Bertha 2", "Bertha 3", "Bertha 4"];
+
+      it("builds song K's landmark for another title, and changes nothing else about the song", async () => {
+        const page = await near("?pose=near-1&as=1:Ripple&as=3:Dark%20Star%20%3E");
+        page.run(0.02);
+        expect(fake.world.placed).toEqual(["Bertha", "Ripple", "Bertha 3", "Dark Star >"]);
+        // The path is still laid out for the show's own songs: a title pins Drums and Space to the caves (path.js).
+        expect(fake.world.laidOut).toEqual(real);
+        expect(hill().near).toEqual({ index: 1, title: "Ripple", clear: true });
+        send({ index: 2 });
+        page.run(0.02);
+        expect(hill().near?.title).toBe("Bertha 3");
+      });
+
+      it("takes a title with a colon in it whole, and the last of two for one song", async () => {
+        await near("?as=0:Drums:%20A%20Jam&as=2:First&as=2:Second");
+        expect(fake.world.placed).toEqual(["Drums: A Jam", "Bertha 2", "Second", "Bertha 4"]);
+      });
+
+      it("leaves out a value that names no song or no title", async () => {
+        await near("?as=Ripple&as=1&as=1:&as=x:Ripple&as=-1:Ripple&as=9:Ripple&as=1.5:Ripple");
+        expect(fake.world.placed).toEqual(real);
+      });
+
+      it("answers only on a preview", async () => {
+        await near("?pose=near-1&as=1:Ripple", { hooks: false });
+        expect(fake.world.placed).toEqual(real);
+        expect(fake.world.laidOut).toEqual(real);
+      });
+
+      it("places the show's own songs where no landmark is built for another title", async () => {
+        await near("?pose=near-1");
+        expect(fake.world.placed).toEqual(real);
+      });
+    });
   });
 
   it("thins the land's tufts by half at the downgrade's first rung, with the render scale, long before the crowd is halved", async () => {

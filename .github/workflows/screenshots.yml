@@ -25,10 +25,12 @@ jobs:
       (github.event.deployment_status.state == 'success' &&
       github.event.deployment.environment == 'Preview')
     runs-on: ubuntu-24.04
-    # Room for every shot and recording, the play steps' waits for archive.org's stream, the walk's sweep and the MP4 conversion (a run
-    # takes about 27 minutes), and for the browser's system packages, which the Ubuntu mirror can take over ten minutes to serve. A job
-    # cut at its limit uploads nothing, so the limit leaves room to spare.
-    timeout-minutes: 60
+    # Room for every shot and recording, the play steps' waits for archive.org's stream, the walk's sweep and the MP4 conversion, and
+    # for the browser's system packages, which the Ubuntu mirror can take over ten minutes to serve. A run takes about 45 minutes on
+    # most runners, and half as long again on a slow one: on 2026-11-22 one runner drew a desktop's frame in 620 ms where another,
+    # shooting the same pages at the same hour, took 310 ms, and its run was cut at 60 minutes, its last stills and its recordings
+    # untaken. A job cut at its limit uploads nothing, so the limit leaves room to spare.
+    timeout-minutes: 80
     defaults:
       run:
         working-directory: .github/screenshots

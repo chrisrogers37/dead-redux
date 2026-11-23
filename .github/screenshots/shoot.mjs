@@ -16,6 +16,7 @@ import {
   sweepSummary,
   walkPoses,
 } from "./assets.mjs";
+import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
 
 const DEVICES = {
   desktop: { viewport: { width: 1440, height: 900 } },
@@ -73,11 +74,15 @@ const playStep = (shot, later) => ({
   later,
 });
 
+// A shelf's tab, and the tab of a shelf the page marks away ("in") or back on the screen ("out").
+const shelfTab = (shelf) => `[data-shelf-tab='${shelf}']`;
+const shelfAt = (shelf, state) => `[data-shelf='${state}'] > ${shelfTab(shelf)}`;
+
 // The shelf step: press a shelf's tab, wait for the page to mark the shelf away ("in") or back on the screen ("out"), then shoot, with
 // the box log where `boxes` asks. A tab that is missing, or never moves its shelf, fails the run.
 const shelfStep = (shelf, state, shot, boxes = false) => ({
-  click: `[data-shelf-tab='${shelf}']`,
-  waitFor: `[data-shelf='${state}'] > [data-shelf-tab='${shelf}']`,
+  click: shelfTab(shelf),
+  waitFor: shelfAt(shelf, state),
   required: true,
   boxes,
   shot,
@@ -266,6 +271,11 @@ const PAGES = [
   { path: "/2026-10-20?pose=landmark-6", devices: ["desktop"], shots: ["fixed-over-touch-of-grey"] },
   { path: "/2026-10-20?pose=landmark-7", devices: ["desktop"], shots: ["fixed-over-cold-rain"] },
   { path: "/2026-10-20?pose=landmark-12", devices: ["desktop"], shots: ["fixed-over-uncle-johns-band"] },
+  // The near stills (near.mjs): the visitor stands beside each landmark, 14 m short of it on the path and facing it, the last bear
+  // beside it and the others on ahead, and the page is shot whole. Every landmark of the fixed day, then, on a second load of it,
+  // every other kind of landmark, each built at one of the fixed day's songs' points. A landmark is read here at the size a
+  // visitor sees it.
+  ...nearPages(),
   // The fixed day with the site's day faked as 2099-01-01, a day it will not reach: the chip names the new day at load and stays while
   // the show plays on (the 8-s shot's clock has moved; the url line still reads the fixed page); in lean-back it sits above the title; its
   // link loads today's page, which arrives leaned back and starts the show, or shows it paused where the browser refuses.
@@ -619,6 +629,7 @@ const reread = (file) => () => console.log(`reread ${file}: the page navigated w
 
 // Logs the page's render stats (window.__hill) for a shot, or for a recording after each control it holds; null on a page without them.
 // A frame over its tier's draw-call budget is a failure, and so is a first-person frame where a bear comes inside the near plane.
+// Returns the stats.
 const logStats = async (page, file) => {
   const stats = await evaluateAcrossNavigation(page, () => JSON.stringify(window.__hill ?? null), reread(file));
   console.log(`stats ${file} ${stats}`);
@@ -626,6 +637,44 @@ const logStats = async (page, file) => {
   for (const failure of [callsFailure(parsed), nearFailure(parsed)]) {
     if (failure) failures.push(`${file}: ${failure}`);
   }
+  return parsed;
+};
+
+// The HUD's shelves, by their tabs' names (src/components/world/shelves.ts).
+const SHELVES = ["title", "actions", "player"];
+// Shows the world whole (`whole`), or as the shoot's other pages expect it: whole is the view in first person, where the visitor's
+// own bear is out of the frame, with the HUD's three shelves put away. Both are set as a visitor sets them, with V and with each
+// shelf's tab, and only where they are not so already, since the page keeps both from one load to the next. Then the page settles.
+// A view or a shelf that does not follow fails the run for `where`: left as it is, it would be in every later page of the device.
+const showWhole = async (page, whole, where) => {
+  const state = whole ? "in" : "out";
+  // Whether the view is first person already, and which shelves are where they are wanted already.
+  const { first, there } = await page.evaluate(
+    (selectors) => ({
+      first: document.querySelector("main")?.dataset.view === "first",
+      there: selectors.map((selector) => document.querySelector(selector) !== null),
+    }),
+    SHELVES.map((shelf) => shelfAt(shelf, state)),
+  );
+  if (first !== whole) {
+    await page.focus("#world");
+    await page.keyboard.press("KeyV");
+    await page
+      .waitForSelector(`main[data-view='${whole ? "first" : "third"}']`, { timeout: 15_000 })
+      .catch(() => failures.push(`${where}: the view never turned to ${whole ? "first" : "third"} person`));
+  }
+  for (const [k, shelf] of SHELVES.entries()) {
+    if (there[k]) continue;
+    if ((await page.locator(shelfTab(shelf)).count()) === 0) {
+      failures.push(`${where}: no tab for the ${shelf} shelf`);
+      continue;
+    }
+    await page.click(shelfTab(shelf));
+    await page
+      .waitForSelector(shelfAt(shelf, state), { timeout: 15_000 })
+      .catch(() => failures.push(`${where}: the ${shelf} shelf was never ${whole ? "put away" : "brought back"}`));
+  }
+  if (first !== whole || there.includes(false)) await page.waitForTimeout(STEP_SETTLE_MS);
 };
 
 // Each policy problem, with the devices and pages where it happened: a Content-Security-Policy violation, a Permissions Policy error,
@@ -802,15 +851,10 @@ try {
       height: options.viewport.height * MAX_SCREENS,
     };
 
-    for (const { path, shots, steps, end, devices, ready, sweep, failAudio, status, served } of PAGES) {
-      // The TV device is for lean-back, so it shoots the home page and only the other pages that name it.
-      if (device === "tv" && path !== "/" && !devices?.includes("tv")) {
-        continue;
-      }
-      // A page may name the devices that shoot it; a device without WebGL, and the phone on its side, shoot only the pages that do.
-      if (devices ? !devices.includes(device) : BY_NAME.has(device)) {
-        continue;
-      }
+    // The pages this device shoots. The TV device is for lean-back, so it shoots the home page and only the other pages that name it. A
+    // page may name the devices that shoot it; a device without WebGL, and the phone on its side, shoot only the pages that do.
+    const pages = PAGES.filter(({ path, devices }) => (device !== "tv" || path === "/" || devices?.includes("tv")) && (devices ? devices.includes(device) : !BY_NAME.has(device)));
+    for (const [k, { path, shots, steps, end, ready, sweep, failAudio, status, served, whole }] of pages.entries()) {
       const url = pageUrl(path, device);
       if (failAudio) await page.route(isTrackAudio, (route) => route.abort());
       const response = await open(page, url);
@@ -844,6 +888,8 @@ try {
           document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
         });
       }
+      // A page shot whole is in first person with the shelves away, until its steps are done. After a page shot whole it is so already.
+      if (whole) await showWhole(page, true, `${device} ${path}`);
       // A sweep that cannot finish fails the run at the end, so the shots after it are still taken.
       if (sweep) await sweepWalk(page, device, sweep).catch((error) => failures.push(`sweep ${device}: ${error.message}`));
 
@@ -879,6 +925,24 @@ try {
           await page.mouse.move(x + step.drag[0], y + step.drag[1], { steps: 8 });
           await page.mouse.up();
         }
+        // A near step stands the visitor by another song's landmark and waits for the frames that draw the cut and the bears there:
+        // frames, since a software renderer draws two a second and a GPU sixty. They are its settle. A world that is not drawing
+        // has no still to take: the step fails the run and is skipped, at once where there is no world at all.
+        if (step.near !== undefined) {
+          const from = await page.evaluate((index) => {
+            const from = window.__hill?.frames ?? null;
+            document.dispatchEvent(new CustomEvent("world:near", { detail: { index } }));
+            return from;
+          }, step.near);
+          const drawn =
+            from !== null &&
+            (await page.waitForFunction(([from, frames]) => window.__hill.frames >= from + frames, [from, NEAR_FRAMES], { timeout: 30_000 }).then(() => true, () => false));
+          if (!drawn) {
+            failures.push(`${device}-${step.shot}.png: ${from === null ? "the page has no world" : `the world drew fewer than ${NEAR_FRAMES} frames in 30 s`} after the move to song ${step.near}`);
+            console.log(`${step.shot}: no still, the world is not drawing`);
+            continue;
+          }
+        }
         if (step.waitFor) {
           await page
             .waitForSelector(step.waitFor, { timeout: step.waitMs ?? 15_000 })
@@ -898,12 +962,17 @@ try {
           console.log(logText(`state ${device}-${step.shot}.png ${state} · ${line}`));
           console.log(`routing ${device}-${step.shot}.png ${routing}`);
         }
-        await page.waitForTimeout(STEP_SETTLE_MS);
+        if (step.near === undefined) await page.waitForTimeout(STEP_SETTLE_MS);
         const file = `${device}-${step.shot}.png`;
         await page.screenshot({ path: join(outDir, file), fullPage: true, clip });
-        console.log(`${file}  ${url}  ${selector ?? `press ${step.press}`}`);
-        await logStats(page, file);
-        await logPage(page, file);
+        console.log(`${file}  ${url}  ${step.near !== undefined ? `near ${step.near}` : selector ?? `press ${step.press}`}`);
+        const stats = await logStats(page, file);
+        // A near still of the wrong song fails the run: the stats say which song the visitor stands by. Its page plays nothing, so the
+        // player's lines are left out: each read of the page waits on a frame, and a software renderer's frame is a third of a second.
+        if (step.near !== undefined) {
+          const failure = standFailure(stats?.near ?? null, step);
+          if (failure) failures.push(`${file}: ${failure}`);
+        } else await logPage(page, file);
         if (step.boxes) await logBoxes(page, file);
         // The follow-up shot shows the page after it has been playing for a while.
         if (step.later) {
@@ -944,6 +1013,8 @@ try {
           if (routed) failures.push(`${laterFile}: ${routed}`);
         }
       }
+      // The view and the shelves are handed back to the page after, unless it is shot whole too: they would only be put away again.
+      if (whole && !pages[k + 1]?.whole) await showWhole(page, false, `${device} ${path}, after its steps`);
 
       if (end) {
         // The last screen, as a visitor who scrolled to the bottom sees it.
