@@ -430,7 +430,7 @@ describe("the band's outlines, from the front, through four counts of playing", 
     return { thin, pockets };
   }
 
-  it("leaves few gaps under 3 px with a moving part at their edge: from the hill no more than 36 thin pixels and 4 small pockets in any of 16 poses, and from the front of the crowd 176 and 5", () => {
+  it("leaves few gaps under 3 px with a moving part at their edge: from the hill no more than 36 thin pixels and 4 small pockets in any of 16 poses, and from the front of the crowd 166 and 5", () => {
     const built = stand();
     built.play(1.5, 96);
     const most = { far: { thin: 0, pockets: 0 }, near: { thin: 0, pockets: 0 } };
@@ -443,10 +443,10 @@ describe("the band's outlines, from the front, through four counts of playing", 
     }
     // Counted 34 and 4 from the hill and 170 and 4 from the front; the band before its outlines were closed counted 100 and 12,
     // and 250 and 20. Something is counted: a wedge's tip is thin wherever two parts part.
-    // Counted 34 and 4 from the hill and 170 and 4 from the front; the band before its outlines were closed counted 100 and 12,
-    // and 255 and 21. Something is counted: a wedge's tip is thin wherever two parts part.
+    // Counted 34 and 4 from the hill and 160 and 4 from the front (170 with each head's pegs apart); the band before its outlines
+    // were closed counted 100 and 12, and 255 and 21. Something is counted: a wedge's tip is thin wherever two parts part.
     expect(most.far.thin).toBeGreaterThan(10);
-    expect([most.far.thin <= 36, most.far.pockets <= 4, most.near.thin <= 176, most.near.pockets <= 5]).toEqual([true, true, true, true]);
+    expect([most.far.thin <= 36, most.far.pockets <= 4, most.near.thin <= 166, most.near.pockets <= 5]).toEqual([true, true, true, true]);
   });
 });
 
