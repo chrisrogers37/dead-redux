@@ -625,8 +625,6 @@ function start(gl) {
        come out as the music quietens, over a few seconds; under reduced motion they keep the calm of a quiet night. */
     calm = reduced ? 1 : toward(calm, 1 - weight * (heard?.loud ?? 0), dt / 2.5);
     shade(look, skyMat.uniforms.uTime.value, calm);
-    /* The wind in the trees' crowns, at the same time, so they too hold still under reduced motion. */
-    trees.wind(skyMat.uniforms.uTime.value);
 
     /* Drums lights the left cave and Space the right, over eight seconds; under reduced motion at once. */
     for (const [k, c] of caves.entries()) {

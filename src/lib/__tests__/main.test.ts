@@ -85,7 +85,7 @@ const fake = vi.hoisted(() => {
     // The trees (trees.js). Where the stand-in stands them, which a test gives; what main.js gave it to place them by, and what to
     // reckon the cameras' ways by; each time they were built, and with what; the order the trees and the island were made in; what
     // the island was given to ask of the trunks, and each time the placing was asked whether a tree stands near a place, as [x, z, r];
-    // each time the trees were asked for the trunks near a place, the same; and the time of the wind in them, as the last frame set it.
+    // each time the trees were asked for the trunks near a place, the same; and every property of the built trees main.js has read.
     treeSpots: [] as Point[],
     treesAsked: [] as { count: number; loop: unknown[]; line: number[][]; landmarks: { x: number; z: number; rot: number; poly: unknown }[]; eyes: unknown; views: unknown }[],
     waysAsked: [] as { line: unknown; height: unknown; phone: boolean; bears: number[]; stands: { x: number; z: number; to: number[]; d: number }[] }[],
@@ -94,7 +94,7 @@ const fake = vi.hoisted(() => {
     trunks: undefined as unknown,
     nearAsks: [] as number[][],
     trunkAsks: [] as number[][],
-    wind: NaN,
+    treeReads: new Set<string>(),
     // The columns the walk's camera keeps out of: the array the visitor's bear was built with, what it held at the last boom, and each
     // time the trees were asked for those near a place, as [x, z, how many the array held then].
     boomColumns: undefined as unknown as unknown[],
@@ -225,13 +225,14 @@ const fake = vi.hoisted(() => {
       buildTrees: (_scene: unknown, spots: Point[], { lit, phone }: { lit: unknown; phone: boolean }) => {
         world.made.push("trees");
         world.treesBuilt.push({ spots, lit, phone });
-        return {
+        const built: Record<string, unknown> = {
           count: spots.length,
-          wind: (time: number) => { world.wind = time; },
           columns: (x: number, z: number, into: unknown[]) => { world.columnAsks.push([x, z, into.length]); into.push(TREE_COLUMN); return into; },
           // Every trunk is near, the stand-in says: the walk keeps out of whichever it is handed.
           trunks: (x: number, z: number, r: number) => { world.trunkAsks.push([x, z, r]); return spots; },
         };
+        // What main.js reads of them is kept: the trees have nothing else to give it, and nothing that takes a time.
+        return new Proxy(built, { get: (target, name) => { world.treeReads.add(String(name)); return target[String(name)]; } });
       },
     },
     path: {
@@ -545,6 +546,7 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
   fake.world.made = [];
   fake.world.nearAsks = [];
   fake.world.trunkAsks = [];
+  fake.world.treeReads = new Set();
   fake.world.columnAsks = [];
   fake.world.columnsAtBoom = [];
   fake.world.meshes = [];
@@ -832,22 +834,21 @@ describe("main.js's frames", () => {
       expect(fake.world.columnAsks).toEqual([]);
     });
 
-    it("sway by the sky's own time, which stands still under reduced motion", async () => {
-      const page = await startWorld();
+    it("stand still: a frame hands them no time and asks them only for what a walk and its camera keep out of", async () => {
+      // The opening, a walk in third person and in first, lean-back, and a walk under reduced motion: main.js reads their count for
+      // the stats and their two look-ups, and nothing else of them, so nothing it does can move them.
+      const page = await startWorld({ trees: [off(15, 20)] });
+      page.run(DESCENT_S + 0.1);
+      page.hold("ArrowUp", 0.5);
+      page.lean(true);
       page.run(1);
-      expect(fake.world.wind).toBeCloseTo(1, 9);
-      expect(fake.world.wind).toBe(fake.world.sky.uniforms.uTime.value);
-      page.run(1);
-      expect(fake.world.wind).toBeCloseTo(2, 9);
-      const still = await startWorld({ reduced: true });
-      still.run(0.02);
-      // The page's seed, as the sky's time is there.
-      const at = fake.world.wind;
-      expect(at).toBe(7);
-      expect(at).toBe(fake.world.sky.uniforms.uTime.value);
-      // A held key keeps the frames coming, and the wind where it was.
+      page.lean(false);
+      page.run(0.2);
+      expect((hill() as unknown as { trees: number }).trees).toBe(1);
+      expect([...fake.world.treeReads].sort()).toEqual(["columns", "count", "trunks"]);
+      const still = await startWorld({ reduced: true, trees: [off(15, 20)] });
       still.hold("ArrowUp", 1);
-      expect(fake.world.wind).toBe(at);
+      expect([...fake.world.treeReads].filter((name) => name !== "count").sort()).toEqual(["columns", "trunks"]);
     });
   });
 

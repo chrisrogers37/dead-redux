@@ -15,7 +15,7 @@ import { CRANE, DESCENT_FROM, postPose } from "../../../public/world/pose.js";
 import { onCrowdGround } from "../../../public/world/seats.js";
 import {
   BASE_FRAC, broadGeometry, broadLobes, buildTrees, cameraWays, CAVE_ROOM, CROWD_ROOM, CROWN_BASE, CROWN_R, CROWN_R_MAX, CROWN_REACH, EYE_ROOM, GLOW_SHARE, grove,
-  GROVES, LANDMARK_ROOM, LEAN, LINE_ROOM, LOBE_ROUGH, MIN_APART, NEAR, NY_MIN, PATH_ROOM, pineGeometry, placeTrees, RING_ROOM, RULES, SIGHT_HALF, SQUARE, STAGE_ROOM, SUNK, SWAY,
+  GROVES, LANDMARK_ROOM, LEAN, LINE_ROOM, LOBE_ROUGH, MIN_APART, NEAR, NY_MIN, PATH_ROOM, pineGeometry, placeTrees, RING_ROOM, RULES, SIGHT_HALF, SQUARE, STAGE_ROOM, SUNK,
   TALL, TARGET, TRACK_ROOM, TREE_REACH, TRUNK_FOOT, TRUNK_R_MAX, TRUNK_ROOM, UNDER, VIEW_HALF,
 } from "../../../public/world/trees.js";
 
@@ -39,7 +39,7 @@ type Lit = { onBeforeCompile(shader: unknown): void };
 const takesPool = worldPool as unknown as (material: unknown, uPool: unknown, stands?: unknown) => Lit;
 type Flock = { count: number; getMatrixAt(i: number, m: unknown): void; geometry: { getAttribute(name: string): Corners } };
 const buildIsland = worldIsland as unknown as (scene: unknown, grid: number, phone: boolean, loop: number[][], trunks?: (x: number, z: number) => boolean) => { flora: { tufts: Flock; stones: Flock }; lit(material: unknown, stands?: unknown): Lit };
-type Built = { count: number; meshes: Mesh[]; wind(time: number): void; columns(x: number, z: number, into: Column[]): Column[]; trunks(x: number, z: number, r: number): Column[] };
+type Built = { count: number; meshes: Mesh[]; columns(x: number, z: number, into: Column[]): Column[]; trunks(x: number, z: number, r: number): Column[] };
 type Corners = { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number };
 type Mesh = {
   isInstancedMesh: boolean; count: number; castShadow: boolean; frustumCulled: boolean; getMatrixAt(i: number, m: unknown): void;
@@ -107,14 +107,14 @@ function leastFrom(points: { x: number; z: number }[], trees: Spot[]) {
   }
   return nearest;
 }
-// Every corner of every tree a mesh draws, where its instance puts it: [x, y, z, aSway, the tree].
-function corners(mesh: Mesh, trees: Spot[], see: (x: number, y: number, z: number, sway: number, tree: Spot) => void) {
-  const matrix = new THREE.Matrix4(), v = new THREE.Vector3(), position = mesh.geometry.getAttribute("position"), sway = mesh.geometry.getAttribute("aSway");
+// Every corner of every tree a mesh draws, where its instance puts it: [x, y, z, the tree].
+function corners(mesh: Mesh, trees: Spot[], see: (x: number, y: number, z: number, tree: Spot) => void) {
+  const matrix = new THREE.Matrix4(), v = new THREE.Vector3(), position = mesh.geometry.getAttribute("position");
   for (let k = 0; k < mesh.count; k++) {
     mesh.getMatrixAt(k, matrix);
     for (let i = 0; i < position.count; i++) {
       v.fromBufferAttribute(position, i).applyMatrix4(matrix);
-      see(v.x, v.y, v.z, sway.getX(i), trees[k]);
+      see(v.x, v.y, v.z, trees[k]);
     }
   }
 }
@@ -557,54 +557,57 @@ describe("the trees' shapes", () => {
   const shapes = [["pine", pineGeometry], ["broad", broadGeometry]] as const;
   type Shape = { getAttribute(name: string): Corners };
   const read = (geo: Shape) => {
-    const position = geo.getAttribute("position"), sway = geo.getAttribute("aSway"), colour = geo.getAttribute("color"), normal = geo.getAttribute("normal");
-    // `up` is how squarely a corner's normal faces the sky on a tree of the middle size, 3.4 m across its half and 16.6 m tall.
+    const position = geo.getAttribute("position"), colour = geo.getAttribute("color"), normal = geo.getAttribute("normal");
+    // `up` is how squarely a corner's normal faces the sky on a tree of the middle size, 3.4 m across its half and 16.6 m tall; and
+    // `leaf` whether its colour is a leaf's, greener than it is red, where bark is redder.
     return Array.from({ length: position.count }, (_, i) => ({
-      x: position.getX(i), y: position.getY(i), z: position.getZ(i), sway: sway.getX(i),
+      x: position.getX(i), y: position.getY(i), z: position.getZ(i), leaf: colour.getY(i) > colour.getX(i),
       up: normal.getY(i) / 16.6 / Math.hypot(normal.getX(i) / 3.4, normal.getY(i) / 16.6, normal.getZ(i) / 3.4),
       light: 0.2126 * colour.getX(i) + 0.7152 * colour.getY(i) + 0.0722 * colour.getZ(i),
     }));
   };
 
-  it("are a few hundred triangles on a desktop and fewer on a phone, with a normal, a colour and a sway to every corner and no more", () => {
+  it("are a few hundred triangles on a desktop and fewer on a phone, with a normal and a colour to every corner and no more, so nothing can move one", () => {
     const triangles = (phone: boolean) => Object.fromEntries(shapes.map(([kind, geometry]) => [kind, geometry(phone).getAttribute("position").count / 3]));
     expect(triangles(false)).toEqual({ pine: 145, broad: 320 });
     expect(triangles(true)).toEqual({ pine: 72, broad: 124 });
     for (const [, geometry] of shapes) {
       const geo = geometry(false);
-      expect(Object.keys(geo.attributes).sort()).toEqual(["aSway", "color", "normal", "position"]);
+      expect(Object.keys(geo.attributes).sort()).toEqual(["color", "normal", "position"]);
       expect(geo.index).toBeNull();
       const normal = geo.getAttribute("normal");
       for (let i = 0; i < normal.count; i++) expect(Math.hypot(normal.getX(i), normal.getY(i), normal.getZ(i))).toBeCloseTo(1, 5);
     }
   });
 
-  it("stand from 0 at the sunk foot to 1 at the crown's top, the crown no lower than BASE_FRAC and no wider than CROWN_REACH, the trunk still and no wider than TRUNK_FOOT", () => {
+  it("stand from 0 at the sunk foot to 1 at the crown's top, the crown no lower than BASE_FRAC and no wider than CROWN_REACH, the trunk no wider than TRUNK_FOOT", () => {
     for (const phone of [false, true]) for (const [kind, geometry] of shapes) {
-      const all = read(geometry(phone)), crown = all.filter((c) => c.sway > 0), trunk = all.filter((c) => c.sway === 0);
+      const all = read(geometry(phone)), out = (c: { x: number; z: number }) => Math.hypot(c.x, c.z);
       expect(least(all.map((c) => c.y)), kind).toBe(0);
       expect(Math.max(...all.map((c) => c.y)), kind).toBeCloseTo(1, 6);
-      expect(crown.length, kind).toBeGreaterThan(trunk.length);
-      expect(least(crown.map((c) => c.y)), kind).toBeGreaterThanOrEqual(BASE_FRAC);
-      expect(Math.max(...crown.map((c) => Math.hypot(c.x, c.z))), kind).toBeLessThanOrEqual(CROWN_REACH + 1e-6);
-      // The crown is no stub: it reaches most of its radius.
-      expect(Math.max(...crown.map((c) => Math.hypot(c.x, c.z))), kind).toBeGreaterThan(0.85);
-      // The trunk's widest is its foot, and every part of it under the crown is trunk.
-      expect(Math.max(...trunk.map((c) => Math.hypot(c.x, c.z))), kind).toBeLessThanOrEqual(TRUNK_FOOT + 1e-6);
-      expect(Math.max(...trunk.filter((c) => c.y === 0).map((c) => Math.hypot(c.x, c.z))), kind).toBeGreaterThan(TRUNK_FOOT - 0.02);
-      expect(all.filter((c) => c.y < BASE_FRAC).every((c) => c.sway === 0), kind).toBe(true);
-      // The wind moves a crown's corner by its height: a fifth of the way at the crown's base, the whole way at its top.
-      for (const c of crown) expect(c.sway, kind).toBeCloseTo(0.2 + (0.8 * (c.y - BASE_FRAC)) / (1 - BASE_FRAC), 5);
+      // Under BASE_FRAC of its height a tree is trunk, bark and no wider than its foot; every leaf is over it.
+      const under = all.filter((c) => c.y < BASE_FRAC);
+      expect(under.length, kind).toBeGreaterThan(20);
+      expect(Math.max(...under.map(out)), kind).toBeLessThanOrEqual(TRUNK_FOOT + 1e-6);
+      expect(under.every((c) => !c.leaf), kind).toBe(true);
+      expect(least(all.filter((c) => c.leaf).map((c) => c.y)), kind).toBeGreaterThanOrEqual(BASE_FRAC);
+      // The trunk's widest is its foot.
+      expect(Math.max(...all.filter((c) => c.y === 0).map(out)), kind).toBeGreaterThan(TRUNK_FOOT - 0.02);
+      // No corner stands further out than CROWN_REACH; and the crown is no stub: it reaches most of its radius, and is most of the tree.
+      expect(Math.max(...all.map(out)), kind).toBeLessThanOrEqual(CROWN_REACH + 1e-6);
+      expect(Math.max(...all.map(out)), kind).toBeGreaterThan(0.85);
+      expect(all.filter((c) => c.leaf).length, kind).toBeGreaterThan(all.length / 2);
     }
     expect([TRUNK_FOOT, CROWN_REACH]).toEqual([0.2, 0.98]);
   });
 
   it("close a pine's tiers underneath, a face under each face of a tier's side, so a walker under one sees no sky through it", () => {
     for (const [phone, tiers, points] of [[false, 5, 10], [true, 3, 7]] as const) {
-      const normal = pineGeometry(phone).getAttribute("normal"), sway = pineGeometry(phone).getAttribute("aSway");
+      const corners = read(pineGeometry(phone)), normal = pineGeometry(phone).getAttribute("normal");
       let up = 0, down = 0;
       for (let i = 0; i < normal.count; i += 3) {
-        if (sway.getX(i + 1) === 0) continue;
+        // A tier's faces are leaves; the trunk's and its stubs' are bark.
+        if (!corners[i + 1].leaf) continue;
         const y = (normal.getY(i) + normal.getY(i + 1) + normal.getY(i + 2)) / 3;
         if (y < -0.5) down += 1; else up += 1;
       }
@@ -616,10 +619,11 @@ describe("the trees' shapes", () => {
   // crown's radius cut into 30, and for each square the highest face over its middle: how high (in the tree's heights), how pale the
   // colour there, how squarely the face itself lies to the sky, and how squarely its light does (the corners' normals).
   function fromAbove(geo: Shape) {
-    const W = 3.4, H = 16.6, N = 30, position = geo.getAttribute("position"), sway = geo.getAttribute("aSway"), colour = geo.getAttribute("color"), normal = geo.getAttribute("normal");
+    const W = 3.4, H = 16.6, N = 30, position = geo.getAttribute("position"), colour = geo.getAttribute("color"), normal = geo.getAttribute("normal");
     const cells = new Map<number, { x: number; z: number; y: number; light: number; faceUp: number; lightUp: number }>();
     for (let f = 0; f < position.count; f += 3) {
-      if (sway.getX(f) === 0) continue;
+      // The leaves' faces, greener than they are red; a bough's and the trunk's are bark.
+      if (colour.getY(f) <= colour.getX(f)) continue;
       const c = [0, 1, 2].map((k) => {
         const n = [normal.getX(f + k) / W, normal.getY(f + k) / H, normal.getZ(f + k) / W];
         return { x: position.getX(f + k), y: position.getY(f + k), z: position.getZ(f + k), up: n[1] / Math.hypot(...n), light: 0.2126 * colour.getX(f + k) + 0.7152 * colour.getY(f + k) + 0.0722 * colour.getZ(f + k) };
@@ -680,7 +684,7 @@ describe("the trees' shapes", () => {
       expect(mean(leaning.map((c) => c.lightUp)), name).toBeLessThan(0.55);
     }
     // From below the crown is in its own shade: the corners that face down are the darkest, under half as pale as the flanks.
-    const crown = read(broadGeometry(false)).filter((c) => c.sway > 0);
+    const crown = read(broadGeometry(false)).filter((c) => c.leaf);
     const under = crown.filter((c) => c.up < -0.5), flank = crown.filter((c) => c.up > -0.1 && c.up < 0.5);
     expect(under.length).toBeGreaterThan(30);
     expect(mean(flank.map((c) => c.light))).toBeGreaterThan(2 * mean(under.map((c) => c.light)));
@@ -732,7 +736,7 @@ describe("the trees as they are built", () => {
     for (const [meshes, trees] of [[made.meshes, fixed.trees], [phones.meshes, fixedPhone.trees]] as const) {
       byKind(trees).forEach((mine, k) => {
         const lowest = new Map<Spot, number>(), highest = new Map<Spot, number>();
-        corners(meshes[k], mine, (_x, y, _z, _sway, tree) => {
+        corners(meshes[k], mine, (_x, y, _z, tree) => {
           lowest.set(tree, Math.min(lowest.get(tree) ?? Infinity, y));
           highest.set(tree, Math.max(highest.get(tree) ?? -Infinity, y));
         });
@@ -751,33 +755,34 @@ describe("the trees as they are built", () => {
     }
   });
 
-  it("hold every crown inside the bounds its tree gives the camera, swaying: no further out than its reach, no lower than its base, no higher than its top", () => {
+  it("hold every tree inside the bounds it gives the camera: what stands out past its trunk is no further out than its reach, no lower than its base, no higher than its top", () => {
     for (const w of [fixed, fixedPhone, DESKTOP[3], PHONE[30]]) {
       const { meshes } = built(w.trees, w.phone);
-      // The least room any corner of a crown leaves inside its reach when the wind has it SWAY m out, over its base and under its top.
+      // The least room any corner leaves inside its tree's reach and under its top; and, of the corners that stand out past the
+      // trunk's foot, over its base: those are its crown.
       let within = Infinity, over = Infinity, under = Infinity;
-      byKind(w.trees).forEach((mine, k) => corners(meshes[k], mine, (x, y, z, sway, tree) => {
-        if (sway === 0) return;
-        within = Math.min(within, tree.reach - SWAY - Math.hypot(x - tree.x, z - tree.z));
-        over = Math.min(over, y - tree.base);
+      byKind(w.trees).forEach((mine, k) => corners(meshes[k], mine, (x, y, z, tree) => {
+        const out = Math.hypot(x - tree.x, z - tree.z);
+        within = Math.min(within, tree.reach - out);
         under = Math.min(under, tree.top - y);
+        if (out > TRUNK_R_MAX + 0.5) over = Math.min(over, y - tree.base);
       }));
       expect(within, w.date).toBeGreaterThanOrEqual(0);
       expect(over, w.date).toBeGreaterThanOrEqual(0);
       expect(under, w.date).toBeGreaterThanOrEqual(0);
-      // The bounds are no looser than a lean and the wind ask: some crown comes within 0.4 m of its base and of its reach.
+      // The bounds are no looser than a lean asks: some crown comes within 0.4 m of its base, and one within 10 cm of its reach.
       expect(over, w.date).toBeLessThan(0.4);
-      expect(within, w.date).toBeLessThan(0.4);
+      expect(within, w.date).toBeLessThan(0.1);
       for (const tree of w.trees) {
         expect(tree.wide).toBeGreaterThanOrEqual(CROWN_R[0]);
         expect(tree.wide).toBeLessThanOrEqual(CROWN_R[1]);
-        // Its reach is its own crown's: its corners' reach, what its lean carries its top over, and the sway; never the widest's.
-        expect(tree.reach).toBeCloseTo(tree.wide * CROWN_REACH + Math.hypot(tree.lean[0], tree.lean[1]) * (tree.tall + SUNK) + SWAY, 9);
+        // Its reach is its own crown's: its corners' reach and what its lean carries its top over; never the widest's.
+        expect(tree.reach).toBeCloseTo(tree.wide * CROWN_REACH + Math.hypot(tree.lean[0], tree.lean[1]) * (tree.tall + SUNK), 9);
         expect(tree.reach).toBeLessThanOrEqual(CROWN_R_MAX);
       }
     }
     // The widest crown on the tallest tree, leaning its most.
-    expect(CROWN_R_MAX).toBeCloseTo(CROWN_R[1] * CROWN_REACH + LEAN * (TALL[1] + SUNK) + SWAY, 12);
+    expect(CROWN_R_MAX).toBeCloseTo(CROWN_R[1] * CROWN_REACH + LEAN * (TALL[1] + SUNK), 12);
     expect(CROWN_R_MAX).toBeLessThan(5);
   });
 
@@ -801,7 +806,7 @@ describe("the trees as they are built", () => {
     let widest = 0;
     for (const w of [fixed, fixedPhone, DESKTOP[3], PHONE[30]]) {
       const { meshes } = built(w.trees, w.phone);
-      byKind(w.trees).forEach((mine, k) => corners(meshes[k], mine, (x, y, z, _sway, tree) => {
+      byKind(w.trees).forEach((mine, k) => corners(meshes[k], mine, (x, y, z, tree) => {
         if (y < tree.y + TOP) widest = Math.max(widest, Math.hypot(x - tree.x, z - tree.z));
       }));
     }
@@ -816,66 +821,43 @@ describe("the trees as they are built", () => {
     expect(TREE_REACH).toBeCloseTo(2.808, 9);
   });
 
-  it("sway a crown's top SWAY m at the most, no faster than once in five seconds, and a trunk not at all", () => {
-    const shader = { uniforms: {} as Record<string, { value: number }>, vertexShader: THREE.ShaderLib.lambert.vertexShader as string, fragmentShader: "" };
-    // The lines the edit hangs on are in three's Lambert shader once each.
-    for (const anchor of ["#include <common>", "#include <begin_vertex>"]) expect(shader.vertexShader.split(anchor)).toHaveLength(2);
-    made.meshes[0].material.onBeforeCompile(shader);
-    expect(shader.vertexShader).toContain("attribute float aSway;\nuniform float uWind;");
-    const sway = /float sway = aSway \* aSway \* ([\d.]+) \* \(([\d.]+) \* sin\(uWind \* ([\d.]+) \+ root\.x \* 0\.11 \+ root\.z \* 0\.09\) \+ ([\d.]+) \* sin\(uWind \* ([\d.]+) \+ root\.z \* 0\.3\)\);/.exec(shader.vertexShader);
-    expect(sway).not.toBeNull();
-    const [far, slow, slowRate, quick, quickRate] = sway!.slice(1).map(Number);
-    expect(far).toBe(SWAY);
-    expect(SWAY).toBeLessThanOrEqual(0.125);
-    // aSway is 1 at a crown's top and 0 on a trunk, and the two waves together reach 1 at the most.
-    expect(slow + quick).toBe(1);
-    for (const rate of [slowRate, quickRate]) expect((2 * Math.PI) / rate).toBeGreaterThanOrEqual(5);
-    // It moves the corner along the wind's own way in the world, whichever way the tree is turned, and nothing else moves it.
-    expect(shader.vertexShader).toContain("vec2 wind = sway * vec2(0.8600, 0.5100), ax = instanceMatrix[0].xz, az = instanceMatrix[2].xz;");
-    expect(shader.vertexShader).toContain("transformed.xz += vec2(dot(wind, ax) / dot(ax, ax), dot(wind, az) / dot(az, az));");
-    expect(shader.vertexShader.split("uWind")).toHaveLength(4);
-    // The wind is the time it is handed: held still, the crowns hold still.
-    made.wind(12.5);
-    expect(shader.uniforms.uWind.value).toBe(12.5);
-    // One wind for both meshes.
-    for (const mesh of made.meshes) {
-      const other = { uniforms: {} as Record<string, unknown>, vertexShader: THREE.ShaderLib.lambert.vertexShader as string, fragmentShader: "" };
-      mesh.material.onBeforeCompile(other);
-      expect(other.uniforms.uWind).toBe(shader.uniforms.uWind);
-    }
-  });
-
-  it("take the stage's glow no more strongly than level ground at their feet does, and a share of that: the light's own edit runs first, and the sway's on top of it", () => {
+  it("stand still: one material for both meshes, with no time in it and nothing that moves a corner, which takes the stage's glow no more strongly than level ground at a tree's foot does, and a share of that", () => {
     const uPool = { value: new THREE.Color(0xff7a30) }, scene = new THREE.Scene();
     const asked: unknown[] = [];
     const lit = (material: unknown, stands: unknown) => { asked.push(stands); return takesPool(material, uPool, stands); };
-    const { meshes } = buildTrees(scene, fixed.trees, { lit, phone: false }) as unknown as Built;
-    // Each material is lit as a thing that stands on the ground, its root SUNK m under it.
-    expect(asked).toEqual([{ sunk: SUNK, share: GLOW_SHARE }, { sunk: SUNK, share: GLOW_SHARE }]);
+    const { meshes, ...rest } = buildTrees(scene, fixed.trees, { lit, phone: false }) as unknown as Built;
+    // One material, lit once, as a thing that stands on the ground, its root SUNK m under it.
+    expect(asked).toEqual([{ sunk: SUNK, share: GLOW_SHARE }]);
+    expect(meshes).toHaveLength(2);
+    expect(meshes[0].material).toBe(meshes[1].material);
+    expect(meshes[0].material.vertexColors).toBe(true);
     expect(GLOW_SHARE).toBeLessThan(0.5);
     expect(GLOW_SHARE).toBeGreaterThan(0);
-    for (const mesh of meshes) {
-      const shader = { uniforms: {} as Record<string, unknown>, vertexShader: THREE.ShaderLib.lambert.vertexShader as string, fragmentShader: THREE.ShaderLib.lambert.fragmentShader as string };
-      mesh.material.onBeforeCompile(shader);
-      expect(shader.uniforms.uPool).toBe(uPool);
-      // A tree's point stands where its instance puts it, swayed.
-      expect(shader.vertexShader).toContain("vPoolAt = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;");
-      // How squarely level ground at its foot turns to the glow: straight up, at the instance's root and SUNK m over it.
-      const from = `vec3(${STAGE[0].toFixed(4)}, 9.5000, ${STAGE[1].toFixed(4)})`;
-      expect(shader.vertexShader).toContain(`vPoolMost = max(normalize(${from} - (modelMatrix * instanceMatrix[3]).xyz - vec3(0.0, ${SUNK.toFixed(4)}, 0.0)).y, 0.0);`);
-      // A face takes the glow by its own angle to it, no more than that ground does, and GLOW_SHARE of it.
-      const light = shader.fragmentShader.slice(shader.fragmentShader.indexOf("float poolLit"));
-      expect(light.split("\n").slice(0, 3).map((l) => l.trim())).toEqual([
-        "float poolLit = max(dot(normal, normalize((viewMatrix * vec4(poolTo, 0.0)).xyz)), 0.0);",
-        `poolLit = min(poolLit, vPoolMost) * ${GLOW_SHARE.toFixed(4)};`,
-        expect.stringMatching(/^reflectedLight\.directDiffuse \+= uPool \* diffuseColor\.rgb \* poolLit \* /),
-      ]);
-      for (const text of [shader.vertexShader, shader.fragmentShader]) expect(text).toContain("varying float vPoolMost;");
-      expect(shader.vertexShader).toContain("uniform float uWind;");
-      expect(mesh.material.vertexColors).toBe(true);
-    }
+    // The built trees give the world their count and the two look-ups, and nothing to hand a time to.
+    expect(Object.keys(rest).sort()).toEqual(["columns", "count", "trunks"]);
+    const plainShader = { vertex: THREE.ShaderLib.lambert.vertexShader as string, fragment: THREE.ShaderLib.lambert.fragmentShader as string };
+    const shader = { uniforms: {} as Record<string, unknown>, vertexShader: plainShader.vertex, fragmentShader: plainShader.fragment };
+    meshes[0].material.onBeforeCompile(shader);
+    // The glow is the one thing added to three's own Lambert shader: its colour is the only uniform, and no corner's place is
+    // touched, so a tree is drawn where its instance stands it, the same in every frame.
+    expect(Object.keys(shader.uniforms)).toEqual(["uPool"]);
+    expect(shader.uniforms.uPool).toBe(uPool);
+    expect(shader.vertexShader).not.toMatch(/transformed\s*(\.\w+)?\s*[+\-*]?=/);
+    expect(shader.vertexShader + shader.fragmentShader).not.toMatch(/uWind|uTime|aSway|sin\(/);
+    expect(shader.vertexShader.replace(/\s+/g, " ")).toContain("#include <project_vertex> #ifdef USE_INSTANCING vPoolAt = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;");
+    // How squarely level ground at its foot turns to the glow: straight up, at the instance's root and SUNK m over it.
+    const from = `vec3(${STAGE[0].toFixed(4)}, 9.5000, ${STAGE[1].toFixed(4)})`;
+    expect(shader.vertexShader).toContain(`vPoolMost = max(normalize(${from} - (modelMatrix * instanceMatrix[3]).xyz - vec3(0.0, ${SUNK.toFixed(4)}, 0.0)).y, 0.0);`);
+    // A face takes the glow by its own angle to it, no more than that ground does, and GLOW_SHARE of it.
+    const light = shader.fragmentShader.slice(shader.fragmentShader.indexOf("float poolLit"));
+    expect(light.split("\n").slice(0, 3).map((l) => l.trim())).toEqual([
+      "float poolLit = max(dot(normal, normalize((viewMatrix * vec4(poolTo, 0.0)).xyz)), 0.0);",
+      `poolLit = min(poolLit, vPoolMost) * ${GLOW_SHARE.toFixed(4)};`,
+      expect.stringMatching(/^reflectedLight\.directDiffuse \+= uPool \* diffuseColor\.rgb \* poolLit \* /),
+    ]);
+    for (const text of [shader.vertexShader, shader.fragmentShader]) expect(text).toContain("varying float vPoolMost;");
     // The ground's own light is as it was: by its face's angle alone.
-    const ground = { uniforms: {} as Record<string, unknown>, vertexShader: THREE.ShaderLib.lambert.vertexShader as string, fragmentShader: THREE.ShaderLib.lambert.fragmentShader as string };
+    const ground = { uniforms: {} as Record<string, unknown>, vertexShader: plainShader.vertex, fragmentShader: plainShader.fragment };
     takesPool(new THREE.MeshLambertMaterial(), uPool).onBeforeCompile(ground);
     expect(ground.vertexShader + ground.fragmentShader).not.toContain("vPoolMost");
     expect(ground.fragmentShader).toContain("float poolLit = max(dot(normal, normalize((viewMatrix * vec4(poolTo, 0.0)).xyz)), 0.0);\n        reflectedLight.directDiffuse += uPool * diffuseColor.rgb * poolLit");
@@ -933,13 +915,14 @@ describe("the trees as they are built", () => {
       held.set(tree, { trunk: mine.find((c) => c.base === undefined)!, crown: mine.find((c) => c.base !== undefined)! });
     }
     const of = (tree: Spot) => held.get(tree)!;
-    // The least room a corner leaves under its trunk's column's top, inside the trunk's column and inside the crown's.
+    // The least room a corner leaves under its trunk's column's top; under the crown's base, inside the trunk's column with NEAR m
+    // of air; and from the base up, inside the crown's.
     let under = Infinity, trunkRoom = Infinity, crownRoom = Infinity;
-    byKind(fixed.trees).forEach((mine, k) => corners(made.meshes[k], mine, (x, y, z, sway, tree) => {
+    byKind(fixed.trees).forEach((mine, k) => corners(made.meshes[k], mine, (x, y, z, tree) => {
       const { trunk, crown } = of(tree), out = Math.hypot(x - tree.x, z - tree.z);
       under = Math.min(under, trunk.top - y);
-      if (sway === 0 && y < crown.base!) trunkRoom = Math.min(trunkRoom, trunk.r - NEAR - out);
-      if (sway > 0) crownRoom = Math.min(crownRoom, crown.r - SWAY - out);
+      if (y < crown.base!) trunkRoom = Math.min(trunkRoom, trunk.r - NEAR - out);
+      else crownRoom = Math.min(crownRoom, crown.r - out);
     }));
     expect(under).toBeGreaterThanOrEqual(0);
     expect(trunkRoom).toBeGreaterThanOrEqual(0);

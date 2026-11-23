@@ -1,4 +1,3 @@
-/* eslint-disable */
 import * as THREE from "three";
 import { boomLength, TOP } from "./avatar.js";
 import { CLEAR, outside } from "./collide.js";
@@ -13,23 +12,23 @@ import { onCrowdGround } from "./seats.js";
    of one kind are one instanced mesh, so the trees cost two draw calls however many stand. A trunk is solid to a walk (modes.js) and
    to the walk's camera, and so is a crown to that camera (boom.js); every other camera's way is kept clear of them when they are
    placed. A tree stands on the island's own height (ground.js), which a walk and its camera reckon by, with its foot sunk under it:
-   the ground's mesh lies up to 0.7 m off that height on a phone's coarser grid, and the sunk foot covers it. */
+   the ground's mesh lies up to 0.7 m off that height on a phone's coarser grid, and the sunk foot covers it.
+   The trees stand still. A crown that swayed made the pixels its edge crossed flicker against a bright sky, up to six swings in a
+   second at a block where the trees held still counted three (scripts/flash), so nothing here moves a corner once it is built. */
 
 /* A tree stands TALL m over the ground, its foot SUNK m under it, since on a slope the ground falls away under its lower side. Its
    crown is the upper part of it, from BASE_FRAC of the way up from its foot, and CROWN_R m across its half; and there are CROWN_BASE m
    of air under a crown wherever a walker can stand below it, so a bear walks under any crown with its head clear (avatar.js TOP),
-   and the walk's camera's boom starts under it with room for the camera (boom.js). A tree leans up to LEAN rad, and the wind moves a
-   crown's top SWAY m to either side. Where a crown's edge or a bough crosses a bright sky, the pixels it crosses flicker for a
-   frame or two as it passes, and the wider the sway the more of them do (scripts/flash counts them). */
+   and the walk's camera's boom starts under it with room for the camera (boom.js). A tree leans up to LEAN rad. */
 export const SUNK = 1.6, TALL = [11, 18], CROWN_BASE = 6.5, BASE_FRAC = 0.66;
-export const CROWN_R = [2.8, 4.0], LEAN = 0.04, SWAY = 0.125;
+export const CROWN_R = [2.8, 4.0], LEAN = 0.04;
 /* A tree's shape is built with its crown's radius for a unit across (the shapes, below). In those: a trunk's half-width at its sunk
    foot, where it is widest, with no part of a trunk, a pine's stubs among them, further from its middle line; and how far a crown's
    corners reach. */
 export const TRUNK_FOOT = 0.2, CROWN_REACH = 0.98;
-/* How far a crown `wide` m across its half reaches from the middle of its tree's foot: its corners, what its lean (rad) carries its
-   top over, and the wind's sway. And a trunk, no higher than `up` m over its sunk foot: its foot's half-width, and its lean by there. */
-const crownOut = (wide, lean, tall) => wide * CROWN_REACH + lean * (tall + SUNK) + SWAY;
+/* How far a crown `wide` m across its half reaches from the middle of its tree's foot: its corners, and what its lean (rad) carries
+   its top over. And a trunk, no higher than `up` m over its sunk foot: its foot's half-width, and its lean by there. */
+const crownOut = (wide, lean, tall) => wide * CROWN_REACH + lean * (tall + SUNK);
 const trunkOut = (wide, lean, up) => wide * TRUNK_FOOT + lean * up;
 /* The furthest any crown reaches from its tree's foot, and any trunk no higher than a bear is tall. */
 export const CROWN_R_MAX = crownOut(CROWN_R[1], LEAN, TALL[1]), TRUNK_R_MAX = trunkOut(CROWN_R[1], LEAN, SUNK + TOP);
@@ -64,7 +63,7 @@ export const GROVE_CORE = 0.7, LONE = 0.2;
    it is read at a few places, not all. And how far past a crown's reach the ground is read for the air under it, so the boom's foot
    is as far from a crown beside it as from one overhead. */
 export const DROP = 0.3, UNDER = 1.5;
-/* The way the wind blows across the island, [x, z]: the crowns sway along it and the trees lean down it. */
+/* The way the wind blows across the island, [x, z]: the trees lean down it. */
 const WIND = [0.86, 0.51];
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
@@ -268,26 +267,22 @@ export function cameraWays({ line, height, stands = [], phone = false, bears = [
 /* ---------- the shapes ---------- */
 
 /* A shape is built in a frame of its own: y runs from 0 at the trunk's sunk foot to 1 at the crown's top, and x and z are in crown
-   radii, so a tree's own height and width scale it. Every face is three corners of its own, each with a normal, a colour and how far
-   the wind moves it (aSway: 0 on the trunk, and on the crown from 0.2 at its base to 1 at its top). */
+   radii, so a tree's own height and width scale it. Every face is three corners of its own, each with a normal and a colour. */
 function shape() {
-  const position = [], normal = [], colour = [], sway = [];
-  const swayAt = (y) => 0.2 + 0.8 * clamp01((y - BASE_FRAC) / (1 - BASE_FRAC));
+  const position = [], normal = [], colour = [];
   return {
-    /* One corner: its place, its normal, its colour, and whether the wind moves it. */
-    corner(p, n, c, moves) {
+    /* One corner: its place, its normal and its colour. */
+    corner(p, n, c) {
       position.push(p[0], p[1], p[2]);
       const l = Math.hypot(n[0], n[1], n[2]) || 1;
       normal.push(n[0] / l, n[1] / l, n[2] / l);
       colour.push(c[0], c[1], c[2]);
-      sway.push(moves ? swayAt(p[1]) : 0);
     },
     geometry() {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.Float32BufferAttribute(position, 3));
       geo.setAttribute("normal", new THREE.Float32BufferAttribute(normal, 3));
       geo.setAttribute("color", new THREE.Float32BufferAttribute(colour, 3));
-      geo.setAttribute("aSway", new THREE.Float32BufferAttribute(sway, 1));
       return geo;
     },
   };
@@ -298,7 +293,7 @@ const times = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
 
 /* A limb: a tube of `sides` sides through `rings`, each { at: [x, y, z], r }, open at both ends, which stand inside what it joins.
    Its colour runs from `dark` at its first ring to `pale` at its last. */
-function limb(out, rings, sides, dark, pale, moves) {
+function limb(out, rings, sides, dark, pale) {
   const ring = ({ at, r }) => Array.from({ length: sides }, (_, k) => {
     const a = (k / sides) * 2 * Math.PI, n = [Math.cos(a), 0, Math.sin(a)];
     return { p: [at[0] + n[0] * r, at[1], at[2] + n[2] * r], n };
@@ -308,8 +303,8 @@ function limb(out, rings, sides, dark, pale, moves) {
     const cl = mix(dark, pale, s / (rings.length - 1)), cu = mix(dark, pale, (s + 1) / (rings.length - 1));
     for (let k = 0; k < sides; k++) {
       const a = lower[k], b = lower[(k + 1) % sides], c = upper[(k + 1) % sides], d = upper[k];
-      out.corner(a.p, a.n, cl, moves); out.corner(d.p, d.n, cu, moves); out.corner(c.p, c.n, cu, moves);
-      out.corner(a.p, a.n, cl, moves); out.corner(c.p, c.n, cu, moves); out.corner(b.p, b.n, cl, moves);
+      out.corner(a.p, a.n, cl); out.corner(d.p, d.n, cu); out.corner(c.p, c.n, cu);
+      out.corner(a.p, a.n, cl); out.corner(c.p, c.n, cu); out.corner(b.p, b.n, cl);
     }
   }
 }
@@ -348,7 +343,7 @@ function lobe(out, at, rad, sides, rings, salt, { rough, heart, span, round, und
     return corner([Math.sin(down) * Math.cos(turn), Math.cos(down), Math.sin(down) * Math.sin(turn)], 1 - rough + 2 * rough * chance(i, j, salt + 1), j === rings - 1 ? 0.25 * chance(i, j, salt + 2) : 0, chance(i, j, salt + 3));
   }));
   let face = 0;
-  const tri = (a, b, c) => { const shade = 0.95 + 0.1 * chance(face++, salt, 41); for (const { p, n, c: tone } of [a, b, c]) out.corner(p, n, times(tone, shade), true); };
+  const tri = (a, b, c) => { const shade = 0.95 + 0.1 * chance(face++, salt, 41); for (const { p, n, c: tone } of [a, b, c]) out.corner(p, n, times(tone, shade)); };
   for (let i = 0; i < sides; i++) tri(apex, ring[0][(i + 1) % sides], ring[0][i]);
   for (let j = 0; j < rings - 1; j++) for (let i = 0; i < sides; i++) {
     /* The ring below is turned half a side one way or the other, and the faces between the two follow it. */
@@ -368,7 +363,7 @@ function lobe(out, at, rad, sides, rings, salt, { rough, heart, span, round, und
 export function pineGeometry(phone) {
   const out = shape(), bark = rgb(0x7a5a44), barkDark = rgb(0x4a382c);
   const sides = phone ? 5 : 6;
-  limb(out, [{ at: [0, 0, 0], r: 0.19 }, { at: [0, 0.16, 0], r: 0.135 }, { at: [0.02, 0.68, 0.01], r: 0.08 }, { at: [0.06, 0.94, 0], r: 0.02 }], sides, barkDark, bark, false);
+  limb(out, [{ at: [0, 0, 0], r: 0.19 }, { at: [0, 0.16, 0], r: 0.135 }, { at: [0.02, 0.68, 0.01], r: 0.08 }, { at: [0.06, 0.94, 0], r: 0.02 }], sides, barkDark, bark);
   const needle = rgb(0x44664a), needleDark = rgb(0x1c2e22), tip = rgb(0x6d8c55);
   const tiers = phone
     ? [[0.665, 0.85, 0.97], [0.775, 0.94, 0.7], [0.875, 1.0, 0.42]]
@@ -391,13 +386,13 @@ export function pineGeometry(phone) {
       const up = (r / (apex - foot)) * 0.05;
       const na = [Math.cos(a.a), up, Math.sin(a.a)], nb = [Math.cos(b.a), up, Math.sin(b.a)], mid = (a.a + (b.a < a.a ? b.a + 2 * Math.PI : b.a)) / 2;
       const shade = 0.86 + 0.28 * chance(k, t, 54);
-      out.corner(top, [Math.cos(mid), up * 3, Math.sin(mid)], times(needle, shade), true);
-      out.corner(b.p, nb, times(b.long ? tip : needle, shade), true);
-      out.corner(a.p, na, times(a.long ? tip : needle, shade), true);
+      out.corner(top, [Math.cos(mid), up * 3, Math.sin(mid)], times(needle, shade));
+      out.corner(b.p, nb, times(b.long ? tip : needle, shade));
+      out.corner(a.p, na, times(a.long ? tip : needle, shade));
       /* Underneath, dark. */
-      out.corner(hub, [0, -1, 0], needleDark, true);
-      out.corner(a.p, [Math.cos(a.a) * 0.2, -1, Math.sin(a.a) * 0.2], times(needleDark, 1.3), true);
-      out.corner(b.p, [Math.cos(b.a) * 0.2, -1, Math.sin(b.a) * 0.2], times(needleDark, 1.3), true);
+      out.corner(hub, [0, -1, 0], needleDark);
+      out.corner(a.p, [Math.cos(a.a) * 0.2, -1, Math.sin(a.a) * 0.2], times(needleDark, 1.3));
+      out.corner(b.p, [Math.cos(b.a) * 0.2, -1, Math.sin(b.a) * 0.2], times(needleDark, 1.3));
     }
   });
   /* The stubs of boughs long dead, down the bare trunk. */
@@ -406,7 +401,7 @@ export function pineGeometry(phone) {
     const root = [0, 1, 2].map((k) => { const b = (k / 3) * 2 * Math.PI; return [dx * r * 0.6 - dz * 0.035 * Math.cos(b), y + 0.007 * Math.sin(b), dz * r * 0.6 + dx * 0.035 * Math.cos(b)]; });
     for (let k = 0; k < 3; k++) {
       const p = root[k], q = root[(k + 1) % 3], b = ((k + 0.5) / 3) * 2 * Math.PI, n = [dx * 0.3 - dz * Math.cos(b), 0.2 * Math.sin(b), dz * 0.3 + dx * Math.cos(b)];
-      out.corner(p, n, barkDark, false); out.corner(end, n, bark, false); out.corner(q, n, barkDark, false);
+      out.corner(p, n, barkDark); out.corner(end, n, bark); out.corner(q, n, barkDark);
     }
   }
   return out.geometry();
@@ -432,22 +427,21 @@ export const broadLobes = (phone) => phone
 export function broadGeometry(phone) {
   const out = shape(), bark = rgb(0x86694f), barkDark = rgb(0x4d3b2e);
   const sides = phone ? 5 : 6, fork = [0.035, 0.685, 0.01];
-  limb(out, [{ at: [0, 0, 0], r: TRUNK_FOOT }, { at: [0, 0.16, 0], r: 0.14 }, { at: [-0.035, 0.42, 0.02], r: 0.115 }, { at: fork, r: 0.085 }].filter((_, k) => !phone || k !== 2), sides, barkDark, bark, false);
+  limb(out, [{ at: [0, 0, 0], r: TRUNK_FOOT }, { at: [0, 0.16, 0], r: 0.14 }, { at: [-0.035, 0.42, 0.02], r: 0.115 }, { at: fork, r: 0.085 }].filter((_, k) => !phone || k !== 2), sides, barkDark, bark);
   const leaf = { rough: LOBE_ROUGH, heart: [0.04, 0.84, 0], span: [1, 0.16, 1], round: 0.3, under: rgb(0x26331b), flank: rgb(0x46592a), over: rgb(0x8a9c4a), low: 0.78, high: 1 };
   const lobes = broadLobes(phone);
   lobes.forEach(([at, rad, around, rings, salt], k) => lobe(out, at, rad, around, rings, salt, leaf, { belly: !phone, top: k === 0 ? 1 : null }));
   /* The trunk's own top goes on up into the first lobe, and a bough from the fork out and up into each of the others. */
-  limb(out, [{ at: fork, r: 0.075 }, { at: [0.05, lobes[0][0][1] - 0.01, 0.0], r: 0.035 }], 3, bark, bark, true);
+  limb(out, [{ at: fork, r: 0.075 }, { at: [0.05, lobes[0][0][1] - 0.01, 0.0], r: 0.035 }], 3, bark, bark);
   for (const [at] of lobes.slice(1)) {
     const rings = [{ at: [fork[0], BASE_FRAC + 0.006, fork[2]], r: 0.06 }, { at: [at[0] * 0.5, at[1] - 0.075, at[2] * 0.5], r: 0.042 }, { at: [at[0] * 0.92, at[1] - 0.008, at[2] * 0.92], r: 0.02 }];
-    limb(out, phone ? [rings[0], rings[2]] : rings, 3, bark, bark, true);
+    limb(out, phone ? [rings[0], rings[2]] : rings, 3, bark, bark);
   }
   return out.geometry();
 }
 
 /* ---------- the meshes ---------- */
 
-const f = (v) => v.toFixed(4);
 /* The side of the squares the trees are sorted into for the walk and its camera: its boom is longest on a phone and trails a run by
    a few metres more, and a crown reaches CROWN_R_MAX past its tree, so the squares within SQUARE m of the visitor hold every tree the
    boom can meet. */
@@ -478,34 +472,18 @@ function keepOuts(spots) {
   };
 }
 
-/* Builds the trees at `spots` (placeTrees): the pines as one instanced mesh and the broad-crowned as another. `lit(material, stands)`
-   has a material take the stage's glow as a thing that stands on the ground does (island.js takesPool). Returns `count`; `meshes`;
-   `wind(time)`, which sways the crowns at a time; and `columns` and `trunks`, what the walk's camera and the walk keep out of near a
-   place (keepOuts). */
+/* Builds the trees at `spots` (placeTrees): the pines as one instanced mesh and the broad-crowned as another, of one material, which
+   `lit(material, stands)` has take the stage's glow as a thing that stands on the ground does (island.js takesPool). Nothing moves
+   them once they are built. Returns `count`; `meshes`; and `columns` and `trunks`, what the walk's camera and the walk keep out of
+   near a place (keepOuts). */
 export function buildTrees(scene, spots, { lit, phone }) {
-  const wind = { value: 0 };
   const dummy = new THREE.Object3D(), turn = new THREE.Quaternion(), axis = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), tint = new THREE.Color();
+  const material = lit(new THREE.MeshLambertMaterial({ vertexColors: true }), { sunk: SUNK, share: GLOW_SHARE });
   const meshes = [];
   for (const [kind, geometry] of [["pine", pineGeometry], ["broad", broadGeometry]]) {
     const mine = spots.filter((s) => s.kind === kind);
     if (mine.length === 0) continue;
-    const mat = lit(new THREE.MeshLambertMaterial({ vertexColors: true }), { sunk: SUNK, share: GLOW_SHARE });
-    const litCompile = mat.onBeforeCompile;
-    mat.onBeforeCompile = (shader) => {
-      litCompile(shader);
-      shader.uniforms.uWind = wind;
-      shader.vertexShader = shader.vertexShader
-        .replace("#include <common>", "#include <common>\nattribute float aSway;\nuniform float uWind;")
-        .replace("#include <begin_vertex>", `#include <begin_vertex>
-        /* The tree's root is its instance's place. One wind: the same way in the world for every tree, whichever way each is turned,
-           so into each tree's own frame. The crown's top goes SWAY m at the most, when the two waves fall together; the slower is
-           once in 10.5 s and the quicker once in 5.2 s. */
-        vec3 root = instanceMatrix[3].xyz;
-        float sway = aSway * aSway * ${f(SWAY)} * (0.75 * sin(uWind * 0.6 + root.x * 0.11 + root.z * 0.09) + 0.25 * sin(uWind * 1.2 + root.z * 0.3));
-        vec2 wind = sway * vec2(${f(WIND[0])}, ${f(WIND[1])}), ax = instanceMatrix[0].xz, az = instanceMatrix[2].xz;
-        transformed.xz += vec2(dot(wind, ax) / dot(ax, ax), dot(wind, az) / dot(az, az));`);
-    };
-    const mesh = new THREE.InstancedMesh(geometry(phone), mat, mine.length);
+    const mesh = new THREE.InstancedMesh(geometry(phone), material, mine.length);
     mine.forEach(({ x, y, z, tall, wide, turn: by, lean, tint: hue }, k) => {
       dummy.position.set(x, y - SUNK, z);
       /* Turned its own way, then leaned: toward [lean] by its length, about the level line square to it. */
@@ -524,5 +502,5 @@ export function buildTrees(scene, spots, { lit, phone }) {
     scene.add(mesh);
     meshes.push(mesh);
   }
-  return { count: spots.length, meshes, ...keepOuts(spots), wind: (time) => { wind.value = time; } };
+  return { count: spots.length, meshes, ...keepOuts(spots) };
 }
