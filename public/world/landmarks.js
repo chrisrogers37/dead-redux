@@ -86,7 +86,7 @@ export const GREY = 0x7d7a74, PALE_STONE = 0xa9a59c, MOSS = 0x55663f, SNOW = 0xe
    plinth go down, which is as far as the ground falls under them on the path and a hand more (their builders say how far that
    is), and their tones. */
 export const TRESTLE_SUNK = 7.4, BAND_SUNK = 4.4;
-export const SIGN_YELLOW = 0xd4a056, SIGN_DARK = 0x3a2a1e, PLAQUE = 0xe0d9c4, POST = 0x7a5230;
+export const SIGN_YELLOW = 0xd4a056, SIGN_DARK = 0x3a2a1e, PLAQUE = 0xe0d9c4, POST = 0x7a5230, HANDRAIL = 0xa98a5c, PLANK_TONES = [DARK_TIMBER, 0x5a4128, 0x3d2b1a];
 export const KITE_TONES = [0xd4607a, 0xe8b04b], BOW_TONES = [0x5b8fb5, 0xf0dba0];
 export const PIER_PLINTH = 0x6f6a63, PIER_NICHE = 0x2a2622, CREAM = 0xd8d2c4, COPPER = [0x5f8f7f, 0x4e7a6c];
 
@@ -1092,43 +1092,63 @@ export function makeBuilders(phone) {
     if (!phone) for (const x of [-0.36, 0.36]) put(g, bolt, iron, x, SIGN.plaque, layer(3));
   }
 
-  /* Goin' Down The Road Feeling Bad, and the railroad blues: a length of railway on a timber trestle, where the plain slab lay,
-     as long and nearly as broad, its rails' tops half a centimetre under the slab's top. Ties lie across two stringers, each tie
-     a little out of true, 21 of them and on a phone 14, with a rail over each stringer and a guard timber along the ties' ends.
-     The lit band that lies along the path between two songs that run on (path.js buildSegues) is 2 m broad and lies along this
-     landmark: the rails stand wider apart than that, so the band runs between them and hides neither.
-     Under the deck are the bents: a cap under the stringers on two posts that spread as they go down, a cross of braces between
-     them on the walker's side, twice over, and a girt across at each cross's foot on the far side; a phone has three bents, with
-     no girts, where a desktop has five. On level ground nothing of a bent shows but its cap. But a landmark stands level, and
-     this one is 18 m long: wherever the ground falls away along it, it stands out from the hill on its bents, and where the
-     ground rises along it, it runs into the hill, as the slab did. Stood at every quarter metre of the path, turned to the path
-     there and where its outline stands clear of the bears' line, as a landmark is stood (collide.js standClear), the ground under
-     a corner of a post's foot lies 6.95 m under the landmark's own ground at the lowest: so the posts go TRESTLE_SUNK down, and
-     their feet are 0.45 m in the ground there. Its test holds the figure, and the depth to it and a hand: it sweeps the path at
-     every second metre, and at every quarter metre round the eight places where that found a foot covered least, which gives
-     the whole sweep's figure (landmarks.test.ts). */
-  /* The deck, from the rails down: each layer's top and how tall it is. */
-  const DECK = { rail: [0.495, 0.085], tie: [0.41, 0.12], stringer: [0.29, 0.22], cap: [0.07, 0.26] };
+  /* Goin' Down The Road Feeling Bad, and the railroad blues: a timber trestle with a road on it, where the plain slab lay, as
+     long and nearly as broad. Its deck is one solid, its top half a centimetre under the slab's, with its planking drawn on
+     it: each plank a tone of its own, never its neighbour's, and no gap between them. So where the ground rises through the
+     deck it cuts it in one clean line, as it cut the slab; and the deck covers the lit band that lies along the path between
+     two songs that run on (path.js buildSegues) wherever it stands over it, as the slab did.
+     Along each side of the deck a handrail stands for its whole length: a top rail whose top is RAIL.top over the deck and a
+     mid rail under it, on posts whose feet are in the deck and whose heads are in the top rail, nine a side and on a phone
+     seven. A landmark stands level and this one is 18 m long, so on most ground the hill takes some of the deck: the rails
+     are what stands clear of it, two lines with the path between them, and the trestle reads as one bridge that runs into
+     the hill. They make it 1.2 m taller than the slab, which nothing else of these five is than its plain shape; seen from
+     above they stand inside the deck's own edge, and the whole inside the slab's outline.
+     Under the deck are two stringers and the bents: a cap under the stringers on two posts that spread as they go down, a
+     cross of braces between them on the walker's side, twice over, and a girt across at each cross's foot on the far side; a
+     phone has three bents, with no girts, where a desktop has five. On level ground nothing of a bent shows but its cap;
+     wherever the ground falls away along the deck, it stands out from the hill on its bents.
+     Three things were measured with it stood at every quarter metre of the path, turned to the path there and where its
+     outline stands clear of the bears' line, as a landmark is stood (collide.js standClear), and its test holds each
+     (landmarks.test.ts). The ground under a corner of a bent's post's foot lies 6.95 m under the landmark's own ground at the
+     lowest: so the posts go TRESTLE_SUNK down, and their feet are 0.45 m in the ground there. Each handrail's top stands half
+     a metre or more over the ground along 43 % of its length at the least, and along 56 % at the least at the stops the
+     maps' shows give a road song. And what shows of the trestle is one thing, each part that shows touching another that
+     does, at every one of those stops; on the path it is so but in three stretches beside the caves' mouths, 33 of the
+     3,151 stands, where a ridge of the hill stands over the rails' tops and an end of the trestle shows beyond it. The test
+     says how each is measured. */
+  /* The deck and what carries it, from the deck down: each layer's top and how tall it is. */
+  const DECK = { planks: [0.495, 0.205], stringer: [0.29, 0.22], cap: [0.07, 0.26] };
+  /* The deck: how long and how broad. The handrails: how far out each stands; how high over the deck its top rail's top and
+     its mid rail's middle are; how broad and how tall the top rail is, and how thick the mid rail and a post are; how far a
+     post's foot goes into the deck and its head into the top rail; and where the end posts stand along the deck. */
+  const SPAN = { long: 17.9, wide: 3.6 };
+  const RAIL = { out: 1.72, top: 1.2, mid: 0.62, section: [0.14, 0.1], bar: 0.08, post: 0.12, foot: 0.12, head: 0.06, ends: 8.85 };
   function trestle(g) {
-    const timber = tone(TIMBER, true), dark = tone(DARK_TIMBER, true), post = tone(POST, true), iron = tone(IRON, true);
-    const long = 17.9, rail = 1.15, square = 0.3, middle = ([top, tall]) => top - tall / 2;
-    for (const x of [-rail, rail]) {
-      put(g, new THREE.BoxGeometry(square, DECK.stringer[1], long), timber, x, middle(DECK.stringer), 0);
-      put(g, new THREE.BoxGeometry(0.1, DECK.rail[1], long), iron, x, middle(DECK.rail), 0);
+    const timber = tone(TIMBER, true), dark = tone(DARK_TIMBER, true), post = tone(POST, true), pale = tone(HANDRAIL, true);
+    const { long } = SPAN, rail = 1.15, square = 0.3, middle = ([top, tall]) => top - tall / 2;
+    for (const x of [-rail, rail]) put(g, new THREE.BoxGeometry(square, DECK.stringer[1], long), timber, x, middle(DECK.stringer), 0);
+    /* The deck's planks, from end to end: each one's tone a step or two on from the one before it, of the three. */
+    const planks = phone ? 20 : 30, tones = [];
+    for (let k = 0; k < planks; k++) tones.push(((tones[k - 1] ?? 0) + 1 + Math.floor(2 * roll(k, 0, 0, 81))) % PLANK_TONES.length);
+    const plank = (x, y, z) => PLANK_TONES[tones[Math.min(planks - 1, Math.floor(((z + long / 2) / long) * planks))]];
+    put(g, paint(new THREE.BoxGeometry(SPAN.wide, DECK.planks[1], long, 1, 1, planks), plank), painted, 0, middle(DECK.planks), 0);
+    /* The handrails: each one's top rail, its mid rail, and its posts, evenly from end post to end post. */
+    const posts = phone ? 7 : 9, floor = DECK.planks[0], top = floor + RAIL.top, foot = floor - RAIL.foot, head = top - RAIL.head;
+    for (const x of [-RAIL.out, RAIL.out]) {
+      put(g, new THREE.BoxGeometry(...RAIL.section, long), pale, x, middle([top, RAIL.section[1]]), 0);
+      put(g, new THREE.BoxGeometry(RAIL.bar, RAIL.bar, long), pale, x, floor + RAIL.mid, 0);
+      for (let k = 0; k < posts; k++) put(g, new THREE.BoxGeometry(RAIL.post, head - foot, RAIL.post), post, x, (head + foot) / 2, RAIL.ends * ((2 * k) / (posts - 1) - 1));
     }
-    for (const x of [-1.72, 1.72]) put(g, new THREE.BoxGeometry(0.16, DECK.rail[1], long), timber, x, middle(DECK.rail), 0);
-    const ties = phone ? 14 : 21, first = -8.7;
-    for (let k = 0; k < ties; k++) put(g, new THREE.BoxGeometry(3.7, DECK.tie[1], square), dark, 0.1 * (roll(k, 0, 0, 81) - 0.5), middle(DECK.tie), first - (2 * first * k) / (ties - 1), 0, 0.03 * (roll(k, 1, 0, 81) - 0.5), 0);
-    /* A post's middle line: under its stringer at its head, `foot` out at its foot. Its head is INTO its cap, and the cap is
+    /* A bent's post's middle line: under its stringer at its head, `out` at its foot. Its head is INTO its cap, and the cap is
        OVER deeper than its posts before and behind: a cap as deep as its posts would have each post's head lie in the cap's own
        two faces, two timbers' tones in one plane, which flicker. */
-    const head = DECK.cap[0] - DECK.cap[1], foot = 1.8, INTO = 0.1, OVER = 0.01, spread = (y) => rail + ((foot - rail) * (head - y)) / (head + TRESTLE_SUNK);
+    const under = DECK.cap[0] - DECK.cap[1], out = 1.8, INTO = 0.1, OVER = 0.01, spread = (y) => rail + ((out - rail) * (under - y)) / (under + TRESTLE_SUNK);
     /* Each cross of braces, from its foot to its head, a board's depth before the posts' middle; the girts are as far behind it. */
     const crosses = [[-2.3, -0.3], [-4.3, -2.3]], board = [0.08, 0.16], off = 0.19;
     for (const z of phone ? [-8, 0, 8] : [-8, -4, 0, 4, 8]) {
       put(g, new THREE.BoxGeometry(3, DECK.cap[1], square + 2 * OVER), dark, 0, middle(DECK.cap), z);
       for (const side of [-1, 1]) {
-        beam(g, post, [side * foot, -TRESTLE_SUNK, z], [side * spread(head + INTO), head + INTO, z], square, square);
+        beam(g, post, [side * out, -TRESTLE_SUNK, z], [side * spread(under + INTO), under + INTO, z], square, square);
         for (const [low, high] of crosses) beam(g, timber, [side * spread(low), low, z - off], [-side * spread(high), high, z - off], ...board);
       }
       if (!phone) for (const [low] of crosses) put(g, new THREE.BoxGeometry(2 * spread(low) + 0.5, board[1], board[0]), timber, 0, low, z + off);

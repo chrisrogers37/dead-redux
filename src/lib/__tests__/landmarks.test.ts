@@ -5,7 +5,7 @@ import { hull, outside, standClear } from "../../../public/world/collide.js";
 import { FIRST_EYE, height } from "../../../public/world/ground.js";
 import { makeBuilders, mergeLandmarks, mergeStill, mesh, songKey, STONE_KINDS, stoneKind, titleHash } from "../../../public/world/landmarks.js";
 // The builders' own depths and tones, which the newest five's tests read and do not state again.
-import { BAND_SUNK, BOW_TONES, BRASS, COPPER, CREAM, DARK_TIMBER, GREY, IRON, KITE_TONES, PALE_STONE, PIER_NICHE, PIER_PLINTH, PLAQUE, POST, SIGN_DARK, SIGN_YELLOW, STONE, STRING, SUNK as COMMON_SUNK, TIMBER, TRESTLE_SUNK } from "../../../public/world/landmarks.js";
+import { BAND_SUNK, BOW_TONES, BRASS, COPPER, CREAM, DARK_TIMBER, GREY, HANDRAIL, IRON, KITE_TONES, PALE_STONE, PIER_NICHE, PIER_PLINTH, PLANK_TONES, PLAQUE, POST, SIGN_DARK, SIGN_YELLOW, STONE, STRING, SUNK as COMMON_SUNK, TIMBER, TRESTLE_SUNK } from "../../../public/world/landmarks.js";
 import { buildPath, buildWalkLine, layout, placeLandmarks } from "../../../public/world/path.js";
 import { readdirSync, readFileSync } from "fs";
 
@@ -143,8 +143,8 @@ const cornersOf = (part: unknown) => {
 // `plain` is that shape: its corners, its outline seen from above (path.js stands a landmark by its outline) and the top a
 // landmark may not pass. `built` is a landmark on a tier, built once for every test that reads it: its still mesh and that mesh's
 // pieces, every part's corners, and its own outline seen from above. `tiers` visits every one on both tiers. `along` is the whole
-// path as places for one of them: where it stands, by its own outline, at every SWEEP m, the k-th stand k of them along; two
-// that share an outline share the sweep. `about` is the path round some places of it, given in metres along it: where one of
+// path as places for one of them: where it stands, by its own outline, at every SWEEP m, or every `step` m where one is given,
+// the k-th stand k of them along; two that share an outline share the sweep. `about` is the path round some places of it, given in metres along it: where one of
 // them stands at every `step` m within a SWEEP of each.
 type PlainShape = { corners: [number, number, number][]; outline: number[][]; top: number };
 type Built = { parts: Part[]; moving: { obj: unknown; kind?: string }[]; still: Part; position: Corners; color: Corners; pieces: Piece[]; corners: [number, number, number][]; outline: number[][] };
@@ -170,11 +170,11 @@ function batchOf(titles: string[], shapes: Record<string, (phone: boolean) => [u
     return builds.get(key) as Built;
   };
   const tiers = (visit: (b: Built, title: string, phone: boolean, where: string) => void) => { for (const phone of [false, true]) for (const title of titles) visit(built(title, phone), title, phone, `${title}${phone ? " on a phone" : ""}`); };
-  const along = (title: string, phone = false) => {
-    const { outline } = built(title, phone), key = JSON.stringify(outline);
+  const along = (title: string, phone = false, step = SWEEP) => {
+    const { outline } = built(title, phone), key = `${step}:${JSON.stringify(outline)}`;
     if (!sweeps.has(key)) {
       const stands: Stand[] = [];
-      for (let d = 0; d < path.curveLength; d += SWEEP) stands.push(standAt(d / path.curveLength, outline));
+      for (let d = 0; d < path.curveLength; d += step) stands.push(standAt(d / path.curveLength, outline));
       sweeps.set(key, stands);
     }
     return sweeps.get(key) as Stand[];
@@ -2436,8 +2436,13 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
       [new THREE.ConeGeometry(4.6, 2, 8), 0, 4.8, 0],
     ],
   };
-  // None may stand over its plain shape's top.
-  const batch = batchOf(FIVE, PLAIN, Object.fromEntries(FIVE.map((title) => [title, 0]))), { plain, built, tiers, along, about } = batch;
+  // How far each may stand over its plain shape's top: not at all, but the trestle, whose handrails stand 1.2 m over a deck
+  // that lies where the slab lay. A landmark stands level and the slab was 18 m long, so on most ground the hill took some of
+  // it; the rails are what shows the trestle whole there.
+  const OVER: Record<string, number> = { [SIGN]: 0, [ROAD]: 1.2, [KITE]: 0, [PIER]: 0, [BAND]: 0 };
+  const batch = batchOf(FIVE, PLAIN, OVER), { plain, built, tiers, along, about } = batch;
+  // The rule of the builders' table that takes a title: a song is one of the five's where its rule is one of theirs.
+  const rules = builders(false).table, ruleOf = (title: string) => rules.find(([re]) => re.test(title));
   // The tones the tests know parts by are the builders' own (imported above); the sail's two are its rose and its gold.
   const [ROSE, GOLD] = KITE_TONES;
   // A piece's breadth across the path, its depth along it and its height; its middle; and how far a place is from the upright
@@ -2470,13 +2475,13 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
     });
   });
 
-  it("keep inside the outline of the plain shapes they replace, seen from above, and under their tops, on a desktop and on a phone", () => {
+  it("keep inside the outline of the plain shapes they replace, seen from above, and under their tops but for the trestle's handrails, on a desktop and on a phone", () => {
     // The plain shapes are main's: how far each reached from its middle, seen from above, and how high it stood.
     const WAS: Record<string, [number, number]> = { [SIGN]: [1.211, 5.802], [ROAD]: [9.22, 0.5], [KITE]: [1.273, 8.873], [PIER]: [1, 5.4], [BAND]: [4.6, 5.8] };
     for (const phone of [false, true]) for (const title of FIVE) {
       const { corners, top } = plain(title, phone);
       expect(Math.max(...corners.map(([x, , z]) => Math.hypot(x, z))), title).toBeCloseTo(WAS[title][0], 3);
-      expect(top, title).toBeCloseTo(WAS[title][1], 3);
+      expect(top - OVER[title], title).toBeCloseTo(WAS[title][1], 3);
     }
     keepsInside(batch);
   });
@@ -2487,11 +2492,11 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
     // its outline by shrinking, or stood elsewhere in it, would cover less. The sign and the pier cover theirs but for a rim;
     // the bandstand's eight slim posts stand at its corners, where the plain one's six stout ones stood between them, and a
     // phone's plain one had none; the kite flies tilted, where the plain board hung square, and its post ends under it, where
-    // the pole ran up behind the board; and the trestle's deck is ties with the ground between them, fewer on a phone, where
-    // the slab was whole.
-    const LEAST: Record<string, [number, number]> = { [SIGN]: [0.95, 0.95], [ROAD]: [0.8, 0.65], [KITE]: [0.75, 0.75], [PIER]: [0.87, 0.87], [BAND]: [0.87, 0.95] };
+    // the pole ran up behind the board; and the trestle's deck is 0.2 m narrower than the slab at each side, which its handrails
+    // more than make up in size.
+    const LEAST: Record<string, [number, number]> = { [SIGN]: [0.95, 0.95], [ROAD]: [0.9, 0.9], [KITE]: [0.75, 0.75], [PIER]: [0.87, 0.87], [BAND]: [0.87, 0.95] };
     // And the least its own silhouette may be of the plain one's.
-    const SIZE: Record<string, [number, number]> = { [SIGN]: [1, 1], [ROAD]: [0.8, 0.65], [KITE]: [0.9, 0.9], [PIER]: [0.9, 0.9], [BAND]: [1, 1] };
+    const SIZE: Record<string, [number, number]> = { [SIGN]: [1, 1], [ROAD]: [1, 1], [KITE]: [0.9, 0.9], [PIER]: [0.9, 0.9], [BAND]: [1, 1] };
     // The plain shapes are what the stills showed: the bandstand over 33 square metres of the view on a desktop, the sign 3.5.
     expect(areaOf(silhouette(plain(BAND).corners))).toBeGreaterThan(33);
     expect(areaOf(silhouette(plain(SIGN).corners))).toBeGreaterThan(3.5);
@@ -2506,7 +2511,6 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
   it("stand no further from their songs' points than the plain shapes did, in the two shows that have four of the five", () => {
     // 1971-11-17 (no second set told) and 1980-05-15 (set 2 from track 12): each of the five's songs there, and how far its
     // landmark stands from its song's point. Main stood them as far, but 1980's road, which it stood a quarter metre further.
-    const rules = builders(false).table, ruleOf = (title: string) => rules.find(([re]) => re.test(title));
     for (const [show, set2Start, off] of [["1971-11-17", null, { 0: 0, 5: 1.5, 8: 0, 24: 0, 25: 0, 26: 0 }], ["1980-05-15", 12, { 16: 0, 17: 0.75, 20: 0, 21: 3.25 }]] as const) {
       const tracks = tracksOf(show), landmarkU = layout(tracks, set2Start, path), songs = Object.keys(off).map(Number);
       // These are the show's songs that one of the five's rules takes.
@@ -2562,16 +2566,17 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
     buildsTheSame(batch);
   });
 
-  it("cost what they are said to: at most 2,000 triangles each on a desktop and 1,300 on a phone, a phone's fewer than a desktop's, and under 3,000 and 1,900 between them", () => {
-    // Each one's triangles on a desktop and on a phone, the pier's with its ball's 80.
-    const COST: Record<string, [number, number]> = { [SIGN]: [192, 144], [ROAD]: [864, 492], [KITE]: [212, 156], [PIER]: [468, 428], [BAND]: [1260, 676] };
+  it("cost what they are said to: at most 2,000 triangles each on a desktop and 1,300 on a phone, a phone's fewer than a desktop's, and under 3,300 and 2,100 between them", () => {
+    // Each one's triangles on a desktop and on a phone, the pier's with its ball's 80. The trestle's handrails are 264 of its
+    // on a desktop and 216 on a phone: with them the five cost 3,204 and 2,060 between them.
+    const COST: Record<string, [number, number]> = { [SIGN]: [192, 144], [ROAD]: [1072, 656], [KITE]: [212, 156], [PIER]: [468, 428], [BAND]: [1260, 676] };
     for (const title of FIVE) {
       const [desktop, phone] = COST[title];
       expect([triangles(built(title).parts), triangles(built(title, true).parts)], title).toEqual([desktop, phone]);
       expect(desktop <= 2000 && phone <= 1300 && phone < desktop && phone > 100, title).toBe(true);
     }
-    expect(FIVE.reduce((sum, title) => sum + COST[title][0], 0)).toBeLessThan(3000);
-    expect(FIVE.reduce((sum, title) => sum + COST[title][1], 0)).toBeLessThan(1900);
+    expect(FIVE.reduce((sum, title) => sum + COST[title][0], 0)).toBeLessThan(3300);
+    expect(FIVE.reduce((sum, title) => sum + COST[title][1], 0)).toBeLessThan(2100);
   });
 
   it("fold no skin over itself, on a desktop or a phone: no two faces that share an edge look opposite ways, and the kite's sail is closed with its faces outward", () => {
@@ -2673,44 +2678,80 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
     }
   });
 
-  it("lays the trestle's deck where the slab lay: rails on ties on stringers on the bents' caps, the rails clear of the lit band between them", () => {
+  it("lays the trestle's deck where the slab lay, one solid with its planking drawn on it, and stands a handrail along each side of it for its whole length, on posts", () => {
     for (const phone of [false, true]) {
-      const road = built(ROAD, phone), where = phone ? "on a phone" : "on a desktop";
-      const rails = of(road, IRON), ties = of(road, DARK_TIMBER).filter((piece) => deep(piece) < 1 && piece.low > 0.2), caps = of(road, DARK_TIMBER).filter((piece) => piece.low < 0.2);
-      const long = of(road, TIMBER).filter((piece) => deep(piece) > 17), stringers = long.filter((piece) => piece.low < 0.2), guards = long.filter((piece) => piece.low > 0.2);
-      expect([rails.length, stringers.length, guards.length, ties.length, caps.length], where).toEqual([2, 2, 2, phone ? 14 : 21, phone ? 3 : 5]);
-      // Each layer lies on the one under it: the rails' tops are half a centimetre under the slab's top, 0.5 m, and from
-      // there down each layer's foot is the next one's top. A layer that floated, or sank into the next, would show from the side.
-      for (const rail of rails) expect([rail.high, rail.low], where).toEqual([expect.closeTo(0.495, 5), expect.closeTo(0.41, 5)]);
-      for (const guard of guards) expect([guard.high, guard.low], where).toEqual([expect.closeTo(0.495, 5), expect.closeTo(0.41, 5)]);
-      for (const tie of ties) expect([tie.high, tie.low], where).toEqual([expect.closeTo(0.41, 5), expect.closeTo(0.29, 5)]);
-      for (const stringer of stringers) expect([stringer.high, stringer.low], where).toEqual([expect.closeTo(0.29, 5), expect.closeTo(0.07, 5)]);
+      const road = built(ROAD, phone), { position, color } = road, where = phone ? "on a phone" : "on a desktop";
+      const runs = road.pieces.filter((piece) => deep(piece) > 17), [deck] = runs.filter((piece) => wide(piece) > 3), stringers = of(road, TIMBER).filter((piece) => deep(piece) > 17);
+      const rails = of(road, HANDRAIL), tops = rails.filter((rail) => rail.high > deck.high + 1), mids = rails.filter((rail) => !tops.includes(rail));
+      const posts = of(road, POST).filter((piece) => piece.low > 0), caps = of(road, DARK_TIMBER).filter((piece) => piece.low < 0.2);
+      // What runs the trestle's length: the deck, a stringer under it over each row of the bents' posts, and each side's top rail
+      // and mid rail. With the handrails' posts and the bents (a cap, two posts and four braces each, and on a desktop two
+      // girts), that is every piece of it: nothing short lies loose on it, to surface alone.
+      expect([runs.length, stringers.length, tops.length, mids.length, posts.length, caps.length], where).toEqual([7, 2, 2, 2, phone ? 14 : 18, phone ? 3 : 5]);
+      expect(road.pieces, where).toHaveLength(runs.length + posts.length + caps.length * (phone ? 7 : 9));
+      // The deck lies where the slab lay, 5 cm short of it at each end and 0.2 m at each side, its top half a centimetre under
+      // the slab's top, 0.5 m. It lies on the stringers, and they on the bents' caps: a layer that floated, or sank into the
+      // next, would show from the side.
+      expect([deck.x0, deck.x1, deck.z0, deck.z1], where).toEqual([-1.8, 1.8, -8.95, 8.95].map((v) => expect.closeTo(v, 5)));
+      expect([deck.high, deck.low], where).toEqual([expect.closeTo(0.495, 5), expect.closeTo(0.29, 5)]);
+      for (const stringer of stringers) expect([stringer.high, stringer.low, stringer.z0, stringer.z1], where).toEqual([0.29, 0.07, -8.95, 8.95].map((v) => expect.closeTo(v, 5)));
       for (const cap of caps) expect([cap.high, cap.low], where).toEqual([expect.closeTo(0.07, 5), expect.closeTo(-0.19, 5)]);
-      // It is as long as the slab was, to 5 cm at each end, and its ties reach within 20 cm of the slab's sides.
-      for (const piece of [...rails, ...stringers, ...guards]) expect([piece.z0, piece.z1], where).toEqual([expect.closeTo(-8.95, 5), expect.closeTo(8.95, 5)]);
-      expect(Math.min(...ties.map((tie) => tie.x0)), where).toBeLessThan(-1.8);
-      expect(Math.max(...ties.map((tie) => tie.x1)), where).toBeGreaterThan(1.8);
-      // The lit band between two songs that run on is 2 m broad and lies along the deck, 0.35 m over the ground (path.js
-      // buildSegues): each rail, and the stringer under it, stands clear of it, 10 cm outside its edge. A rail a metre from the
-      // middle or nearer would lie under the band.
-      for (const rail of rails) expect(Math.min(Math.abs(rail.x0), Math.abs(rail.x1)), where).toBeCloseTo(1.1, 5);
-      rails.forEach((rail, k) => expect(stringers[k].x0 <= rail.x0 && stringers[k].x1 >= rail.x1, where).toBe(true));
-      // Every tie lies across both stringers and under both rails and both guard timbers, each a little out of true: their ends
-      // do not stand in a line.
-      for (const tie of ties) for (const over of [...rails, ...guards]) expect(tie.x0 < over.x0 && tie.x1 > over.x1, where).toBe(true);
-      expect(new Set(ties.map((tie) => tie.x0.toFixed(2))).size, where).toBeGreaterThan(4);
-      // They are spread evenly from end to end, the ground showing between them: 0.87 m from one to the next (a phone's,
-      // 1.34 m), each 0.3 m broad.
-      const along = ties.map((tie) => midst(tie)[2]).sort((p, q) => p - q), gaps = along.slice(1).map((z, k) => z - along[k]);
-      expect([along[0], along[along.length - 1]], where).toEqual([expect.closeTo(-8.7, 2), expect.closeTo(8.7, 2)]);
-      for (const gap of gaps) expect(gap, where).toBeCloseTo(17.4 / (ties.length - 1), 2);
+      // It is one closed solid, and its top is whole: the faces that lie in its top cover its whole length and breadth. So
+      // the ground cuts it in one clean line, as it cut the slab: a deck of planks with gaps, or of ties, lets the ground show
+      // through, and its edge is as ragged as the planks are many.
+      expect(openEdges(only(position, deck.corners)), where).toEqual([]);
+      // The planking is drawn on it: bands across the deck, 30 of them and on a phone 20, each as long as the next, straight
+      // across, and one tone on every face of the deck that is in it; each of the three plank tones, and never its
+      // neighbour's. A deck of one tone would be the slab again.
+      const planks = phone ? 20 : 30, band = deep(deck) / planks, tones = Array.from({ length: planks }, () => new Set<number>());
+      let top = 0;
+      for (let n = 0; n < deck.corners.length; n += 3) {
+        face(position, deck.corners, n);
+        tones[Math.min(planks - 1, Math.floor(((a.z + b.z + c.z) / 3 - deck.z0) / band))].add(PLANK_TONES.findIndex((hex) => isTone(color, deck.corners[n], hex)));
+        if (Math.min(a.y, b.y, c.y) < deck.high - 1e-6) continue;
+        expect(Math.max(a.z, b.z, c.z) - Math.min(a.z, b.z, c.z), where).toBeCloseTo(band, 4);
+        top += b.sub(a).cross(c.sub(a)).length() / 2;
+      }
+      expect(top, where).toBeCloseTo(wide(deck) * deep(deck), 3);
+      const drawn = tones.map((tone) => [...tone]);
+      for (const [k, tone] of drawn.entries()) {
+        expect(tone.length === 1 && tone[0] >= 0, `${where}, plank ${k}`).toBe(true);
+        if (k) expect(tone[0], `${where}, plank ${k}`).not.toBe(drawn[k - 1][0]);
+      }
+      expect(new Set(drawn.map((tone) => tone[0])).size, where).toBe(PLANK_TONES.length);
+      for (const side of [-1, 1]) {
+        const mine = (pieces: Piece[]) => pieces.filter((piece) => side * midst(piece)[0] > 0), which = `${where}, the handrail on the ${side < 0 ? "left" : "right"}`;
+        const [rail] = mine(tops), [bar] = mine(mids), stood = mine(posts).sort((p, q) => p.z0 - q.z0);
+        expect([mine(tops).length, mine(mids).length, stood.length], which).toEqual([1, 1, phone ? 7 : 9]);
+        // The top rail's top is 1.2 m over the deck and the mid rail half way up to it, each for the deck's whole length and
+        // inside its edge: a rail outside the deck would widen the outline the landmark is stood by.
+        expect(rail.high - deck.high, which).toBeCloseTo(1.2, 5);
+        expect(midst(bar)[1] - deck.high, which).toBeCloseTo(0.62, 5);
+        for (const one of [rail, bar]) {
+          expect([one.z0, one.z1], which).toEqual([expect.closeTo(deck.z0, 5), expect.closeTo(deck.z1, 5)]);
+          expect(one.x0 > deck.x0 && one.x1 < deck.x1, which).toBe(true);
+        }
+        // Each post stands with its foot in the deck and its head in the top rail, inside the rail's breadth, and the mid
+        // rail runs through it: a post that stopped short of the deck or of the rail would leave the rail in the air.
+        for (const post of stood) {
+          expect(post.low > deck.low && post.low < deck.high - 0.1, which).toBe(true);
+          expect(post.high > rail.low + 0.03 && post.high < rail.high, which).toBe(true);
+          expect(post.x0 > rail.x0 && post.x1 < rail.x1 && post.x0 < bar.x0 && post.x1 > bar.x1, which).toBe(true);
+        }
+        // They stand evenly from end to end, 2.2 m apart and on a phone 2.95 m, the end posts 4 cm inside the rail's ends.
+        const at = stood.map((post) => midst(post)[2]), gaps = at.slice(1).map((z, k) => z - at[k]);
+        for (const gap of gaps) expect(gap, which).toBeCloseTo(17.7 / (stood.length - 1), 4);
+        expect(gaps[0] > 2 && gaps[0] < 3, which).toBe(true);
+        expect([stood[0].z0 - rail.z0, rail.z1 - stood[stood.length - 1].z1], which).toEqual([expect.closeTo(0.04, 5), expect.closeTo(0.04, 5)]);
+      }
     }
   });
 
   it("stands the trestle on bents: a cap on two posts that spread as they go down, their heads in the cap, braced by two crosses on the walker's side that meet the posts, and girts behind", () => {
     for (const phone of [false, true]) {
       const road = built(ROAD, phone), { position } = road, where = phone ? "on a phone" : "on a desktop";
-      const caps = of(road, DARK_TIMBER).filter((piece) => piece.low < 0.2), posts = of(road, POST), stays = of(road, TIMBER).filter((piece) => deep(piece) < 1);
+      // The posts under the deck: the handrails' wear the same tone and stand on it.
+      const caps = of(road, DARK_TIMBER).filter((piece) => piece.low < 0.2), posts = of(road, POST).filter((piece) => piece.low < 0), stays = of(road, TIMBER).filter((piece) => deep(piece) < 1);
       const bents = phone ? [-8, 0, 8] : [-8, -4, 0, 4, 8];
       expect(caps.map((cap) => midst(cap)[2]).sort((p, q) => p - q).map((z) => Math.round(z * 1e3) / 1e3), where).toEqual(bents);
       // A post's middle line, from its foot to its head: where it stands at a height.
@@ -2757,6 +2798,95 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
       }
       // Nothing under the deck but the bents: every post, brace and girt is some bent's.
       expect(posts.length + stays.length, where).toBe(bents.length * (phone ? 6 : 8));
+    }
+  });
+
+  // What shows of a landmark where the ground cuts it, and whether it shows as one thing. A piece that runs along the path,
+  // over RUNS m of it, is cut across into lengths of LENGTH m or less; any other piece is one length. At a stand, a length
+  // shows where a place of it stands SHOWS m or more over the ground beneath: for a cut length, places across its top no
+  // further apart than ACROSS m; for a whole piece, its corners and nine places along the line between its two corners
+  // furthest apart. Two lengths are joined where their boxes come within TOUCH m of each other, as a piece's own lengths do
+  // end to end. `showing` gives the lengths that show at a stand in groups, the largest first, each group joined through
+  // lengths that show: one group is one thing to the eye, and a second is something that has surfaced apart from it.
+  type Length = Piece & { piece: number; at: number[][] };
+  const RUNS = 1, LENGTH = 0.25, ACROSS = 0.45, SHOWS = 0.05, TOUCH = 0.02;
+  const lengthsOf = ({ pieces, position }: Built) => {
+    const lengths: Length[] = [], joins: [number, number][] = [];
+    pieces.forEach((piece, n) => {
+      if (deep(piece) > RUNS) {
+        const cuts = Math.ceil(deep(piece) / LENGTH), across = Math.ceil(wide(piece) / ACROSS);
+        for (let k = 0; k < cuts; k++) {
+          const z0 = piece.z0 + (deep(piece) * k) / cuts, z1 = piece.z0 + (deep(piece) * (k + 1)) / cuts;
+          lengths.push({ ...piece, z0, z1, piece: n, at: Array.from({ length: across + 1 }, (_, j) => [piece.x0 + (wide(piece) * j) / across, piece.high, (z0 + z1) / 2]) });
+        }
+        return;
+      }
+      const corners = [...new Set(piece.corners.map((i) => cornerKey(position, i)))].map((corner) => corner.split(",").map(Number));
+      let ends = [corners[0], corners[0]], most = 0;
+      for (const p of corners) for (const q of corners) { const far = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]); if (far > most) { most = far; ends = [p, q]; } }
+      lengths.push({ ...piece, piece: n, at: [...corners, ...Array.from({ length: 9 }, (_, k) => ends[0].map((v, axis) => v + ((ends[1][axis] - v) * k) / 8))] });
+    });
+    for (let i = 0; i < lengths.length; i++) for (let j = i + 1; j < lengths.length; j++) if (meet(lengths[i], lengths[j], TOUCH)) joins.push([i, j]);
+    return { lengths, joins };
+  };
+  const showing = ({ lengths, joins }: ReturnType<typeof lengthsOf>, stand: Stand) => {
+    const shows = lengths.map((length) => length.at.some(([x, y, z]) => y - groundAt(stand, x, z) >= SHOWS)), group = lengths.map((_, i) => i);
+    const head = (i: number) => { while (group[i] !== i) i = group[i] = group[group[i]]; return i; };
+    for (const [i, j] of joins) if (shows[i] && shows[j]) group[head(i)] = head(j);
+    const groups = new Map<number, Length[]>();
+    lengths.forEach((length, i) => { if (shows[i]) groups.set(head(i), groups.get(head(i)) ?? []).get(head(i))?.push(length); });
+    return [...groups.values()].sort((p, q) => q.length - p.length);
+  };
+  // A group, for a failure to name: how many lengths of how many pieces, and where on the landmark.
+  const told = (group: Length[]) => `${group.length} lengths of ${new Set(group.map((length) => length.piece)).size} pieces, ${Math.min(...group.map((length) => length.z0)).toFixed(1)} to ${Math.max(...group.map((length) => length.z1)).toFixed(1)} m along it and ${Math.min(...group.map((length) => length.low)).toFixed(2)} to ${Math.max(...group.map((length) => length.high)).toFixed(2)} m up`;
+
+  // This test stands the trestle at every quarter metre of the path, 3,151 stands, and looks for each of its 567 lengths at
+  // each (a phone's 539): it has 20 s, not the usual 5.
+  it("shows the trestle as one bridge on the ground a show gives it: each handrail's top stands half a metre or more over the ground along half its length or more, and nothing surfaces that is not joined above the ground to the rest", { timeout: 20000 }, () => {
+    // A handrail stands clear along a length of it where its top is CLEAR m or more over the ground, right across it: the
+    // top rail shows there, and the heads of its posts under it. Each rail must stand clear along AT_STOPS of its length at
+    // every stop a show gives a road song, and along ON_PATH of it anywhere on the path. Measured, on both tiers: 56 % at the
+    // least of the stops (1971-12-09, Goin' Down the Road Feeling Bad, with set 2 from track 18), and 43 % on the path,
+    // 557.75 m along it, beside a cave's mouth.
+    const CLEAR = 0.5, AT_STOPS = 0.5, ON_PATH = 0.4, STEP = 0.25;
+    for (const phone of [false, true]) {
+      const road = built(ROAD, phone), where = phone ? "on a phone" : "on a desktop", cut = lengthsOf(road);
+      const rails = of(road, HANDRAIL).sort((p, q) => q.high - p.high).slice(0, 2).map((rail) => cut.lengths.filter((length) => length.piece === road.pieces.indexOf(rail)));
+      const clear = (stand: Stand) => Math.min(...rails.map((rail) => rail.filter((length) => length.at.every(([x, y, z]) => y - groundAt(stand, x, z) >= CLEAR)).length / rail.length));
+      expect(rails.map((rail) => rail.length), where).toEqual([72, 72]);
+      // Every stop the maps give a road song: each song of a show that the road's rule takes, with every start of set 2 a
+      // page can give the show (sets.ts): none, or a track that leaves three in each set. Today that is 13 songs in 11 shows,
+      // from 1966-02-25 to 1994-09-27, and 215 stops. At each, what shows of the trestle is one thing.
+      const stops = shows.flatMap(({ show, tracks }) => tracks.flatMap((track, i) => {
+        if (ruleOf(track.title) !== ruleOf(ROAD)) return [];
+        const starts: (number | null)[] = [null];
+        for (let start = 3; start <= tracks.length - 3; start++) starts.push(start);
+        return starts.map((set2Start) => ({ stand: standAt(layout(tracks, set2Start, path)[i], road.outline), which: `${where}, ${show}, song ${i}, "${track.title}", set 2 from ${set2Start ?? "nowhere"}` }));
+      }));
+      expect(stops.length, where).toBeGreaterThanOrEqual(215);
+      for (const { stand, which } of stops) {
+        const groups = showing(cut, stand), least = clear(stand);
+        if (groups.length !== 1) expect.fail(`${which}: ${groups.length ? told(groups[groups.length - 1]) : "nothing"} shows apart from the rest`);
+        if (least < AT_STOPS) expect.fail(`${which}: a handrail stands clear of the ground along ${least} of its length`);
+      }
+      // And everywhere on the path, but where a ridge of the hill stands over a handrail's top: there the hill is between
+      // the trestle's two ends, as it would be between the ends of anything level and 18 m long that is no taller. That is
+      // 33 stands of the 3,151, in three stretches beside the two caves' mouths (453.25 to 455 m along the path, 556.75 to
+      // 560.5 m and 569.25 to 571.25 m), and no stop of the maps is among them.
+      let least = 1;
+      const parted: number[] = [];
+      along(ROAD, phone, STEP).forEach((stand, k) => {
+        least = Math.min(least, clear(stand));
+        const groups = showing(cut, stand);
+        if (groups.length === 1) return;
+        const ridge = rails.some((rail) => rail.some((length) => length.at.some(([x, y, z]) => groundAt(stand, x, z) > y)));
+        if (!groups.length || !ridge) expect.fail(`${where}, ${k * STEP} m along the path: ${groups.length ? told(groups[groups.length - 1]) : "nothing"} shows apart from the rest, and no ridge stands over a handrail`);
+        parted.push(k * STEP);
+      });
+      expect(least, where).toBeGreaterThanOrEqual(ON_PATH);
+      expect(least, where).toBeCloseTo(0.431, 2);
+      expect(parted, where).toHaveLength(33);
+      expect(parted.every((d) => (d >= 453.25 && d <= 455) || (d >= 556.75 && d <= 560.5) || (d >= 569.25 && d <= 571.25)), where).toBe(true);
     }
   });
 
