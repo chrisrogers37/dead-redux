@@ -8,6 +8,7 @@ import {
   CALL_BUDGET,
   callsFailure,
   evaluateAcrossNavigation,
+  GROVE_POSES,
   nearFailure,
   readWalkCalls,
   routingFailure,
@@ -263,6 +264,11 @@ const PAGES = [
   // The fixed day from ?pose=among: the visitor's bear among the crowd's middle rows, off the aisle, and the figures round it stepped
   // aside.
   { path: "/2026-10-20?pose=among", devices: ["desktop"], shots: ["fixed-crowd-among"] },
+  // The fixed day from inside the groves, each from a pose of four numbers (GROVE_POSES, assets.mjs): the pine wood, looking in
+  // through its trunks, and the broad-crowned grove, looking north-east through its trunks. Each is shot whole, as the near pages are: in first person, with the shelves away, so
+  // a phone's title shelf does not cover the crowns. The stats line's `avatar.head` says where the visitor's bear stands, 0.8 m
+  // ahead of the pose.
+  ...Object.entries(GROVE_POSES).map(([shot, pose]) => ({ path: `/2026-10-20?pose=${pose.join(",")}`, devices: ["desktop", "phone"], whole: true, shots: [shot] })),
   // The fixed day from ?pose=landmark-K: from 30 m over a landmark, north up, with the bears standing where their line passes nearest it,
   // the lead bear there. Jack Straw (1) stands by the trailhead, which the line rounds as the loop closes; Touch Of Grey (6) on the
   // summit's south-west shoulder and Cold Rain And Snow (7) on the summit, both beside the line from the left cave to the right one;

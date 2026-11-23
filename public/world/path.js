@@ -138,7 +138,7 @@ export function buildWalkLine({ curve, curveLength }, side, rMin = 4.5, passes =
 
 /* A landmark's outline seen from above, in its own frame (collide.js): the hull of all its parts, a part that spins covering the
    circle it turns through. */
-function outline(g, moving) {
+export function outline(g, moving) {
   const v = new THREE.Vector3(), pts = [];
   for (const o of g.children) {
     if (!o.isMesh) continue;
