@@ -1732,6 +1732,40 @@ describe("main.js's ride", () => {
     expect(page.mode()).toBe("follow");
   });
 
+  it("frames the bears level again each time a ride begins: the look turned in one ride is not the next one's, whether that one ended with the bears or on the crane", async () => {
+    const page = await afterDescent({ playing: true });
+    page.ride("awake");
+    page.hold("ArrowLeft", 0.5);
+    page.hold("KeyT", 0.3);
+    onRig(post(page, 1.6 * 0.5, 1.2 * 0.3));
+    // A step leaves the ride, and the page with it; the ride begun again looks at the lead bear, level.
+    page.hold("ArrowDown", 0.1);
+    expect(page.mode()).toBe("walk");
+    page.ride(null);
+    page.ride("awake");
+    page.run(FRAME_S);
+    expect(page.mode()).toBe("follow");
+    onRig(post(page));
+    expect(hill().ride).toEqual({ lean: 0, yaw: 0 });
+    // Turned again, settled, and left from the crane by the page: the next ride is level too, and so is one that begins on the crane
+    // and is brought back by a look.
+    page.hold("ArrowRight", 0.5);
+    page.ride("settled");
+    page.run(RIG_EASE_S + 0.1);
+    page.ride(null);
+    page.run(FRAME_S);
+    page.ride("settled");
+    page.run(FRAME_S);
+    onRig(crane(page));
+    page.ride("awake");
+    page.drag("pointerdown", 400, 300);
+    page.drag("pointerup", 400, 300);
+    page.run(RIG_EASE_S + 0.1);
+    expect(page.mode()).toBe("follow");
+    onRig(post(page));
+    expect(hill().ride).toEqual({ lean: 0, yaw: 0 });
+  });
+
   it("turns back mid-way where a look control comes while the camera is still on its way out, from where it has got to", async () => {
     const page = await afterDescent({ playing: true });
     page.ride("awake");

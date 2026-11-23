@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearCarry, readCarry, writeCarry } from "../../components/world/carry";
-import { controlKey, createRide, eachSecond, IDLE_S, idleMs, RIDE_NAME, sleepAfterPress, sleepLabel, sleepLeft, sleepUnitMs, watchIdle } from "../../components/world/ride";
+import { controlKey, createRide, eachSecond, IDLE_S, idleMs, RIDE_NAME, sleepAfterPress, sleepLabel, sleepLeft, sleepUnitMs, TIMEOUT_MAX_MS, watchIdle } from "../../components/world/ride";
 import { WorldHome } from "../../components/world/WorldHome";
 import type { ShowSummary } from "../types";
 
@@ -32,9 +32,12 @@ describe("the ride's name", () => {
     expect(text("README.md")).toContain(`| ${RIDE_NAME} | B or F; Esc leaves it |`);
   });
 
-  it("has taken the place of both the names it replaces, in the code, the styles and the README", () => {
+  it("has taken the place of both the names it replaces, in the code, the styles, the shoot, the README and CLAUDE.md", () => {
     const old = /lean.?back|walk with the bears/i;
-    expect([...SOURCE, "README.md"].filter((file) => old.test(text(file)))).toEqual([]);
+    // The shoot's own scripts, not what is installed beside them.
+    const shoot = readdirSync(join(ROOT, ".github/screenshots")).filter((file) => file.endsWith(".mjs")).map((file) => join(".github/screenshots", file));
+    expect(shoot).toContain(".github/screenshots/shoot.mjs");
+    expect([...SOURCE, ...shoot, "README.md", "CLAUDE.md"].filter((file) => old.test(text(file)))).toEqual([]);
   });
 
   it("is on the one button the page has for it, as its label, its tooltip and its text, with the paw; the button is not pressed until the visitor rides", () => {
@@ -70,6 +73,12 @@ describe("idleMs", () => {
     expect(idleMs(false, "?idle=2")).toBe(10_000);
     // What is no length of time is not one.
     for (const junk of ["?idle=", "?idle=soon", "?idle=-3", "?idle=Infinity", "?idle=%20"]) expect(idleMs(true, junk), junk).toBe(10_000);
+  });
+
+  it("is never longer than a timeout can hold, which a longer wait would come due at once in", () => {
+    expect(TIMEOUT_MAX_MS).toBe(2147483647);
+    expect(idleMs(true, "?idle=2147483")).toBe(2_147_483_000);
+    for (const huge of ["?idle=2147484", "?idle=1e12", "?idle=1e300"]) expect(idleMs(true, huge), huge).toBe(TIMEOUT_MAX_MS);
   });
 });
 
@@ -185,6 +194,8 @@ describe("watchIdle", () => {
     ];
     for (const [type, fields] of kinds) {
       const { told, send } = watching();
+      // The watch has heard where the pointer is: at rest in a corner.
+      send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 0, screenY: 0 });
       vi.advanceTimersByTime(MS);
       expect(told, type).toEqual([true]);
       send(type, fields);
@@ -293,6 +304,42 @@ describe("watchIdle", () => {
     expect(told).toEqual([]);
     vi.advanceTimersByTime(1);
     expect(told).toEqual([true]);
+  });
+
+  it("takes the first move it hears only for where the pointer is, since a ride begun by a key has not heard of the pointer: it neither wakes the page nor puts the settling off, and the next move does both", () => {
+    // Settled, with the pointer never heard of: the browser's move at the cursor's own place, as the HUD goes from under it.
+    const settled = watching();
+    vi.advanceTimersByTime(MS);
+    settled.send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 640, screenY: 40 });
+    expect(settled.told).toEqual([true]);
+    settled.send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 640, screenY: 40 });
+    expect(settled.told).toEqual([true]);
+    // A hand on the mouse sends a second, elsewhere.
+    settled.send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 641, screenY: 40 });
+    expect(settled.told).toEqual([true, false]);
+    // Awake: the first move, a millisecond before the wait is over, does not put it off.
+    const awake = watching();
+    vi.advanceTimersByTime(MS - 1);
+    awake.send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 640, screenY: 40 });
+    vi.advanceTimersByTime(1);
+    expect(awake.told).toEqual([true]);
+    // A first press is a press: it wakes the page wherever it lands, and says where the pointer is.
+    const pressed = watching();
+    vi.advanceTimersByTime(MS);
+    pressed.send("pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, screenX: 640, screenY: 40 });
+    pressed.send("pointerup", { pointerId: 1, pointerType: "mouse", button: 0, screenX: 640, screenY: 40 });
+    expect(pressed.told).toEqual([true, false]);
+    vi.advanceTimersByTime(MS);
+    pressed.send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 640, screenY: 40 });
+    expect(pressed.told).toEqual([true, false, true]);
+    // So the one move after a press, to another place, is a move: the pointer's place is known from the press.
+    pressed.send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 700, screenY: 40 });
+    expect(pressed.told).toEqual([true, false, true, false]);
+    const lifted = watching();
+    lifted.send("pointerup", { pointerId: 1, pointerType: "mouse", button: 0, screenX: 640, screenY: 40 });
+    vi.advanceTimersByTime(MS);
+    lifted.send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 640, screenY: 41 });
+    expect(lifted.told).toEqual([true, false]);
   });
 
   it("takes a pointer that has not moved for no input: the move a browser sends as the page changes under a cursor at rest neither wakes it nor puts the settling off", () => {
@@ -526,7 +573,10 @@ describe("createRide", () => {
     vi.advanceTimersByTime(1);
     expect(p.ride.state()).toEqual({ riding: true, settled: true, sleepEndsAt: null });
     expect(p.classes.has("cursor-off")).toBe(true);
+    // The pointer moves: its first event says where it is, and its second that it moved.
     p.win.dispatchEvent(input("pointermove", { pointerId: 1, screenX: 10, screenY: 10 }));
+    expect(p.ride.state().settled).toBe(true);
+    p.win.dispatchEvent(input("pointermove", { pointerId: 1, screenX: 11, screenY: 10 }));
     expect(p.ride.state()).toEqual({ riding: true, settled: false, sleepEndsAt: null });
     expect(p.classes.has("cursor-off")).toBe(false);
     vi.advanceTimersByTime(MS);
@@ -538,6 +588,17 @@ describe("createRide", () => {
     expect(keyed.ride.state().settled).toBe(false);
     vi.advanceTimersByTime(1);
     expect(keyed.ride.state().settled).toBe(true);
+  });
+
+  it("waits out the longest wait the test hook can ask for with one timeout, where a longer one would come due at once and be armed again without end", () => {
+    const p = page({ idle: idleMs(true, "?idle=1e12") });
+    p.ride.toggle();
+    const set = vi.spyOn(globalThis, "setTimeout");
+    vi.advanceTimersByTime(60_000);
+    expect(set).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(1);
+    expect(p.ride.state().settled).toBe(false);
+    vi.restoreAllMocks();
   });
 
   it("settles after the time the page was started with, and never out of a ride", () => {
@@ -770,6 +831,7 @@ describe("createRide", () => {
 describe("the carry", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   const storage = () => {
@@ -781,8 +843,9 @@ describe("the carry", () => {
   it("hands the ride and its sleep timer to the next page, once", () => {
     storage();
     expect(readCarry()).toBe(null);
-    writeCarry({ riding: true, sleepEndsAt: 1_800_000_000_000 });
-    expect(readCarry()).toEqual({ riding: true, sleepEndsAt: 1_800_000_000_000 });
+    const endsAt = Date.now() + 30 * 60_000;
+    writeCarry({ riding: true, sleepEndsAt: endsAt });
+    expect(readCarry()).toEqual({ riding: true, sleepEndsAt: endsAt });
     writeCarry({ riding: false, sleepEndsAt: null });
     expect(readCarry()).toEqual({ riding: false, sleepEndsAt: null });
     clearCarry();
@@ -794,6 +857,17 @@ describe("the carry", () => {
     for (const [stored, carry] of [['{"riding":"yes","sleepEndsAt":"soon"}', { riding: false, sleepEndsAt: null }], ["{}", { riding: false, sleepEndsAt: null }], ["7", null], ["not json", null]] as const) {
       held.set("dead-redux:carry", stored);
       expect(readCarry(), stored).toEqual(carry);
+    }
+    // A sleep timer's end that is no moment, or one further off than a timeout can hold, which would pause the show on arrival: the
+    // ride is carried and the timer is not. One that has passed is carried: the ride turns it off as it arrives (ride.ts).
+    // The clock stands still here, so the limit is tried to the millisecond: the longest wait a timeout holds is carried, and one
+    // more is not.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-23T12:00:00Z"));
+    const now = Date.now();
+    for (const [end, carried] of [["1e999", null], ["-1e999", null], [String(now + TIMEOUT_MAX_MS + 1), null], [String(now + TIMEOUT_MAX_MS), now + TIMEOUT_MAX_MS], [String(now - 5000), now - 5000]] as const) {
+      held.set("dead-redux:carry", `{"riding":true,"sleepEndsAt":${end}}`);
+      expect(readCarry(), end).toEqual({ riding: true, sleepEndsAt: carried });
     }
     vi.stubGlobal("sessionStorage", { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); }, removeItem: () => { throw new Error("blocked"); } });
     expect(readCarry()).toBe(null);

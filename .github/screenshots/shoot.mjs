@@ -18,6 +18,7 @@ import {
   walkPoses,
 } from "./assets.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
+import { FOCUS_STOPS, RIDE_RECORDINGS, rideIdle, ridePages, stillInLook, wakeByPointer } from "./ride.mjs";
 
 const DEVICES = {
   desktop: { viewport: { width: 1440, height: 900 } },
@@ -89,44 +90,33 @@ const shelfStep = (shelf, state, shot, boxes = false) => ({
   shot,
 });
 
-// The ride (src/components/world/ride.ts): one button starts it, and left alone it settles. A page that shoots it waits six seconds
-// to settle and not the page's own ten (?idle=, on previews): long enough for the still of the awake ride to be taken first, a second
-// after the press and a frame or two of a software renderer's.
-const IDLE = "idle=6";
-const RIDE = "[data-action='ride']";
-// The ride's two stills: the press, which starts the ride with the whole HUD and the camera that walks with the bears (`<shot>`); then,
-// with nothing touched, the page settled (`<shot>-settled`). The camera takes three seconds of world time to reach the crane, which
-// a software renderer draws in half a minute. A still whose subject is the settled ride itself waits for it (`crane`): the home
-// page's and the fixed day's. One whose subject is a plate in the settled HUD does not, and is shot a second after the page settles,
-// with the camera a little way out from the bears.
-const rideSteps = (shot, crane = false) => [
-  { click: RIDE, waitFor: "main[data-ride='awake']", shot },
-  { waitFor: "main[data-ride='settled']", crane, shot: `${shot}-settled` },
-];
+// The ride's own steps on each page that shoots it (ride.mjs). A page with one of them loads with the wait its device needs before
+// the ride settles (the idle hook, rideIdle), unless it keeps the page's own.
+const RIDE_PAGES = ridePages(PLAY_WAIT_MS);
 
 // Each step acts on the loaded page, then shoots it. The prefix keeps one page's file names
-// apart from another's, and afterPlaying ({ ms, shot }) adds a later shot of the play step.
-const playerSteps = (prefix, afterPlaying) => [
+// apart from another's, afterPlaying ({ ms, shot }) adds a later shot of the play step, and the ride's steps come last.
+const playerSteps = (prefix, afterPlaying, ride) => [
   { click: "[data-action='details']", boxes: true, shot: `${prefix}details` },
   // Keyboard focus, which is what draws the ring: Chromium shows :focus-visible after a Tab, not after a script focus that follows
   // a mouse click. Tab from the previous button lands on the play disc and starts nothing.
   { focus: "[data-action='prev']", press: "Tab", shot: `${prefix}focus-play` },
   playStep(`${prefix}playing`, afterPlaying),
-  ...rideSteps(`${prefix}ride`, true),
+  ...ride,
 ];
 
 const PAGES = [
   // Two shots of one load catch the animated display moving.
   {
-    path: `/?${IDLE}`,
+    path: "/",
     shots: ["home-1", "home-2"],
-    steps: playerSteps(""),
+    steps: playerSteps("", undefined, RIDE_PAGES.home.steps),
   },
   // A fixed day whose show never changes, so every run plays the same tracks.
   {
-    path: `/2026-10-20?${IDLE}`,
+    path: "/2026-10-20",
     shots: ["fixed-1", "fixed-2"],
-    steps: playerSteps("fixed-", { ms: 8000, shot: "fixed-playing-8s" }),
+    steps: playerSteps("fixed-", { ms: 8000, shot: "fixed-playing-8s" }, RIDE_PAGES.fixed.steps),
   },
   // The fixed day's walk: G (a look down, which starts nothing) leaves the opening for a walk behind the visitor's bear; then the
   // Details switch turns to first person, the walker's eye with no bear, and back, which leaves the view setting as it was.
@@ -165,20 +155,19 @@ const PAGES = [
   // The fixed day without WebGL 2: the designed still under the HUD, its Details, then the show playing from the still, and the ride,
   // which there is the page's half of it: the HUD awake, then settled.
   {
-    path: `/2026-10-20?${IDLE}`,
-    devices: ["desktop-nowebgl", "phone-nowebgl"],
+    path: "/2026-10-20",
+    devices: RIDE_PAGES.still.devices,
     ready: "#world[data-world='fallback']",
     shots: ["fixed"],
-    steps: [{ click: "[data-action='details']", boxes: true, shot: "fixed-details" }, playStep("fixed-playing"), ...rideSteps("fixed-ride")],
+    steps: [{ click: "[data-action='details']", boxes: true, shot: "fixed-details" }, playStep("fixed-playing"), ...RIDE_PAGES.still.steps],
   },
-  // The fixed day's focus walk, under reduced motion so the twelve shots differ by the ring alone: Tab lands on the world, the title's
-  // tab, Archive, the ride's button, Share, the buttons' tab, prev, play, next, Details, the seek slider and the player's tab, the
-  // order the screen shows them in, with a shot after each press.
+  // The fixed day's focus walk, under reduced motion so the shots differ by the ring alone: Tab lands on each of the HUD's stops in
+  // the order the screen shows them (FOCUS_STOPS in ride.mjs, the ride's one button among them), with a shot after each press.
   {
     path: "/2026-10-20",
     devices: ["desktop-reduced"],
     shots: [],
-    steps: Array.from({ length: 12 }, (_, i) => ({ press: "Tab", shot: `fixed-focus-${i + 1}` })),
+    steps: FOCUS_STOPS.map((_, i) => ({ press: "Tab", shot: `fixed-focus-${i + 1}` })),
   },
   // The fixed day 5 s before its first track ends: playing crosses into track 2, and the later shot logs the gap between them.
   {
@@ -296,23 +285,13 @@ const PAGES = [
   ...nearPages(),
   // The fixed day with the site's day faked as 2099-01-01, a day it will not reach: the chip names the new day at load and stays while
   // the show plays on (the 8-s shot's clock has moved; the url line still reads the fixed page); once the ride has settled it sits above
-  // the title. The pointer that goes for its link wakes the page, where the chip is under the title's plate again, and the link loads
-  // today's page, which arrives riding, settled at once, and starts the show, or shows it paused where the browser refuses.
+  // the title. A pointer that moves wakes the page, where the chip is under the title's plate again, and its link loads today's
+  // page, which arrives riding, settled at once, and starts the show, or shows it paused where the browser refuses (ride.mjs).
   {
-    path: `/2026-10-20?day=2099-01-01&${IDLE}`,
-    devices: ["desktop", "phone", "desktop-reduced"],
+    path: "/2026-10-20?day=2099-01-01",
+    devices: RIDE_PAGES.newday.devices,
     shots: ["fixed-newday"],
-    steps: [
-      playStep("fixed-newday-playing", { ms: 8000, shot: "fixed-newday-8s" }),
-      ...rideSteps("fixed-newday-ride"),
-      {
-        click: "[data-action='play-next']",
-        waitFor: "main:not(:has([data-next]))[data-state='playing'], main:not(:has([data-next]))[data-state='paused']",
-        waitMs: PLAY_WAIT_MS,
-        player: true,
-        shot: "fixed-newday-tapped",
-      },
-    ],
+    steps: [playStep("fixed-newday-playing", { ms: 8000, shot: "fixed-newday-8s" }), ...RIDE_PAGES.newday.steps],
   },
   // The night the show carries the island through (night.js), at four of its hours, while the show plays with ?drive=map: the last light,
   // as Jack Straw opens set 1; the deep of the night, in Space, with the moon; first light, as U.S. Blues, the encore, begins; and
@@ -390,17 +369,12 @@ const PAGES = [
   },
   // The sleep timer counting seconds, in a ride: the ride's own row has it while the page is awake, and one press sets 30 s; 32 s on,
   // the show is paused and, with no input since the click, the ride has settled and the cursor is hidden; a key wakes the page, which
-  // brings both back, the ride still on.
+  // brings both back, the ride still on (ride.mjs).
   {
-    path: `/2026-10-20?sleep=seconds&${IDLE}`,
-    devices: ["desktop"],
+    path: "/2026-10-20?sleep=seconds",
+    devices: RIDE_PAGES.sleep.devices,
     shots: [],
-    steps: [
-      playStep("fixed-sleep-playing"),
-      { click: RIDE, waitFor: "main[data-ride='awake']", shot: "fixed-sleep-ride" },
-      { click: "[data-action='sleep']", shot: "fixed-sleep-30", later: { ms: 32000, shot: "fixed-slept" } },
-      { press: "ShiftLeft", waitFor: "main[data-ride='awake']", shot: "fixed-cursor-back" },
-    ],
+    steps: [playStep("fixed-sleep-playing"), ...RIDE_PAGES.sleep.steps],
   },
   // The end shot shows the last screen, where the archive's count line sits. The TV shoots the archive too, at 1920 by 1080.
   { path: "/archive", devices: ["desktop", "desktop-reduced", "phone", "phone-360", "tv"], shots: ["archive"], end: "archive-end" },
@@ -434,10 +408,10 @@ const PAGES = [
   // link), then in a ride, awake and settled; and a show it has no recording of (the plate as before). Either way the world loads
   // without the show's path.
   {
-    path: `/2026-10-20?lookup=failed&${IDLE}`,
-    devices: ["desktop", "phone", "phone-360"],
+    path: "/2026-10-20?lookup=failed",
+    devices: RIDE_PAGES.lookup.devices,
     shots: ["fixed-lookup-failed"],
-    steps: rideSteps("fixed-lookup-failed-ride"),
+    steps: RIDE_PAGES.lookup.steps,
   },
   { path: "/2026-10-20?lookup=missing", devices: ["desktop", "phone"], shots: ["fixed-no-recording"] },
   // The fixed day's shelves: each tab puts its shelf away past its edge of the screen, the title's, then the buttons', then the
@@ -471,17 +445,14 @@ const PAGES = [
   // at the foot of the frame. The first shot comes before the first move, while the hint is up. The ride then starts the
   // show, which takes the hint away, and puts the camera behind the bears: on the upright phone the visitor's bear stands above the
   // stick, and on its side, where the page shows no stick, as low as the frame's foot. The stats line's `avatar.clear` reads whether
-  // its feet land in the frame above that. Then the tab brings the player back, the ride still awake.
+  // its feet land in the frame above that. Then the tab brings the player back, the ride still awake: the tab is there only while it is.
   {
     path: "/2026-10-20",
-    devices: ["phone", "phone-landscape"],
+    devices: RIDE_PAGES.frame.devices,
+    ownIdle: RIDE_PAGES.frame.ownIdle,
     ready: "#world[data-world='ready']",
     shots: [],
-    steps: [
-      shelfStep("player", "in", "fixed-shelf-frame"),
-      { click: RIDE, waitFor: `${RIDE}[aria-pressed='true']`, shot: "fixed-shelf-frame-ride" },
-      shelfStep("player", "out", "fixed-shelf-frame-back"),
-    ],
+    steps: [shelfStep("player", "in", "fixed-shelf-frame"), ...RIDE_PAGES.frame.steps, { ...shelfStep("player", "out", "fixed-shelf-frame-back"), ride: "awake" }],
   },
   // The walk's draw calls on the fixed day, from ?pose=sweep: the visitor's bear at each of the sweep's poses, with the world on the
   // day's first track and then on Drums (index 13), where the left cave lights. The log names each device's peak and the pose that
@@ -543,22 +514,12 @@ const LOAD_MS = 30_000;
 const MAX_SCREENS = 4;
 
 // Short recordings show the motion that stills cannot. The TV records the ride as a TV has it: started, then left alone.
-// An entry records the page at its path, "/" unless it names one. A recording of the ride with the bears, which is not about its
-// settling, asks for a minute's wait (?idle=60), so the ride stays awake through it.
-const AWAKE = "idle=60";
+// An entry records the page at its path, "/" unless it names one. The ride's are in ride.mjs; a `required` one fails the run where
+// its control is missing or the state it waits for never comes.
 const RECORDINGS = [
   { device: "desktop", name: "home" },
   { device: "phone", name: "home" },
-  // The ride on the TV: the button starts it; two seconds on it settles, and the camera goes out to the crane, three seconds of world
-  // time that a software renderer takes most of a minute to draw at this size.
-  {
-    device: "tv",
-    name: "ride",
-    path: "/?idle=2",
-    click: RIDE,
-    waitFor: "main[data-ride='awake']",
-    recordMs: 50_000,
-  },
+  RIDE_RECORDINGS.tv,
   // Roaming: focus the scene, then hold each key for its milliseconds, in order.
   {
     device: "desktop",
@@ -586,43 +547,11 @@ const RECORDINGS = [
   // The fixed day's descent with nothing pressed: from over the summit down to the camera that walks with the bears, which wait at the
   // trailhead. CI draws about two frames a second and each adds at most 50 ms of world time, so the 6-s descent takes about a minute there.
   { device: "desktop", name: "descent", path: "/2026-10-20", recordMs: 75_000 },
-  // Riding with the bears on the fixed day, once the world is ready: the button puts the camera behind the bears.
-  {
-    device: "desktop",
-    name: "ride",
-    path: `/2026-10-20?${AWAKE}`,
-    click: `#world[data-world='ready'] ~ div ${RIDE}`,
-    waitFor: `${RIDE}[aria-pressed='true']`,
-  },
-  // The same from C C Rider 0:42 in, where the bears set off along a straight stretch in one line, clear of the landmarks.
-  {
-    device: "desktop",
-    name: "ride-straight",
-    path: `/2026-10-20?at=3&t=42&${AWAKE}`,
-    click: `#world[data-world='ready'] ~ div ${RIDE}`,
-    waitFor: `${RIDE}[aria-pressed='true']`,
-  },
-  // Riding with the bears on a phone: its three bears ahead and the visitor's bear above the now-plate.
-  {
-    device: "phone",
-    name: "ride",
-    path: `/2026-10-20?${AWAKE}`,
-    click: `#world[data-world='ready'] ~ div ${RIDE}`,
-    waitFor: `${RIDE}[aria-pressed='true']`,
-  },
-  // A ride that settles and wakes, on the fixed day: three seconds after the button the HUD strips and the camera eases out to the
-  // crane; once it is there (`settled`, which logs the stats on the crane), a look to the left wakes the page and brings the camera
-  // back to the rig the look turns, as slowly. Each way is three seconds of world time, half a minute in a software renderer.
-  {
-    device: "desktop",
-    name: "ride-settle-wake",
-    path: "/2026-10-20?idle=3",
-    click: `#world[data-world='ready'] ~ div ${RIDE}`,
-    waitFor: "main[data-ride='settled']",
-    settled: true,
-    keys: [["ArrowLeft", 600]],
-    recordMs: 40_000,
-  },
+  // Riding with the bears on the fixed day, the same from a straight stretch, and on a phone; then a ride that settles and wakes.
+  RIDE_RECORDINGS.desktop,
+  RIDE_RECORDINGS.straight,
+  RIDE_RECORDINGS.phone,
+  RIDE_RECORDINGS.settleWake,
   // From ?pose=stage the click starts the show, then the visitor's bear walks down the slope to the platform and stops at its edge. The
   // walk is 23 m, and a frame moves the bear at most 0.6 m (12 m/s, each frame's step capped at 50 ms), so it takes 39 frames. CI's
   // software renderer draws this view about once every 0.5 s, so the walk takes about 20 s there: it is held for 25 s, a few seconds of
@@ -678,6 +607,15 @@ const logStats = async (page, file) => {
     if (failure) failures.push(`${file}: ${failure}`);
   }
   return parsed;
+};
+
+// Takes a still. One that needs the ride in a look (`need`, a step's `ride`) fails the run where the page marks any other just before
+// it or just after (stillInLook in ride.mjs): the page changes look on a timer, and a slow renderer can be late for it.
+const takeStill = async (page, file, need, options) => {
+  const failure = await stillInLook(page, need, () => page.screenshot(options));
+  if (!failure) return;
+  failures.push(`${file}: ${failure}`);
+  console.log(`${file}: ${failure}`);
 };
 
 // The HUD's shelves, by their tabs' names (src/components/world/shelves.ts).
@@ -860,10 +798,12 @@ if (site.protocol !== "https:") {
   throw new Error(`SITE_URL must be an https URL, got ${process.env.SITE_URL}`);
 }
 
-// A path's URL for a device. The TV device asks for the TV tier: a headless browser cannot be told apart from a desktop.
-const pageUrl = (path, device) => {
+// A path's URL for a device. The TV device asks for the TV tier: a headless browser cannot be told apart from a desktop. A page that
+// shoots the ride asks for the wait the device needs before the ride settles (`idle`, in seconds).
+const pageUrl = (path, device, idle = null) => {
   const url = new URL(path, site);
   if (device === "tv") url.searchParams.set("tier", "tv");
+  if (idle !== null) url.searchParams.set("idle", String(idle));
   return url;
 };
 
@@ -893,9 +833,10 @@ try {
 
     // The pages this device shoots. The TV device is for a ride left alone, so it shoots the home page and only the other pages that
     // name it. A page may name the devices that shoot it; a device without WebGL, and the phone on its side, shoot only the pages that do.
-    const pages = PAGES.filter(({ path, devices }) => (device !== "tv" || new URL(path, site).pathname === "/" || devices?.includes("tv")) && (devices ? devices.includes(device) : !BY_NAME.has(device)));
-    for (const [k, { path, shots, steps, end, ready, sweep, failAudio, status, served, whole }] of pages.entries()) {
-      const url = pageUrl(path, device);
+    const pages = PAGES.filter(({ path, devices }) => (device !== "tv" || path === "/" || devices?.includes("tv")) && (devices ? devices.includes(device) : !BY_NAME.has(device)));
+    for (const [k, { path, shots, steps, end, ready, sweep, failAudio, status, served, whole, ownIdle }] of pages.entries()) {
+      // A page with a step that needs the ride in one of its looks loads with this device's wait, unless it keeps the page's own.
+      const url = pageUrl(path, device, steps?.some((step) => step.ride) && !ownIdle ? rideIdle(device) : null);
       if (failAudio) await page.route(isTrackAudio, (route) => route.abort());
       const response = await open(page, url);
       // A redirect to another host, such as a login wall, is not the site. A page that names a status must answer with it.
@@ -965,6 +906,8 @@ try {
           await page.mouse.move(x + step.drag[0], y + step.drag[1], { steps: 8 });
           await page.mouse.up();
         }
+        // A pointer that moves over the world, which wakes a settled ride (ride.mjs).
+        if (step.wake) await wakeByPointer(page);
         // A near step stands the visitor by another song's landmark and waits for the frames that draw the cut and the bears there:
         // frames, since a software renderer draws two a second and a GPU sixty. They are its settle. A world that is not drawing
         // has no still to take: the step fails the run and is skipped, at once where there is no world at all.
@@ -1011,7 +954,7 @@ try {
         }
         if (step.near === undefined) await page.waitForTimeout(STEP_SETTLE_MS);
         const file = `${device}-${step.shot}.png`;
-        await page.screenshot({ path: join(outDir, file), fullPage: true, clip });
+        await takeStill(page, file, step.ride, { path: join(outDir, file), fullPage: true, clip });
         console.log(`${file}  ${url}  ${step.near !== undefined ? `near ${step.near}` : selector ?? (step.press ? `press ${step.press}` : `waited for ${step.waitFor}`)}`);
         const stats = await logStats(page, file);
         // A near still of the wrong song fails the run: the stats say which song the visitor stands by. Its page plays nothing, so the
@@ -1032,7 +975,7 @@ try {
               .catch(() => console.log(`night ${device}-${step.later.shot}.png  the world's hour had not reached the show's`));
           }
           const laterFile = `${device}-${step.later.shot}.png`;
-          await page.screenshot({ path: join(outDir, laterFile), fullPage: true, clip });
+          await takeStill(page, laterFile, step.later.ride, { path: join(outDir, laterFile), fullPage: true, clip });
           console.log(`${laterFile}  ${url}  ${selector}`);
           await logStats(page, laterFile);
           await logPage(page, laterFile);
@@ -1080,7 +1023,7 @@ try {
     await context.close();
   }
 
-  recording: for (const { device, name, path = "/", click, waitFor, settled, keys, stick, recordMs = RECORD_MS } of RECORDINGS) {
+  recording: for (const { device, name, path = "/", click, required, waitFor, settled, keys, stick, recordMs = RECORD_MS } of RECORDINGS) {
     const options = DEVICES[device];
     // Frames arrive at the viewport's CSS size, whatever the device scale factor.
     const context = await browser.newContext({
@@ -1096,7 +1039,7 @@ try {
     const file = `${device}-${name}.webm`;
     await open(page, url);
     if (click) {
-      // A control missing from the page is logged and skipped, not an error.
+      // A control missing from the page is logged and skipped, and fails the run only for a required recording.
       // Scripts may draw the control after load, so it gets time to appear.
       const found = await page.waitForSelector(click, { timeout: 15_000 }).then(
         () => true,
@@ -1104,21 +1047,24 @@ try {
       );
       if (!found) {
         console.log(`${file}: ${click} absent`);
+        if (required) failures.push(`${file}: ${click} absent`);
         await context.close();
         continue;
       }
       await page.click(click);
       if (waitFor) {
-        await page
-          .waitForSelector(waitFor, { timeout: 15_000 })
-          .catch(() => console.log(`${file}: waitFor timed out; recording anyway`));
+        await page.waitForSelector(waitFor, { timeout: 15_000 }).catch(() => {
+          console.log(`${file}: waitFor timed out; recording anyway`);
+          if (required) failures.push(`${file}: never reached ${waitFor}`);
+        });
       }
     }
     // A recording of a ride that settles waits for the camera to reach the crane before its keys, and logs the stats there.
     if (settled) {
-      await page
-        .waitForFunction(() => window.__hill?.ride?.lean === 1, null, { timeout: 90_000 })
-        .catch(() => console.log(`${file}: the camera had not reached the crane; recording on`));
+      await page.waitForFunction(() => window.__hill?.ride?.lean === 1, null, { timeout: 90_000 }).catch(() => {
+        console.log(`${file}: the camera had not reached the crane; recording on`);
+        if (required) failures.push(`${file}: the camera never reached the crane`);
+      });
       await logStats(page, `${file} settled`);
     }
     let held = 0;

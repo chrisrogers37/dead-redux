@@ -17,13 +17,20 @@ export const RIDE_NAME = "Ride with the bears";
 export const IDLE_S = 10;
 
 /**
- * That wait in ms. The test hook ?idle=<seconds> shortens it, so the shoot need not wait ten seconds a still: `testHooks` is the
- * server's word on whether hooks answer here (src/lib/test-hooks.ts), and the page's query is read only where it is true.
+ * The longest wait a timeout can hold, in ms: 2^31 - 1, some 24 days. A longer one comes due at once, so a wait that re-arms itself
+ * for what is left of it would spin, and a sleep timer would pause the show as it was set.
+ */
+export const TIMEOUT_MAX_MS = 2 ** 31 - 1;
+
+/**
+ * That wait in ms. The test hook ?idle=<seconds> sets it, so the shoot need not wait ten seconds a still: `testHooks` is the
+ * server's word on whether hooks answer here (src/lib/test-hooks.ts), and the page's query is read only where it is true. It is
+ * never more than a timeout can hold.
  */
 export function idleMs(testHooks: boolean, search: string): number {
   const asked = testHooks ? new URLSearchParams(search).get("idle") : null;
   const seconds = asked === null || asked.trim() === "" ? NaN : Number(asked);
-  return (Number.isFinite(seconds) && seconds >= 0 ? seconds : IDLE_S) * 1000;
+  return Math.min((Number.isFinite(seconds) && seconds >= 0 ? seconds : IDLE_S) * 1000, TIMEOUT_MAX_MS);
 }
 
 /** The sleep timer's unit: a minute, or a second under the test hook, so the shoot can watch a timer run out. */
@@ -92,8 +99,10 @@ type Input = Event & { pointerId?: number; pointerType?: string; button?: number
  * key or a pointer, is input for as long as it is held, so a look that turns for a minute never settles under the thumb that turns
  * it. A hold that may never be let go in the page's hearing is not counted: a mouse's other buttons, whose menu takes the lift, and
  * a key pressed with Ctrl, Alt or Meta, a browser's shortcut, whose release a Mac does not send. A pointer that has not moved is no
- * input: a browser sends a move when the page changes under a cursor at rest, as it does when the page settles. A press that
- * begins on what `holds` names wakes the page only as it lifts, so the slider a finger has hold of is not moved from under it.
+ * input: a browser may send a move when the page changes under a cursor at rest, as it does when the page settles. So the first
+ * move the watch hears only says where the pointer is, since a ride begun by a key has not heard of the pointer yet, and a hand
+ * that moves it sends a second. A press that begins on what `holds` names wakes the page only as it lifts, so the slider a
+ * finger has hold of is not moved from under it.
  * A mouse sends hundreds of moves a second, so an input only notes its time: one timeout is armed for the wait, and when it comes
  * due it is armed again for what is left of the wait since the last input, or the page settles. Returns what stops the watch.
  */
@@ -106,8 +115,8 @@ export function watchIdle(target: EventTarget, { ms, settled: start, holds, onCh
   const keys = new Set<string>(), pointers = new Set<number>();
   /** The pointer whose press holds the look, if any. */
   let holding: number | null = null;
-  /** Where the pointer last was on the screen. */
-  let atX = NaN, atY = NaN;
+  /** Where the pointer last was on the screen, once an event has said. */
+  let placed = false, atX = 0, atY = 0;
 
   const set = (to: boolean) => {
     if (settled === to) return;
@@ -130,7 +139,8 @@ export function watchIdle(target: EventTarget, { ms, settled: start, holds, onCh
   };
   const input = (e: Input) => {
     if (e.type.startsWith("pointer")) {
-      const moved = atX !== e.screenX || atY !== e.screenY;
+      const moved = placed && (atX !== e.screenX || atY !== e.screenY);
+      placed = true;
       atX = e.screenX as number;
       atY = e.screenY as number;
       if (e.type === "pointermove" && !moved) return;

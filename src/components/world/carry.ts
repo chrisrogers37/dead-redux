@@ -1,3 +1,5 @@
+import { TIMEOUT_MAX_MS } from "./ride";
+
 /** sessionStorage key of what a page hands the next one it loads. Its presence starts the show on arrival. */
 const CARRY_STORAGE = "dead-redux:carry";
 
@@ -17,7 +19,10 @@ export function writeCarry(carry: Carry): void {
   }
 }
 
-/** The carry the page before left, or null. */
+/**
+ * The carry the page before left, or null. A sleep timer's end that is no moment, or one further off than a timeout can hold, is
+ * not carried: the ride arrives with its timer off.
+ */
 export function readCarry(): Carry | null {
   let value: unknown;
   try {
@@ -27,7 +32,8 @@ export function readCarry(): Carry | null {
   }
   if (typeof value !== "object" || value === null) return null;
   const { riding, sleepEndsAt } = value as Record<string, unknown>;
-  return { riding: riding === true, sleepEndsAt: typeof sleepEndsAt === "number" ? sleepEndsAt : null };
+  const ends = typeof sleepEndsAt === "number" && Number.isFinite(sleepEndsAt) && sleepEndsAt - Date.now() <= TIMEOUT_MAX_MS;
+  return { riding: riding === true, sleepEndsAt: ends ? (sleepEndsAt as number) : null };
 }
 
 /** Forgets the carry, once it is applied. */
