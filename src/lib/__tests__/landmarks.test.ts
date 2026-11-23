@@ -2829,8 +2829,9 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
     for (let i = 0; i < lengths.length; i++) for (let j = i + 1; j < lengths.length; j++) if (meet(lengths[i], lengths[j], TOUCH)) joins.push([i, j]);
     return { lengths, joins };
   };
+  const shown = (length: Length, stand: Stand) => length.at.some(([x, y, z]) => y - groundAt(stand, x, z) >= SHOWS);
   const showing = ({ lengths, joins }: ReturnType<typeof lengthsOf>, stand: Stand) => {
-    const shows = lengths.map((length) => length.at.some(([x, y, z]) => y - groundAt(stand, x, z) >= SHOWS)), group = lengths.map((_, i) => i);
+    const shows = lengths.map((length) => shown(length, stand)), group = lengths.map((_, i) => i);
     const head = (i: number) => { while (group[i] !== i) i = group[i] = group[group[i]]; return i; };
     for (const [i, j] of joins) if (shows[i] && shows[j]) group[head(i)] = head(j);
     const groups = new Map<number, Length[]>();
@@ -2840,50 +2841,76 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
   // A group, for a failure to name: how many lengths of how many pieces, and where on the landmark.
   const told = (group: Length[]) => `${group.length} lengths of ${new Set(group.map((length) => length.piece)).size} pieces, ${Math.min(...group.map((length) => length.z0)).toFixed(1)} to ${Math.max(...group.map((length) => length.z1)).toFixed(1)} m along it and ${Math.min(...group.map((length) => length.low)).toFixed(2)} to ${Math.max(...group.map((length) => length.high)).toFixed(2)} m up`;
 
+  // The shows that have a road song today, by date. Their stops are held to the strict bars of the test below; a map that
+  // comes after them is held, as every map is, to what any place on the path is held to. So a new map cannot fail the test by
+  // where it happens to put a road song, and a named show that is gone from the folder, or has lost its road song, fails it.
+  const ROAD_SHOWS = ["1966-02-25", "1970-11-06", "1971-11-17", "1971-12-01", "1971-12-09", "1973-03-30", "1980-05-15", "1986-07-04", "1990-12-09", "1991-09-12", "1992-03-24", "1993-12-10", "1994-09-27", "1995-03-22"];
+
   // This test stands the trestle at every quarter metre of the path, 3,151 stands, and looks for each of its 567 lengths at
   // each (a phone's 539): it has 20 s, not the usual 5.
-  it("shows the trestle as one bridge on the ground a show gives it: each handrail's top stands half a metre or more over the ground along half its length or more, and nothing surfaces that is not joined above the ground to the rest", { timeout: 20000 }, () => {
+  it("shows the trestle as one bridge: at the stops of the shows that have a road song today each handrail's top stands half a metre or more over the ground along half its length or more and nothing surfaces apart from the rest, and anywhere on the path only a ridge that hides a handrail parts it", { timeout: 20000 }, () => {
     // A handrail stands clear along a length of it where its top is CLEAR m or more over the ground, right across it: the
-    // top rail shows there, and the heads of its posts under it. Each rail must stand clear along AT_STOPS of its length at
-    // every stop a show gives a road song, and along ON_PATH of it anywhere on the path. Measured, on both tiers: 56 % at the
-    // least of the stops (1971-12-09, Goin' Down the Road Feeling Bad, with set 2 from track 18), and 43 % on the path,
-    // 557.75 m along it, beside a cave's mouth.
-    const CLEAR = 0.5, AT_STOPS = 0.5, ON_PATH = 0.4, STEP = 0.25;
+    // top rail shows there, and the heads of its posts under it. Each rail stands clear along AT_STOPS of its length at
+    // every stop of the shows named above, and along ON_PATH of it anywhere on the path. Measured, on both tiers: 56 % at
+    // the least of those stops (1971-12-09, Goin' Down the Road Feeling Bad, with set 2 from track 18); and on the path
+    // 43 % at the least of its quarter metres, 557.75 m along it, beside a cave's mouth, and 42 % between them, by a sweep
+    // at every 2 cm.
+    const CLEAR = 0.5, AT_STOPS = 0.5, ON_PATH = 0.35, STEP = 0.25;
     for (const phone of [false, true]) {
       const road = built(ROAD, phone), where = phone ? "on a phone" : "on a desktop", cut = lengthsOf(road);
+      const deck = road.pieces.findIndex((piece) => deep(piece) > 17 && wide(piece) > 3);
       const rails = of(road, HANDRAIL).sort((p, q) => q.high - p.high).slice(0, 2).map((rail) => cut.lengths.filter((length) => length.piece === road.pieces.indexOf(rail)));
       const clear = (stand: Stand) => Math.min(...rails.map((rail) => rail.filter((length) => length.at.every(([x, y, z]) => y - groundAt(stand, x, z) >= CLEAR)).length / rail.length));
       expect(rails.map((rail) => rail.length), where).toEqual([72, 72]);
-      // Every stop the maps give a road song: each song of a show that the road's rule takes, with every start of set 2 a
-      // page can give the show (sets.ts): none, or a track that leaves three in each set. Today that is 13 songs in 11 shows,
-      // from 1966-02-25 to 1994-09-27, and 215 stops. At each, what shows of the trestle is one thing.
-      const stops = shows.flatMap(({ show, tracks }) => tracks.flatMap((track, i) => {
+      // What holds at any place on the path, and so at any stop a map can give a road song, today's maps or a later one's.
+      // Each rail stands clear along ON_PATH of its length. And what shows of the trestle is one thing, with two things let
+      // by. Where a ridge of the hill hides a length of a handrail's top rail, the hill is between the trestle's two ends, as
+      // it would be between the ends of anything level and 18 m long that is no taller. And where the ground dips between two
+      // posts, a stretch of the deck's planking may show by itself, under the rails that stand over it. A sweep of the path
+      // at every 2 cm, 39,384 stands, finds a parted trestle at 411 of them, in eight stretches, and each is one of the two
+      // (410 under a ridge, and a metre of the deck by itself at one); a sweep at every 7 mm finds no other kind. Gives the
+      // rails' least share and the groups that show.
+      const anywhere = (stand: Stand, which: string) => {
+        const groups = showing(cut, stand), least = clear(stand);
+        if (least < ON_PATH) expect.fail(`${which}: a handrail stands clear of the ground along ${least} of its length`);
+        const loose = groups.slice(1).filter((group) => group.some((length) => length.piece !== deck));
+        if (!groups.length || (loose.length && !rails.some((rail) => rail.some((length) => !shown(length, stand))))) expect.fail(`${which}: ${groups.length ? told(loose[0]) : "nothing"} shows apart from the rest, and no ridge hides a handrail`);
+        return { least, groups };
+      };
+      // A show's stops: each of its songs that the road's rule takes, with every start of set 2 a page can give the show
+      // (sets.ts): none, or a track that leaves three in each set.
+      const stopsOf = ({ show, tracks }: (typeof shows)[number]) => tracks.flatMap((track, i) => {
         if (ruleOf(track.title) !== ruleOf(ROAD)) return [];
         const starts: (number | null)[] = [null];
         for (let start = 3; start <= tracks.length - 3; start++) starts.push(start);
         return starts.map((set2Start) => ({ stand: standAt(layout(tracks, set2Start, path)[i], road.outline), which: `${where}, ${show}, song ${i}, "${track.title}", set 2 from ${set2Start ?? "nowhere"}` }));
-      }));
-      expect(stops.length, where).toBeGreaterThanOrEqual(215);
-      for (const { stand, which } of stops) {
-        const groups = showing(cut, stand), least = clear(stand);
-        if (groups.length !== 1) expect.fail(`${which}: ${groups.length ? told(groups[groups.length - 1]) : "nothing"} shows apart from the rest`);
+      });
+      // Each show named has its map, and a road song in it: 16 songs in the 14 shows, and 280 stops.
+      for (const date of ROAD_SHOWS) {
+        const named = shows.find(({ show }) => show === date);
+        if (!named) throw new Error(`no map of ${date}, a show named for its road song`);
+        if (!stopsOf(named).length) expect.fail(`${date}: no song of its map is the road's`);
+      }
+      // Every map of the folder is held, at each of its stops, to what holds anywhere on the path: a stop stands between
+      // two of the quarter metres swept below, not on one. The shows named are held to the strict bars besides: at each of
+      // their stops what shows of the trestle is one thing, with nothing let by, and each rail stands clear along AT_STOPS
+      // of its length.
+      for (const one of shows) for (const { stand, which } of stopsOf(one)) {
+        const { least, groups } = anywhere(stand, which);
+        if (!ROAD_SHOWS.includes(one.show)) continue;
+        if (groups.length !== 1) expect.fail(`${which}: ${told(groups[groups.length - 1])} shows apart from the rest`);
         if (least < AT_STOPS) expect.fail(`${which}: a handrail stands clear of the ground along ${least} of its length`);
       }
-      // And everywhere on the path, but where a ridge of the hill stands over a handrail's top: there the hill is between
-      // the trestle's two ends, as it would be between the ends of anything level and 18 m long that is no taller. That is
-      // 33 stands of the 3,151, in three stretches beside the two caves' mouths (453.25 to 455 m along the path, 556.75 to
-      // 560.5 m and 569.25 to 571.25 m), and no stop of the maps is among them.
+      // And the path itself, at every quarter metre. A ridge parts the trestle at 33 of those 3,151 stands, in three
+      // stretches beside the two caves' mouths (453.25 to 455 m along the path, 556.75 to 560.5 m and 569.25 to 571.25 m),
+      // and no stop of the shows named is among them.
       let least = 1;
       const parted: number[] = [];
       along(ROAD, phone, STEP).forEach((stand, k) => {
-        least = Math.min(least, clear(stand));
-        const groups = showing(cut, stand);
-        if (groups.length === 1) return;
-        const ridge = rails.some((rail) => rail.some((length) => length.at.some(([x, y, z]) => groundAt(stand, x, z) > y)));
-        if (!groups.length || !ridge) expect.fail(`${where}, ${k * STEP} m along the path: ${groups.length ? told(groups[groups.length - 1]) : "nothing"} shows apart from the rest, and no ridge stands over a handrail`);
-        parted.push(k * STEP);
+        const here = anywhere(stand, `${where}, ${k * STEP} m along the path`);
+        least = Math.min(least, here.least);
+        if (here.groups.length > 1) parted.push(k * STEP);
       });
-      expect(least, where).toBeGreaterThanOrEqual(ON_PATH);
       expect(least, where).toBeCloseTo(0.431, 2);
       expect(parted, where).toHaveLength(33);
       expect(parted.every((d) => (d >= 453.25 && d <= 455) || (d >= 556.75 && d <= 560.5) || (d >= 569.25 && d <= 571.25)), where).toBe(true);
