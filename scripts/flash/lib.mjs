@@ -74,7 +74,8 @@ export function windowsFor(day) {
 }
 
 // What a job line may set, and what each is when the line leaves it out.
-const DEFAULTS = { pose: "crowd", view: "800x500", dpr: "1", tier: "", still: "0", rung: "0", grids: "0,0+1,1" };
+// All four grids: a 2x2 flash lies whole in a block of exactly one of them, and is seen at a half or a quarter by the rest.
+const DEFAULTS = { pose: "crowd", view: "800x500", dpr: "1", tier: "", still: "0", rung: "0", grids: "0,0+1,1+1,0+0,1" };
 // A pose is a name, or four numbers for ?pose=X,Z,HEADING,PITCH. Which names and which numbers are a pose is the world's to say
 // (main.js): a job whose pose the world does not take stops when the page has loaded.
 const POSE = /^(?:[a-z]+(?:-\d+)?|-?\d+(?:\.\d+)?(?:,-?\d+(?:\.\d+)?){3})$/;
@@ -87,7 +88,7 @@ const POSE = /^(?:[a-z]+(?:-\d+)?|-?\d+(?:\.\d+)?(?:,-?\d+(?:\.\d+)?){3})$/;
 //   tier=            the page's own pick, or phone or tv (?tier=)
 //   still=0          1 stills the figures (?still=1): the pass the README calls the light alone
 //   rung=0           how many rungs down its quality ladder the world starts and holds (?rung=N)
-//   grids=0,0+1,1    the grids of 2x2 blocks counted, each by how many px it stands right and down of the frame's corner
+//   grids=0,0+1,1+1,0+0,1   the grids of 2x2 blocks counted, each by how many px it stands right and down of the frame's corner
 export function parseJobs(text, windows) {
   const jobs = [];
   for (const [n, raw] of text.split("\n").entries()) {
