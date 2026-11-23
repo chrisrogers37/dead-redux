@@ -2,14 +2,14 @@
 import * as THREE from "three";
 import { buildIsland } from "./island.js";
 import { FIRST_EYE, height, STAGE_COLUMN, TEST_POSES } from "./ground.js";
-import { buildPath, layout, nearStand, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
+import { buildPath, layout, nearStand, outline, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
 import { makeBuilders, mergeLandmarks } from "./landmarks.js";
 import { buildBears, drawLegs, stride } from "./bears.js";
 import { buildAvatar } from "./avatar.js";
 import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
-import { confine, DESCENT_S, enterMode, keepSpot, modeRules, slotAt, slotDistance, walkLimits } from "./modes.js";
-import { postPose as poseOver } from "./pose.js";
+import { BEAR_GAP, confine, DESCENT_S, enterMode, keepSpot, modeRules, slotAt, slotDistance, walkLimits } from "./modes.js";
+import { CRANE, DESCENT_FROM, postPose as poseOver } from "./pose.js";
 import { cueClock } from "./clock.js";
 import { analyse, analysisStats, listen, mappings, onsetAt, soundStats, startSound } from "./audio.js";
 import { buildUp, loadMap, mapDrive, passesPeak } from "./maps.js";
@@ -19,6 +19,7 @@ import { buildCrowd } from "./crowd.js";
 import { crowdPlan, isBetweenSongs, isDrums, isSpace } from "./seats.js";
 import { budgetFor, frameSampler, pickTier, stepDown } from "./quality.js";
 import { followHour, lookAt, newLook, nightPlan } from "./night.js";
+import { buildTrees, cameraWays, placeTrees, TARGET, TREE_REACH, TRUNK_ROOM } from "./trees.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, under a sky of liquid light.
    The setlist is the path; each song is a landmark; five bears walk it ahead of the listener. */
@@ -118,13 +119,11 @@ function start(gl) {
   resize();
   new ResizeObserver(resize).observe(container);
 
-  /* ---------- the island ---------- */
-  /* The setlist's path first: the island keeps what grows on it off the path, a point of it every 2 m. */
+  /* ---------- the path and the landmarks ---------- */
+  /* The setlist's path first, a point of it every 2 m, and the landmarks on it: the trees keep clear of both, and the island keeps
+     what grows on it off the path and out of the trees' trunks. */
   const path = buildPath();
   const loop = Array.from({ length: Math.ceil(path.curveLength / 2) || 0 }, (_, k) => { const p = path.at((2 * k) / path.curveLength); return [p.x, p.z]; });
-  const { caves, shade, flora } = buildIsland(scene, budget.grid, phone, loop);
-
-  /* ---------- the path and the landmarks ---------- */
   const { at, tangentAt } = path;
   const landmarkU = layout(tracks, set2Start, path);
   /* The bears' own line, 7 m to the left of the path, which every landmark stands clear of (path.js). */
@@ -135,6 +134,28 @@ function start(gl) {
   const landmarks = placeLandmarks(scene, path, builtAs.size ? tracks.map((t, k) => ({ ...t, title: landmarkTitle(k) })) : tracks, hasShow, builders, landmarkU, line);
   /* How long the landmarks took to place, most of it their search for room beside the bears' line; the stats report it. */
   (window.__hill ??= {}).placeMs = Math.round((performance.now() - placeStart) * 10) / 10;
+
+  /* ---------- the trees and the island ---------- */
+  /* Where the trees stand (trees.js): clear of the path, the bears' line, each landmark's outline, read before the landmarks merge,
+     and the ways of this tier's cameras, with each number of bears it can show, its own and each the downgrade leaves (quality.js):
+     among them the view of each landmark from the path (path.js nearStand) and from where the bears stand as its song begins. */
+  const treeStart = performance.now();
+  const bearCounts = [];
+  for (let q = quality; q; q = stepDown(q)) if (!bearCounts.includes(q.bears)) bearCounts.push(q.bears);
+  const placed = placeTrees({
+    count: TARGET[tier], loop,
+    line: Array.from({ length: Math.ceil(line.length) }, (_, d) => { const p = line.at(d); return [p.x, p.z]; }),
+    landmarks: landmarks.map((g) => ({ x: g.position.x, z: g.position.z, rot: g.rotation.y, poly: outline(g, moving) })),
+    ...cameraWays({
+      line, height, phone, bears: bearCounts,
+      stands: landmarks.flatMap((g, k) => { const s = nearStand(path, landmarkU, landmarks, k); return s ? [{ x: s.x, z: s.z, to: [g.position.x, g.position.z], d: line.dOf(landmarkU[k]) }] : []; }),
+    }),
+  });
+  /* How long the trees took to place, the cameras' ways among it; the stats report it beside the landmarks'. */
+  window.__hill.treesMs = Math.round((performance.now() - treeStart) * 10) / 10;
+  /* Nothing grows or lies within TRUNK_ROOM of a trunk. */
+  const { caves, shade, flora, lit } = buildIsland(scene, budget.grid, phone, loop, (x, z) => placed.near(x, z, TRUNK_ROOM));
+  const trees = buildTrees(scene, placed.spots, { lit, phone });
   /* The lit bands that join a song to the one it runs into, and their own glow, which the night dims (null with no such song). */
   const segues = hasShow ? buildSegues(scene, path, tracks, landmarkU) ?? null : null;
   const segueGlow = segues?.emissiveIntensity ?? 0;
@@ -146,7 +167,10 @@ function start(gl) {
   const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks });
 
   /* ---------- the visitor's bear ---------- */
-  const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN], over: crowd.over, ahead: crowd.ahead });
+  /* What the walk's camera keeps out of besides the landmarks: the stage's column, and after it the trunks and crowns of the trees
+     near the visitor, which each frame of a walk puts there (trees.js). */
+  const columns = [STAGE_COLUMN];
+  const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns, over: crowd.over, ahead: crowd.ahead });
   /* Every bear's legs, the visitor's too, as one mesh (bears.js). */
   drawLegs(scene, [...bears, avatar]);
   /* The landmarks' still parts become one mesh across the path, once the camera's keep-out boxes and the crowd's are read from them. */
@@ -266,8 +290,25 @@ function start(gl) {
      landmark, or closer where another landmark would stand in the view, facing it and looking a little way up it (path.js nearStand);
      a `world:near` event ({ index }) stands it by another's, so the CI shoot sees every landmark of a show from one page. */
   const hook = hooks?.get("pose") ?? null;
-  const testPose = hook && Object.hasOwn(TEST_POSES, hook) ? TEST_POSES[hook] : null;
+  /* The flash counter's test hooks (scripts/flash), three more: this pose, and ?still=1 and ?rung=N below.
+     ?pose=X,Z,HEADING,PITCH, four plain numbers: the visitor stands there, as a named pose has them. A pitch past the 0.8 rad the
+     look allows, or anything else, is no pose. */
+  const four = /^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(hook ?? "");
+  const numberPose = four && Math.abs(Number(four[4])) <= 0.8
+    ? { x: Number(four[1]), z: Number(four[2]), heading: Number(four[3]), pitch: Number(four[4]) } : null;
+  const testPose = hook && Object.hasOwn(TEST_POSES, hook) ? TEST_POSES[hook] : numberPose;
   const sweep = hook === "sweep";
+  /* ?still=1: the figures are stilled, and nothing else. The bears are hidden, though they walk their line as ever and keep the
+     visitor out of their reach; the band is not moved; and the crowd is posed standing still (it still sits where the track seats it,
+     and parts for the visitor). All else moves as it does: the rig and the lights, the sky and its drops, the sea, the tufts in the
+     wind, the fireflies and the landmarks' moving parts; and the visitor's own bear stands where it is posed. The flash counter
+     calls this pass the light alone (scripts/flash/README.md). */
+  const still = hooks?.get("still") === "1";
+  if (still) for (const b of bears) b.g.visible = false;
+  /* ?rung=N, N from 1 to 99: the world starts N rungs down its quality ladder (fewer if the ladder ends) and holds there, as a slow
+     device would after N slow seconds. The sweep and reduced motion, which hold rung 0, ignore it. */
+  const rungAsked = Number(/^\d{1,2}$/.exec(hooks?.get("rung") ?? "")?.[0] ?? 0);
+  const holdRung = rungAsked > 0 && !sweep && !reduced;
   const bearHook = hook === "snout" || hook === "pass" ? hook : null;
   let bearPose = bearHook;
   /* The test hook ?pose=landmark-K: from 30 m over song K's landmark, looking down with north up the screen, the bears standing where
@@ -297,13 +338,14 @@ function start(gl) {
   let elapsed = 0;
   /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
   let followBase = 0;
-  /* The bears walk their own line at a lively pace, five 7 m apart by distance along it, and pass the landmarks rather than walk
-     through them (path.js). */
-  const BEAR_GAP = 7, BEAR_SPEED = 2.5;
-  /* What a walk keeps the walker to (modes.js): within the island's bound, out of the stage's reach, since its platform is solid too, and
-     out of each bear's, whose spots `bearSpots` holds live: the downgrade drops a bear's spot with the bear. */
+  /* The bears walk their own line at a lively pace, five BEAR_GAP m apart by distance along it (modes.js), and pass the landmarks
+     rather than walk through them (path.js). */
+  const BEAR_SPEED = 2.5;
+  /* What a walk keeps the walker to (modes.js): within the island's bound, out of the stage's reach, since its platform is solid too, out
+     of the trunk of each tree near it, and out of each bear's reach, whose spots `bearSpots` holds live: the downgrade drops a bear's
+     spot with the bear. */
   const bearSpots = bears.map((b) => b.g.position);
-  const limits = walkLimits(bearSpots);
+  const limits = walkLimits(bearSpots, trees.trunks, TREE_REACH);
   /* How far the lead bear is along its line. Until the show first plays the bears stand where it is, from the world's first frame
      even if it is already playing; then they set off and keep their own pace while it plays. Under reduced motion they stand at the
      landmark of the song that plays. */
@@ -405,10 +447,11 @@ function start(gl) {
 
   /* The downgrade (quality.js): every WINDOW frames the median frame time decides, and over SLOW_MS the world steps down a rung. The
      world's first DESCENT_S seconds are its load, and a window that holds a frame of them decides nothing, even when input cuts the
-     descent short or a test pose skips it. */
+     descent short or a test pose skips it. Under ?rung=N the windows are measured and step nothing down: the world holds the rung it
+     was asked for. */
   const sampler = frameSampler();
   function sample(dtMs) {
-    if (!sampler.add(dtMs, elapsed < DESCENT_S)) return;
+    if (!sampler.add(dtMs, elapsed < DESCENT_S) || holdRung) return;
     const next = stepDown(quality);
     if (!next) return;
     quality = next;
@@ -461,10 +504,16 @@ function start(gl) {
   const stat = (get) => ({ get, enumerable: true, configurable: true });
   const r3 = (v) => Math.round(v * 1000) / 1000;
   Object.defineProperties((window.__hill ??= {}), {
-    tier: stat(() => tier), scale: stat(() => quality.scale), rung: stat(() => rung),
+    tier: stat(() => tier), scale: stat(() => quality.scale), rung: stat(() => rung), trees: stat(() => trees.count),
+    /* Whether ?still=1 was heard: the flash counter reads it, so a world from before the hook never passes for one with its figures
+       stilled. */
+    still: stat(() => still),
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
     frameMs: stat(() => Math.round(sampler.frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
     mode: stat(() => mode),
+    /* Where the visitor stands and how they look (x, z, heading, pitch). The flash counter holds a pose it asked for to this: the
+       walk's limits move a visitor who is stood where no walker may stand. */
+    walker: stat(() => ({ x: r3(walker.x), z: r3(walker.z), heading: r3(walker.heading), pitch: r3(walker.pitch) })),
     /* Under ?pose=near-K, the song whose landmark the visitor stands by, the title its landmark is built for, and whether no other
        landmark stands in the view of it. */
     near: stat(() => (nearAt === null ? null : { index: nearAt, title: landmarkTitle(nearAt), clear: nearClear })),
@@ -567,7 +616,7 @@ function start(gl) {
       const onset = onsetAt();
       figures = beatStep(figures, dt, tempo ?? FIGURES_BPM, tempo !== null && onset !== seenOnset ? (now - onset) / 1000 : null);
       seenOnset = onset;
-      stage.move(dt, elapsed, figures.beats, playing);
+      if (!still) stage.move(dt, elapsed, figures.beats, playing);
       dancing = toward(dancing, dances, dt / 0.8);
     } else {
       skyMat.uniforms.uTime.value = data.seed;
@@ -642,7 +691,12 @@ function start(gl) {
       avatar.step(walker.x, walker.z, walker.heading, dt);
       crowd.part(dt, avatar.feet, avatar.head, reduced);
       spot.stand();
-      if (third) aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));
+      if (third) {
+        /* The boom keeps out of the trees near the visitor: the same columns each time, after the stage's. */
+        columns.length = 1;
+        trees.columns(walker.x, walker.z, columns);
+        aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));
+      }
       else {
         placeWalker();
         /* The eye bobs with the walk's pace: fully for a key, less for a gentle push on the stick. */
@@ -659,7 +713,7 @@ function start(gl) {
         /* From above the summit, where the island reads as the mark, north up the screen, down to the camera that walks with the bears. */
         const k = easeOut(elapsed / DESCENT_S);
         const end = postPose(0, 0);
-        camera.position.set(end.pos.x * k, 140 + (end.pos.y - 140) * k, end.pos.z * k);
+        camera.position.set(end.pos.x * k, DESCENT_FROM + (end.pos.y - DESCENT_FROM) * k, end.pos.z * k);
         aim(lookTarget.set(end.look.x * k, end.look.y * k, -3 + (end.look.z + 3) * k), true);
       } else if (mode === "attract" || mode === "follow") {
         /* In follow, turning adds an offset to the look. */
@@ -673,14 +727,14 @@ function start(gl) {
           camera.position.set(0, height(0, 0) + 8, 0);
           camera.lookAt(lookTarget.set(p0.x, p0.y, p0.z));
         } else {
-          /* A slow crane high above the bears, 14 m behind the visitor's bear along their line. */
-          const dd = slotD() - 14;
+          /* A slow crane high above the bears, behind the visitor's bear along their line (pose.js CRANE). */
+          const dd = slotD() - CRANE.back;
           const p = line.at(dd), tg = line.tangentAt(dd);
           const side = new THREE.Vector3().crossVectors(tg, up).normalize();
-          const sway = 2 * Math.sin((elapsed * Math.PI * 2) / 30);
+          const sway = CRANE.sway * Math.sin((elapsed * Math.PI * 2) / 30);
           const x = p.x + side.x * sway, z = p.z + side.z * sway;
           camera.position.set(x, height(x, z) + 9, z);
-          const ahead = line.at(dd + 28);
+          const ahead = line.at(dd + CRANE.ahead);
           aim(lookTarget.set(ahead.x, ahead.y + 8, ahead.z));
         }
       }
@@ -700,7 +754,8 @@ function start(gl) {
        camera looked. */
     const sits = crowdAt[index].sit ? 1 : 0;
     sitting = reduced ? sits : toward(sitting, sits, dt / SIT_S);
-    crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting);
+    if (still) crowd.pose(0, 0, 0, sitting);
+    else crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting);
     /* The rig's five numbers (rig.js): the figures' phase in eight beats; how far it is lit, as far as the crowd dances, so while a song
        plays, and under reduced motion at once while one plays, its beams still, and less as day breaks, when the sky's own light
        washes them out (night.js `beams`); how far its beams swing, as far as the crowd dances; the
@@ -756,6 +811,16 @@ function start(gl) {
     flora.sparse();
     applyQuality();
     document.addEventListener("world:pose", ({ detail }) => { Object.assign(walker, detail); cut = true; wake(); });
+  }
+  if (holdRung) {
+    /* ?rung=N: the ladder's own steps (quality.js stepDown), taken as the world starts; its frames then take no more (sample). */
+    for (let k = 0; k < rungAsked; k++) {
+      const next = stepDown(quality);
+      if (!next) break;
+      quality = next;
+      rung += 1;
+    }
+    applyQuality();
   }
   placeWalker();
   wake();

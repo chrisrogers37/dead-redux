@@ -58,25 +58,32 @@ const POOL = new THREE.Color(0xff7a30).multiplyScalar(5), POOL_UP = 7, POOL_HALF
 const f = (v) => v.toFixed(4);
 
 /* Has a Lambert material take the stage's glow (`uPool`, its colour times its strength) as one more light on it, by the angle its
-   face turns to the stage. */
-export function takesPool(material, uPool) {
+   face turns to the stage. With `stands`, the material draws instances that stand on the ground, each one's root `stands.sunk` m
+   under it, as a tree's is: a face that turns squarely to the stage would take the glow several times more strongly than the ground
+   it stands on, which lies nearly edge-on to it. So such a thing takes it no more strongly than level ground at its foot does, and
+   `stands.share` of that, its colours being paler than the turf's. */
+export function takesPool(material, uPool, stands = null) {
+  const from = `vec3(${f(STAGE[0])}, ${f(SHELF_Y + POOL_UP)}, ${f(STAGE[1])})`, most = stands ? "\nvarying float vPoolMost;" : "";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uPool = uPool;
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vPoolAt;")
+      .replace("#include <common>", `#include <common>\nvarying vec3 vPoolAt;${most}`)
       /* Where the point stands in the world: for an instanced mesh, where its instance puts it. */
       .replace("#include <project_vertex>", `#include <project_vertex>
         #ifdef USE_INSTANCING
           vPoolAt = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
         #else
           vPoolAt = (modelMatrix * vec4(transformed, 1.0)).xyz;
-        #endif`);
+        #endif${stands ? `
+        /* How squarely level ground at the instance's foot turns to the glow. */
+        vPoolMost = max(normalize(${from} - (modelMatrix * instanceMatrix[3]).xyz - vec3(0.0, ${f(stands.sunk)}, 0.0)).y, 0.0);` : ""}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform vec3 uPool;\nvarying vec3 vPoolAt;")
+      .replace("#include <common>", `#include <common>\nuniform vec3 uPool;\nvarying vec3 vPoolAt;${most}`)
       .replace("#include <lights_fragment_end>", `#include <lights_fragment_end>
-        vec3 poolTo = vec3(${f(STAGE[0])}, ${f(SHELF_Y + POOL_UP)}, ${f(STAGE[1])}) - vPoolAt;
+        vec3 poolTo = ${from} - vPoolAt;
         float poolFar = length(poolTo) / ${f(POOL_HALF)};
-        float poolLit = max(dot(normal, normalize((viewMatrix * vec4(poolTo, 0.0)).xyz)), 0.0);
+        float poolLit = max(dot(normal, normalize((viewMatrix * vec4(poolTo, 0.0)).xyz)), 0.0);${stands ? `
+        poolLit = min(poolLit, vPoolMost) * ${f(stands.share)};` : ""}
         reflectedLight.directDiffuse += uPool * diffuseColor.rgb * poolLit * (1.0 - smoothstep(${f(0.6 * POOL_END / POOL_HALF)}, ${f(POOL_END / POOL_HALF)}, poolFar)) / (1.0 + poolFar * poolFar);`);
   };
   return material;
@@ -276,10 +283,12 @@ export function landColour(x, y, z, ny, out) {
 
 /* The ground (a grid of the tier's size, coloured by vertex, with the ring road and the lightning path worn into it) and the sea,
    then what grows, lies and flies on the land (flora.js), then the caves' pools and lights. `loop` is the setlist's path as points
-   [x, z] every couple of metres, which nothing grows on. It returns the caves, the flora and `shade`, which draws a look of the night
-   on the island at a time: the water's colour, the light lying on it and its swell, the stage's glow on the ground (buildSea,
-   takesPool), the wind in the tufts, and the fireflies. */
-export function buildIsland(scene, grid, phone, loop = []) {
+   [x, z] every couple of metres, which nothing grows on, and `trunks(x, z)` whether a tree's trunk stands too near (x, z) for
+   anything to grow or lie there (trees.js). It returns the caves, the flora, `lit`, which has a material take the stage's glow as
+   the ground does, or as a thing that stands on it does (takesPool), and `shade`, which draws a look of the night on the island
+   at a time: the water's colour, the light lying on it and its swell, the stage's glow on the ground (buildSea, takesPool), the
+   wind in the tufts, and the fireflies. */
+export function buildIsland(scene, grid, phone, loop = [], trunks = () => false) {
   const ground = new THREE.PlaneGeometry(260, 260, grid, grid);
   ground.rotateX(-Math.PI / 2);
   const pos = ground.attributes.position;
@@ -300,8 +309,8 @@ export function buildIsland(scene, grid, phone, loop = []) {
   /* What grows and lies on the land (flora.js): as many tufts and stones as the tier's ground is fine, thickest on a desktop's (a
      grid of 80 or more), thinner on a TV's and fewer than half as thick on a phone's, whose frame is small and whose every triangle
      costs it more. Each stands on the ground as its mesh draws it and takes the stage's glow as the ground does, and none of them
-     stands on a track or on the setlist's path, where the bears walk and the lit bands lie. No tuft grows on the crowd's ground;
-     stones lie there as anywhere. */
+     stands on a track, on the setlist's path, where the bears walk and the lit bands lie, or in a tree's trunk. No tuft grows on the
+     crowd's ground; stones lie there as anywhere. */
   const thick = phone ? 0.6 : grid >= 80 ? 1.0 : 0.8;
   /* The path's points by the square of LOOP_SQUARE m each lies in, so a place is tried against the few points near it and not
      against the whole path. */
@@ -319,10 +328,11 @@ export function buildIsland(scene, grid, phone, loop = []) {
     }
     return true;
   };
+  const lit = (material, stands = null) => takesPool(material, uPool, stands);
   const flora = buildFlora(scene, { tufts: Math.round(grid * grid * thick), stones: Math.round(grid * (phone ? 2.5 : 4)), flies: Math.round(grid * (phone ? 8 : 14)),
     extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6], surface: surfaceOf(grid),
-    colour: landColour, lit: (material) => takesPool(material, uPool),
-    clear: (x, z) => offTracks(x, z, FEATHER + 0.4) && offLoop(x, z), trodden: (x, z) => onCrowdGround(x, z, CROWD_ROOM) });
+    colour: landColour, lit,
+    clear: (x, z) => offTracks(x, z, FEATHER + 0.4) && offLoop(x, z) && !trunks(x, z), trodden: (x, z) => onCrowdGround(x, z, CROWD_ROOM) });
 
   /* The caves light for Drums (left) and Space (right): a pool on each floor and, but on a phone, a light inside. */
   const caves = CAVES.map(([cx, cz]) => {
@@ -343,5 +353,5 @@ export function buildIsland(scene, grid, phone, loop = []) {
   /* A look of the night on the island at a time: the sea's, the wind in the tufts at the same time, and the fireflies, which come out
      as far as the night is dark and `calm` (1 when the music is quiet, 0 at its loudest) lets them. */
   const shade = (look, time = 0, calm = 1) => { sea(look, time); flora.wind(time); flora.glow(look.dark * look.dark * (0.35 + 0.65 * calm)); };
-  return { caves, shade, flora };
+  return { caves, shade, flora, lit };
 }

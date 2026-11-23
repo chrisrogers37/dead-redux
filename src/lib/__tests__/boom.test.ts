@@ -10,7 +10,7 @@ const HEAD = { x: 0, y: 3.6, z: 0 };
 
 type V = { x: number; y: number; z: number };
 type Box = { min: V; max: V };
-type Column = { x: number; z: number; r: number; top: number };
+type Column = { x: number; z: number; r: number; top: number; base?: number };
 
 // The unit direction from the head toward the camera, along `bearing` (rad, from +x toward +z) at elevation `el`.
 const line = (bearing: number, el = EL): V => ({
@@ -181,6 +181,73 @@ describe("rise", () => {
     const { lift, room } = rise(HEAD, line(0), LEN, [box], [], 0, 1);
     expect(lift).toBe(0);
     expect(room).toBe(1);
+  });
+
+  it("draws the camera in to 0.5 m in front of a trunk 3 m or more from the head, without rising", () => {
+    // A trunk 1.3 m round, its near side 6 m from the head along the ground, standing 18 m tall.
+    const trunk = column(0.4, 6, 1.3, 18), dir = line(0.4);
+    const entry = nearest(HEAD, dir, [], [trunk]);
+    expect(entry).toBeCloseTo(6 / Math.cos(EL), 9);
+    const { lift, room } = rise(HEAD, dir, LEN, [], [trunk], 0, 1);
+    expect(lift).toBe(0);
+    expect(LEN * room).toBeCloseTo(entry - 0.5, 9);
+    // One the boom's line passes beside leaves it alone.
+    expect(rise(HEAD, line(0.4), LEN, [], [column(0.8, 6, 1.3, 18)], 0, 1).room).toBe(1);
+  });
+
+  // A tree's crown: a column with a base, 4 m round, from 7 m up to 15 m.
+  const crown = (bearing: number, centre: number): Column => ({ x: Math.cos(bearing) * centre, z: Math.sin(bearing) * centre, r: 4, base: 7, top: 15 });
+
+  it("never rises for a crown overhead, which no rise can clear: the camera comes 0.5 m short of its underside", () => {
+    // The head stands under the crown, 1 m from its middle; the boom looks down on the bear from 1.15 rad up, as when the walker looks
+    // down as far as it may.
+    for (let k = 0; k < 8; k++) {
+      const bearing = (k * Math.PI) / 4, over = crown(bearing + 2, 1), dir = line(bearing, 1.15);
+      const entry = nearest(HEAD, dir, [], [over]);
+      expect(entry).toBeCloseTo((7 - HEAD.y) / Math.sin(1.15), 9);
+      // It is within 3.8 m of the head and still it is not counted among what stands on the ground.
+      expect(nearest(HEAD, dir, [], [over], true)).toBe(Infinity);
+      const { lift, room } = rise(HEAD, dir, LEN, [], [over], 0, 1);
+      expect(lift).toBe(0);
+      expect(elevation(dir)).toBeCloseTo(1.15, 12);
+      const reach = LEN * room, camera = { x: HEAD.x + dir.x * reach, y: HEAD.y + dir.y * reach, z: HEAD.z + dir.z * reach };
+      expect(reach).toBeCloseTo(entry - 0.5, 9);
+      expect(camera.y).toBeLessThan(7);
+    }
+    // Under a crown 2.9 m over the head, the least a tree leaves (trees.js), and straight up: it enters 2.9 m on, so the camera's
+    // least distance from the head, 2.5 m, is still under it.
+    const low = { x: 0.5, z: 0, r: 4, base: HEAD.y + 2.9, top: 15 }, up = { x: 0, y: 1, z: 0 };
+    const { lift, room } = rise(HEAD, up, LEN, [], [low], 0, 1);
+    expect(lift).toBe(0);
+    expect(LEN * room).toBeCloseTo(2.5, 9);
+    expect(HEAD.y + LEN * room).toBeLessThan(low.base);
+  });
+
+  it("passes the boom under a crown that hangs clear of its line, and draws the camera in front of one its line rises into", () => {
+    // 3 m ahead of the crown's near rim: the boom's line is 1.1 m up by the rim and 4 m up by the far one, under the 3.4 m... so it
+    // comes up into the underside between them.
+    const dir = line(0), ahead = crown(0, 7);
+    const entry = nearest(HEAD, dir, [], [ahead]);
+    expect(entry).toBeCloseTo(3.4 / Math.sin(EL), 9);
+    const cut = rise(HEAD, dir, LEN, [], [ahead], 0, 1);
+    expect(cut.lift).toBe(0);
+    expect(LEN * cut.room).toBeCloseTo(entry - 0.5, 9);
+    // A crown whose far rim the line reaches before it has risen to it: 5 m across, starting at the head. The boom is left alone.
+    const small = { x: 2.5, z: 0, r: 2.5, base: 7, top: 15 }, clear = rise(HEAD, line(0), LEN, [], [small], 0, 1);
+    expect(clear).toEqual({ lift: 0, room: 1 });
+  });
+
+  it("still rises for a trunk within 3 m under a crown, and stops short of the crown it rises toward", () => {
+    // A trunk 1.2 m round with its side 2 m behind the head, 18 m tall, under its own crown, 4 m round from 7 m up.
+    const trunk = column(0, 2, 1.2, 18), over = { x: trunk.x, z: trunk.z, r: 4, base: 7, top: 18 };
+    const dir = line(0);
+    const { lift, room } = rise(HEAD, dir, LEN, [], [trunk, over], 0, 1);
+    expect(lift).toBeGreaterThan(0);
+    const reach = LEN * room, camera = { x: HEAD.x + dir.x * reach, y: HEAD.y + dir.y * reach, z: HEAD.z + dir.z * reach };
+    expect(reach).toBeGreaterThanOrEqual(2.5 - 1e-9);
+    expect(inColumn(camera, trunk)).toBe(false);
+    expect(camera.y).toBeLessThan(over.base);
+    expect(nearest(HEAD, dir, [], [trunk, over])).toBeGreaterThanOrEqual(reach + 0.5 - 1e-9);
   });
 
   it("lets the rise back down at the ease once the line is clear", () => {

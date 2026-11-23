@@ -13,8 +13,10 @@ import { rise } from "./boom.js";
 const WALK = 2.5, STRIDE = 12, RUN = 19.2;
 /* The walk's camera climbs over the crowd, and comes down after it, at CLIMB m/s at most, looking AHEAD s along its way, LOOKS times. */
 const CLIMB = 3, AHEAD = 2.2, LOOKS = 22;
-/* How high a bear's head stands over its feet: the visitor's head point and the boom's pivot stand there. */
-export const HEAD = 3.6;
+/* How high a bear's head stands over its feet: the visitor's head point and the boom's pivot stand there. And the top of its head. */
+export const HEAD = 3.6, TOP = 4.85;
+/* How long the walk's camera's boom is: a desktop and a TV hang it at 11 m, a phone at 20. */
+export const boomLength = (phone) => (phone ? 20 : 11);
 const UP = new THREE.Vector3(0, 1, 0);
 
 export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], over = () => {}, ahead = (point, way) => { way[6] = 0; way[7] = 0; } }) {
@@ -42,12 +44,11 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     feet.set(x, y, z);
     /* The head and the top of it come down with the stride, as the body does. */
     head.set(x - Math.sin(heading) * 0.8, g.position.y - drop + HEAD, z - Math.cos(heading) * 0.8);
-    top.set(head.x, g.position.y - drop + 4.85, head.z);
+    top.set(head.x, g.position.y - drop + TOP, head.z);
   }
 
-  /* The boom: R behind the head and 0.35 rad above it, the walker's pitch lowering or raising it, looking 6 m past the head. Desktop and
-     TV hang it at 11 m, a phone at 20. */
-  const R = phone ? 20 : 11;
+  /* The boom: R behind the head and 0.35 rad above it, the walker's pitch lowering or raising it, looking 6 m past the head. */
+  const R = boomLength(phone);
   /* Each landmark stands for its box; a column (collide.js) for a solid that a walk keeps out of but whose box would reach past it, as
      the stage's does, turned on its shelf. */
   const boxes = landmarks.map((l) => new THREE.Box3().setFromObject(l));

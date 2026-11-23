@@ -2,13 +2,14 @@
 import { enterColumn } from "./collide.js";
 
 /* The walk camera's boom against the landmarks, with no three import so that vitest can load it. Points and directions are anything
-   with x, y and z; boxes anything with `min` and `max` points, as three's Box3; columns as collide.js's enterColumn takes them. The
+   with x, y and z; boxes anything with `min` and `max` points, as three's Box3; columns as collide.js's enterColumn takes them, a
+   tree's crown among them. The
    box test and the distance follow three.js r185's Box3.containsPoint, Ray.intersectBox and Vector3.distanceTo step for step, so the
    camera lands where it did with three's. */
 
 /* How far from `from` along the unit direction `dir` the line enters the nearest box (any box around `from` aside) or column, or
-   Infinity. */
-export function nearest(from, dir, boxes, columns) {
+   Infinity. With `grounded`, only what stands on the ground counts: a column with a `base`, a tree's crown, is left out. */
+export function nearest(from, dir, boxes, columns, grounded = false) {
   let s = Infinity;
   for (const b of boxes) {
     if (from.x >= b.min.x && from.x <= b.max.x && from.y >= b.min.y && from.y <= b.max.y && from.z >= b.min.z && from.z <= b.max.z) continue;
@@ -17,7 +18,7 @@ export function nearest(from, dir, boxes, columns) {
     const dx = from.x + dir.x * t - from.x, dy = from.y + dir.y * t - from.y, dz = from.z + dir.z * t - from.z;
     s = Math.min(s, Math.sqrt(dx * dx + dy * dy + dz * dz));
   }
-  for (const c of columns) s = Math.min(s, enterColumn(from, dir, c));
+  for (const c of columns) if (!grounded || c.base === undefined) s = Math.min(s, enterColumn(from, dir, c));
   return s;
 }
 
@@ -43,13 +44,16 @@ function enters(o, d, b) {
    landmark between it and the head, but never nearer the head than 2.5 m. A landmark that starts within 3 m of the head leaves no room
    for that, so the boom rises instead, 0.05 rad at a time, until the line from the head meets no landmark within 3 m: it passes over a
    short one, and meets a tall one high enough up its face to come in front of it. It rises at once and comes back down at the ease.
-   Straight up always clears, since every box and column stands on the ground and so none reaches over a head outside it. Turns `dir`
-   to the line the camera takes and returns the new rise and the share of `len` the camera may use. */
+   Straight up always clears, since every box and column that stands on the ground reaches over no head outside it. A tree's crown
+   does not stand on the ground (a column with a `base`, collide.js): a rise cannot clear what hangs overhead, so the boom never
+   rises for one, and the camera only comes in front of it. A crown hangs 2.9 m or more over the boom's foot wherever a walker
+   stands (trees.js), so the camera has its 2.5 m under it. Turns `dir` to the line the camera takes and returns the new rise and the
+   share of `len` the camera may use. */
 export function rise(from, dir, len, boxes, columns, lift, k) {
   const h = Math.hypot(dir.x, dir.z), el = Math.atan2(dir.y, h), hx = dir.x / (h || 1), hz = dir.z / (h || 1);
   const aim = (a) => { dir.x = hx * Math.cos(a); dir.y = Math.sin(a); dir.z = hz * Math.cos(a); };
   let need = 0;
-  while (el + need < Math.PI / 2 && nearest(from, dir, boxes, columns) < Math.min(3, len)) aim(el + (need += 0.05));
+  while (el + need < Math.PI / 2 && nearest(from, dir, boxes, columns, true) < Math.min(3, len)) aim(el + (need += 0.05));
   lift = need > lift ? need : lift + (need - lift) * k;
   aim(Math.max(el, Math.min(Math.PI / 2, el + lift)));
   const s = nearest(from, dir, boxes, columns);

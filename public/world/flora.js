@@ -55,6 +55,10 @@ export function tuftGeometry() {
   return geo;
 }
 
+/* How far the largest stone reaches from where it lies: its corners stand up to 0.61 of its size out (stoneGeometry), it is up to
+   1.3 times as wide one way as its size, and its size is up to 1.9 m (buildFlora). */
+export const STONE_REACH = 0.61 * 1.3 * 1.9;
+
 /* A stone in its own units, about a metre across and lower than it is wide, no two of its corners the same distance out. */
 export function stoneGeometry() {
   const geo = new THREE.IcosahedronGeometry(0.5, 1), pos = geo.attributes.position, v = new THREE.Vector3();

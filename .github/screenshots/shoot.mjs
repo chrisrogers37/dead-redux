@@ -263,6 +263,13 @@ const PAGES = [
   // The fixed day from ?pose=among: the visitor's bear among the crowd's middle rows, off the aisle, and the figures round it stepped
   // aside.
   { path: "/2026-10-20?pose=among", devices: ["desktop"], shots: ["fixed-crowd-among"] },
+  // The fixed day from inside the groves, each from a pose of four numbers (x, z, heading, pitch) that stands clear of every trunk's
+  // reach on a desktop and on a phone, whose trees differ: the pine wood in the island's west, looking west through its trunks,
+  // their crowns overhead, to Uncle John's Band (12) and the sea; and the broad-crowned grove in the south-east, looking north-east
+  // through its trunks to Turn On Your Lovelight (17) and the sea. The stats line's `avatar.head` says where the visitor's bear
+  // stands, 0.8 m ahead of the pose.
+  { path: "/2026-10-20?pose=-62,42,1.571,0.2", devices: ["desktop", "phone"], shots: ["fixed-grove-pines"] },
+  { path: "/2026-10-20?pose=22,72,5.498,0.2", devices: ["desktop", "phone"], shots: ["fixed-grove-broad"] },
   // The fixed day from ?pose=landmark-K: from 30 m over a landmark, north up, with the bears standing where their line passes nearest it,
   // the lead bear there. Jack Straw (1) stands by the trailhead, which the line rounds as the loop closes; Touch Of Grey (6) on the
   // summit's south-west shoulder and Cold Rain And Snow (7) on the summit, both beside the line from the left cave to the right one;

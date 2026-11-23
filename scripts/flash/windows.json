@@ -1,0 +1,19 @@
+{
+  "2026-10-20": {
+    "show": "1986-07-04",
+    "windows": {
+      "A": { "name": "Fire On The Mountain: build, peak (150 s) and release", "track": 8, "from": 140, "to": 162 },
+      "B": { "name": "Drums: deep night", "track": 13, "from": 120, "to": 130 },
+      "C": { "name": "Jack Straw: dusk", "track": 1, "from": 60, "to": 70 },
+      "Q": { "name": "Space: deep night and quiet", "track": 14, "from": 120, "to": 132 },
+      "D": { "name": "U.S. Blues: first light to daybreak, a build, its peak (260 s) and the release", "track": 18, "from": 250, "to": 272 },
+      "S": {
+        "name": "Seeks through the night: dusk, to Drums at 2 s, to the encore at 10 s, back to dusk at 18 s",
+        "track": 1,
+        "from": 60,
+        "to": 88,
+        "cues": [[2, 13, 120], [10, 18, 240], [18, 1, 60]]
+      }
+    }
+  }
+}
