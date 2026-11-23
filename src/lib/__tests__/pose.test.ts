@@ -202,6 +202,19 @@ describe("cranePose", () => {
     expect(alongLine(cranePose(world({ count: 3 }), 0).pos)).toBeCloseTo(LEAD_D - 3 * GAP - CRANE.back, 9);
   });
 
+  it("writes its answer into what it is handed and hands that back, so a frame need make none; handed nothing, it makes one of its own each time", () => {
+    const mine = { pos: { x: 0, y: 0, z: 0 }, look: { x: 0, y: 0, z: 0 } }, { pos, look } = mine;
+    expect(cranePose(world(), 4, mine)).toBe(mine);
+    expect(mine.pos).toBe(pos);
+    expect(mine.look).toBe(look);
+    expect(mine).toEqual(cranePose(world(), 4));
+    // The same one again, for another moment: written over.
+    cranePose(world(), 19, mine);
+    expect(mine).toEqual(cranePose(world(), 19));
+    expect(mine).not.toEqual(cranePose(world(), 4));
+    expect(cranePose(world(), 4)).not.toBe(cranePose(world(), 4));
+  });
+
   it("sways square to the line where it hangs, not to the line where the bears are", () => {
     // The bend is at 60 m, past the crane at 51 m and short of the visitor's bear at 65 m: the sway is across the first stretch.
     const at = cranePose(world({ line: lineBent(60) }), 7.5).pos;
@@ -229,6 +242,21 @@ describe("ridePose", () => {
     }
     // Half-way in time is half-way there.
     expectNear(ridePose(post, crane, 0.5).pos, { x: 3, y: 9.5, z: 1 });
+  });
+
+  it("writes the pose between the rigs into what it is handed and hands that back, leaving the rigs' own as they were; handed nothing, it makes one", () => {
+    const mine = { pos: { x: 0, y: 0, z: 0 }, look: { x: 0, y: 0, z: 0 } }, { pos, look } = mine;
+    const before = JSON.stringify([post, crane]);
+    expect(ridePose(post, crane, 0.3, mine)).toBe(mine);
+    expect(mine.pos).toBe(pos);
+    expect(mine.look).toBe(look);
+    expect(mine).toEqual(ridePose(post, crane, 0.3));
+    expect(JSON.stringify([post, crane])).toBe(before);
+    // On a rig it is the rig's own that comes back, and what was handed in is left alone.
+    expect(ridePose(post, crane, 0, mine)).toBe(post);
+    expect(ridePose(post, crane, 1, mine)).toBe(crane);
+    expect(mine).toEqual(ridePose(post, crane, 0.3));
+    expect(ridePose(post, crane, 0.3)).not.toBe(ridePose(post, crane, 0.3));
   });
 
   it("sets off and arrives at rest, never turns back on the way, and takes RIG_EASE_S seconds", () => {

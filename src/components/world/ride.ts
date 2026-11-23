@@ -26,6 +26,14 @@ export function idleMs(testHooks: boolean, search: string): number {
   return (Number.isFinite(seconds) && seconds >= 0 ? seconds : IDLE_S) * 1000;
 }
 
+/** The sleep timer's unit: a minute, or a second under the test hook, so the shoot can watch a timer run out. */
+const MINUTE_MS = 60_000, SECOND_MS = 1000;
+
+/** That unit in ms. ?sleep=seconds asks for seconds, where the server says the test hooks answer, as for ?idle=. */
+export function sleepUnitMs(testHooks: boolean, search: string): number {
+  return testHooks && new URLSearchParams(search).get("sleep") === "seconds" ? SECOND_MS : MINUTE_MS;
+}
+
 /** The sleep timer's lengths, in units; a press moves to the next, and past the last to off. */
 const SLEEP_STEPS = [30, 60, 90];
 
@@ -37,6 +45,25 @@ export function sleepAfterPress(left: number | null): number | null {
   if (left === null) return SLEEP_STEPS[0];
   const held = SLEEP_STEPS.findIndex((step) => step >= left);
   return held === -1 ? null : (SLEEP_STEPS[held + 1] ?? null);
+}
+
+/**
+ * The units left on a sleep timer that ends at `endsAt` (ms since the epoch), at the time `now`, or null while it is off: the part
+ * of a unit still running counts as one, so a timer that has not yet run out never reads 0.
+ */
+export function sleepLeft(endsAt: number | null, unitMs: number, now: number): number | null {
+  return endsAt === null ? null : Math.max(1, Math.ceil((endsAt - now) / unitMs));
+}
+
+/** What the sleep timer's button says: off, or the units left with the unit's name. */
+export function sleepLabel(left: number | null, unitMs: number): string {
+  return `Sleep · ${left === null ? "off" : `${left} ${unitMs === SECOND_MS ? "s" : "min"}`}`;
+}
+
+/** Tells a listener once a second, for a reading of the clock that the page shows (useSyncExternalStore). Returns what stops it. */
+export function eachSecond(onTick: () => void): () => void {
+  const timer = setInterval(onTick, 1000);
+  return () => clearInterval(timer);
 }
 
 /** The class on <html> while the cursor is hidden; globals.css hides the cursor under it. */
@@ -67,55 +94,71 @@ type Input = Event & { pointerId?: number; pointerType?: string; button?: number
  * a key pressed with Ctrl, Alt or Meta, a browser's shortcut, whose release a Mac does not send. A pointer that has not moved is no
  * input: a browser sends a move when the page changes under a cursor at rest, as it does when the page settles. A press that
  * begins on what `holds` names wakes the page only as it lifts, so the slider a finger has hold of is not moved from under it.
- * Returns what stops the watch.
+ * A mouse sends hundreds of moves a second, so an input only notes its time: one timeout is armed for the wait, and when it comes
+ * due it is armed again for what is left of the wait since the last input, or the page settles. Returns what stops the watch.
  */
 export function watchIdle(target: EventTarget, { ms, settled: start, holds, onChange }: Idle): () => void {
   let settled = start;
+  /** When input last came, by the page's own clock, and the one timeout, armed from an input until it next comes due. */
+  let last = performance.now();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  /** What is held down: a key by its code, a pointer by its id. */
-  const held = new Set<string>();
+  /** What is held down: the keys by their codes, the pointers by their ids. */
+  const keys = new Set<string>(), pointers = new Set<number>();
   /** The pointer whose press holds the look, if any. */
-  let holding: string | null = null;
+  let holding: number | null = null;
   /** Where the pointer last was on the screen. */
-  let at: [number | undefined, number | undefined] | null = null;
+  let atX = NaN, atY = NaN;
 
   const set = (to: boolean) => {
     if (settled === to) return;
     settled = to;
     onChange(to);
   };
-  const wait = () => {
-    clearTimeout(timer);
-    timer = held.size > 0 ? undefined : setTimeout(() => set(true), ms);
+  /* The wait has come due. Under a held control nothing happens, and the next input, its letting go at the latest, arms the wait
+     again. Else it is armed for what is left of it since the last input, or with none left the page settles. */
+  const due = () => {
+    timer = undefined;
+    if (keys.size > 0 || pointers.size > 0) return;
+    const left = last + ms - performance.now();
+    if (left > 0) timer = setTimeout(due, left);
+    else set(true);
+  };
+  /* Input, or a letting go: the wait runs from now. */
+  const note = () => {
+    last = performance.now();
+    if (timer === undefined) timer = setTimeout(due, ms);
   };
   const input = (e: Input) => {
-    const pointer = `pointer ${e.pointerId}`;
     if (e.type.startsWith("pointer")) {
-      const moved = at === null || at[0] !== e.screenX || at[1] !== e.screenY;
-      at = [e.screenX, e.screenY];
+      const moved = atX !== e.screenX || atY !== e.screenY;
+      atX = e.screenX as number;
+      atY = e.screenY as number;
       if (e.type === "pointermove" && !moved) return;
     }
     if (e.type === "pointerdown") {
-      if (e.pointerType !== "mouse" || !e.button) held.add(pointer);
-      if (settled && held.has(pointer) && holds?.(e.target)) holding = pointer;
+      if (e.pointerType !== "mouse" || !e.button) {
+        pointers.add(e.pointerId ?? 0);
+        if (settled && holds?.(e.target)) holding = e.pointerId ?? 0;
+      }
     } else if (e.type === "pointerup" || e.type === "pointercancel") {
-      held.delete(pointer);
-      if (holding === pointer) holding = null;
+      pointers.delete(e.pointerId ?? 0);
+      if (holding === (e.pointerId ?? 0)) holding = null;
     } else if (e.type === "keydown") {
-      if (!e.ctrlKey && !e.altKey && !e.metaKey) held.add(`key ${e.code}`);
-    } else if (e.type === "keyup") held.delete(`key ${e.code}`);
+      if (!e.ctrlKey && !e.altKey && !e.metaKey) keys.add(e.code as string);
+    } else if (e.type === "keyup") keys.delete(e.code as string);
     if (holding === null) set(false);
-    wait();
+    note();
   };
   const letGo = () => {
-    held.clear();
+    keys.clear();
+    pointers.clear();
     holding = null;
-    wait();
+    note();
   };
 
   for (const type of INPUTS) target.addEventListener(type, input);
   for (const type of LETS_GO) target.addEventListener(type, letGo);
-  wait();
+  note();
   return () => {
     clearTimeout(timer);
     for (const type of INPUTS) target.removeEventListener(type, input);
@@ -135,15 +178,13 @@ export interface RideState {
 interface RideOptions {
   /** How long without input before the ride settles, in ms. */
   idleMs: number;
-  /** The length of the sleep timer's unit in ms: a minute, or a second under the test hook. */
+  /** The length of the sleep timer's unit in ms (sleepUnitMs). */
   unitMs: number;
 }
 
 export interface Ride {
   /** The ride as the page shows it; a new object whenever it changes, for useSyncExternalStore. */
   state(): RideState;
-  /** The units left on the sleep timer, refreshed each second; null while it is off. */
-  left(): number | null;
   subscribe(onChange: () => void): () => void;
   /**
    * Listens to the page from now on: the ride's keys, the world's word that a step has left the ride, and input. Returns what stops
@@ -178,62 +219,45 @@ export function controlKey(el: Element | null): string | null {
  */
 export function createRide(): Ride {
   let state: RideState = { riding: false, settled: false, sleepEndsAt: null };
-  let left: number | null = null;
-  let options: RideOptions = { idleMs: IDLE_S * 1000, unitMs: 60_000 };
-  let started = false;
+  /** What the page listens with, from `start` until it is stopped; null while it does not listen. */
+  let options: RideOptions | null = null;
   let unwatch: (() => void) | null = null;
-  let ticker: ReturnType<typeof setInterval> | undefined;
+  /** The sleep timer's one timeout, due as the timer ends. */
+  let sleeper: ReturnType<typeof setTimeout> | undefined;
   /** The control that had focus as the page settled. */
   let lost: string | null = null;
   const listeners = new Set<() => void>();
-  const tell = () => listeners.forEach((listener) => listener());
-  const set = (next: Partial<RideState>) => {
-    const to = { ...state, ...next };
-    if (to.riding === state.riding && to.settled === state.settled && to.sleepEndsAt === state.sleepEndsAt) return;
-    state = to;
-    tell();
-  };
 
-  /* The page's look and the ride itself, in one change. The cursor goes with the HUD and comes back with it; and the control that
-     has focus as the HUD goes is kept in mind, since the page draws it anew when it wakes. */
-  function show(riding: boolean, settled: boolean) {
-    if (settled && !state.settled) lost = controlKey(document.activeElement);
-    document.documentElement.classList.toggle(CURSOR_OFF, settled);
-    set({ riding, settled });
-  }
   /* The watch for input, for as long as the visitor rides and the page listens. */
   function watch() {
     unwatch?.();
-    unwatch = started && state.riding ? watchIdle(window, { ms: options.idleMs, settled: state.settled, holds: onSeek, onChange: (settled) => show(true, settled) }) : null;
+    unwatch = options && state.riding ? watchIdle(window, { ms: options.idleMs, settled: state.settled, holds: onSeek, onChange: (settled) => become({ ...state, settled }) }) : null;
   }
-
-  /* The sleep timer: it reads the time left each second and pauses the show when it runs out. The ride stays on. */
-  function tick() {
-    if (state.sleepEndsAt === null) return;
-    const units = Math.ceil((state.sleepEndsAt - Date.now()) / options.unitMs);
-    if (units <= 0) {
-      document.dispatchEvent(new Event("player:pause"));
-      sleep(null);
-    } else if (left !== units) {
-      left = units;
-      tell();
-    }
+  /* The sleep timer: when it runs out it pauses the show. The ride stays on. */
+  function expire() {
+    document.dispatchEvent(new Event("player:pause"));
+    become({ ...state, sleepEndsAt: null });
   }
-  function sleep(endsAt: number | null) {
-    clearInterval(ticker);
-    ticker = undefined;
-    left = null;
-    set({ sleepEndsAt: endsAt });
-    if (endsAt === null) return;
-    tick();
-    if (state.sleepEndsAt !== null) ticker = setInterval(tick, 1000);
+  function armSleep() {
+    clearTimeout(sleeper);
+    sleeper = options && state.sleepEndsAt !== null ? setTimeout(expire, state.sleepEndsAt - Date.now()) : undefined;
+  }
+  /* Every change of the ride, each told to the page once. The cursor goes with the HUD and comes back with it; the control that
+     has focus as the HUD goes is kept in mind, since the page draws it anew when it wakes; the sleep timer's timeout is armed for
+     its new end; and the watch for input begins and ends with the ride. */
+  function become(next: RideState) {
+    const was = state;
+    if (next.riding === was.riding && next.settled === was.settled && next.sleepEndsAt === was.sleepEndsAt) return;
+    if (next.settled && !was.settled) lost = controlKey(document.activeElement);
+    if (next.settled !== was.settled) document.documentElement.classList.toggle(CURSOR_OFF, next.settled);
+    state = next;
+    if (next.sleepEndsAt !== was.sleepEndsAt) armSleep();
+    if (next.riding !== was.riding) watch();
+    for (const listener of listeners) listener();
   }
 
   function leave() {
-    if (!state.riding) return;
-    show(false, false);
-    sleep(null);
-    watch();
+    become({ riding: false, settled: false, sleepEndsAt: null });
   }
   function toggle() {
     if (state.riding) {
@@ -242,8 +266,7 @@ export function createRide(): Ride {
     }
     /* Asks the player to start the show (nothing once it has), inside the press that asked for the ride. */
     document.dispatchEvent(new Event("player:join"));
-    show(true, false);
-    watch();
+    become({ riding: true, settled: false, sleepEndsAt: null });
   }
   function onKey(e: KeyboardEvent) {
     if (e.key === "Escape") leave();
@@ -252,14 +275,12 @@ export function createRide(): Ride {
 
   return {
     state: () => state,
-    left: () => left,
     subscribe(onChange) {
       listeners.add(onChange);
       return () => listeners.delete(onChange);
     },
     start(next) {
       options = next;
-      started = true;
       const key = (e: Event) => onKey(e as KeyboardEvent);
       /* Any walking control leaves the ride for a walk, in the world; the page follows. */
       const mode = (e: Event) => {
@@ -268,28 +289,28 @@ export function createRide(): Ride {
       window.addEventListener("keydown", key);
       document.addEventListener("world:mode", mode);
       watch();
-      if (state.sleepEndsAt !== null && ticker === undefined) ticker = setInterval(tick, 1000);
+      armSleep();
       return () => {
-        started = false;
+        options = null;
         window.removeEventListener("keydown", key);
         document.removeEventListener("world:mode", mode);
         watch();
-        clearInterval(ticker);
-        ticker = undefined;
+        armSleep();
       };
     },
     toggle,
     leave,
     pressSleep() {
-      if (!state.riding) return;
-      const units = sleepAfterPress(left);
-      sleep(units === null ? null : Date.now() + units * options.unitMs);
+      if (!state.riding || !options) return;
+      const now = Date.now(), units = sleepAfterPress(sleepLeft(state.sleepEndsAt, options.unitMs, now));
+      become({ ...state, sleepEndsAt: units === null ? null : now + units * options.unitMs });
     },
     arrive(carry) {
       if (!carry.riding) return;
-      show(true, true);
-      sleep(carry.sleepEndsAt);
-      watch();
+      /* A timer that ran out on the way is over on arrival, and the show stays paused. */
+      const over = carry.sleepEndsAt !== null && carry.sleepEndsAt <= Date.now();
+      become({ riding: true, settled: true, sleepEndsAt: over ? null : carry.sleepEndsAt });
+      if (over) document.dispatchEvent(new Event("player:pause"));
     },
     refocus() {
       if (state.settled || lost === null) return;

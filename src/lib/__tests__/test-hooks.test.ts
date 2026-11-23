@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "fs";
-import { idleMs } from "../../components/world/ride";
+import { idleMs, sleepUnitMs } from "../../components/world/ride";
 import { forcedLookup, testHooksEnabled } from "../test-hooks";
 
 describe("forcedLookup", () => {
@@ -19,7 +19,7 @@ describe("forcedLookup", () => {
   });
 });
 
-describe("?idle=", () => {
+describe("?idle= and ?sleep=", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
@@ -27,9 +27,12 @@ describe("?idle=", () => {
   it("answers only on a preview: the server's switch is what the page is handed, and elsewhere a ride waits its own ten seconds whatever the query says", () => {
     vi.stubEnv("VERCEL_ENV", "preview");
     expect(idleMs(testHooksEnabled(), "?idle=2")).toBe(2000);
+    expect(sleepUnitMs(testHooksEnabled(), "?sleep=seconds")).toBe(1000);
     for (const elsewhere of ["production", "development", ""]) {
       vi.stubEnv("VERCEL_ENV", elsewhere);
       expect(idleMs(testHooksEnabled(), "?idle=2"), elsewhere).toBe(10_000);
+      // And the sleep timer counts minutes.
+      expect(sleepUnitMs(testHooksEnabled(), "?sleep=seconds"), elsewhere).toBe(60_000);
     }
   });
 
@@ -39,6 +42,8 @@ describe("?idle=", () => {
       expect(source, file).not.toMatch(/process\.env|NEXT_PUBLIC_/);
     }
     // The page hands the ride the server's word and its own query, and nothing else decides it.
-    expect(readFileSync(new URL("../../components/world/WorldHome.tsx", import.meta.url), "utf8")).toContain("idleMs(testHooks, search)");
+    const page = readFileSync(new URL("../../components/world/WorldHome.tsx", import.meta.url), "utf8");
+    expect(page).toContain("idleMs(testHooks, search)");
+    expect(page).toContain("sleepUnitMs(testHooks, search)");
   });
 });

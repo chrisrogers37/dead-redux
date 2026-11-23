@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearCarry, readCarry, writeCarry } from "../../components/world/carry";
-import { controlKey, createRide, IDLE_S, idleMs, RIDE_NAME, sleepAfterPress, watchIdle } from "../../components/world/ride";
+import { controlKey, createRide, eachSecond, IDLE_S, idleMs, RIDE_NAME, sleepAfterPress, sleepLabel, sleepLeft, sleepUnitMs, watchIdle } from "../../components/world/ride";
 import { WorldHome } from "../../components/world/WorldHome";
 import type { ShowSummary } from "../types";
 
@@ -85,6 +85,58 @@ describe("sleepAfterPress", () => {
   });
 });
 
+describe("the sleep timer's reading", () => {
+  const MINUTE = 60_000, END = 1_800_000_000_000;
+
+  it("counts minutes, and seconds only under ?sleep=seconds where the server says the test hooks answer", () => {
+    expect(sleepUnitMs(false, "")).toBe(MINUTE);
+    expect(sleepUnitMs(true, "")).toBe(MINUTE);
+    expect(sleepUnitMs(true, "?sleep=seconds")).toBe(1000);
+    expect(sleepUnitMs(true, "?idle=2&sleep=seconds")).toBe(1000);
+    expect(sleepUnitMs(false, "?sleep=seconds")).toBe(MINUTE);
+    for (const other of ["?sleep=", "?sleep=1", "?sleep=minutes", "?sleep=Seconds"]) expect(sleepUnitMs(true, other), other).toBe(MINUTE);
+  });
+
+  it("reads the units left from when the timer ends and the clock: a part of a unit counts as one, and a timer not yet turned off never reads 0", () => {
+    expect(sleepLeft(null, MINUTE, END)).toBe(null);
+    expect(sleepLeft(END, MINUTE, END - 30 * MINUTE)).toBe(30);
+    expect(sleepLeft(END, MINUTE, END - 30 * MINUTE + 1)).toBe(30);
+    expect(sleepLeft(END, MINUTE, END - 29 * MINUTE)).toBe(29);
+    expect(sleepLeft(END, MINUTE, END - 1)).toBe(1);
+    expect(sleepLeft(END, 1000, END - 17_500)).toBe(18);
+    // As it ends, and for the moment after before the ride has turned it off.
+    expect(sleepLeft(END, MINUTE, END)).toBe(1);
+    expect(sleepLeft(END, MINUTE, END + 400)).toBe(1);
+  });
+
+  it("says off, or the units left with the unit's name, on its button", () => {
+    expect(sleepLabel(null, MINUTE)).toBe("Sleep · off");
+    expect(sleepLabel(30, MINUTE)).toBe("Sleep · 30 min");
+    expect(sleepLabel(29, sleepUnitMs(true, "?sleep=seconds"))).toBe("Sleep · 29 s");
+    expect(sleepLabel(1, sleepUnitMs(true, ""))).toBe("Sleep · 1 min");
+  });
+
+  it("is read again once a second while its button is on the page, and no longer", () => {
+    vi.useFakeTimers();
+    try {
+      let ticks = 0;
+      const stop = eachSecond(() => { ticks += 1; });
+      vi.advanceTimersByTime(999);
+      expect(ticks).toBe(0);
+      vi.advanceTimersByTime(1);
+      expect(ticks).toBe(1);
+      vi.advanceTimersByTime(4000);
+      expect(ticks).toBe(5);
+      stop();
+      vi.advanceTimersByTime(60_000);
+      expect(ticks).toBe(5);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 // An input as the window hears it.
 type Fields = { pointerId?: number; pointerType?: string; button?: number; screenX?: number; screenY?: number; code?: string; key?: string; repeat?: boolean; ctrlKey?: boolean; altKey?: boolean; metaKey?: boolean; target?: unknown };
 const input = (type: string, { target, ...fields }: Fields = {}) => {
@@ -157,6 +209,92 @@ describe("watchIdle", () => {
     expect(told).toEqual([true]);
   });
 
+  it("settles the whole wait after the last input, wherever that input fell against the wait's own timeout: just before it came due, in the same millisecond ahead of it, and in the same millisecond behind it", () => {
+    // Just before: a millisecond short of the wait.
+    const before = watching();
+    vi.advanceTimersByTime(MS - 1);
+    before.send("wheel");
+    vi.advanceTimersByTime(MS - 1);
+    expect(before.told).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(before.told).toEqual([true]);
+    before.stop();
+    // In the same millisecond, the input first: a timer set before the watch's own comes due ahead of it. The page never settled.
+    const first = new EventTarget(), told: boolean[] = [];
+    setTimeout(() => first.dispatchEvent(input("wheel")), MS);
+    const stop = watchIdle(first, { ms: MS, settled: false, onChange: (settled) => told.push(settled) });
+    vi.advanceTimersByTime(MS);
+    expect(told).toEqual([]);
+    vi.advanceTimersByTime(MS - 1);
+    expect(told).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(told).toEqual([true]);
+    stop();
+    // In the same millisecond, the wait first: the page settles, and the input wakes it at once.
+    const after = watching();
+    setTimeout(() => after.send("wheel"), MS);
+    vi.advanceTimersByTime(MS);
+    expect(after.told).toEqual([true, false]);
+    vi.advanceTimersByTime(MS - 1);
+    expect(after.told).toEqual([true, false]);
+    vi.advanceTimersByTime(1);
+    expect(after.told).toEqual([true, false, true]);
+    // And a millisecond after the wait began: the timeout comes due with one millisecond of the wait left, and waits it out.
+    const early = watching();
+    vi.advanceTimersByTime(1);
+    early.send("wheel");
+    vi.advanceTimersByTime(MS - 1);
+    expect(early.told).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(early.told).toEqual([true]);
+  });
+
+  it("keeps one timeout however much input comes: a thousand moves of the pointer set none and clear none, and the wait is armed once more as it comes due, for what is left of it", () => {
+    const { told, send } = watching();
+    expect(vi.getTimerCount()).toBe(1);
+    const set = vi.spyOn(globalThis, "setTimeout"), clear = vi.spyOn(globalThis, "clearTimeout");
+    // A move a millisecond for a second, then a press and its lift, a key and its lift, and the wheel.
+    for (let k = 1; k <= 1000; k++) {
+      vi.advanceTimersByTime(1);
+      send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: k, screenY: 7 });
+    }
+    send("pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, screenX: 1000, screenY: 7 });
+    send("pointerup", { pointerId: 1, pointerType: "mouse", button: 0, screenX: 1000, screenY: 7 });
+    send("keydown", { code: "KeyL" });
+    send("keyup", { code: "KeyL" });
+    send("wheel");
+    expect(set).not.toHaveBeenCalled();
+    expect(clear).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(1);
+    // The wait comes due ten seconds from the start, a second short of the last input's: armed once for that second, then settled.
+    vi.advanceTimersByTime(MS - 1000);
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set.mock.calls[0][1]).toBe(1000);
+    expect(told).toEqual([]);
+    vi.advanceTimersByTime(999);
+    expect(told).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(told).toEqual([true]);
+    // Settled, nothing is armed until an input wakes the page.
+    expect(vi.getTimerCount()).toBe(0);
+    send("wheel");
+    expect(vi.getTimerCount()).toBe(1);
+    vi.restoreAllMocks();
+  });
+
+  it("waits its whole length from the letting go of a control that was held for a while and let go before the wait came due", () => {
+    const { told, send } = watching();
+    vi.advanceTimersByTime(2000);
+    send("pointerdown", { pointerId: 7, pointerType: "touch", screenX: 1, screenY: 1 });
+    vi.advanceTimersByTime(1000);
+    send("pointerup", { pointerId: 7, pointerType: "touch", screenX: 1, screenY: 1 });
+    // Not ten seconds from the start, nor from the press: from the lift, three seconds in.
+    vi.advanceTimersByTime(MS - 1);
+    expect(told).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(told).toEqual([true]);
+  });
+
   it("takes a pointer that has not moved for no input: the move a browser sends as the page changes under a cursor at rest neither wakes it nor puts the settling off", () => {
     const { told, send } = watching();
     send("pointermove", { pointerId: 1, screenX: 300, screenY: 200 });
@@ -166,9 +304,14 @@ describe("watchIdle", () => {
     expect(told).toEqual([true]);
     send("pointermove", { pointerId: 1, screenX: 300, screenY: 200 });
     expect(told).toEqual([true]);
-    // A pixel's move is one.
+    // A pixel's move is one, across the screen or down it.
     send("pointermove", { pointerId: 1, screenX: 301, screenY: 200 });
     expect(told).toEqual([true, false]);
+    vi.advanceTimersByTime(MS);
+    send("pointermove", { pointerId: 1, screenX: 301, screenY: 200 });
+    expect(told).toEqual([true, false, true]);
+    send("pointermove", { pointerId: 1, screenX: 301, screenY: 201 });
+    expect(told).toEqual([true, false, true, false]);
   });
 
   it("never settles under a control that is held, a key or a pointer, and waits its whole length from the letting go", () => {
@@ -183,13 +326,22 @@ describe("watchIdle", () => {
       vi.advanceTimersByTime(1);
       expect(told, up).toEqual([true]);
     }
-    // Two held, one let go: still held.
+    // Two held, one let go: still held. Two keys, and two fingers.
     const { told, send } = watching();
     send("keydown", { code: "ArrowLeft" });
     send("keydown", { code: "KeyT" });
     send("keyup", { code: "ArrowLeft" });
     vi.advanceTimersByTime(6 * MS);
     expect(told).toEqual([]);
+    const fingers = watching();
+    fingers.send("pointerdown", { pointerId: 7, pointerType: "touch", screenX: 1, screenY: 1 });
+    fingers.send("pointerdown", { pointerId: 8, pointerType: "touch", screenX: 90, screenY: 90 });
+    fingers.send("pointerup", { pointerId: 8, pointerType: "touch", screenX: 90, screenY: 90 });
+    vi.advanceTimersByTime(6 * MS);
+    expect(fingers.told).toEqual([]);
+    fingers.send("pointerup", { pointerId: 7, pointerType: "touch", screenX: 1, screenY: 1 });
+    vi.advanceTimersByTime(MS);
+    expect(fingers.told).toEqual([true]);
   });
 
   it("counts no hold whose letting go it may never hear: a mouse's other buttons, a key pressed with Ctrl, Alt or Meta, and anything held as a menu opens or the window loses focus", () => {
@@ -280,7 +432,9 @@ describe("createRide", () => {
     const key = (code: string, fields: Fields = {}) => win.dispatchEvent(input("keydown", { code, key: code === "Escape" ? "Escape" : code.replace("Key", "").toLowerCase(), repeat: false, ...fields }));
     const release = (code: string) => win.dispatchEvent(input("keyup", { code }));
     const world = (mode: string) => doc.dispatchEvent(Object.assign(new Event("world:mode"), { detail: { mode } }));
-    return { ride, stop, win, doc, classes, heard, key, release, world, body };
+    // The units left on the sleep timer as the ride's row reads them: from when the timer ends and the clock.
+    const left = () => sleepLeft(ride.state().sleepEndsAt, unit, Date.now());
+    return { ride, stop, win, doc, classes, heard, key, release, world, body, left };
   }
   // A key pressed and let go, as a tap on it is.
   const tap = (p: ReturnType<typeof page>, code: string, fields?: Fields) => {
@@ -401,21 +555,21 @@ describe("createRide", () => {
     for (const settled of [false, true]) {
       const p = page();
       p.ride.toggle();
-      expect(p.ride.left()).toBe(null);
+      expect(p.left()).toBe(null);
       p.ride.pressSleep();
-      expect(p.ride.left()).toBe(30);
+      expect(p.left()).toBe(30);
       expect(p.ride.state().sleepEndsAt).toBe(Date.now() + 30 * 60_000);
       // Awake, the visitor holds a look key down all the while; settled, they leave the page alone.
       if (!settled) p.key("ArrowLeft");
       for (let minute = 1; minute <= 29; minute++) {
         vi.advanceTimersByTime(60_000);
-        expect(p.ride.left()).toBe(30 - minute);
+        expect(p.left()).toBe(30 - minute);
       }
       expect(p.ride.state().settled).toBe(settled);
       expect(p.heard).toEqual(["player:join"]);
       vi.advanceTimersByTime(60_000);
       expect(p.heard).toEqual(["player:join", "player:pause"]);
-      expect(p.ride.left()).toBe(null);
+      expect(p.left()).toBe(null);
       expect(p.ride.state()).toEqual({ riding: true, settled, sleepEndsAt: null });
       // It fired once.
       vi.advanceTimersByTime(600_000);
@@ -424,26 +578,80 @@ describe("createRide", () => {
     }
   });
 
+  it("keeps one timeout for the sleep timer, due as it ends, and no tick of its own: set, it pauses the show at its end and not a millisecond before; changed, only its new end counts; turned off or left behind, none is left", () => {
+    const p = page({ unit: 1000 });
+    p.ride.toggle();
+    // A look key held down keeps the page awake, so what the page is told of below is the timer's alone.
+    p.key("ArrowLeft");
+    let told = 0;
+    p.ride.subscribe(() => { told += 1; });
+    // One timeout is armed so far, the idle wait's; the sleep timer adds one, and no more.
+    expect(vi.getTimerCount()).toBe(1);
+    p.ride.pressSleep();
+    expect(told).toBe(1);
+    expect(vi.getTimerCount()).toBe(2);
+    // Set: thirty seconds, with nothing told on the way. The idle wait's timeout comes due under the held key and is not armed again.
+    vi.advanceTimersByTime(29_999);
+    expect(p.heard).toEqual(["player:join"]);
+    expect(told).toBe(1);
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(p.heard).toEqual(["player:join", "player:pause"]);
+    expect(told).toBe(2);
+    expect(vi.getTimerCount()).toBe(0);
+    // Changed: set again, and twelve seconds on pressed to sixty from then. The first end passes with no pause.
+    p.ride.pressSleep();
+    vi.advanceTimersByTime(12_000);
+    p.ride.pressSleep();
+    expect(p.ride.state().sleepEndsAt).toBe(Date.now() + 60_000);
+    vi.advanceTimersByTime(18_000);
+    expect(p.heard).toEqual(["player:join", "player:pause"]);
+    vi.advanceTimersByTime(41_999);
+    expect(p.heard).toEqual(["player:join", "player:pause"]);
+    vi.advanceTimersByTime(1);
+    expect(p.heard).toEqual(["player:join", "player:pause", "player:pause"]);
+    // Turned off by its own button (30, 60, 90, off), and left behind with the ride: nothing is due, and nothing pauses.
+    for (let press = 0; press < 4; press++) p.ride.pressSleep();
+    expect(p.ride.state().sleepEndsAt).toBe(null);
+    expect(vi.getTimerCount()).toBe(0);
+    p.ride.pressSleep();
+    expect(vi.getTimerCount()).toBe(1);
+    p.ride.leave();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(600_000);
+    expect(p.heard).toEqual(["player:join", "player:pause", "player:pause"]);
+  });
+
+  it("carries the sleep timer's end over to the next page as it is: the show pauses there at that end, to the millisecond", () => {
+    const p = page();
+    p.ride.arrive({ riding: true, sleepEndsAt: Date.now() + 25 * 60_000 });
+    vi.advanceTimersByTime(25 * 60_000 - 1);
+    expect(p.heard).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(p.heard).toEqual(["player:pause"]);
+    expect(p.ride.state()).toEqual({ riding: true, settled: true, sleepEndsAt: null });
+  });
+
   it("steps the sleep timer with each press, counts seconds under the test hook's unit, and turns it off as the visitor leaves", () => {
     const p = page({ unit: 1000 });
     p.ride.pressSleep();
-    expect(p.ride.left()).toBe(null);
+    expect(p.left()).toBe(null);
     p.ride.toggle();
     p.ride.pressSleep();
     expect(p.ride.state().sleepEndsAt).toBe(Date.now() + 30_000);
     vi.advanceTimersByTime(12_000);
-    expect(p.ride.left()).toBe(18);
+    expect(p.left()).toBe(18);
     // 18 s left counts as 30: the next is 60, then 90, then off.
     p.ride.pressSleep();
-    expect(p.ride.left()).toBe(60);
+    expect(p.left()).toBe(60);
     p.ride.pressSleep();
-    expect(p.ride.left()).toBe(90);
+    expect(p.left()).toBe(90);
     p.ride.pressSleep();
-    expect(p.ride.left()).toBe(null);
+    expect(p.left()).toBe(null);
     expect(p.ride.state().sleepEndsAt).toBe(null);
     p.ride.pressSleep();
     p.ride.leave();
-    expect(p.ride.left()).toBe(null);
+    expect(p.left()).toBe(null);
     vi.advanceTimersByTime(60_000);
     expect(p.heard).toEqual(["player:join"]);
   });
@@ -454,7 +662,7 @@ describe("createRide", () => {
     p.ride.arrive({ riding: true, sleepEndsAt: endsAt });
     expect(p.ride.state()).toEqual({ riding: true, settled: true, sleepEndsAt: endsAt });
     expect(p.classes.has("cursor-off")).toBe(true);
-    expect(p.ride.left()).toBe(25);
+    expect(p.left()).toBe(25);
     // The ride itself asks for no show: the page that carries it over does, unless the timer has run out (NextShow.tsx).
     expect(p.heard).toEqual([]);
     // Settled, it wakes on input and settles again after the wait, as any ride.
@@ -522,11 +730,15 @@ describe("createRide", () => {
     p.ride.toggle();
     expect(told).toBe(1);
     expect(p.ride.state()).not.toBe(before);
-    // Leaving a settled ride with its timer running is one change of the look and one of the timer, not a change for each field.
+    // Leaving a settled ride with its timer running is one change, not one for the look and one for the timer, nor one a field.
     p.ride.pressSleep();
     vi.advanceTimersByTime(MS);
     told = 0;
     p.ride.leave();
+    expect(told).toBe(1);
+    expect(p.ride.state()).toEqual({ riding: false, settled: false, sleepEndsAt: null });
+    // So is arriving from the page before, riding, settled and with a timer.
+    p.ride.arrive({ riding: true, sleepEndsAt: Date.now() + 60_000 });
     expect(told).toBe(2);
     off();
     p.ride.toggle();

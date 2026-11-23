@@ -17,27 +17,34 @@ export const CRANE = { back: 14, sway: 2, ahead: 28 };
 
 /* The crane's place and where it looks, `elapsed` seconds of world time in: 9 m over the ground it hangs above, swaying to either
    side of the line and back once in 30 s, and looking 8 m over the line. `deps` is postPose's, of which it reads `bearD`, `count`,
-   `gap`, `line`, whose `tangentAt(d)` is the line's level unit tangent `d` m along it, and `height`. */
-export function cranePose(deps, elapsed) {
+   `gap`, `line`, whose `tangentAt(d)` is the line's level unit tangent `d` m along it, and `height`. It is written into `to`, a
+   { pos, look } of the caller's that is handed back, so that a frame need make none (main.js keeps one); with no `to`, a new one. */
+export function cranePose(deps, elapsed, to = { pos: { x: 0, y: 0, z: 0 }, look: { x: 0, y: 0, z: 0 } }) {
   const { bearD, count, gap, line, height } = deps;
   const d = slotDistance(bearD, count, gap) - CRANE.back, p = line.at(d), t = line.tangentAt(d), ahead = line.at(d + CRANE.ahead);
   const sway = CRANE.sway * Math.sin((elapsed * Math.PI * 2) / 30);
   /* To the line's side: its tangent turned a quarter of a turn. */
   const x = p.x - t.z * sway, z = p.z + t.x * sway;
-  return { pos: { x, y: height(x, z) + 9, z }, look: { x: ahead.x, y: ahead.y + 8, z: ahead.z } };
+  to.pos.x = x; to.pos.y = height(x, z) + 9; to.pos.z = z;
+  to.look.x = ahead.x; to.look.y = ahead.y + 8; to.look.z = ahead.z;
+  return to;
 }
 
 /* A ride's camera goes from the one rig to the other in RIG_EASE_S seconds of world time, in a straight line and at the same share
    of the way in its look: `lean` is the share of that time passed, 0 on the camera that walks with the bears (`post`, postPose's)
    and 1 on the crane (`crane`, cranePose's), and rigShare the share of the way it has then gone, setting off and arriving at
-   rest. No tree's crown can reach that line, wherever a show stands its trees (trees.test.ts). */
+   rest. No tree's crown can reach that line, wherever a show stands its trees (trees.test.ts). On a rig the camera's pose is the
+   rig's own, handed back as it came; between them it is written into `to`, as cranePose's is. */
 export const RIG_EASE_S = 3;
 export const rigShare = (lean) => lean * lean * (3 - 2 * lean);
-export function ridePose(post, crane, lean) {
+const mix = (to, a, b, k) => { to.x = a.x + (b.x - a.x) * k; to.y = a.y + (b.y - a.y) * k; to.z = a.z + (b.z - a.z) * k; };
+export function ridePose(post, crane, lean, to = { pos: { x: 0, y: 0, z: 0 }, look: { x: 0, y: 0, z: 0 } }) {
   if (lean <= 0) return post;
   if (lean >= 1) return crane;
-  const k = rigShare(lean), mix = (a, b) => ({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k });
-  return { pos: mix(post.pos, crane.pos), look: mix(post.look, crane.look) };
+  const k = rigShare(lean);
+  mix(to.pos, post.pos, crane.pos, k);
+  mix(to.look, post.look, crane.look, k);
+  return to;
 }
 
 /* The camera that walks with the bears, in follow and attract, its eye above their heads; it looks at the lead bear, turned by `yaw`

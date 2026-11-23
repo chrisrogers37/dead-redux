@@ -384,7 +384,7 @@ function start(gl) {
   /* The camera that walks with the bears, in follow and attract, its eye above their heads; it looks at the lead bear, turned by `yaw`
      and tilted by `pitch` (pose.js). */
   function postPose(yaw, pitch) {
-    return poseOver({ third, phone, bearD, count: bears.length, gap: BEAR_GAP, line, height, keepInView }, yaw, pitch);
+    return poseOver(depsNow(), yaw, pitch);
   }
   /* Where the visitor's feet stand on a phone: 24 px above the now-plate, as a share of the frame's height from -1 to 1. */
   const plateY = () => 1 - (2 * (plateTop - 24)) / frameH;
@@ -392,6 +392,12 @@ function start(gl) {
      stand above the now-plate, at most 0.45 rad, which still keeps the lead bear below the top plates; elsewhere until the top of its
      head stands 36 % up the frame, at most 0.3 rad. */
   const keepInView = (from, look) => phone ? avatar.turnDown(camera, from, look, avatar.feet, plateY(), 0.45) : avatar.turnDown(camera, from, look, avatar.top, -0.28);
+  /* What the bears' cameras are reckoned from (pose.js's `deps`), as the world stands now: one object, made once. */
+  const deps = { third, phone, bearD, count: bears.length, gap: BEAR_GAP, line, height, keepInView };
+  function depsNow() {
+    deps.third = third; deps.bearD = bearD; deps.count = bears.length;
+    return deps;
+  }
   const forward = () => new THREE.Vector3(-Math.sin(walker.heading), 0, -Math.cos(walker.heading));
   /* Changes the camera's mode and tells the page. A walk starts where the visitor's bear last stood in one (`spot`). Where that is away
      from its place in the line the camera cuts to it, since easing there would carry the view across the island without the bear in
@@ -437,6 +443,10 @@ function start(gl) {
   syncMain();
 
   const lookTarget = new THREE.Vector3();
+  /* Where the crane's pose is written, its look straight into `lookTarget`, and the camera's between the rigs: made once, so that a
+     frame of the ride makes neither. The points the bears' line hands out are its own new ones each call (path.js), and so is
+     postPose's answer, as in every frame of the opening. */
+  const craneAt = { pos: new THREE.Vector3(), look: lookTarget }, onWay = { pos: new THREE.Vector3(), look: new THREE.Vector3() };
   const easeOut = (x) => { const t = Math.max(0, Math.min(1, x)); return 1 - (1 - t) * (1 - t) * (1 - t); };
 
   function placeWalker() {
@@ -738,14 +748,13 @@ function start(gl) {
         if (lean > 0) {
           /* A slow crane high above the bears, behind the visitor's bear along their line (pose.js). Its aim is its own: on a phone
              in third person turned down from where it hangs until the visitor's bear stands above the now-plate. */
-          const crane = cranePose({ bearD, count: bears.length, gap: BEAR_GAP, line, height }, elapsed);
-          camera.position.copy(crane.pos);
-          lookTarget.copy(crane.look);
+          cranePose(depsNow(), elapsed, craneAt);
+          camera.position.copy(craneAt.pos);
           if (phone && third) avatar.tilt(camera, lookTarget, avatar.feet, plateY());
           if (post) {
-            const pose = ridePose(post, { pos: crane.pos, look: lookTarget }, lean);
-            camera.position.copy(pose.pos);
-            lookTarget.copy(pose.look);
+            ridePose(post, craneAt, lean, onWay);
+            camera.position.copy(onWay.pos);
+            lookTarget.copy(onWay.look);
           }
           camera.lookAt(lookTarget);
         } else {

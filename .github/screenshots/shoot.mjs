@@ -95,11 +95,13 @@ const shelfStep = (shelf, state, shot, boxes = false) => ({
 const IDLE = "idle=6";
 const RIDE = "[data-action='ride']";
 // The ride's two stills: the press, which starts the ride with the whole HUD and the camera that walks with the bears (`<shot>`); then,
-// with nothing touched, the page settled and the camera on the crane (`<shot>-settled`). The camera takes three seconds of world time
-// to get there, which a software renderer draws in half a minute, so the second still waits for it (`crane`).
-const rideSteps = (shot) => [
+// with nothing touched, the page settled (`<shot>-settled`). The camera takes three seconds of world time to reach the crane, which
+// a software renderer draws in half a minute. A still whose subject is the settled ride itself waits for it (`crane`): the home
+// page's and the fixed day's. One whose subject is a plate in the settled HUD does not, and is shot a second after the page settles,
+// with the camera a little way out from the bears.
+const rideSteps = (shot, crane = false) => [
   { click: RIDE, waitFor: "main[data-ride='awake']", shot },
-  { waitFor: "main[data-ride='settled']", crane: true, shot: `${shot}-settled` },
+  { waitFor: "main[data-ride='settled']", crane, shot: `${shot}-settled` },
 ];
 
 // Each step acts on the loaded page, then shoots it. The prefix keeps one page's file names
@@ -110,7 +112,7 @@ const playerSteps = (prefix, afterPlaying) => [
   // a mouse click. Tab from the previous button lands on the play disc and starts nothing.
   { focus: "[data-action='prev']", press: "Tab", shot: `${prefix}focus-play` },
   playStep(`${prefix}playing`, afterPlaying),
-  ...rideSteps(`${prefix}ride`),
+  ...rideSteps(`${prefix}ride`, true),
 ];
 
 const PAGES = [

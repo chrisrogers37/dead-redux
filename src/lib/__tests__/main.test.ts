@@ -1459,6 +1459,32 @@ describe("main.js's frames", () => {
     expect(leads.at(-1)! - leads[0]).toBeGreaterThan(0);
   });
 
+  it("reckons the bears' cameras each frame from the world as it then stands: the view the page asks for, and the bears a downgrade leaves", async () => {
+    type Page = Awaited<ReturnType<typeof startWorld>>;
+    const deps = (page: Page, third: boolean) => ({ third, phone: false, bearD: along(page.shown()[0].g.position), count: page.shown().length, gap: BEAR_GAP, line: LINE, height, keepInView: () => fake.TURN });
+    // In first person the opening's camera stands on the line behind the last bear, as postPose has it there.
+    const first = await startWorld({ view: "first" });
+    first.run(DESCENT_S + 0.1);
+    expect(first.mode()).toBe("attract");
+    expectNear(fake.world.camera.position, postPose(deps(first, false), 0, 0).pos);
+    expectNear(fake.world.camera.target, postPose(deps(first, false), 0, 0).look);
+    expect(distance(fake.world.camera.position, postPose(deps(first, true), 0, 0).pos)).toBeGreaterThan(5);
+    // Frames of 50 ms step the world down until bears go: both cameras then stand for the bears that are left.
+    const page = await startWorld();
+    const made = fake.world.bears.length;
+    for (let k = 0; k < 1500 && page.shown().length === made; k++) page.run(0.05, { ms: 50 });
+    const left = page.shown().length;
+    expect(left).toBeLessThan(made);
+    page.run(0.1);
+    expect(page.mode()).toBe("attract");
+    expectNear(fake.world.camera.position, postPose(deps(page, true), 0, 0).pos);
+    expect(distance(fake.world.camera.position, postPose({ ...deps(page, true), count: made }, 0, 0).pos)).toBeGreaterThan(5);
+    page.ride("settled");
+    page.run(0.02);
+    expect(page.shown()).toHaveLength(left);
+    expectNear(fake.world.camera.position, cranePose(deps(page, true), page.now() / 1000).pos);
+  });
+
   it("draws the beam as added light in one pass that writes no depth, stands it on the song's landmark, and hides it without a recording", async () => {
     const page = await startWorld();
     page.run(0.02);

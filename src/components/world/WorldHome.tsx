@@ -14,8 +14,7 @@ import { firstPersonOn, setFirstPerson, subscribeView } from "./view";
 import { isAway, matchShelvesCookie, setShelf, shelvesAway, subscribeShelves, type Shelf } from "./shelves";
 import { NoRecording } from "./NoRecording";
 import { soundLabel } from "@/lib/sound";
-import { createRide, idleMs, RIDE_NAME } from "./ride";
-import { RideCorner } from "./RideCorner";
+import { createRide, eachSecond, idleMs, RIDE_NAME, sleepLabel, sleepLeft, sleepUnitMs, type Ride } from "./ride";
 import { NextChip, useNextShow, type PastPick } from "./NextShow";
 
 interface Props { show: ShowSummary; featuredDate: string; today: string; renderedAt: number; pastPick: PastPick | null; bestSource: Source | null; isToday: boolean; tourName: string | null; testHooks: boolean; lookupFailed: boolean; shelves: string; }
@@ -47,18 +46,18 @@ function subscribeWorld(onChange: () => void) {
 const worldState = () => document.getElementById("world")?.dataset.world ?? "loading";
 const worldTier = () => document.getElementById("world")?.dataset.tier ?? null;
 
-interface DetailsProps { source: Source; show: ShowSummary; tracks: Track[]; tourName: string | null; routing: Routing; world: string; archiveUrl: string; singleKey: boolean; first: boolean; riding: boolean; }
+interface DetailsProps { source: Source; show: ShowSummary; tracks: Track[]; tourName: string | null; routing: Routing; world: string; archiveUrl: string; singleKey: boolean; first: boolean; }
 
 /**
  * What Details holds: the source, the recording's facts, how the sound plays, the single-key and view switches and the archive links.
  * It opens as a panel above the now-plate's stack (it is positioned against the stack, the shelf's body, so it hangs from the plate's
  * edge and not from the shelf's tab beside it), so the plate keeps its size and the bears stay in view while it is shut.
  */
-function DetailsPanel({ source, show, tracks, tourName, routing, world, archiveUrl, singleKey, first, riding }: DetailsProps) {
+function DetailsPanel({ source, show, tracks, tourName, routing, world, archiveUrl, singleKey, first }: DetailsProps) {
   /* The panel fits between the now-plate's stack and the top plates above it, at every width, so it never slides under them. Only the
      plates it would run into count: on a phone both, on a wider screen the top-right row. A plate's tab counts with it, wherever it
-     hangs, and of a plate put away on its shelf only the tab is left to count. A ride adds a row to the top-right plates, so the
-     panel is fitted again as one starts and ends. */
+     hangs, and of a plate put away on its shelf only the tab is left to count. The top plates change size too, as when a ride adds
+     its row to them, so the panel is fitted again whenever one does. */
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -77,8 +76,9 @@ function DetailsPanel({ source, show, tracks, tourName, routing, world, archiveU
     window.addEventListener("resize", fit);
     const observer = new ResizeObserver(fit);
     observer.observe(wrapper);
+    for (const top of document.querySelectorAll("[data-hud='top']")) observer.observe(top);
     return () => { details?.removeEventListener("toggle", fit); window.removeEventListener("resize", fit); observer.disconnect(); };
-  }, [riding]);
+  }, []);
   const reviews = `${source.numReviews} review${source.numReviews === 1 ? "" : "s"}`;
   const facts: [label: string, value: string | null | undefined][] = [
     ["Taper", source.taper],
@@ -140,6 +140,23 @@ function ShelfTab({ shelf, side, label, away, className = "" }: { shelf: Shelf; 
   );
 }
 
+/* A plate that is a button with a line of text, and a row of them, which on a phone is a column at the screen's right edge. */
+const PLATE_BUTTON = "plate t-body text-ink h-11 flex items-center";
+const PLATE_ROW = "flex gap-2 max-sm:flex-col max-sm:items-end";
+
+/* The ride's own two buttons, in a row under the page's while the visitor rides and the page is awake: the sleep timer, which reads
+   the time left, and Leave. They go with the rest of the HUD when the ride settles; the timer is the ride's (ride.ts), not theirs,
+   so it runs on. The time left is read from the clock once a second while the timer runs and the row is on the page. */
+function RideRow({ ride, sleepEndsAt, unit }: { ride: Ride; sleepEndsAt: number | null; unit: number }) {
+  const left = useSyncExternalStore(sleepEndsAt === null ? subscribe : eachSecond, () => sleepLeft(sleepEndsAt, unit, Date.now()), () => null);
+  return (
+    <div className={PLATE_ROW}>
+      <button type="button" data-action="sleep" onClick={ride.pressSleep} className={`${PLATE_BUTTON} whitespace-nowrap`}>{sleepLabel(left, unit)}</button>
+      <button type="button" data-action="leave" onClick={ride.leave} className={`${PLATE_BUTTON} whitespace-nowrap`}>Leave · Esc</button>
+    </div>
+  );
+}
+
 /* The page: the world's container, the HUD on plates, the hooks, the show as JSON for the world, and the module loader. */
 export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bestSource, isToday, tourName, testHooks, lookupFailed, shelves }: Props) {
   const tracks = useMemo(() => flatten(bestSource), [bestSource]);
@@ -183,7 +200,7 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
   const day = hooks?.get("day");
   const fakeAt = day ? Date.parse(`${day}T12:00:00Z`) : NaN;
   const fakeNow = Number.isNaN(fakeAt) ? null : fakeAt;
-  const sleepUnit = hooks?.get("sleep") === "seconds" ? 1000 : 60_000;
+  const sleepUnit = sleepUnitMs(testHooks, search);
   const idle = idleMs(testHooks, search);
   /* The ride listens to the page for as long as the page is up; and once the page is awake again, the control that had focus when
      it settled has it back. */
@@ -260,9 +277,9 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
               after the buttons, as it stands on a desktop, at the row's right end, so Tab reaches them in the order the screen shows; on
               a phone it stands first, at the top of the column. While the visitor rides, the ride's own two buttons stand in a row
               under the page's, on the same shelf. */}
-          <div data-hud="top" data-shelf={actionsAway ? "in" : "out"} data-side="right" className="hud shelf right-6 top-6 max-sm:right-3 max-sm:top-3 flex gap-2 max-sm:flex-col max-sm:items-end z-20!">
+          <div data-hud="top" data-shelf={actionsAway ? "in" : "out"} data-side="right" className={`hud shelf right-6 top-6 max-sm:right-3 max-sm:top-3 ${PLATE_ROW} z-20!`}>
             <div id={shelfId("actions")} className="shelf-body flex flex-col items-end gap-2">
-            <div className="flex gap-2 max-sm:flex-col max-sm:items-end">
+            <div className={PLATE_ROW}>
             {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the world starts once per page load */}
             <a href="/archive" aria-label="Archive" className="plate t-row text-muted hover:text-ink h-11 flex items-center">
               <span className="max-sm:hidden">Archive</span>
@@ -271,13 +288,13 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
             {/* The ride's one control, pressed while the visitor rides: it starts the show (nothing once it has) and the ride, or
                 ends the ride. The still has it too: there it is the page's half of the ride. */}
             <button type="button" data-action="ride" aria-pressed={riding} aria-label={RIDE_NAME} title={RIDE_NAME} onClick={ride.toggle}
-              className="plate t-body text-ink h-11 flex items-center gap-2 aria-pressed:shadow-[inset_0_0_0_2px_var(--accent)]">
+              className={`${PLATE_BUTTON} gap-2 aria-pressed:shadow-[inset_0_0_0_2px_var(--accent)]`}>
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="15" r="4" /><circle cx="6" cy="9" r="1.5" /><circle cx="12" cy="6" r="1.5" /><circle cx="18" cy="9" r="1.5" /></svg>
               <span className="max-sm:hidden">{RIDE_NAME}</span>
             </button>
             <ShareButtons featuredDate={featuredDate} showDate={show.date} venue={show.venue} location={show.location} isToday={isToday} />
             </div>
-            {riding && <RideCorner ride={ride} unit={sleepUnit} />}
+            {riding && <RideRow ride={ride} sleepEndsAt={sleepEndsAt} unit={sleepUnit} />}
             </div>
             <ShelfTab shelf="actions" side="right" label="The page's buttons" away={actionsAway} className="max-sm:order-first" />
           </div>
@@ -310,7 +327,7 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
         <div className={settled ? "plate" : "plate w-[360px] max-sm:w-auto"}>
           {bestSource && tracks.length > 0 ? (
             <Player tracks={tracks} sets={sets} featuredDate={featuredDate} showDate={show.date} venue={show.venue} archiveUrl={archiveUrl} settled={settled} startAt={startAt}>
-              <DetailsPanel source={bestSource} show={show} tracks={tracks} tourName={tourName} routing={routing} world={worldStatus} archiveUrl={archiveUrl} singleKey={singleKey} first={first} riding={riding} />
+              <DetailsPanel source={bestSource} show={show} tracks={tracks} tourName={tourName} routing={routing} world={worldStatus} archiveUrl={archiveUrl} singleKey={singleKey} first={first} />
             </Player>
           ) : (
             <NoRecording failed={lookupFailed} relisten={relisten} />
