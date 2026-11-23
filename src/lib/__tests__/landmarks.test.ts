@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
-import { buildAvatar, keepOutBox } from "../../../public/world/avatar.js";
+import { buildAvatar, keepOutBox, swift } from "../../../public/world/avatar.js";
 import { hull, outside, standClear } from "../../../public/world/collide.js";
 import { FIRST_EYE, height } from "../../../public/world/ground.js";
 import { makeBuilders, mergeLandmarks, mergeStill, mesh, songKey, STONE_KINDS, stoneKind, titleHash } from "../../../public/world/landmarks.js";
@@ -2990,16 +2990,16 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
 
   // This test walks the camera past the road at every stop of the shows named, 202 places, five times over on each tier,
   // 7 million frames: it has 30 s, not the usual 5.
-  it("leaves the walk's camera at the road as it was without the handrails, and where main's camera does not jump, moving no more in a frame than main's", { timeout: 30000 }, () => {
-    // Main's camera is the camera past the plain slab, stood where the trestle stands. Where it moves CALM m or less in
-    // every frame, the camera past the trestle moves no more than MARGIN over main's largest move: measured, not a
-    // millimetre over it at any of those places, 117 of the 202 on a desktop and 114 on a phone. At the others main's own
-    // camera jumps as the bear's head leaves the slab's box (issue #178: 1.5 to 15 m in a frame on a desktop, 1.1 to 25 m on
-    // a phone). The trestle's jumps there too, by up to 3 m more (4.4 m on a phone) for its bents' depth, or by less, and
-    // that is not held here. What is held at every place, with the view level and with it tilted up TILT rad, where the
-    // camera hangs as low as the rails: the camera moves as it does past the trestle with its handrails taken off, to a
-    // micron.
-    const CALM = 1, MARGIN = 0.01, TILT = 0.6;
+  it("leaves the walk's camera at the road as it was without the handrails, and moves it no further in a frame there than its swift pace, past the trestle as past main's slab", { timeout: 30000 }, () => {
+    // Main's slab is stood where the trestle stands. Before the walk's camera stopped cutting (issue #178, camera.test.ts)
+    // the camera past it jumped at 85 of these 202 places on a desktop and 88 on a phone, as the bear's head left the
+    // slab's box: 1.5 to 15 m in a frame on a desktop, 1.1 to 25 m on a phone; and past the trestle by up to 3 m more
+    // (4.4 m on a phone) for its bents' depth. Now it moves no further in a frame than its swift pace at any of them,
+    // 0.55 m on a desktop and 1 m on a phone, past either; and with the view tilted up TILT rad, where the camera hangs
+    // as low as the rails, by no more than LOW m over that, which is what keeping over the ground adds to a step (0.004 m
+    // on a desktop and 0.11 m on a phone). And at every place, level and tilted, the camera moves as it does past the
+    // trestle with its handrails taken off, to a micron.
+    const TILT = 0.6, LOW = 0.15;
     for (const phone of [false, true]) {
       const road = built(ROAD, phone), where = phone ? "on a phone" : "on a desktop";
       // The trestle as it is built; the same with its handrails taken off, its rails' and their posts' corners left out;
@@ -3029,7 +3029,7 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
         seen.add(u);
         const { head, without, main, tilted } = moves(u);
         if (Math.abs(head - without) > 1e-6 || Math.abs(tilted[0] - tilted[1]) > 1e-6) expect.fail(`${where}, ${which}: the camera's largest move in a frame is ${head} m, and ${without} m with the handrails taken off; with the view tilted up, ${tilted[0]} m and ${tilted[1]} m`);
-        if (main <= CALM && head > main + MARGIN) expect.fail(`${where}, ${which}: the camera's largest move in a frame is ${head} m, and main's is ${main} m`);
+        if (Math.max(head, main) > swift(phone) / 60 + 1e-6 || tilted[0] > swift(phone) / 60 + LOW) expect.fail(`${where}, ${which}: the camera's largest move in a frame is ${head} m past the trestle and ${main} m past main's slab; with the view tilted up, ${tilted[0]} m`);
       }
       expect(seen.size, where).toBeGreaterThan(150);
     }
