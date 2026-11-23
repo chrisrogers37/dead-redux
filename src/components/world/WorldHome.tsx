@@ -144,15 +144,19 @@ function ShelfTab({ shelf, side, label, away, className = "" }: { shelf: Shelf; 
 const PLATE_BUTTON = "plate t-body text-ink h-11 flex items-center";
 const PLATE_ROW = "flex gap-2 max-sm:flex-col max-sm:items-end";
 
-/* The ride's own two buttons, in a row under the page's while the visitor rides and the page is awake: the sleep timer, which reads
-   the time left, and Leave. They go with the rest of the HUD when the ride settles; the timer is the ride's (ride.ts), not theirs,
-   so it runs on. The time left is read from the clock once a second while the timer runs and the row is on the page. */
-function RideRow({ ride, sleepEndsAt, unit }: { ride: Ride; sleepEndsAt: number | null; unit: number }) {
+/* The ride's own two buttons, on the page for as long as the visitor rides: the sleep timer, which reads the time left, and Leave.
+   Awake they are a row under the page's buttons. Settled they are the settled look's top-right corner, in its larger type, side by
+   side, or stacked on a phone as the top icons are, so a settled visitor reaches both without waking the page. The timer is the
+   ride's (ride.ts), not theirs, so it runs on through both looks. The time left is read from the clock once a second while the
+   timer runs. */
+const CORNER_BUTTON = "plate text-[24px] leading-8 text-ink";
+function RideRow({ ride, sleepEndsAt, unit, settled }: { ride: Ride; sleepEndsAt: number | null; unit: number; settled: boolean }) {
   const left = useSyncExternalStore(sleepEndsAt === null ? subscribe : eachSecond, () => sleepLeft(sleepEndsAt, unit, Date.now()), () => null);
+  const button = settled ? CORNER_BUTTON : `${PLATE_BUTTON} whitespace-nowrap`;
   return (
-    <div className={PLATE_ROW}>
-      <button type="button" data-action="sleep" onClick={ride.pressSleep} className={`${PLATE_BUTTON} whitespace-nowrap`}>{sleepLabel(left, unit)}</button>
-      <button type="button" data-action="leave" onClick={ride.leave} className={`${PLATE_BUTTON} whitespace-nowrap`}>Leave · Esc</button>
+    <div className={settled ? `hud right-16 top-12 ${PLATE_ROW}` : PLATE_ROW}>
+      <button type="button" data-action="sleep" onClick={ride.pressSleep} className={button}>{sleepLabel(left, unit)}</button>
+      <button type="button" data-action="leave" onClick={ride.leave} className={button}>Leave · Esc</button>
     </div>
   );
 }
@@ -255,7 +259,7 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
         <div className="sky" /><div className="ring" /><div className="hill" /><div className="cave l" /><div className="cave r" /><div className="water" />
       </div>
 
-      {/* A ride that has settled strips the HUD to the title, the line and the seek slider, below. */}
+      {/* A ride that has settled strips the HUD to the title, the line and the seek slider, below, and its corner, at the end. */}
       {!settled && (
         <>
           {/* The title plate and, once the site's day has turned, the chip under it, in one column. On a phone the column ends 8 px
@@ -294,7 +298,7 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
             </button>
             <ShareButtons featuredDate={featuredDate} showDate={show.date} venue={show.venue} location={show.location} isToday={isToday} />
             </div>
-            {riding && <RideRow ride={ride} sleepEndsAt={sleepEndsAt} unit={sleepUnit} />}
+            {riding && <RideRow ride={ride} sleepEndsAt={sleepEndsAt} unit={sleepUnit} settled={false} />}
             </div>
             <ShelfTab shelf="actions" side="right" label="The page's buttons" away={actionsAway} className="max-sm:order-first" />
           </div>
@@ -349,6 +353,9 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
         </svg>
         <span className="knob" />
       </div>
+
+      {/* The settled look's corner: the sleep timer and Leave. */}
+      {settled && <RideRow ride={ride} sleepEndsAt={sleepEndsAt} unit={sleepUnit} settled />}
     </main>
   );
 }

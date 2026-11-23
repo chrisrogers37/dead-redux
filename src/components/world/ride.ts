@@ -75,67 +75,58 @@ export function eachSecond(onTick: () => void): () => void {
 
 /** The class on <html> while the cursor is hidden; globals.css hides the cursor under it. */
 const CURSOR_OFF = "cursor-off";
+/** How long a settled page shows its cursor after a pointer's move or press, or a key, in ms. */
+export const CURSOR_MS = 3000;
 
 /** What counts as input: a pointer that moves, presses or lifts, a key, the wheel. A touch and the stick are pointers. */
 const INPUTS = ["pointermove", "pointerdown", "pointerup", "pointercancel", "keydown", "keyup", "wheel"] as const;
 /** What ends every hold without saying so: a menu that opens under a press takes its lift, and so does a window that loses focus. */
 const LETS_GO = ["blur", "contextmenu"] as const;
-/**
- * For a listener that hears an event on its way down to its target. Said as an object: Node's EventTarget (v25.9), which the tests
- * listen on, does not remove a listener whose removal says `true`.
- */
-const ON_THE_WAY_DOWN = { capture: true };
-/** The keys that press the control that has focus: they click a link or a button. */
-const PRESS_KEYS = new Set(["Enter", "NumpadEnter", "Space"]);
-
-/**
- * How long the look holds on once a press on a control has ended, for the click that may follow, in ms. A mouse's click comes in
- * the same turn as its lift. A tap's comes in a later one: 1 to 8 ms after the lift in Chromium with a touch screen emulated. The
- * wait is far longer than that, for a main thread busy with a frame, and for a browser that holds a tap's click back to see whether
- * a second tap follows. A press that brings no click, a finger's slide along the slider, wakes the page this long after it lifts.
- */
-export const CLICK_WAIT_MS = 400;
+/** What shows a settled page's cursor, where it leaves the page settled: a pointer's move or press, and a key. */
+const STIRS = new Set(["pointermove", "pointerdown", "keydown"]);
 
 interface Idle {
   /** How long without input before the page settles, in ms. */
   ms: number;
   /** Whether the page is settled as the watch begins, as a ride carried over from the day before is. */
   settled: boolean;
-  /** Whether a press on this holds the look as it is until the press has ended and its click has been delivered. */
-  holds?: (target: EventTarget | null) => boolean;
+  /** Whether a press here is on a control. On a settled page it does that control's work and wakes nothing; any other press wakes it. */
+  control?: (target: EventTarget | null) => boolean;
+  /** Whether a key leaves a settled page as it is. Any other key wakes it. */
+  quiet?: (key: Input) => boolean;
+  /** A pointer has moved or pressed, or a key has been pressed, on a settled page that stays settled. */
+  onStir?: () => void;
   onChange: (settled: boolean) => void;
 }
 
 /** An input as the watch reads it: a pointer's or a key's event. */
-type Input = Event & { pointerId?: number; pointerType?: string; button?: number; screenX?: number; screenY?: number; code?: string; ctrlKey?: boolean; altKey?: boolean; metaKey?: boolean };
+type Input = Event & {
+  pointerId?: number; pointerType?: string; button?: number; screenX?: number; screenY?: number; code?: string; key?: string; ctrlKey?: boolean; altKey?: boolean; metaKey?: boolean;
+};
 
 /**
- * Watches `target` (the window) for input: after `ms` with none the page settles, and any input wakes it. A control held down, a
- * key or a pointer, is input for as long as it is held, so a look that turns for a minute never settles under the thumb that turns
- * it. A hold that may never be let go in the page's hearing is not counted: a mouse's other buttons, whose menu takes the lift, and
- * a key pressed with Ctrl, Alt or Meta, a browser's shortcut, whose release a Mac does not send. A pointer that has not moved is no
- * input: a browser may send a move when the page changes under a cursor at rest, as it does when the page settles. So the first
- * move the watch hears only says where the pointer is, since a ride begun by a key has not heard of the pointer yet, and a hand
- * that moves it sends a second.
- * A press that begins on what `holds` names, a control the settled look shows, holds the look until the press has done what it
- * does: a pointer's press, or the press of a key that clicks the control with focus. Waking draws the page anew, and a control
- * drawn anew or moved between a press and its lift gets no click, so the link would not be followed and the slider would go from
- * under the finger. The look holds until the click that follows the press has been delivered, or for CLICK_WAIT_MS after the
- * press ends where none follows, and then the page wakes. A press that is cancelled brings no click, and wakes the page at once.
+ * Watches `target` (the window) for input: after `ms` with none the page settles.
+ * Awake, every input puts the settling off, a pointer's move among them, so the HUD is not taken from under a hand that is using
+ * it. A control held down, a key or a pointer, is input for as long as it is held, so a look that turns for a minute never settles
+ * under the thumb that turns it. A hold that may never be let go in the page's hearing is not counted: a mouse's other buttons,
+ * whose menu takes the lift, and a key pressed with Ctrl, Alt or Meta, a browser's shortcut, whose release a Mac does not send.
+ * Settled, the page is there to be used as it is, and a mouse has to be able to reach what it shows. So a pointer that moves wakes
+ * nothing; a press on a control (`control`) does that control's work and wakes nothing, and the page is not drawn anew under it;
+ * and neither does a key that is `quiet`. What wakes the page is a press on anything else, the bare world, and any other key.
+ * Whatever leaves the page settled starts no wait, since none runs until the page wakes, and `onStir` hears of it, for the cursor.
+ * A pointer that has not moved is no input: a browser may send a move when the page changes under a cursor at rest, as it does
+ * when the page settles. So the first move the watch hears only says where the pointer is, since a ride begun by a key has not
+ * heard of the pointer yet, and a hand that moves it sends a second.
  * A mouse sends hundreds of moves a second, so an input only notes its time: one timeout is armed for the wait, and when it comes
  * due it is armed again for what is left of the wait since the last input, or the page settles. Returns what stops the watch.
  */
-export function watchIdle(target: EventTarget, { ms, settled: start, holds, onChange }: Idle): () => void {
+export function watchIdle(target: EventTarget, { ms, settled: start, control, quiet, onStir, onChange }: Idle): () => void {
   let settled = start;
   /** When input last came, by the page's own clock, and the one timeout, armed from an input until it next comes due. */
   let last = performance.now();
   let timer: ReturnType<typeof setTimeout> | undefined;
   /** What is held down: the keys by their codes, the pointers by their ids. */
   const keys = new Set<string>(), pointers = new Set<number>();
-  /** The press that holds the look, if any: the pointer's id, or the key's code. */
-  let holding: number | string | null = null;
-  /** Armed once that press has ended or its click has come: when it is due the hold is over and the page wakes. */
-  let ending: ReturnType<typeof setTimeout> | undefined;
   /** Where the pointer last was on the screen, once an event has said. */
   let placed = false, atX = 0, atY = 0;
 
@@ -153,31 +144,10 @@ export function watchIdle(target: EventTarget, { ms, settled: start, holds, onCh
     if (left > 0) timer = setTimeout(due, left);
     else set(true);
   };
-  /* Input, or a letting go: the wait runs from now. */
+  /* Input, or a letting go, on a page that is awake: the wait runs from now. */
   const note = () => {
     last = performance.now();
     if (timer === undefined) timer = setTimeout(due, ms);
-  };
-  /* A press on a control of the settled look begins: the look holds from here. */
-  const hold = (by: number | string) => {
-    clearTimeout(ending);
-    ending = undefined;
-    holding = by;
-  };
-  /* The hold ends after `wait`: CLICK_WAIT_MS from the end of the press, or none once its click has come, which is then delivered
-     before the page is drawn anew. */
-  const endHold = (wait: number) => {
-    clearTimeout(ending);
-    ending = setTimeout(() => {
-      ending = undefined;
-      holding = null;
-      set(false);
-      note();
-    }, wait);
-  };
-  /* A click: the one a held press was for, if that press has ended, or is a key's, whose click may come while the key is down. */
-  const clicked = () => {
-    if (holding !== null && (ending !== undefined || typeof holding === "string")) endHold(0);
   };
   const input = (e: Input) => {
     if (e.type.startsWith("pointer")) {
@@ -187,56 +157,42 @@ export function watchIdle(target: EventTarget, { ms, settled: start, holds, onCh
       atY = e.screenY as number;
       if (e.type === "pointermove" && !moved) return;
     }
-    const pointer = e.pointerId ?? 0, code = e.code as string;
     if (e.type === "pointerdown") {
-      if (e.pointerType !== "mouse" || !e.button) {
-        pointers.add(pointer);
-        if (settled && holds?.(e.target)) hold(pointer);
+      if (e.pointerType !== "mouse" || !e.button) pointers.add(e.pointerId ?? 0);
+    } else if (e.type === "pointerup" || e.type === "pointercancel") pointers.delete(e.pointerId ?? 0);
+    else if (e.type === "keydown") {
+      if (!e.ctrlKey && !e.altKey && !e.metaKey) keys.add(e.code as string);
+    } else if (e.type === "keyup") keys.delete(e.code as string);
+    if (settled) {
+      const wakes = e.type === "pointerdown" ? !control?.(e.target) : e.type === "keydown" && !quiet?.(e);
+      if (!wakes) {
+        if (STIRS.has(e.type)) onStir?.();
+        return;
       }
-    } else if (e.type === "pointerup" || e.type === "pointercancel") {
-      pointers.delete(pointer);
-      if (holding === pointer) {
-        if (e.type === "pointerup") endHold(CLICK_WAIT_MS);
-        else holding = null;
-      }
-    } else if (e.type === "keydown") {
-      if (!e.ctrlKey && !e.altKey && !e.metaKey) {
-        keys.add(code);
-        if (settled && PRESS_KEYS.has(code) && holds?.(e.target)) hold(code);
-      }
-    } else if (e.type === "keyup") {
-      keys.delete(code);
-      if (holding === code && ending === undefined) endHold(CLICK_WAIT_MS);
+      set(false);
     }
-    if (holding === null) set(false);
     note();
   };
-  /* A press that is let go without a word holds nothing more; one that had ended still wakes the page when its wait is over. */
   const letGo = () => {
     keys.clear();
     pointers.clear();
-    holding = null;
-    note();
+    if (!settled) note();
   };
 
   for (const type of INPUTS) target.addEventListener(type, input);
   for (const type of LETS_GO) target.addEventListener(type, letGo);
-  /* The click is heard on its way down, before anything on the page can stop it. */
-  target.addEventListener("click", clicked, ON_THE_WAY_DOWN);
-  note();
+  if (!settled) note();
   return () => {
     clearTimeout(timer);
-    clearTimeout(ending);
     for (const type of INPUTS) target.removeEventListener(type, input);
     for (const type of LETS_GO) target.removeEventListener(type, letGo);
-    target.removeEventListener("click", clicked, ON_THE_WAY_DOWN);
   };
 }
 
 /** What the page shows of the ride. */
 export interface RideState {
   riding: boolean;
-  /** Left alone long enough: the HUD is stripped and the cursor hidden. False out of a ride. */
+  /** Left alone long enough: the HUD is stripped to the settled look and the cursor hidden until the pointer moves. False out of a ride. */
   settled: boolean;
   /** When the sleep timer ends, in ms since the epoch, or null while it is off. Leaving the ride turns it off. */
   sleepEndsAt: number | null;
@@ -273,13 +229,22 @@ export interface Ride {
 }
 
 /**
- * What can be pressed, by kind. The settled look shows the seek slider, the chip's link to the next show, and, on a page with no
- * recording, the plate's button and link (ride-settled.test.tsx holds the page to that list). A press on any of them holds the
- * look until it has done what it does (watchIdle), so each acts at the first press. A press on the bare world wakes the page at
- * once.
+ * What can be pressed, by kind. The settled look shows the seek slider, the sleep timer and Leave, the chip's link to the next
+ * show, and, on a page with no recording, the plate's button and link (ride-settled.test.tsx holds the page to that list). A
+ * press on any of them does its work and leaves the page settled (watchIdle), so each acts at the first press, a mouse's as a
+ * finger's. A press on the bare world wakes the page.
  */
 export const CONTROLS = "a[href], button, input, select, textarea, summary";
 const onControl = (target: EventTarget | null) => typeof Element !== "undefined" && target instanceof Element && target.closest(CONTROLS) !== null;
+
+/** The keys that only modify another: Shift, held for Tab, moves focus back. */
+const MODIFIERS = new Set(["Shift", "Control", "Alt", "Meta"]);
+/**
+ * Whether a key leaves the settled look as it is: Tab, which moves focus among the controls the look shows; a key that only modifies
+ * another; a key that is a control's own or the browser's (keyBelongsToControl: the slider's keys, Space on a button or a link, a
+ * shortcut); and Enter on a control, which presses it. Every other key wakes the page.
+ */
+const quietKey = (e: KeyboardEvent) => e.key === "Tab" || MODIFIERS.has(e.key) || keyBelongsToControl(e) || (e.key === "Enter" && onControl(e.target));
 
 /** How to find a control again once the page has drawn it anew: by its action, and a shelf's tab by its shelf. Null for any other. */
 export function controlKey(el: Element | null): string | null {
@@ -302,12 +267,27 @@ export function createRide(): Ride {
   let sleeper: ReturnType<typeof setTimeout> | undefined;
   /** The control that had focus as the page settled. */
   let lost: string | null = null;
+  /** Armed while a settled page shows its cursor: when it is due the cursor hides again. */
+  let cursor: ReturnType<typeof setTimeout> | undefined;
   const listeners = new Set<() => void>();
 
+  /* The cursor, hidden or shown from now on, whatever wait was running for it. */
+  function hideCursor(hidden: boolean) {
+    clearTimeout(cursor);
+    cursor = undefined;
+    document.documentElement.classList.toggle(CURSOR_OFF, hidden);
+  }
+  /* A settled page has been stirred and stays settled: its cursor shows, and hides again CURSOR_MS after the last stir. */
+  function stir() {
+    hideCursor(false);
+    cursor = setTimeout(() => hideCursor(true), CURSOR_MS);
+  }
   /* The watch for input, for as long as the visitor rides and the page listens. */
   function watch() {
     unwatch?.();
-    unwatch = options && state.riding ? watchIdle(window, { ms: options.idleMs, settled: state.settled, holds: onControl, onChange: (settled) => become({ ...state, settled }) }) : null;
+    unwatch = options && state.riding
+      ? watchIdle(window, { ms: options.idleMs, settled: state.settled, control: onControl, quiet: (key) => quietKey(key as KeyboardEvent), onStir: stir, onChange: (settled) => become({ ...state, settled }) })
+      : null;
   }
   /* The sleep timer: when it runs out it pauses the show. The ride stays on. */
   function expire() {
@@ -319,13 +299,16 @@ export function createRide(): Ride {
     sleeper = options && state.sleepEndsAt !== null ? setTimeout(expire, state.sleepEndsAt - Date.now()) : undefined;
   }
   /* Every change of the ride, each told to the page once. The cursor goes with the HUD and comes back with it; the control that
-     has focus as the HUD goes is kept in mind, since the page draws it anew, in the settled look if that shows it and when it
-     wakes; the sleep timer's timeout is armed for its new end; and the watch for input begins and ends with the ride. */
+     has focus as the look changes is kept in mind, since the page draws most of them anew: settling, the one that has it then, and
+     waking, the one that has it in the settled look, or else the one the settling took away; the sleep timer's timeout is armed
+     for its new end; and the watch for input begins and ends with the ride. */
   function become(next: RideState) {
     const was = state;
     if (next.riding === was.riding && next.settled === was.settled && next.sleepEndsAt === was.sleepEndsAt) return;
-    if (next.settled && !was.settled) lost = controlKey(document.activeElement);
-    if (next.settled !== was.settled) document.documentElement.classList.toggle(CURSOR_OFF, next.settled);
+    if (next.settled !== was.settled) {
+      lost = controlKey(document.activeElement) ?? (next.settled ? null : lost);
+      hideCursor(next.settled);
+    }
     state = next;
     if (next.sleepEndsAt !== was.sleepEndsAt) armSleep();
     if (next.riding !== was.riding) watch();
@@ -372,6 +355,7 @@ export function createRide(): Ride {
         document.removeEventListener("world:mode", mode);
         watch();
         armSleep();
+        clearTimeout(cursor);
       };
     },
     toggle,

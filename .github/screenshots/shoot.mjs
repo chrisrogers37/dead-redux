@@ -18,7 +18,7 @@ import {
   walkPoses,
 } from "./assets.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
-import { FOCUS_STOPS, RIDE_RECORDINGS, pressFailure, rideIdle, ridePages, stillInLook, wakeByPointer } from "./ride.mjs";
+import { cursorFailure, FOCUS_STOPS, movePointer, pressFailure, pressWorld, RIDE_RECORDINGS, rideIdle, ridePages, stillInLook } from "./ride.mjs";
 
 const DEVICES = {
   desktop: { viewport: { width: 1440, height: 900 } },
@@ -285,8 +285,9 @@ const PAGES = [
   ...nearPages(),
   // The fixed day with the site's day faked as 2099-01-01, a day it will not reach: the chip names the new day at load and stays while
   // the show plays on (the 8-s shot's clock has moved; the url line still reads the fixed page); once the ride has settled it sits above
-  // the title. A pointer that moves wakes the page, where the chip is under the title's plate again, and its link loads today's
-  // page, which arrives riding, settled at once, and starts the show, or shows it paused where the browser refuses (ride.mjs).
+  // the title. The settled page is then used as it is: a pointer moves over it, a press on the world wakes it, and once it has
+  // settled again the chip's link is pressed there and loads today's page, which arrives riding, settled at once, and starts the
+  // show, or shows it paused where the browser refuses (ride.mjs).
   {
     path: "/2026-10-20?day=2099-01-01",
     devices: RIDE_PAGES.newday.devices,
@@ -368,8 +369,8 @@ const PAGES = [
     steps: [playStep("fixed-turn-start", { ms: 20000, shot: "fixed-turned" })],
   },
   // The sleep timer counting seconds, in a ride: the ride's own row has it while the page is awake, and one press sets 30 s; 32 s on,
-  // the show is paused and, with no input since the click, the ride has settled and the cursor is hidden; a key wakes the page, which
-  // brings both back, the ride still on (ride.mjs).
+  // the show is paused and, with no input since the click, the ride has settled and the cursor is hidden; focus on the settled look's
+  // timer and Shift bring the cursor back, and a letter then wakes the page, the ride still on (ride.mjs).
   {
     path: "/2026-10-20?sleep=seconds",
     devices: RIDE_PAGES.sleep.devices,
@@ -897,7 +898,8 @@ try {
           console.log(`${step.shot}: ${selector} absent`);
           continue;
         }
-        // A press that is of a control in one look of the ride fails the run where the page is in another as it is made (ride.mjs).
+        // A press that is of a control in one look of the ride waits for that look, and fails the run where the page is in another as it
+        // is made (ride.mjs).
         const pressedWrong = step.from ? await pressFailure(page, step.from) : null;
         if (pressedWrong) failures.push(`${device}-${step.shot}.png: ${pressedWrong}`);
         if (step.focus) await page.focus(selector);
@@ -912,8 +914,10 @@ try {
           await page.mouse.move(x + step.drag[0], y + step.drag[1], { steps: 8 });
           await page.mouse.up();
         }
-        // A pointer that moves over the world, which wakes a settled ride (ride.mjs).
-        if (step.wake) await wakeByPointer(page);
+        // A pointer that moves over the world, which shows a settled ride's cursor, and a press on the bare world, which wakes it
+        // (ride.mjs).
+        if (step.move) await movePointer(page);
+        if (step.world) await pressWorld(page, Boolean(options.hasTouch));
         // A near step stands the visitor by another song's landmark and waits for the frames that draw the cut and the bears there:
         // frames, since a software renderer draws two a second and a GPU sixty. They are its settle. A world that is not drawing
         // has no still to take: the step fails the run and is skipped, at once where there is no world at all.
@@ -958,10 +962,13 @@ try {
           console.log(logText(`state ${device}-${step.shot}.png ${state} · ${line}`));
           console.log(`routing ${device}-${step.shot}.png ${routing}`);
         }
+        // A step may say how the cursor should be once it has acted: shown, or hidden (ride.mjs).
+        const cursorWrong = step.cursor ? await cursorFailure(page, step.cursor) : null;
+        if (cursorWrong) failures.push(`${device}-${step.shot}.png: ${cursorWrong}`);
         if (step.near === undefined) await page.waitForTimeout(STEP_SETTLE_MS);
         const file = `${device}-${step.shot}.png`;
         await takeStill(page, file, step.ride, { path: join(outDir, file), fullPage: true, clip });
-        console.log(`${file}  ${url}  ${step.near !== undefined ? `near ${step.near}` : selector ?? (step.press ? `press ${step.press}` : `waited for ${step.waitFor}`)}`);
+        console.log(`${file}  ${url}  ${step.near !== undefined ? `near ${step.near}` : selector ?? (step.press ? `press ${step.press}` : step.move ? "a pointer's move" : step.world ? "a press on the world" : `waited for ${step.waitFor}`)}`);
         const stats = await logStats(page, file);
         // A near still of the wrong song fails the run: the stats say which song the visitor stands by. Its page plays nothing, so the
         // player's lines are left out: each read of the page waits on a frame, and a software renderer's frame is a third of a second.
@@ -981,6 +988,8 @@ try {
               .catch(() => console.log(`night ${device}-${step.later.shot}.png  the world's hour had not reached the show's`));
           }
           const laterFile = `${device}-${step.later.shot}.png`;
+          const laterCursorWrong = step.later.cursor ? await cursorFailure(page, step.later.cursor) : null;
+          if (laterCursorWrong) failures.push(`${laterFile}: ${laterCursorWrong}`);
           await takeStill(page, laterFile, step.later.ride, { path: join(outDir, laterFile), fullPage: true, clip });
           console.log(`${laterFile}  ${url}  ${selector}`);
           await logStats(page, laterFile);

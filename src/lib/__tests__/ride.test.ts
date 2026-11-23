@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearCarry, readCarry, writeCarry } from "../../components/world/carry";
-import { CLICK_WAIT_MS, controlKey, CONTROLS, createRide, eachSecond, IDLE_S, idleMs, RIDE_NAME, sleepAfterPress, sleepLabel, sleepLeft, sleepUnitMs, TIMEOUT_MAX_MS, watchIdle } from "../../components/world/ride";
+import { controlKey, CONTROLS, createRide, CURSOR_MS, eachSecond, IDLE_S, idleMs, RIDE_NAME, sleepAfterPress, sleepLabel, sleepLeft, sleepUnitMs, TIMEOUT_MAX_MS, watchIdle } from "../../components/world/ride";
 import { WorldHome } from "../../components/world/WorldHome";
 import type { ShowSummary } from "../types";
 
@@ -147,7 +147,7 @@ describe("the sleep timer's reading", () => {
 });
 
 // An input as the window hears it.
-type Fields = { pointerId?: number; pointerType?: string; button?: number; screenX?: number; screenY?: number; code?: string; key?: string; repeat?: boolean; ctrlKey?: boolean; altKey?: boolean; metaKey?: boolean; target?: unknown };
+type Fields = { pointerId?: number; pointerType?: string; button?: number; screenX?: number; screenY?: number; code?: string; key?: string; repeat?: boolean; ctrlKey?: boolean; altKey?: boolean; metaKey?: boolean; shiftKey?: boolean; target?: unknown };
 const input = (type: string, { target, ...fields }: Fields = {}) => {
   const event = Object.assign(new Event(type), fields);
   if (target !== undefined) Object.defineProperty(event, "target", { value: target });
@@ -166,9 +166,15 @@ describe("watchIdle", () => {
   // A watch on a window of its own, with what it has told the page so far.
   function watching(options: Partial<Parameters<typeof watchIdle>[1]> = {}) {
     const win = new EventTarget(), told: boolean[] = [];
-    const stop = watchIdle(win, { ms: MS, settled: false, onChange: (settled) => told.push(settled), ...options });
+    let stirred = 0;
+    const stop = watchIdle(win, { ms: MS, settled: false, onChange: (settled) => told.push(settled), onStir: () => { stirred += 1; }, ...options });
     const send = (type: string, fields?: Fields) => win.dispatchEvent(input(type, fields));
-    return { told, send, stop };
+    // A key that is no control's, pressed and let go: what wakes a settled page without holding anything.
+    const key = () => {
+      send("keydown", { code: "KeyX", key: "x" });
+      send("keyup", { code: "KeyX", key: "x" });
+    };
+    return { told, send, key, stop, stirs: () => stirred };
   }
 
   it("settles after the wait with no input, and not a millisecond before", () => {
@@ -182,20 +188,16 @@ describe("watchIdle", () => {
     expect(told).toEqual([true]);
   });
 
-  it("wakes on each kind of input, and starts the wait again from it: a pointer that moves, a press, a touch, the stick, a key, the wheel", () => {
+  it("wakes a settled page on a press of the bare world, a mouse's or a finger's, and on a key, and starts the wait again from it", () => {
     const kinds: [string, Fields][] = [
-      ["pointermove", { pointerId: 1, pointerType: "mouse", screenX: 5, screenY: 9 }],
       ["pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, screenX: 5, screenY: 9 }],
       ["pointerdown", { pointerId: 4, pointerType: "touch", screenX: 50, screenY: 90 }],
-      // A thumb sliding on the stick is a pointer that moves.
-      ["pointermove", { pointerId: 4, pointerType: "touch", screenX: 52, screenY: 90 }],
-      ["keydown", { code: "KeyL" }],
-      ["wheel", {}],
+      // A mouse's other button is a press too, though it is no hold.
+      ["pointerdown", { pointerId: 1, pointerType: "mouse", button: 2, screenX: 5, screenY: 9 }],
+      ["keydown", { code: "KeyX", key: "x" }],
     ];
     for (const [type, fields] of kinds) {
       const { told, send } = watching();
-      // The watch has heard where the pointer is: at rest in a corner.
-      send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 0, screenY: 0 });
       vi.advanceTimersByTime(MS);
       expect(told, type).toEqual([true]);
       send(type, fields);
@@ -208,6 +210,24 @@ describe("watchIdle", () => {
       vi.advanceTimersByTime(1);
       expect(told, type).toEqual([true, false, true]);
     }
+  });
+
+  it("leaves a settled page settled under a pointer that moves, however far, and under a lift, a key's lift and the wheel: the page is there to be used as it is, and a mouse has to reach what it shows", () => {
+    const { told, send, stirs } = watching();
+    vi.advanceTimersByTime(MS);
+    send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 100, screenY: 100 });
+    for (let k = 1; k <= 50; k++) send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 100 + 10 * k, screenY: 100 + 5 * k });
+    send("pointerup", { pointerId: 1, pointerType: "mouse", button: 0, screenX: 600, screenY: 350 });
+    send("pointercancel", { pointerId: 4, pointerType: "touch", screenX: 600, screenY: 350 });
+    send("keyup", { code: "KeyX", key: "x" });
+    send("wheel");
+    expect(told).toEqual([true]);
+    // Nor does any of it start a wait to settle: none runs on a settled page, and nothing is armed for one.
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(3 * MS);
+    expect(told).toEqual([true]);
+    // Each move that is one is told, for the cursor; a lift and the wheel are not.
+    expect(stirs()).toBe(50);
   });
 
   it("puts the settling off for an input that comes while the page is awake", () => {
@@ -243,7 +263,7 @@ describe("watchIdle", () => {
     stop();
     // In the same millisecond, the wait first: the page settles, and the input wakes it at once.
     const after = watching();
-    setTimeout(() => after.send("wheel"), MS);
+    setTimeout(() => after.key(), MS);
     vi.advanceTimersByTime(MS);
     expect(after.told).toEqual([true, false]);
     vi.advanceTimersByTime(MS - 1);
@@ -288,7 +308,10 @@ describe("watchIdle", () => {
     expect(told).toEqual([true]);
     // Settled, nothing is armed until an input wakes the page.
     expect(vi.getTimerCount()).toBe(0);
+    send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 2000, screenY: 7 });
     send("wheel");
+    expect(vi.getTimerCount()).toBe(0);
+    send("keydown", { code: "KeyX", key: "x" });
     expect(vi.getTimerCount()).toBe(1);
     vi.restoreAllMocks();
   });
@@ -306,59 +329,68 @@ describe("watchIdle", () => {
     expect(told).toEqual([true]);
   });
 
-  it("takes the first move it hears only for where the pointer is, since a ride begun by a key has not heard of the pointer: it neither wakes the page nor puts the settling off, and the next move does both", () => {
-    // Settled, with the pointer never heard of: the browser's move at the cursor's own place, as the HUD goes from under it.
-    const settled = watching();
-    vi.advanceTimersByTime(MS);
-    settled.send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 640, screenY: 40 });
-    expect(settled.told).toEqual([true]);
-    settled.send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 640, screenY: 40 });
-    expect(settled.told).toEqual([true]);
-    // A hand on the mouse sends a second, elsewhere.
-    settled.send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 641, screenY: 40 });
-    expect(settled.told).toEqual([true, false]);
+  it("takes the first move it hears only for where the pointer is, since a ride begun by a key has not heard of the pointer: awake it does not put the settling off, settled it shows no cursor, and the next move does", () => {
+    const at = (screenX: number, screenY: number) => ({ pointerId: 1, pointerType: "mouse", screenX, screenY });
     // Awake: the first move, a millisecond before the wait is over, does not put it off.
     const awake = watching();
     vi.advanceTimersByTime(MS - 1);
-    awake.send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 640, screenY: 40 });
+    awake.send("pointermove", at(640, 40));
     vi.advanceTimersByTime(1);
     expect(awake.told).toEqual([true]);
-    // A first press is a press: it wakes the page wherever it lands, and says where the pointer is.
-    const pressed = watching();
+    // A second, elsewhere, does: a hand moving the mouse over the awake HUD does not have it stripped from under it.
+    const moved = watching();
+    vi.advanceTimersByTime(MS - 2);
+    moved.send("pointermove", at(640, 40));
+    vi.advanceTimersByTime(1);
+    moved.send("pointermove", at(641, 40));
+    vi.advanceTimersByTime(MS - 1);
+    expect(moved.told).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(moved.told).toEqual([true]);
+    // Settled, with the pointer never heard of: the browser's move at the cursor's own place, as the HUD goes from under it, shows
+    // no cursor. A hand on the mouse sends a second, elsewhere, which does, and wakes nothing.
+    const settled = watching();
     vi.advanceTimersByTime(MS);
-    pressed.send("pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, screenX: 640, screenY: 40 });
-    pressed.send("pointerup", { pointerId: 1, pointerType: "mouse", button: 0, screenX: 640, screenY: 40 });
-    expect(pressed.told).toEqual([true, false]);
+    settled.send("pointermove", at(640, 40));
+    settled.send("pointermove", at(640, 40));
+    expect(settled.stirs()).toBe(0);
+    settled.send("pointermove", at(641, 40));
+    expect(settled.stirs()).toBe(1);
+    expect(settled.told).toEqual([true]);
+    // A press says where the pointer is, and so does a lift: a move at its own place is none, and the one move to another is one.
+    const pressed = watching({ control: () => true });
     vi.advanceTimersByTime(MS);
-    pressed.send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 640, screenY: 40 });
-    expect(pressed.told).toEqual([true, false, true]);
-    // So the one move after a press, to another place, is a move: the pointer's place is known from the press.
-    pressed.send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 700, screenY: 40 });
-    expect(pressed.told).toEqual([true, false, true, false]);
+    pressed.send("pointerdown", { ...at(640, 40), button: 0 });
+    pressed.send("pointerup", { ...at(640, 40), button: 0 });
+    expect(pressed.stirs()).toBe(1);
+    pressed.send("pointermove", at(640, 40));
+    expect(pressed.stirs()).toBe(1);
+    pressed.send("pointermove", at(700, 40));
+    expect(pressed.stirs()).toBe(2);
     const lifted = watching();
-    lifted.send("pointerup", { pointerId: 1, pointerType: "mouse", button: 0, screenX: 640, screenY: 40 });
+    lifted.send("pointerup", { ...at(640, 40), button: 0 });
     vi.advanceTimersByTime(MS);
-    lifted.send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 640, screenY: 41 });
-    expect(lifted.told).toEqual([true, false]);
+    lifted.send("pointermove", at(640, 41));
+    expect(lifted.stirs()).toBe(1);
   });
 
-  it("takes a pointer that has not moved for no input: the move a browser sends as the page changes under a cursor at rest neither wakes it nor puts the settling off", () => {
-    const { told, send } = watching();
+  it("takes a pointer that has not moved for no input: the move a browser sends as the page changes under a cursor at rest neither puts the settling off nor shows the cursor", () => {
+    const { told, send, stirs } = watching();
     send("pointermove", { pointerId: 1, screenX: 300, screenY: 200 });
     vi.advanceTimersByTime(MS - 1);
     send("pointermove", { pointerId: 1, screenX: 300, screenY: 200 });
     vi.advanceTimersByTime(1);
     expect(told).toEqual([true]);
     send("pointermove", { pointerId: 1, screenX: 300, screenY: 200 });
-    expect(told).toEqual([true]);
+    expect(stirs()).toBe(0);
     // A pixel's move is one, across the screen or down it.
     send("pointermove", { pointerId: 1, screenX: 301, screenY: 200 });
-    expect(told).toEqual([true, false]);
-    vi.advanceTimersByTime(MS);
+    expect(stirs()).toBe(1);
     send("pointermove", { pointerId: 1, screenX: 301, screenY: 200 });
-    expect(told).toEqual([true, false, true]);
+    expect(stirs()).toBe(1);
     send("pointermove", { pointerId: 1, screenX: 301, screenY: 201 });
-    expect(told).toEqual([true, false, true, false]);
+    expect(stirs()).toBe(2);
+    expect(told).toEqual([true]);
   });
 
   it("never settles under a control that is held, a key or a pointer, and waits its whole length from the letting go", () => {
@@ -408,6 +440,8 @@ describe("watchIdle", () => {
       const { told, send } = watching();
       send("keydown", { code: "ArrowLeft" });
       send("pointerdown", { pointerId: 1, pointerType: "mouse", button: 0, screenX: 1, screenY: 1 });
+      // Two seconds held, then let go without a word: the wait runs its whole length from there.
+      vi.advanceTimersByTime(2000);
       send(end);
       vi.advanceTimersByTime(MS - 1);
       expect(told, end).toEqual([]);
@@ -416,10 +450,13 @@ describe("watchIdle", () => {
     }
   });
 
-  // A watch told to hold the look under a press on two controls, a link and the slider, settled and left alone.
-  function held() {
+  // A settled watch that knows two controls, a link and the slider, and takes Tab and whatever key the slider has for quiet.
+  function used() {
     const link = { name: "the chip's link" }, slider = { name: "the seek slider" }, world = { name: "the world" };
-    const watch = watching({ holds: (target) => (target as unknown) === link || (target as unknown) === slider });
+    const watch = watching({
+      control: (target) => (target as unknown) === link || (target as unknown) === slider,
+      quiet: (key) => key.code === "Tab" || (key.target as unknown) === slider,
+    });
     vi.advanceTimersByTime(MS);
     expect(watch.told).toEqual([true]);
     const touch = (target: object) => ({ pointerId: 4, pointerType: "touch", screenX: 80, screenY: 700, target });
@@ -427,181 +464,90 @@ describe("watchIdle", () => {
     return { ...watch, link, slider, world, touch, mouse };
   }
 
-  it("holds the settled look under a press on a control until its click has been delivered, so a first tap on the settled link is followed: the page wakes only after the click, a finger's or a mouse's", () => {
+  it("leaves a settled page settled under a press on a control, which does its work on the page as it is: a tap on the link, a click, a slide along the slider", () => {
     for (const pointer of ["touch", "mouse"] as const) {
-      const { told, send, link, [pointer]: press } = held();
+      const { told, send, stirs, link, [pointer]: press } = used();
       send("pointerdown", press(link));
-      expect(told, pointer).toEqual([true]);
       send("pointerup", press(link));
-      expect(told, pointer).toEqual([true]);
-      // The click itself wakes nothing while it is on its way: whatever it does is done on the page as it was pressed.
       send("click", { target: link });
       expect(told, pointer).toEqual([true]);
-      vi.advanceTimersByTime(0);
-      expect(told, pointer).toEqual([true, false]);
-      // And once: the wait the lift began is not left to wake the page a second time, nor to settle it late.
-      vi.advanceTimersByTime(MS - 1);
-      expect(told, pointer).toEqual([true, false]);
-      vi.advanceTimersByTime(1);
-      expect(told, pointer).toEqual([true, false, true]);
-      // The hold is over with the press: settled again, the page wakes at once on any input.
-      send("keydown", { code: "KeyL" });
-      expect(told, pointer).toEqual([true, false, true, false]);
+      // Nothing is left to wake it later, and no wait is begun: the page is not drawn anew under the press, nor after it.
+      expect(vi.getTimerCount(), pointer).toBe(0);
+      vi.advanceTimersByTime(3 * MS);
+      expect(told, pointer).toEqual([true]);
+      // The press is told, for the cursor.
+      expect(stirs(), pointer).toBe(1);
     }
-  });
-
-  it("wakes a press that brings no click, a slide along the settled slider, a set wait after it lifts, and holds the look for as long as it is down", () => {
-    expect(CLICK_WAIT_MS).toBe(400);
-    const { told, send, slider, touch } = held();
+    const { told, send, stirs, slider, touch } = used();
     send("pointerdown", touch(slider));
     send("pointermove", { ...touch(slider), screenX: 140 });
-    vi.advanceTimersByTime(3 * MS);
-    expect(told).toEqual([true]);
     send("pointerup", { ...touch(slider), screenX: 140 });
-    vi.advanceTimersByTime(CLICK_WAIT_MS - 1);
+    vi.advanceTimersByTime(3 * MS);
     expect(told).toEqual([true]);
-    vi.advanceTimersByTime(1);
-    expect(told).toEqual([true, false]);
-    // The wait to settle runs from there: the wake is the last input.
-    vi.advanceTimersByTime(MS - 1);
-    expect(told).toEqual([true, false]);
-    vi.advanceTimersByTime(1);
-    expect(told).toEqual([true, false, true]);
+    expect(stirs()).toBe(2);
   });
 
-  it("wakes at once on a press of the bare world, on a press of a control that is cancelled, and on another pointer's lift while a control is held it does not", () => {
-    const bare = held();
-    bare.send("pointerdown", bare.touch(bare.world));
-    expect(bare.told).toEqual([true, false]);
-    // A cancelled press brings no click to wait for.
-    const cancelled = held();
-    cancelled.send("pointerdown", cancelled.touch(cancelled.link));
-    cancelled.send("pointercancel", cancelled.touch(cancelled.link));
-    expect(cancelled.told).toEqual([true, false]);
-    // A second finger that comes and goes ends nothing: the first still has the slider.
-    const two = held();
-    two.send("pointerdown", two.touch(two.slider));
-    two.send("pointerup", { pointerId: 9, pointerType: "touch", screenX: 300, screenY: 300, target: two.world });
-    vi.advanceTimersByTime(CLICK_WAIT_MS);
-    expect(two.told).toEqual([true]);
-    // Nor does a click from elsewhere while the finger is down: only its own lift lets a click end the hold.
-    two.send("click", { target: two.world });
-    vi.advanceTimersByTime(CLICK_WAIT_MS);
-    expect(two.told).toEqual([true]);
-    two.send("pointerup", two.touch(two.slider));
-    vi.advanceTimersByTime(CLICK_WAIT_MS);
-    expect(two.told).toEqual([true, false]);
+  it("wakes a settled page on a press of anything that is no control, and on a key that is not quiet; a quiet key leaves it settled, and is told for the cursor", () => {
+    for (const pointer of ["touch", "mouse"] as const) {
+      const { told, send, stirs, world, [pointer]: press } = used();
+      send("pointerdown", press(world));
+      expect(told, pointer).toEqual([true, false]);
+      expect(stirs(), pointer).toBe(0);
+    }
+    // Tab moves focus among the settled look's controls, and the slider's keys are its own.
+    const quiet = used();
+    quiet.send("keydown", { code: "Tab", key: "Tab", target: quiet.world });
+    quiet.send("keyup", { code: "Tab", key: "Tab", target: quiet.link });
+    quiet.send("keydown", { code: "ArrowRight", key: "ArrowRight", target: quiet.slider });
+    quiet.send("keyup", { code: "ArrowRight", key: "ArrowRight", target: quiet.slider });
+    expect(quiet.told).toEqual([true]);
+    expect(quiet.stirs()).toBe(2);
+    expect(vi.getTimerCount()).toBe(0);
+    // Any other key wakes it, wherever focus is: on the world, on a control.
+    for (const target of ["world", "link"] as const) {
+      const other = used();
+      other.send("keydown", { code: "KeyX", key: "x", target: other[target] });
+      expect(other.told, target).toEqual([true, false]);
+      expect(other.stirs(), target).toBe(0);
+    }
+    // Told of no controls and no quiet keys, a watch wakes on every press and every key.
+    const plain = watching();
+    vi.advanceTimersByTime(MS);
+    plain.send("keydown", { code: "Tab", key: "Tab" });
+    expect(plain.told).toEqual([true, false]);
   });
 
-  it("holds on through a second press that begins before the first's wait is over, and hears a click on its own as no input", () => {
-    const { told, send, link, slider, touch } = held();
-    // A click nobody pressed for, as a script's is: the settled page stays as it is.
-    send("click", { target: link });
-    vi.advanceTimersByTime(CLICK_WAIT_MS);
-    expect(told).toEqual([true]);
+  it("starts no wait on a settled page as the window lets go of what is held, and on an awake one runs the wait from there", () => {
+    const { told, send, slider, touch } = used();
     send("pointerdown", touch(slider));
-    send("pointerup", touch(slider));
-    vi.advanceTimersByTime(CLICK_WAIT_MS - 1);
-    send("pointerdown", touch(link));
-    vi.advanceTimersByTime(3 * CLICK_WAIT_MS);
+    send("blur");
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(3 * MS);
     expect(told).toEqual([true]);
-    send("pointerup", touch(link));
-    send("click", { target: link });
-    vi.advanceTimersByTime(0);
-    expect(told).toEqual([true, false]);
-  });
-
-  it("holds the look under a key that presses the control with focus, Enter or Space, until its click: Enter's comes while the key is down, Space's as it lifts; any other key wakes the page at once", () => {
-    for (const code of ["Enter", "NumpadEnter"]) {
-      const { told, send, link } = held();
-      send("keydown", { code, target: link });
-      expect(told, code).toEqual([true]);
-      send("click", { target: link });
-      // The key's lift, however soon, does not put the wake off: the click has come.
-      send("keyup", { code, target: link });
-      expect(told, code).toEqual([true]);
-      vi.advanceTimersByTime(0);
-      expect(told, code).toEqual([true, false]);
-      vi.advanceTimersByTime(CLICK_WAIT_MS);
-      expect(told, code).toEqual([true, false]);
-    }
-    const space = held();
-    space.send("keydown", { code: "Space", target: space.link });
-    vi.advanceTimersByTime(3 * MS);
-    expect(space.told).toEqual([true]);
-    space.send("keyup", { code: "Space", target: space.link });
-    space.send("click", { target: space.link });
-    expect(space.told).toEqual([true]);
-    vi.advanceTimersByTime(0);
-    expect(space.told).toEqual([true, false]);
-    // A press key that clicks nothing, as Enter on the slider: the page wakes a set wait after the key lifts.
-    const none = held();
-    none.send("keydown", { code: "Enter", target: none.slider });
-    none.send("keyup", { code: "Enter", target: none.slider });
-    vi.advanceTimersByTime(CLICK_WAIT_MS - 1);
-    expect(none.told).toEqual([true]);
-    vi.advanceTimersByTime(1);
-    expect(none.told).toEqual([true, false]);
-    // The slider's own keys, Tab, a press key on the bare world, and a press key with Ctrl, whose lift may never be heard.
-    const others: [string, Fields][] = [["ArrowRight", { target: "slider" }], ["Tab", { target: "link" }], ["Enter", { target: "world" }], ["Enter", { target: "link", ctrlKey: true }], ["Space", { target: "link", metaKey: true }]];
-    for (const [code, { target, ...fields }] of others) {
-      const other = held();
-      other.send("keydown", { code, target: other[target as "link" | "slider" | "world"], ...fields });
-      expect(other.told, `${code} ${JSON.stringify(fields)}`).toEqual([true, false]);
-    }
-  });
-
-  it("drops a hold the window lets go of without waking, and still wakes for a press that had ended before the window lost focus", () => {
-    // A menu or another window takes the lift: the hold is over, the page stays settled, and the next input wakes it.
-    const dropped = held();
-    dropped.send("pointerdown", dropped.touch(dropped.slider));
-    dropped.send("blur");
-    vi.advanceTimersByTime(3 * MS);
-    expect(dropped.told).toEqual([true]);
-    dropped.send("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 5, screenY: 5 });
-    expect(dropped.told).toEqual([true, false]);
-    // A link that opens another tab takes the focus with it, after its click: the page still wakes.
-    const opened = held();
-    opened.send("pointerdown", opened.mouse(opened.link));
-    opened.send("pointerup", opened.mouse(opened.link));
-    opened.send("click", { target: opened.link });
-    opened.send("blur");
-    vi.advanceTimersByTime(0);
-    expect(opened.told).toEqual([true, false]);
-    // Stopped while a press's wait is running, the watch says nothing more.
-    const stopped = held();
-    stopped.send("pointerdown", stopped.touch(stopped.slider));
-    stopped.send("pointerup", stopped.touch(stopped.slider));
-    stopped.stop();
-    vi.advanceTimersByTime(3 * MS);
-    stopped.send("click", { target: stopped.slider });
-    vi.advanceTimersByTime(3 * MS);
-    expect(stopped.told).toEqual([true]);
+    // The hold is over: woken by a key, the page settles again after the wait, though the finger's lift was never heard.
+    send("keydown", { code: "KeyX", key: "x" });
+    send("keyup", { code: "KeyX", key: "x" });
+    vi.advanceTimersByTime(MS);
+    expect(told).toEqual([true, false, true]);
   });
 
   it("takes a press on a control of an awake page for input like any other: the page stays awake, and the wait starts over from its lift", () => {
     const link = { name: "the chip's link" };
-    const { told, send } = watching({ holds: (target) => (target as unknown) === link });
+    const { told, send, stirs } = watching({ control: (target) => (target as unknown) === link });
     vi.advanceTimersByTime(MS - 1);
     send("pointerdown", { pointerId: 4, pointerType: "touch", screenX: 80, screenY: 700, target: link });
-    send("pointerup", { pointerId: 4, pointerType: "touch", screenX: 80, screenY: 700, target: link });
-    send("click", { target: link });
+    send("pointerup", { pointerId: 4, pointerType: "touch", screenX: 140, screenY: 700, target: link });
     vi.advanceTimersByTime(MS - 1);
     expect(told).toEqual([]);
     vi.advanceTimersByTime(1);
     expect(told).toEqual([true]);
-    // Nor does a press that brings no click hold anything on an awake page: the wait to settle runs from the lift, and no longer.
-    const slide = watching({ holds: (target) => (target as unknown) === link });
-    slide.send("pointerdown", { pointerId: 4, pointerType: "touch", screenX: 80, screenY: 700, target: link });
-    slide.send("pointerup", { pointerId: 4, pointerType: "touch", screenX: 140, screenY: 700, target: link });
-    vi.advanceTimersByTime(MS - 1);
-    expect(slide.told).toEqual([]);
-    vi.advanceTimersByTime(1);
-    expect(slide.told).toEqual([true]);
+    // And awake, nothing is told for the cursor: it is shown already.
+    expect(stirs()).toBe(0);
   });
 
-  it("begins settled where it is told the page is, and wakes on the first input", () => {
+  it("begins settled where it is told the page is, with no wait running, and wakes on the first input", () => {
     const { told, send } = watching({ settled: true });
+    expect(vi.getTimerCount()).toBe(0);
     vi.advanceTimersByTime(3 * MS);
     expect(told).toEqual([]);
     send("keydown", { code: "Tab" });
@@ -736,14 +682,13 @@ describe("createRide", () => {
     vi.advanceTimersByTime(1);
     expect(p.ride.state()).toEqual({ riding: true, settled: true, sleepEndsAt: null });
     expect(p.classes.has("cursor-off")).toBe(true);
-    // The pointer moves: its first event says where it is, and its second that it moved.
-    p.win.dispatchEvent(input("pointermove", { pointerId: 1, screenX: 10, screenY: 10 }));
-    expect(p.ride.state().settled).toBe(true);
-    p.win.dispatchEvent(input("pointermove", { pointerId: 1, screenX: 11, screenY: 10 }));
+    // A key that is no control's wakes it, and the cursor is back with the HUD.
+    tap(p, "KeyX");
     expect(p.ride.state()).toEqual({ riding: true, settled: false, sleepEndsAt: null });
     expect(p.classes.has("cursor-off")).toBe(false);
     vi.advanceTimersByTime(MS);
     expect(p.ride.state().settled).toBe(true);
+    expect(p.classes.has("cursor-off")).toBe(true);
     // The key that starts the ride is the first of its inputs: the wait runs from it.
     const keyed = page();
     tap(keyed, "KeyB");
@@ -880,6 +825,60 @@ describe("createRide", () => {
     expect(p.heard).toEqual(["player:join"]);
   });
 
+  it("shows a settled page's cursor for three seconds after the pointer moves, and leaves the page settled: the move wakes nothing, and neither does the cursor's going", () => {
+    expect(CURSOR_MS).toBe(3000);
+    const p = page();
+    p.ride.toggle();
+    vi.advanceTimersByTime(MS);
+    let told = 0;
+    p.ride.subscribe(() => { told += 1; });
+    const move = (screenX: number) => p.win.dispatchEvent(input("pointermove", { pointerId: 1, pointerType: "mouse", screenX, screenY: 10 }));
+    // The pointer's first event says where it is, and its second that it moved.
+    move(10);
+    expect(p.classes.has("cursor-off")).toBe(true);
+    move(11);
+    expect(p.classes.has("cursor-off")).toBe(false);
+    vi.advanceTimersByTime(CURSOR_MS - 1);
+    expect(p.classes.has("cursor-off")).toBe(false);
+    // Another move starts the three seconds again.
+    move(12);
+    vi.advanceTimersByTime(CURSOR_MS - 1);
+    expect(p.classes.has("cursor-off")).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(p.classes.has("cursor-off")).toBe(true);
+    // Through all of it the page stays settled and is told of nothing; and no wait to settle runs under it.
+    expect(p.ride.state()).toEqual({ riding: true, settled: true, sleepEndsAt: null });
+    expect(told).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    // A wake while the cursor shows keeps it, for good: the three seconds are the settled look's.
+    move(13);
+    tap(p, "KeyX");
+    vi.advanceTimersByTime(CURSOR_MS);
+    expect(p.ride.state().settled).toBe(false);
+    expect(p.classes.has("cursor-off")).toBe(false);
+    // And so does leaving the ride from the settled look, with the cursor shown or hidden.
+    for (const shown of [true, false]) {
+      const q = page();
+      q.ride.toggle();
+      vi.advanceTimersByTime(MS);
+      q.win.dispatchEvent(input("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 1, screenY: 1 }));
+      if (shown) q.win.dispatchEvent(input("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 2, screenY: 1 }));
+      expect(q.classes.has("cursor-off"), String(shown)).toBe(!shown);
+      q.ride.leave();
+      vi.advanceTimersByTime(CURSOR_MS);
+      expect(q.classes.has("cursor-off"), String(shown)).toBe(false);
+      expect(vi.getTimerCount(), String(shown)).toBe(0);
+    }
+    // A page that stops listening leaves no wait for the cursor running.
+    const stopped = page();
+    stopped.ride.toggle();
+    vi.advanceTimersByTime(MS);
+    stopped.win.dispatchEvent(input("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 1, screenY: 1 }));
+    stopped.win.dispatchEvent(input("pointermove", { pointerId: 1, pointerType: "mouse", screenX: 2, screenY: 1 }));
+    stopped.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("brings a visitor who was riding on the page before in riding, settled at once, with the sleep timer as it was; and one who was not, not", () => {
     const p = page();
     const endsAt = Date.now() + 25 * 60_000;
@@ -889,8 +888,8 @@ describe("createRide", () => {
     expect(p.left()).toBe(25);
     // The ride itself asks for no show: the page that carries it over does, unless the timer has run out (NextShow.tsx).
     expect(p.heard).toEqual([]);
-    // Settled, it wakes on input and settles again after the wait, as any ride.
-    p.win.dispatchEvent(input("wheel"));
+    // Settled, it wakes on a key and settles again after the wait, as any ride.
+    tap(p, "KeyX");
     expect(p.ride.state().settled).toBe(false);
     vi.advanceTimersByTime(MS);
     expect(p.ride.state().settled).toBe(true);
@@ -922,17 +921,32 @@ describe("createRide", () => {
     p.ride.refocus();
     expect(button.focus).not.toHaveBeenCalled();
     p.doc.found['[data-action="ride"]'] = button;
-    p.win.dispatchEvent(input("wheel"));
+    tap(p, "KeyX");
     p.ride.refocus();
     expect(button.focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
     // Once is all: a later wake with nothing lost moves no focus.
     p.ride.refocus();
     expect(button.focus).toHaveBeenCalledTimes(1);
+    // What a settling took is forgotten at the next, where nothing was asked back in between: settled with focus on the button,
+    // woken, settled again with focus on the world, woken, and the button is given nothing.
+    const stale = page(), kept = { dataset: { action: "ride" }, focus: vi.fn() };
+    stale.doc.found['[data-action="ride"]'] = kept;
+    stale.ride.toggle();
+    stale.doc.activeElement = kept;
+    vi.advanceTimersByTime(MS);
+    stale.doc.activeElement = stale.body;
+    tap(stale, "KeyX");
+    stale.doc.activeElement = { name: "the world" };
+    vi.advanceTimersByTime(MS);
+    stale.doc.activeElement = stale.body;
+    tap(stale, "KeyX");
+    stale.ride.refocus();
+    expect(kept.focus).not.toHaveBeenCalled();
     // Where the visitor has moved focus on, or it stayed where it was (the slider, the world), it is left there.
     p.doc.activeElement = button;
     vi.advanceTimersByTime(MS);
     p.doc.activeElement = { name: "the seek slider" };
-    p.win.dispatchEvent(input("wheel"));
+    tap(p, "KeyX");
     p.ride.refocus();
     expect(button.focus).toHaveBeenCalledTimes(1);
   });
@@ -953,7 +967,7 @@ describe("createRide", () => {
     p.ride.refocus();
     expect(settled.focus).toHaveBeenCalledTimes(1);
     // Waking draws it anew again, under the title's plate: the link with focus as the page wakes is the one found again.
-    p.win.dispatchEvent(input("wheel"));
+    tap(p, "KeyX");
     p.doc.found[key] = awake;
     p.doc.activeElement = p.body;
     p.ride.refocus();
@@ -965,43 +979,120 @@ describe("createRide", () => {
     vi.advanceTimersByTime(MS);
     p.doc.activeElement = p.body;
     p.ride.refocus();
-    p.win.dispatchEvent(input("wheel"));
+    tap(p, "KeyX");
     p.ride.refocus();
     expect(settled.focus).toHaveBeenCalledTimes(1);
     expect(awake.focus).toHaveBeenCalledTimes(1);
   });
 
-  it("holds the settled look under the first press on each kind of control the settled look shows, the link, the button and the slider, until its click is delivered; a press on the bare world wakes it at once", () => {
-    expect(CONTROLS).toBe("a[href], button, input, select, textarea, summary");
-    // Elements of the page by kind; `closest` answers for the kinds a selector lists, as for a press on the control itself.
+  it("keeps focus on the sleep timer as the look changes under it: the page draws it anew, in the settled look's corner or under the page's buttons, and the one with focus as the page wakes or settles is found again", () => {
+    const p = page(), key = '[data-action="sleep"]';
+    const corner = { dataset: { action: "sleep" }, focus: vi.fn() }, row = { dataset: { action: "sleep" }, focus: vi.fn() }, button = { dataset: { action: "ride" }, focus: vi.fn() };
+    p.ride.toggle();
+    p.doc.activeElement = button;
+    vi.advanceTimersByTime(MS);
+    p.doc.activeElement = p.body;
+    p.ride.refocus();
+    // Tab has brought focus to the settled look's sleep timer, and woken nothing. Then a key that is no control's wakes the page,
+    // which draws the timer anew under its buttons: it has the focus there, not the ride's button, which lost it at the settling.
+    p.doc.found[key] = corner;
+    p.doc.activeElement = corner;
+    tap(p, "KeyX");
+    expect(p.ride.state().settled).toBe(false);
+    p.doc.found[key] = row;
+    p.doc.found['[data-action="ride"]'] = button;
+    p.doc.activeElement = p.body;
+    p.ride.refocus();
+    expect(row.focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+    expect(button.focus).not.toHaveBeenCalled();
+    // And back to the corner's as the page settles again.
+    p.doc.activeElement = row;
+    vi.advanceTimersByTime(MS);
+    p.doc.found[key] = corner;
+    p.doc.activeElement = p.body;
+    p.ride.refocus();
+    expect(corner.focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+  });
+
+  // Elements of the page by kind, for a press or a key that lands on one: `closest` and `matches` answer for the kinds a selector lists.
+  function kinds() {
     const Kind = class {
+      isContentEditable = false;
       constructor(readonly kind: string) {}
       closest(selector: string) {
         return selector.split(", ").includes(this.kind) ? this : null;
       }
+      matches(selector: string) {
+        return selector.split(", ").some((one) => one === this.kind || one === this.kind.replace("[href]", ""));
+      }
     };
     vi.stubGlobal("Element", Kind);
-    const press = (target: unknown) => ({ pointerId: 4, pointerType: "touch", screenX: 80, screenY: 700, target });
-    for (const kind of ["a[href]", "button", "input"]) {
-      const p = page(), control = new Kind(kind);
-      p.ride.toggle();
-      vi.advanceTimersByTime(MS);
-      p.win.dispatchEvent(input("pointerdown", press(control)));
-      p.win.dispatchEvent(input("pointerup", press(control)));
-      expect(p.ride.state().settled, kind).toBe(true);
+    vi.stubGlobal("HTMLElement", Kind);
+    return Kind;
+  }
+  // A page in a ride that has settled, with a count of what the page is told from then on: a wake is one, whatever comes after.
+  function settledPage() {
+    const p = page(), Kind = kinds();
+    p.ride.toggle();
+    vi.advanceTimersByTime(MS);
+    expect(p.ride.state().settled).toBe(true);
+    let told = 0;
+    p.ride.subscribe(() => { told += 1; });
+    return { p, Kind, told: () => told };
+  }
+
+  it("leaves the settled page settled under a press on each kind of control the settled look shows, the link, the buttons and the slider, a finger's or a mouse's; a press on the bare world wakes it", () => {
+    expect(CONTROLS).toBe("a[href], button, input, select, textarea, summary");
+    const press = (pointerType: string, target: unknown) => ({ pointerId: 4, pointerType, button: 0, screenX: 80, screenY: 700, target });
+    for (const kind of ["a[href]", "button", "input"]) for (const pointer of ["touch", "mouse"]) {
+      const { p, Kind, told } = settledPage(), control = new Kind(kind);
+      p.win.dispatchEvent(input("pointerdown", press(pointer, control)));
+      expect(p.ride.state().settled, `${kind} ${pointer}`).toBe(true);
+      p.win.dispatchEvent(input("pointerup", press(pointer, control)));
       p.win.dispatchEvent(input("click", { target: control }));
-      expect(p.ride.state().settled, kind).toBe(true);
-      vi.advanceTimersByTime(0);
-      expect(p.ride.state(), kind).toEqual({ riding: true, settled: false, sleepEndsAt: null });
+      vi.advanceTimersByTime(3 * MS);
+      expect(p.ride.state(), `${kind} ${pointer}`).toEqual({ riding: true, settled: true, sleepEndsAt: null });
+      expect(told(), `${kind} ${pointer}`).toBe(0);
+      // The press shows the cursor, as a move does.
+      expect(p.classes.has("cursor-off"), `${kind} ${pointer}`).toBe(true);
+      p.win.dispatchEvent(input("pointerdown", press(pointer, control)));
+      expect(p.classes.has("cursor-off"), `${kind} ${pointer}`).toBe(false);
       p.stop();
     }
     // The world, the title and the plates' text are no controls, and neither is what is no element: a press there wakes the page.
-    for (const bare of [new Kind("div"), new Kind("h1"), new Kind("a"), { name: "the window" }]) {
-      const p = page();
-      p.ride.toggle();
+    for (const bare of ["div", "h1", "a", null]) for (const pointer of ["touch", "mouse"]) {
+      const { p, Kind } = settledPage();
+      p.win.dispatchEvent(input("pointerdown", press(pointer, bare === null ? { name: "the window" } : new Kind(bare))));
+      expect(p.ride.state().settled, `${bare} ${pointer}`).toBe(false);
+      p.stop();
+    }
+  });
+
+  it("leaves the settled page settled under a key that moves focus, only modifies another, or is the focused control's own; every other key wakes it", () => {
+    type Key = [string, string, string, Fields?];
+    // Tab and Shift+Tab move focus among the settled look's controls; Enter and Space press a link or a button; the slider's keys
+    // are its own; and a shortcut is the browser's.
+    const quiet: Key[] = [
+      ["Tab", "Tab", "div"], ["ShiftLeft", "Shift", "div"], ["Tab", "Tab", "button", { shiftKey: true }], ["ControlLeft", "Control", "div"], ["AltLeft", "Alt", "div"], ["MetaLeft", "Meta", "div"],
+      ["Enter", "Enter", "a[href]"], ["Enter", "Enter", "button"], ["NumpadEnter", "Enter", "button"], ["Space", " ", "button"], ["Space", " ", "a[href]"],
+      ["ArrowRight", "ArrowRight", "input"], ["KeyX", "x", "input"], ["KeyR", "r", "div", { metaKey: true }], ["KeyL", "l", "div", { ctrlKey: true }],
+    ];
+    for (const [code, key, kind, fields] of quiet) {
+      const { p, Kind, told } = settledPage();
+      p.win.dispatchEvent(input("keydown", { code, key, target: new Kind(kind), ...fields }));
+      expect(p.ride.state().settled, `${code} on ${kind}`).toBe(true);
+      p.win.dispatchEvent(input("keyup", { code, key, target: new Kind(kind), ...fields }));
       vi.advanceTimersByTime(MS);
-      p.win.dispatchEvent(input("pointerdown", press(bare)));
-      expect(p.ride.state().settled).toBe(false);
+      expect(told(), `${code} on ${kind}`).toBe(0);
+      p.stop();
+    }
+    // A letter that is no control's, on the world or with focus on a button or a link; Enter and Space on the bare world, which
+    // press nothing there; a look's key.
+    const waking: Key[] = [["KeyX", "x", "div"], ["KeyX", "x", "button"], ["KeyX", "x", "a[href]"], ["Enter", "Enter", "div"], ["Space", " ", "div"], ["KeyT", "t", "div"]];
+    for (const [code, key, kind] of waking) {
+      const { p, Kind } = settledPage();
+      p.win.dispatchEvent(input("keydown", { code, key, target: new Kind(kind) }));
+      expect(p.ride.state().settled, `${code} on ${kind}`).toBe(false);
       p.stop();
     }
   });

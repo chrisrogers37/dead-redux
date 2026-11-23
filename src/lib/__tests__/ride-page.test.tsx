@@ -118,11 +118,15 @@ describe("the page's wiring to the ride", () => {
     expect(page({}, { recording: false }).one(action("ride"))).toHaveLength(1);
   });
 
-  it("shows the ride's own row, the sleep timer and Leave, only while the visitor rides and the page is awake, and hands it the ride, the timer's end and its unit", () => {
+  it("shows the ride's own two buttons, the sleep timer and Leave, for as long as the visitor rides: a row under the page's buttons while it is awake, the settled look's corner once it has settled; and hands them the ride, the timer's end and its unit", () => {
     expect(page({}).one(named("RideRow"))).toEqual([]);
-    expect(page({ riding: true, settled: true, sleepEndsAt: 5 }).one(named("RideRow"))).toEqual([]);
-    const [row] = page({ riding: true, sleepEndsAt: 1_800_000_000_000 }).one(named("RideRow"));
-    expect(row.props).toEqual({ ride: stand.ride, sleepEndsAt: 1_800_000_000_000, unit: 60_000 });
+    const awake = page({ riding: true, sleepEndsAt: 1_800_000_000_000 }).one(named("RideRow"));
+    expect(awake.map((row) => row.props)).toEqual([{ ride: stand.ride, sleepEndsAt: 1_800_000_000_000, unit: 60_000, settled: false }]);
+    const settled = page({ riding: true, settled: true, sleepEndsAt: 5 });
+    expect(settled.one(named("RideRow")).map((row) => row.props)).toEqual([{ ride: stand.ride, sleepEndsAt: 5, unit: 60_000, settled: true }]);
+    // The corner is the page's last element, after the stick, as the settled look's order of focus has it: the chip, the slider, then these.
+    const children = settled.main.props.children as unknown[];
+    expect((children.filter(Boolean).at(-1) as Node).type).toBe(settled.one(named("RideRow"))[0].type);
   });
 
   it("strips the HUD only once the ride has settled: the player is told so, and the title, the buttons, the shelves' tabs and the legend go", () => {

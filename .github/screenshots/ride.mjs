@@ -3,6 +3,8 @@
 // renderer can take a still of the wrong look, or look for a control that has gone. So each step here says the look it needs
 // (`ride`: "awake" or "settled"), the shoot reads the page's own mark just before the still and just after, and a still taken in
 // any other look fails the run (stillInLook). A control a step clicks is `required`: one that is missing fails the run too.
+// A settled page is used as it is: a pointer that moves only shows its cursor, and a press on one of its controls does that
+// control's work. What wakes it is a press on the bare world, or a key that is no control's. The steps below try each of these.
 // scripts/__tests__/ride-shoot.test.ts holds every step to that, and the stills' names to the list there.
 
 export const RIDE = "[data-action='ride']";
@@ -37,20 +39,48 @@ export async function stillInLook(page, need, take) {
   return need ? rideFailure(need, before, await rideNow(page)) : null;
 }
 
-// What is wrong with a press that needs the ride in the look `from` as it is made, a tap on a control of the settled look: null
-// where the page marks that look.
-export async function pressFailure(page, from) {
+// How long a press that needs the ride in a look waits for the page to come to it: a page a step has woken settles again in its
+// device's wait, 15 s at most, and this is the wait a settled still gets (rideSteps).
+const LOOK_WAIT_MS = 40_000;
+
+// What is wrong with a press that needs the ride in the look `from` as it is made, a press on a control of the settled look: null
+// where the page marks that look, once it has had `waitMs` to come to it.
+export async function pressFailure(page, from, waitMs = LOOK_WAIT_MS) {
+  await page.waitForSelector(`main[data-ride='${from}']`, { timeout: waitMs }).catch(() => {});
   const now = await rideNow(page);
   return now === from ? null : `the press needs the ride ${from}, and the page had it ${now}`;
 }
 
-// A pointer that moves, over the world and clear of every plate, which wakes a settled ride and leaves its camera where it is. The
-// page takes the first move it hears only for where the pointer is (watchIdle in ride.ts), so the pointer goes to one place and
-// then on to another, in a few moves.
-export async function wakeByPointer(page) {
+// What is wrong with a page whose cursor should be `want`, "shown" or "hidden": null where it is. A settled page hides its cursor,
+// and shows it for three seconds after a pointer's move or press, or a key (the class on <html>, ride.ts). A still cannot show a
+// cursor, and a slow renderer's still outlasts those three seconds, so the shoot reads it as soon as the step has acted.
+export async function cursorFailure(page, want) {
+  const now = (await page.evaluate(() => document.documentElement.classList.contains("cursor-off"))) ? "hidden" : "shown";
+  return now === want ? null : `the cursor should be ${want}, and it is ${now}`;
+}
+
+// A place over the world, clear of every plate of both looks, on a desktop and on a phone, where the settled look's corner ends
+// 184 px down and its chip begins 489 px down of 844: left of the middle and a little above it.
+const overWorld = (page) => {
   const { width, height } = page.viewportSize();
-  await page.mouse.move(width * 0.45, height * 0.55);
-  await page.mouse.move(width * 0.45 + 24, height * 0.55 + 12, { steps: 4 });
+  return [width * 0.45, height * 0.45];
+};
+
+// A pointer that moves over the world, which shows a settled page's cursor and wakes nothing. The page takes the first move it
+// hears only for where the pointer is (watchIdle in ride.ts), so the pointer goes to one place and then on to another, in a few
+// moves.
+export async function movePointer(page) {
+  const [x, y] = overWorld(page);
+  await page.mouse.move(x, y);
+  await page.mouse.move(x + 24, y + 12, { steps: 4 });
+}
+
+// A press on the bare world, which wakes a settled page: a finger's tap where the device has a touch screen, and there the world
+// takes it for a look too, so the camera comes back from the crane; else a mouse's click.
+export async function pressWorld(page, touch) {
+  const [x, y] = overWorld(page);
+  if (touch) await page.touchscreen.tap(x, y);
+  else await page.mouse.click(x, y);
 }
 
 // The ride's two stills: the press, which starts the ride with the whole HUD and the camera that walks with the bears (`<shot>`); then,
@@ -66,6 +96,8 @@ export const rideSteps = (shot, crane = false) => [
 // The chip's link to the next show, and today's page once that link has loaded it: no chip, and the show playing, or paused where
 // the browser refuses to start it.
 const NEXT_LINK = "[data-action='play-next']";
+// The sleep timer, which both looks show.
+const SLEEP = "[data-action='sleep']";
 const ARRIVED = "main:not(:has([data-next]))[data-state='playing'], main:not(:has([data-next]))[data-state='paused']";
 
 // The pages that shoot the ride, each with the devices it names (null for every device that shoots every page; the TV shoots the
@@ -77,30 +109,32 @@ export const ridePages = (playWaitMs) => ({
   fixed: { devices: null, steps: rideSteps("fixed-ride", true) },
   // Without WebGL the ride is the page's half of it.
   still: { devices: ["desktop-nowebgl", "phone-nowebgl"], steps: rideSteps("fixed-ride") },
-  // The new day's chip: under the title's plate while the ride is awake, over the title once it has settled. Its link loads today's
-  // page, which arrives riding and settled at once. On a touch screen (`touch: true`) a finger taps the settled chip's link, and
-  // that first tap follows it: the settled look holds under a press on a control until its click has been delivered (watchIdle in
-  // ride.ts), and the step fails the run unless the page is settled as it taps (`from`). A mouse cannot reach the settled link
-  // without moving, and a pointer that moves wakes the page and leaves the camera where it is, so the other devices
-  // (`touch: false`) take a still of that and press the link where it is then, back under the title's plate.
+  // The new day's chip: under the title's plate while the ride is awake, over the title once it has settled. With a mouse
+  // (`touch: false`) the pointer then moves over the world: the cursor shows and the page stays settled. A press on the bare world
+  // wakes it, a tap where the device has a touch screen, which is a look too. Left alone it settles again, and the press on the
+  // settled chip's link waits for that (`from`): a tap on a touch screen, else a click, the pointer's way to it waking nothing. The
+  // link is followed at that first press, and today's page arrives riding and settled at once.
   newday: {
     devices: ["desktop", "phone", "desktop-reduced"],
     steps: [
       ...rideSteps("fixed-newday-ride"),
-      { touch: false, wake: true, waitFor: AWAKE, required: true, ride: "awake", shot: "fixed-newday-ride-woken" },
-      { touch: false, click: NEXT_LINK, required: true, waitFor: ARRIVED, waitMs: playWaitMs, player: true, ride: "settled", shot: "fixed-newday-tapped" },
+      { touch: false, move: true, cursor: "shown", ride: "settled", shot: "fixed-newday-ride-moved" },
+      { world: true, waitFor: AWAKE, required: true, ride: "awake", shot: "fixed-newday-ride-woken" },
+      { touch: false, click: NEXT_LINK, from: "settled", required: true, waitFor: ARRIVED, waitMs: playWaitMs, player: true, ride: "settled", shot: "fixed-newday-tapped" },
       { touch: true, tap: NEXT_LINK, from: "settled", required: true, waitFor: ARRIVED, waitMs: playWaitMs, player: true, ride: "settled", shot: "fixed-newday-tapped" },
     ],
   },
   // The sleep timer counting seconds: the ride's own row has it while the page is awake, and one press sets 30 s. The later still
   // comes 32 s after that one: the show is paused, and with no input since the press the ride has settled and the cursor is hidden.
-  // A key wakes the page, which brings both back, the ride still on.
+  // Focus on the settled look's sleep timer and a key that only modifies another bring the cursor back and leave the look. Then a
+  // letter that is no control's wakes the page, the ride still on.
   sleep: {
     devices: ["desktop"],
     steps: [
       { click: RIDE, required: true, waitFor: AWAKE, ride: "awake", shot: "fixed-sleep-ride" },
-      { click: "[data-action='sleep']", required: true, ride: "awake", shot: "fixed-sleep-30", later: { ms: 32_000, shot: "fixed-slept", ride: "settled" } },
-      { press: "ShiftLeft", waitFor: AWAKE, required: true, ride: "awake", shot: "fixed-cursor-back" },
+      { click: SLEEP, required: true, ride: "awake", shot: "fixed-sleep-30", later: { ms: 32_000, shot: "fixed-slept", ride: "settled", cursor: "hidden" } },
+      { focus: SLEEP, press: "ShiftLeft", required: true, cursor: "shown", ride: "settled", shot: "fixed-cursor-back" },
+      { press: "KeyX", waitFor: AWAKE, required: true, ride: "awake", shot: "fixed-key-woken" },
     ],
   },
   // The look-up failed: the plate that says so, in a ride awake and settled.
