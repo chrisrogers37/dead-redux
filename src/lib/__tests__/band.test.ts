@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { buildBand, HALF_OVER, HALF_UNDER, SCALE } from "../../../public/world/band.js";
 import { beatStep } from "../../../public/world/beat.js";
 import { PERSON } from "../../../public/world/seats.js";
-import { FLOOR, FLOOR_R, FLOOR_SIDES, PANEL } from "../../../public/world/stage.js";
+import { buildStage, FLOOR, FLOOR_R, FLOOR_SIDES, PANEL } from "../../../public/world/stage.js";
 
 // public/world/band.js builds the band here as stage.js builds it, from three itself, in a group of the test's own that stands where
 // the stage's does in its own frame: at its origin, so a corner's place in the world here is its place on the stage. Nothing is
@@ -113,8 +113,8 @@ afterEach(() => {
 describe("the band, as it is built", () => {
   const built = stand(), { band, stage } = built;
 
-  it("is six players: a bass, a guitar, two drummers, a guitar and keys, from the crowd's left", () => {
-    expect(band.players.map((p: { plays: string }) => p.plays)).toEqual(["bass", "guitar", "drums", "drums", "guitar", "keys"]);
+  it("is six players: a guitar, a bass, two drummers, a guitar and keys, from the crowd's left, the bass between the guitars", () => {
+    expect(band.players.map((p: { plays: string }) => p.plays)).toEqual(["guitar", "bass", "drums", "drums", "guitar", "keys"]);
     const across = band.players.map((p: { g: { position: Vec } }) => p.g.position.x);
     expect(across).toEqual([...across].sort((a, b) => a - b));
   });
@@ -185,7 +185,7 @@ describe("the band, as it is built", () => {
       expect(Math.abs(y - FLOOR)).toBeLessThan(0.005);
     }
     const taps = band.bones.filter((bone: Bone) => bone.name === "tapping foot");
-    expect(taps.map((bone: Bone) => band.players[bone.of].plays)).toEqual(["bass", "guitar", "guitar"]);
+    expect(taps.map((bone: Bone) => band.players[bone.of].plays)).toEqual(["guitar", "bass", "guitar"]);
     const limb = band.limbs.geometry.getAttribute("position"), at = new THREE.Vector3();
     for (const bone of taps) {
       band.limbs.getMatrixAt(bone.at, matrix);
@@ -204,20 +204,20 @@ describe("the band, as it is built", () => {
     }
     // A seated drummer's legs are the only still part that hangs: from the hips, down into the cuffs.
     const kinds = [...new Set([...lowest.keys()].map((name) => name.replace(/^(bass|guitar|keys|drums) /, "").replace(/ of .*/, "")))].sort();
-    expect(kinds).toEqual(["amplifier", "cuff", "keyboard", "kit", "leg", "microphone", "monitor", "shoe"]);
+    expect(kinds).toEqual(["cuff", "keyboard", "kit", "leg", "microphone", "monitor", "shoe"]);
     for (const [name, y] of lowest) expect([name, y - FLOOR < (name.includes("leg") ? 0.3 : name.includes("cuff") ? 0.15 : 0.03)]).toEqual([name, true]);
     // And piece by piece: every piece of a stand, a kit, a keyboard or an amplifier stands on the floor or on a piece that does. Two
     // pieces hold one another where their boxes meet, within 2 cm.
     const at = new THREE.Vector3(), pieces = new Map<string, { box: { min: Vec; max: Vec; intersectsBox(other: unknown): boolean; expandByScalar(by: number): unknown }; held: boolean }[]>();
     for (const part of band.still.userData.parts) {
-      if (!["microphone", "kit", "keyboard", "amplifier"].includes(part.of)) continue;
+      if (!["microphone", "kit", "keyboard"].includes(part.of)) continue;
       const box = new THREE.Box3();
       for (let i = part.from; i < part.from + part.count; i++) box.expandByPoint(at.fromBufferAttribute(still, i));
       const name = `${part.of} of ${part.by}`;
       pieces.set(name, [...(pieces.get(name) ?? []), { box, held: box.min.y - FLOOR < 0.03 }]);
       box.expandByScalar(0.01);
     }
-    expect(pieces.size).toBe(8);
+    expect(pieces.size).toBe(7);
     for (const [name, group] of pieces) {
       for (let pass = 0; pass < group.length; pass++) for (const piece of group) if (!piece.held && group.some((other) => other.held && other.box.intersectsBox(piece.box))) piece.held = true;
       expect([name, group.length, group.filter((piece) => !piece.held).length]).toEqual([name, group.length, 0]);
@@ -312,7 +312,7 @@ describe("the band, as it is built", () => {
       }
       return [{ plays: p.plays, before: mic.z - face }];
     });
-    expect(gaps.map(({ plays }: { plays: string }) => plays)).toEqual(["bass", "guitar", "guitar", "keys"]);
+    expect(gaps.map(({ plays }: { plays: string }) => plays)).toEqual(["guitar", "bass", "guitar", "keys"]);
     // In the player's own metres: a head 0.027 across that stood off the face as it did, 0.065 before it, would fail this.
     for (const { plays, before } of gaps) expect([plays, before > -0.03 && before < 0.03]).toEqual([plays, true]);
     // The stand's foot: the lowest corner of the stand. From the mouth it lies toward the crowd, +z on the stage, within 0.2 rad.
@@ -328,7 +328,7 @@ describe("the band, as it is built", () => {
     });
   });
 
-  it("stands a kit's poles upright, each cymbal within reach of one: a piece over 45 cm tall and thin is under 5 cm across, and every disc's middle is within 30 cm of a pole, in the drummer's metres", () => {
+  it("stands a kit's poles upright, each cymbal within reach of one: a piece over 45 cm tall and thin is under 8 cm across, and every disc's middle is within 30 cm of a pole, in the drummer's metres", () => {
     const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
     band.players.forEach((p: { plays: string }, k: number) => {
       if (p.plays !== "drums") return;
@@ -344,7 +344,7 @@ describe("the band, as it is built", () => {
       }
       // The snare's stand and a cymbal's pole at the least; a hi-hat's two cymbals, a ride and, for the first drummer, a crash.
       expect(poles.length).toBeGreaterThanOrEqual(2);
-      expect(Math.max(...poles.map((pole) => pole.across))).toBeLessThan(0.05);
+      expect(Math.max(...poles.map((pole) => pole.across))).toBeLessThan(0.08);
       expect(discs.length).toBe(k === 2 ? 4 : 3);
       for (const disc of discs) expect(Math.min(...poles.map((pole) => Math.hypot(pole.x - disc.x, pole.z - disc.z)))).toBeLessThan(0.3);
     });
@@ -356,6 +356,108 @@ describe("the band, as it is built", () => {
 // white as a rasterizer has it, a pixel black where its middle is inside a triangle, from the front and far off: once from 0.5 rad up
 // at 12 cm a pixel, as from the hill on a desktop, and once from 0.12 rad up at 4 cm a pixel, as from the front of the crowd. What
 // stands under 0.6 m over the floor is left out: from the hill that is seen against the floor, not the panel.
+describe("the band on the stage", () => {
+  it("is built by the stage itself, in the stage's group, and played by the stage's move", () => {
+    const scene = new THREE.Scene();
+    const built = buildStage(scene, null, false, new THREE.MeshBasicMaterial(), { uC0: { value: null }, uC1: { value: null } });
+    // The band's meshes are the ones drawn in its black: six bodies, the limbs and the still parts, all under the stage's group.
+    type Drawn = { isMesh?: boolean; isInstancedMesh?: boolean; material?: { type: string; color?: { getHex(): number } }; instanceMatrix?: { array: Float32Array } };
+    const black: Drawn[] = [];
+    built.group.traverse((o: Drawn) => { if (o.isMesh && o.material?.type === "MeshBasicMaterial" && o.material.color?.getHex() === 0x0b0b0d) black.push(o); });
+    expect(black).toHaveLength(8);
+    const elsewhere: Drawn[] = [];
+    scene.traverse((o: Drawn) => { if (o.isMesh && o.material?.type === "MeshBasicMaterial" && o.material.color?.getHex() === 0x0b0b0d && !black.includes(o)) elsewhere.push(o); });
+    expect(elsewhere).toEqual([]);
+    const limbs = black.find((o) => o.isInstancedMesh)!;
+    const before = Array.from(limbs.instanceMatrix!.array);
+    let beats = 0;
+    for (let frame = 1; frame <= 90; frame++) built.move(1 / 60, frame / 60, (beats += 96 / 3600), true);
+    expect(Math.max(...Array.from(limbs.instanceMatrix!.array).map((value, k) => Math.abs(value - before[k])))).toBeGreaterThan(0.05);
+  });
+
+  // CLAUDE.md: never anyone's likeness. No feature of a figure is anyone's; this holds the pairs too. A fan knows a band's players
+  // by an instrument with a build and a head of hair: so no guitar or bass goes with a bushy head, no guitar with a lean build and
+  // long straight hair, no bass with the tallest and leanest build, no keys with a hat or long hair, no drums with curls; and the
+  // bass stands between the guitars, where the band this site is for never stood it.
+  it("pairs no instrument with the build and the hair a fan knows a player of it by, and no two of the six are dressed alike", () => {
+    const { band } = stand();
+    type Look = { size: number; broad: number; hair: string; skirt: number };
+    const six: { plays: string; look: Look }[] = band.players.map((p: { plays: string; look: Look }) => ({ plays: p.plays, look: p.look }));
+    const known = ["short", "long", "bob", "tail", "cap", "knot"];
+    for (const { plays, look } of six) {
+      expect([plays, known.includes(look.hair)]).toEqual([plays, true]);
+      if (plays === "guitar") expect([plays, look.broad < 1 && look.hair === "long"]).toEqual([plays, false]);
+      if (plays === "bass") expect([plays, look.size >= 1 && look.broad < 1]).toEqual([plays, false]);
+      if (plays === "keys") expect([plays, ["cap", "long"].includes(look.hair)]).toEqual([plays, false]);
+    }
+    // No two wear their hair alike, and the standing four are four heights and four builds.
+    expect(new Set(six.map(({ look }) => look.hair)).size).toBe(6);
+    const standing = six.filter(({ plays }) => plays !== "drums");
+    expect(new Set(standing.map(({ look }) => look.size)).size).toBe(4);
+    expect(new Set(standing.map(({ look }) => look.broad)).size).toBe(4);
+    // Two of them are in long skirts and one in a coat, in no order a band's front line has.
+    expect(standing.map(({ plays, look }) => `${plays} ${look.skirt}`)).toEqual(["guitar 0.5", "bass 0.8", "guitar 0.8", "keys 0"]);
+  });
+
+  it("stands nothing under a jaw: between the shoulders and the chin, within the head's width, nothing of a body is further forward than the neck by more than 2 cm", () => {
+    const { band } = stand();
+    for (const p of band.players as { plays: string; pivot: Vec; body: { geometry: { getAttribute(name: string): { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number } } } }[]) {
+      // A body's corners are kept upright about its pivot, at the waist: the hips are 0.92 up for one who stands and 0.6 for one who sits,
+      // the shoulders' slope ends 0.54 over them and the chin is 0.63 over them; the neck's front is 0.058 forward.
+      const corner = p.body.geometry.getAttribute("position"), hips = (p.plays === "drums" ? 0.6 : 0.92) - p.pivot.y;
+      let forward = -Infinity, seen = 0;
+      // Each face is read at its corners and at points across it: a long face, as of hair that falls, has no corner at this height.
+      for (let i = 0; i < corner.count; i += 3) {
+        for (let u = 0; u <= 6; u++) for (let v = 0; u + v <= 6; v++) {
+          const w = [u / 6, v / 6, 1 - (u + v) / 6];
+          const x = w[0] * corner.getX(i) + w[1] * corner.getX(i + 1) + w[2] * corner.getX(i + 2), y = w[0] * corner.getY(i) + w[1] * corner.getY(i + 1) + w[2] * corner.getY(i + 2) - hips;
+          if (y < 0.55 || y > 0.62 || Math.abs(x) > 0.13) continue;
+          seen += 1;
+          forward = Math.max(forward, w[0] * corner.getZ(i) + w[1] * corner.getZ(i + 1) + w[2] * corner.getZ(i + 2));
+        }
+      }
+      expect(seen).toBeGreaterThan(0);
+      expect([p.plays, forward < 0.058 + 0.02]).toEqual([p.plays, true]);
+    }
+  });
+
+  it("makes every stand stout enough to fill a pixel from among the crowd: a pole, a leg or an arm of a kit, a keyboard or a microphone is 6 cm across or more", () => {
+    const { band } = stand();
+    const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
+    let long = 0;
+    for (const part of band.still.userData.parts as Part[]) {
+      if (!["microphone", "kit", "keyboard"].includes(part.of)) continue;
+      // In the player's own frame, where a leg or a pole lies square to an axis, and in metres.
+      const box = new THREE.Box3(), by = part.by as number, scale = band.players[by].g.scale.x;
+      let top = -Infinity;
+      for (let i = part.from; i < part.from + part.count; i++) { at.fromBufferAttribute(still, i); top = Math.max(top, at.y); box.expandByPoint(own(band, by, at)); }
+      const size = [box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z].map((side) => side * scale);
+      // A piece under 45 cm long is a microphone or a fitting, and one that ends under 20 cm over the floor is a foot, which lies flat.
+      if (Math.max(...size) < 0.45 || top - FLOOR < 0.2) continue;
+      long += 1;
+      expect([part.of, part.by, Math.min(...size) >= 0.06]).toEqual([part.of, part.by, true]);
+    }
+    expect(long).toBeGreaterThan(20);
+  });
+
+  it("gives the three who stand with an instrument three lags, the two drummers two, and each a whole number of counts", () => {
+    const { band } = stand();
+    const lags = band.players.map((p: { plays: string; lag: number }) => ({ plays: p.plays, lag: p.lag }));
+    for (const { lag } of lags) expect(Number.isInteger(lag) && lag >= 0 && lag < 4).toBe(true);
+    const of = (plays: string[]) => lags.filter((l: { plays: string }) => plays.includes(l.plays)).map((l: { lag: number }) => l.lag);
+    expect(new Set(of(["guitar", "bass"])).size).toBe(3);
+    expect(new Set(of(["drums"])).size).toBe(2);
+    // And neighbours on the stage never share one: each sways or rocks apart from the player beside them.
+    for (let k = 1; k < lags.length; k++) expect([k, lags[k].lag !== lags[k - 1].lag]).toEqual([k, true]);
+  });
+
+  it("turns the keys player most of the way to the crowd: within half a radian of facing it", () => {
+    const { band } = stand();
+    const keys = band.players.find((p: { plays: string }) => p.plays === "keys");
+    expect(Math.abs(keys.g.rotation.y)).toBeLessThan(0.5);
+  });
+});
+
 describe("the band's outlines, from the front, through four counts of playing", () => {
   const FROM = 0.6, UP = 2;
   // Every triangle of the band as it stands: each corner's place across the stage and up the view, and whether its part moves.
@@ -430,7 +532,7 @@ describe("the band's outlines, from the front, through four counts of playing", 
     return { thin, pockets };
   }
 
-  it("leaves few gaps under 3 px with a moving part at their edge: from the hill no more than 36 thin pixels and 4 small pockets in any of 16 poses, and from the front of the crowd 166 and 5", () => {
+  it("leaves few gaps under 3 px with a moving part at their edge: from the hill no more than 27 thin pixels and 3 small pockets in any of 16 poses, and from the front of the crowd 90 and 3", () => {
     const built = stand();
     built.play(1.5, 96);
     const most = { far: { thin: 0, pockets: 0 }, near: { thin: 0, pockets: 0 } };
@@ -441,12 +543,11 @@ describe("the band's outlines, from the front, through four counts of playing", 
         most[view] = { thin: Math.max(most[view].thin, found.thin), pockets: Math.max(most[view].pockets, found.pockets) };
       }
     }
-    // Counted 34 and 4 from the hill and 170 and 4 from the front; the band before its outlines were closed counted 100 and 12,
-    // and 250 and 20. Something is counted: a wedge's tip is thin wherever two parts part.
-    // Counted 34 and 4 from the hill and 160 and 4 from the front (170 with each head's pegs apart); the band before its outlines
-    // were closed counted 100 and 12, and 255 and 21. Something is counted: a wedge's tip is thin wherever two parts part.
+    // Counted 25 and 3 from the hill and 86 and 1 from the front. The first version of the band, before its outlines were closed,
+    // counted 100 and 12, and 255 and 21; the closed band before the six were dealt again counted 34 and 4, and 160 and 4.
+    // Something is counted: a wedge's tip is thin wherever two parts part.
     expect(most.far.thin).toBeGreaterThan(10);
-    expect([most.far.thin <= 36, most.far.pockets <= 4, most.near.thin <= 166, most.near.pockets <= 5]).toEqual([true, true, true, true]);
+    expect([most.far.thin <= 27, most.far.pockets <= 3, most.near.thin <= 90, most.near.pockets <= 3]).toEqual([true, true, true, true]);
   });
 });
 
@@ -496,6 +597,8 @@ describe("the band's playing", () => {
     for (const drummer of lift) {
       const top = { left: Math.max(...drummer.map((f) => f.left)), right: Math.max(...drummer.map((f) => f.right)) };
       expect(Math.min(top.left, top.right)).toBeGreaterThan(0.1);
+      // A stick's tip rises 36 to 39 cm in a stroke, and no further.
+      expect(Math.max(top.left, top.right)).toBeLessThan(0.5);
       expect(drummer.some((f) => f.left > 0.9 * top.left && f.right < 0.01)).toBe(true);
       expect(drummer.some((f) => f.right > 0.9 * top.right && f.left < 0.01)).toBe(true);
       // Never both at the top at once.
@@ -530,6 +633,8 @@ describe("the band's playing", () => {
     play(10, 96, true, () => lift.push({ left: ends(band, left).b.y - rest.left, right: ends(band, right).b.y - rest.right }));
     const top = { left: Math.max(...lift.map((f) => f.left)), right: Math.max(...lift.map((f) => f.right)) };
     expect(Math.min(top.left, top.right)).toBeGreaterThan(0.05);
+    // A hand lifts 16 cm off its keys, and no further.
+    expect(Math.max(top.left, top.right)).toBeLessThan(0.22);
     expect(lift.some((f) => f.left > 0.9 * top.left && f.right < 0.001)).toBe(true);
     expect(lift.some((f) => f.right > 0.9 * top.right && f.left < 0.001)).toBe(true);
     expect(lift.filter((f) => f.left > 0.5 * top.left && f.right > 0.5 * top.right)).toEqual([]);
@@ -598,6 +703,26 @@ describe("the band's playing", () => {
     expect(tapsIn(20, 96)).toBeCloseTo(0.8, 1);
     play(4, 84);
     expect(tapsIn(20, 84)).toBeCloseTo(1.4, 1);
+  });
+
+  it("comes back onto the beat after half time: once the tempo falls, a foot lands within a twelfth of a beat of each beat again", () => {
+    // Half time leaves the band's count off the beat by whatever part of a beat it ran: three lengths of it, three eighths of a beat
+    // apart, so that the count is off by more than a twelfth after one of them at the least, unless it is brought back.
+    for (const seconds of [6.3, 6.45, 6.6]) {
+      const { band, clock, play } = stand();
+      const foot = band.bones.findIndex((bone: Bone) => bone.name === "tapping foot"), down = ends(band, foot).b.y;
+      play(seconds, 150);
+      play(8, 84);
+      const landed: number[] = [];
+      let up = false;
+      play(12, 84, true, () => {
+        const y = ends(band, foot).b.y - down;
+        if (y > 0.02) up = true;
+        else if (up && y < 0.002) { landed.push(clock.beats); up = false; }
+      });
+      expect(landed.length).toBeGreaterThan(12);
+      for (const beats of landed) expect([seconds, Math.abs(beats - Math.round(beats)) < 1 / 12]).toEqual([seconds, true]);
+    }
   });
 
   it("is not thrown into half time by a pull on the beat: at 92 a minute the hardest pull an onset gives leaves a foot tapping every beat", () => {
@@ -742,7 +867,7 @@ describe("the band's playing", () => {
       for (const part of band.still.userData.parts) if (part.of === "microphone" && part.by === k) for (let i = part.from; i < part.from + part.count; i++) if (still.getY(i) > mic.y) mic.fromBufferAttribute(still, i);
       return mic.y > 0 ? [{ p, mic, held: mic.clone().applyMatrix4(p.body.matrixWorld.clone().invert()), rest: p.body.position.x, hips: 0, off: 0 }] : [];
     });
-    expect(singers.map(({ p }: { p: { plays: string } }) => p.plays)).toEqual(["bass", "guitar", "guitar", "keys"]);
+    expect(singers.map(({ p }: { p: { plays: string } }) => p.plays)).toEqual(["guitar", "bass", "guitar", "keys"]);
     play(12, 96, true, () => {
       stage.updateMatrixWorld(true);
       for (const singer of singers) {
@@ -809,7 +934,7 @@ describe("the band's playing", () => {
     expect(busiest).toBeGreaterThanOrEqual(2 * COUNTS - 1);
   });
 
-  it("makes nothing in a frame: six hundred frames of playing, stopping and a change of tempo construct no vector, matrix or array", () => {
+  it("makes no Vector3, Matrix4, Quaternion, Euler or Float32Array in a frame: six hundred frames of playing, stopping and a change of tempo construct none", () => {
     const { band, clock } = stand();
     let arrays = 0;
     const Counted = class extends Float32Array {
