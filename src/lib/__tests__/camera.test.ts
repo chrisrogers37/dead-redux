@@ -450,8 +450,10 @@ describe("the walk's camera at a landmark and the stage", () => {
   // and the same between two landmarks whose rooms overlap. Here every kind of walk is cut off at a frame of its own and the bear
   // stands still. 1,771 stops a tier on seven shows, 1.6 million frames in all: four seconds, and more on a busy machine.
   it("comes to rest once the bear stands still, whatever the walk before: after each kind of walk at every third landmark of seven shows, round the stage, along the path and at random, and after turning round at the stage's edge as the review did, it moves less than a centimetre a frame within three seconds and rests where a cut to that stand would put it", { timeout: 120000 }, () => {
-    // How long the bear stands, in frames; and by when the camera must be at rest, in frames: 3 s.
-    const STILL = 300, REST = 180;
+    // How long the bear stands, in frames; and by when the camera must be at rest, in frames: 3 s. At rest means at rest: over the
+    // last second of the stand, TAIL frames, the camera moves less than a millimetre in all, so one that crept, or swung by less
+    // than the centimetre a frame the first bar reads, would fail.
+    const STILL = 300, REST = 180, TAIL = 60;
     const [sx, sz] = STAGE;
     for (const phone of [false, true]) {
       const tier = phone ? "phone" : "desktop";
@@ -476,18 +478,20 @@ describe("the walk's camera at a landmark and the stage", () => {
         for (const walk of walks) {
           const walker = { ...walk.start }, at = `${date} on a ${tier}: ${walk.name}, stopped at frame ${walk.frames}`;
           confine(walker, limits);
-          let rested = 0;
+          let rested = 0, tail = 0;
           for (let f = 0; f < walk.frames + STILL; f++) {
             if (f > 0 && f < walk.frames) stride(walker, walk.keys(f, walker), limits);
             avatar.step(walker.x, walker.z, walker.heading, DT);
             avatar.boom(camera, walker, DT, f === 0);
             // At rest from the frame after the last in which it moved a centimetre.
             if (f >= walk.frames && camera.position.distanceTo(was) >= 0.01) rested = f - walk.frames + 1;
+            if (f >= walk.frames + STILL - TAIL) tail += camera.position.distanceTo(was);
             was.copy(camera.position);
           }
           cutter.step(walker.x, walker.z, walker.heading, 0);
           cutter.boom(fresh, walker, 0, true);
           expect(rested, at).toBeLessThanOrEqual(REST);
+          expect(tail, at).toBeLessThan(0.001);
           expect(camera.position.distanceTo(fresh.position), at).toBeLessThan(SLACK + 0.05);
           if (rested > longest) { longest = rested; longestAt = at; }
           stops += 1;
