@@ -25,12 +25,26 @@ jobs:
       (github.event.deployment_status.state == 'success' &&
       github.event.deployment.environment == 'Preview')
     runs-on: ubuntu-24.04
-    # Room for every shot and recording, the play steps' waits for archive.org's stream, the walk's sweep and the MP4 conversion, and
-    # for the browser's system packages, which the Ubuntu mirror can take over ten minutes to serve. A run takes about 45 minutes on
-    # most runners, and half as long again on a slow one: on 2026-11-22 one runner drew a desktop's frame in 620 ms where another,
-    # shooting the same pages at the same hour, took 310 ms, and its run was cut at 60 minutes, its last stills and its recordings
-    # untaken. A job cut at its limit uploads nothing, so the limit leaves room to spare.
-    timeout-minutes: 80
+    # The shoot runs as three jobs side by side, one for each shard (.github/screenshots/shards.mjs): the desktop's pages that act, the
+    # desktop's pages that only look, and the rest, which is every other device, the recordings and the generated images. Each job
+    # shoots its shard, checks what it shot and uploads it as an artifact of its own, named for the shard. The steps are the same in
+    # each, but for the ones only `rest` has a use for: ffmpeg and the conversion to MP4, the reduced-motion compare and the install
+    # check.
+    strategy:
+      # A shard that fails fails the run, and the others still shoot and upload theirs.
+      fail-fast: false
+      matrix:
+        shard: [desktop-acts, desktop-looks, rest]
+    # The limit. As one job the shoot took 55 minutes for main's world (98680e8) and 67 for the heaviest world shot so far (c9753ad),
+    # both on 2026-11-23. By the second run's log its longest shard is `rest`: 24.2 minutes of pages and recordings, and 3.4 of set-up,
+    # conversion, checks and upload, 27.6 in all. A slow runner takes 1.4 times as long (on the night of 2026-11-22 two runs took the
+    # same 353 stills and recordings, one in 46.0 minutes and one in 64.8), which makes 38.6, and the browser's system packages, 70 s
+    # in that run, can take over ten minutes when the Ubuntu mirror is slow, 9 more: 47.6. A job cut at its limit uploads nothing, so
+    # the limit leaves 12 minutes over that for what later changes add to a shard.
+    timeout-minutes: 60
+    env:
+      # The part of the shoot this job does: shoot.mjs reads it, and stops at a name that is no shard's.
+      SHARD: ${{ matrix.shard }}
     defaults:
       run:
         working-directory: .github/screenshots
@@ -41,16 +55,28 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      - run: npm ci
-      # ffmpeg-static's install script fetches ffmpeg from the package's GitHub release and checks no digest. This is the sha256 of the
-      # b6.0 release's linux-x64 build; a different binary fails the run before anything uses it.
+      # The run's page shows the jobs' summaries one after another, so each starts with its shard's name.
+      - name: Head the summary with the shard's name
+        run: |
+          echo "## Shard $SHARD" >> "$GITHUB_STEP_SUMMARY"
+      # ffmpeg-static's install script, the only one among the shoot's packages (package-lock.json), fetches ffmpeg from the package's
+      # GitHub release. Only the shard that records has a use for it, so the others install without running it: GitHub has refused
+      # that fetch before, which fails the job, and each shard that made it would be one more chance of that.
+      - if: matrix.shard == 'rest'
+        run: npm ci
+      - if: matrix.shard != 'rest'
+        run: npm ci --ignore-scripts
+      # That script checks no digest. This is the sha256 of the b6.0 release's linux-x64 build; a different binary fails the run before
+      # anything uses it.
       - name: Check ffmpeg's sha256
+        if: matrix.shard == 'rest'
         run: |
           echo "ed652b2f32e0851d1946894fb8333f5b677c1b2ce6b9d187910a67f8b99da028  node_modules/ffmpeg-static/ffmpeg" \
             | sha256sum --check --strict
       # Each CDN file the import map pins (src/lib/import-map.ts), fetched and checked against its pinned sha384, which is the hash of
-      # that file in the three version's npm package. A file the CDN serves with another hash, or does not serve, fails the run before
-      # the shoot loads it. The plain-Node hook lets node import the module, as the maps workflow does.
+      # that file in the three version's npm package. A file the CDN serves with another hash, or does not serve, fails the job before
+      # the shoot loads it. Every shard checks, since every shard's pages load them, each from its own runner. The plain-Node hook lets
+      # node import the module, as the maps workflow does.
       - name: Check the CDN files' sha384
         timeout-minutes: 2
         working-directory: ${{ github.workspace }}
@@ -80,8 +106,9 @@ jobs:
           SITE_URL: ${{ github.event.deployment_status.environment_url || inputs.url }}
           OUT_DIR: ${{ runner.temp }}/screenshots
       # MP4 copies of the recordings play on phones. ffmpeg is the ffmpeg-static package's build, which npm ci fetched from GitHub and
-      # the step above checked, not apt's.
+      # the step above checked, not apt's. Only `rest` records.
       - name: Convert recordings to MP4
+        if: matrix.shard == 'rest'
         working-directory: ${{ runner.temp }}/screenshots
         run: |
           shopt -s nullglob
@@ -91,9 +118,11 @@ jobs:
               -c:v libx264 -pix_fmt yuv420p -crf 20 -movflags +faststart "${f%.webm}.mp4"
           done
       # Writes each pair's count to the job summary and its diff into the artifact: the home page's, and the crowd's from ?pose=crowd. A
-      # change in either fails the step only when enforced, once both are compared.
+      # change in either fails the step only when enforced, once both are compared. The pairs are the desktop-reduced device's, which
+      # `rest` shoots.
       - name: Compare the reduced-motion stills
         id: compare
+        if: matrix.shard == 'rest'
         run: |
           echo "### Reduced-motion compare" >> "$GITHUB_STEP_SUMMARY"
           failed=0
@@ -107,17 +136,21 @@ jobs:
         env:
           OUT_DIR: ${{ runner.temp }}/screenshots
       # Fetches the manifest and each icon it lists, checks the declared sizes against the PNGs served, and asks Chrome whether the
-      # site installs. Runs after a failed compare too; a failed check fails the run, and the upload below keeps the shots.
+      # site installs. It checks the site and not the stills, so one shard runs it. Runs after a failed compare too; a failed check
+      # fails the run, and the upload below keeps the shots.
       - name: Check the install
         id: install
-        if: success() || steps.compare.outcome == 'failure'
+        if: matrix.shard == 'rest' && (success() || steps.compare.outcome == 'failure')
         run: node install.mjs
         env:
           SITE_URL: ${{ github.event.deployment_status.environment_url || inputs.url }}
-      # Also runs when the shoot's gate, an enforced compare or the install check fails, so the shots and the diff are kept.
+      # Also runs when the shoot's gate, an enforced compare or the install check fails, so the shots and the diff are kept. Each shard's
+      # artifact has its name at the end, and `gh run download` makes a folder of each.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: success() || steps.shoot.outcome == 'failure' || steps.compare.outcome == 'failure' || steps.install.outcome == 'failure'
         with:
-          name: screenshots-${{ steps.shoot.outputs.host }}-${{ github.sha }}
+          name: screenshots-${{ steps.shoot.outputs.host }}-${{ github.sha }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/screenshots
           if-no-files-found: error
+          # A re-run of one failed shard replaces the artifact its earlier attempt uploaded, as the maps workflow's does.
+          overwrite: true
