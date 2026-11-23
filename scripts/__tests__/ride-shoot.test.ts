@@ -2,7 +2,7 @@ import { spawnSync } from "child_process";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cursorFailure, fileFailures, FOCUS_STOPS, movePointer, pressFailure, pressWorld, RIDE, RIDE_RECORDINGS, rideFailure, rideIdle, rideNow, ridePages, rideSteps, stillInLook } from "../../.github/screenshots/ride.mjs";
+import { cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, movePointer, pressFailure, pressWorld, RIDE, RIDE_RECORDINGS, rideFailure, rideIdle, rideNow, ridePages, rideSteps, stillInLook } from "../../.github/screenshots/ride.mjs";
 import { planFailures } from "../../.github/screenshots/shards.mjs";
 import { IDLE_S, watchIdle } from "../../src/components/world/ride";
 
@@ -283,10 +283,37 @@ describe("the shoot's stills of the ride", () => {
       vi.stubGlobal("document", { documentElement: { classList: { contains: (name: string) => name === "cursor-off" && off } } });
       return { evaluate: async (run: () => unknown) => run() };
     };
-    expect(await cursorFailure(withCursor(false), "shown")).toBe(null);
-    expect(await cursorFailure(withCursor(true), "hidden")).toBe(null);
-    expect(await cursorFailure(withCursor(true), "shown")).toBe("the cursor should be shown, and it is hidden");
-    expect(await cursorFailure(withCursor(false), "hidden")).toBe("the cursor should be hidden, and it is shown");
+    expect(await cursorNow(withCursor(false))).toBe("shown");
+    expect(await cursorNow(withCursor(true))).toBe("hidden");
+    expect(cursorFailure("shown", "shown")).toBe(null);
+    expect(cursorFailure("hidden", "hidden")).toBe(null);
+    expect(cursorFailure("shown", "hidden")).toBe("the cursor should be shown, and it is hidden");
+    expect(cursorFailure("hidden", "shown")).toBe("the cursor should be hidden, and it is shown");
+  });
+
+  it("reads the cursor straight after a step has acted, before its second of settling and its still, says the reading in the step's own line, and fails the run where it is wrong: the two stills of a cursor a settled page shows, and the one of a cursor it hides", () => {
+    // A settled page shows its cursor for three seconds. On CI the line the shoot logs of the page after a still read "hidden" for
+    // desktop-fixed-newday-ride-moved, a second after a still that itself takes seconds: the reading that counts is the one
+    // made as the pointer has moved, or as the key has been pressed.
+    const steps = Object.values(pages).flatMap((page) => page.steps);
+    expect(steps.filter((step) => step.cursor).map((step) => [step.shot, step.cursor, step.ride])).toEqual([
+      ["fixed-newday-ride-moved", "shown", "settled"],
+      ["fixed-cursor-back", "shown", "settled"],
+    ]);
+    expect(steps.filter((step) => step.later?.cursor).map((step) => [step.later!.shot, step.later!.cursor])).toEqual([["fixed-slept", "hidden"]]);
+    // Neither of the two waits for anything between its act and the reading: no state, no crane, no show.
+    for (const step of steps.filter((one) => one.cursor)) expect([step.waitFor, step.crane, step.player], step.shot).toEqual([undefined, undefined, undefined]);
+    const read = shoot.indexOf("const cursorRead = step.cursor ? await cursorNow(page) : null;");
+    expect(read).toBeGreaterThan(shoot.indexOf("if (step.move) await movePointer(page);"));
+    expect(shoot).toContain(
+      "const cursorRead = step.cursor ? await cursorNow(page) : null;\n        const cursorWrong = step.cursor ? cursorFailure(step.cursor, cursorRead) : null;\n        if (cursorWrong) perFile.fail(`${device}-${step.shot}.png`, cursorWrong);\n        if (step.near === undefined) await page.waitForTimeout(STEP_SETTLE_MS);\n        const file = `${device}-${step.shot}.png`;\n        await takeStill(page, file, step.ride,",
+    );
+    expect(shoot).toContain('`waited for ${step.waitFor}`)}${cursorRead ? `  cursor ${cursorRead} as the step acted` : ""}`);');
+    // The later still's, read just before it.
+    expect(shoot).toContain(
+      "const laterCursorRead = step.later.cursor ? await cursorNow(page) : null;\n          const laterCursorWrong = step.later.cursor ? cursorFailure(step.later.cursor, laterCursorRead) : null;\n          if (laterCursorWrong) perFile.fail(laterFile, laterCursorWrong);\n          await takeStill(page, laterFile, step.later.ride,",
+    );
+    expect(shoot).toContain('console.log(`${laterFile}  ${url}  ${selector}${laterCursorRead ? `  cursor ${laterCursorRead} before the still` : ""}`);');
   });
 
   // A mouse as Playwright moves it, from where it was, in so many steps, each a move the window hears; its click, a press and a
@@ -374,9 +401,6 @@ describe("the shoot's stills of the ride", () => {
     expect(shoot).toContain("failures.push(...planFailures(planFiles(plan), await writtenSince(outDir, began), perFile.untaken));");
     expect(shoot).toContain("if (step.move) await movePointer(page);");
     expect(shoot).toContain("if (step.world) await pressWorld(page, Boolean(options.hasTouch));");
-    // A cursor that is not as a step needs it is a failure too, read once the step has acted, and before a later still.
-    expect(shoot).toContain("const cursorWrong = step.cursor ? await cursorFailure(page, step.cursor) : null;\n        if (cursorWrong) perFile.fail(`${device}-${step.shot}.png`, cursorWrong);\n        if (step.near === undefined) await page.waitForTimeout(STEP_SETTLE_MS);");
-    expect(shoot).toContain("const laterCursorWrong = step.later.cursor ? await cursorFailure(page, step.later.cursor) : null;\n          if (laterCursorWrong) perFile.fail(laterFile, laterCursorWrong);\n          await takeStill(page, laterFile, step.later.ride,");
     // A tap is a tap, on the control a click would press; and a press made in the wrong look fails the run, before the press.
     expect(shoot).toContain("const selector = step.click ?? step.tap ?? step.focus;");
     expect(shoot).toContain("else if (step.tap) await page.tap(selector);");
@@ -396,6 +420,47 @@ describe("the shoot's stills of the ride", () => {
 });
 
 describe("the shoot's recordings of the ride", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows the camera's way back whole in the recording that settles and wakes: Shift, held for the length of the return, keeps the page awake under a wait of three seconds, and gives the world no control", () => {
+    const [[look, lookMs], [hold, holdMs]] = recordings.settleWake.keys!;
+    expect([look, hold]).toEqual(["ArrowLeft", "ShiftLeft"]);
+    // CI's software renderer took about 35 s to draw the ease from the crane: the hold outlasts it, and the recording the hold.
+    expect(holdMs).toBeGreaterThan(35_000);
+    expect(recordings.settleWake.recordMs).toBeGreaterThanOrEqual(lookMs + holdMs);
+    // By the page's own watch, with the page's wait of three seconds: left alone after the look, it settles again in three; with
+    // Shift held it never does, and settles three seconds after Shift is let go.
+    vi.useFakeTimers();
+    const idle = 3000;
+    for (const held of [false, true]) {
+      const win = new EventTarget(), told: boolean[] = [];
+      const send = (type: string, code: string, key: string) => win.dispatchEvent(Object.assign(new Event(type), { code, key }));
+      const stop = watchIdle(win, { ms: idle, settled: true, onChange: (settled) => told.push(settled) });
+      send("keydown", look, look);
+      vi.advanceTimersByTime(lookMs);
+      send("keyup", look, look);
+      if (held) send("keydown", hold, "Shift");
+      vi.advanceTimersByTime(holdMs);
+      expect(told, String(held)).toEqual(held ? [false] : [false, true]);
+      if (held) {
+        send("keyup", hold, "Shift");
+        vi.advanceTimersByTime(idle - 1);
+        expect(told).toEqual([false]);
+        vi.advanceTimersByTime(1);
+        expect(told).toEqual([false, true]);
+      }
+      stop();
+    }
+    // Shift is the run of a walk, which alone is no control of the world's: it starts no walk and turns no look (input.js).
+    const input = readFileSync(join(__dirname, "../../public/world/input.js"), "utf8");
+    expect(input).toContain('ShiftLeft: "run"');
+    expect(input).toContain('if (k !== "run") userInput(k);');
+    // The time the keys are held is the recording's own: it adds five seconds to the recording, and no more.
+    expect(shoot).toContain("await page.waitForTimeout(Math.max(recordMs - held, 0));");
+  });
+
   it("records the ride on the TV, with the bears on a desktop, on a straight stretch and on a phone, and as it settles and wakes, under the names the pull request's table gives", () => {
     expect(Object.fromEntries(Object.entries(recordings).map(([key, r]) => [key, `${r.device}-${r.name}.webm`]))).toEqual({
       tv: "tv-ride.webm", desktop: "desktop-ride.webm", straight: "desktop-ride-straight.webm", phone: "phone-ride.webm", settleWake: "desktop-ride-settle-wake.webm",
@@ -415,7 +480,7 @@ describe("the shoot's recordings of the ride", () => {
       expect(recordings[key].recordMs, key).toBeUndefined();
     }
     // The one that settles waits for the settled page and for the camera on the crane before the look that wakes it.
-    expect(recordings.settleWake).toMatchObject({ waitFor: "main[data-ride='settled']", settled: true, keys: [["ArrowLeft", 600]] });
+    expect(recordings.settleWake).toMatchObject({ waitFor: "main[data-ride='settled']", settled: true, keys: [["ArrowLeft", 600], ["ShiftLeft", 40_000]], recordMs: 45_000 });
     expect(new URL(recordings.settleWake.path, "https://x").searchParams.get("idle")).toBe("3");
     expect(shoot).toContain("perFile.fail(file, `${click} absent, so nothing was recorded`, false);");
     expect(shoot).toContain("if (required) perFile.fail(file, `never reached ${waitFor}`);");

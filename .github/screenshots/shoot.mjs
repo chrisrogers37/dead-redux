@@ -17,7 +17,7 @@ import {
   walkPoses,
 } from "./assets.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
-import { cursorFailure, fileFailures, FOCUS_STOPS, movePointer, pressFailure, pressWorld, RIDE_RECORDINGS, rideIdle, ridePages, stillInLook } from "./ride.mjs";
+import { cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, movePointer, pressFailure, pressWorld, RIDE_RECORDINGS, rideIdle, ridePages, stillInLook } from "./ride.mjs";
 import { planFailures, planFiles, shardPlan, writtenSince } from "./shards.mjs";
 
 const DEVICES = {
@@ -981,13 +981,15 @@ try {
           console.log(logText(`state ${device}-${step.shot}.png ${state} · ${line}`));
           console.log(`routing ${device}-${step.shot}.png ${routing}`);
         }
-        // A step may say how the cursor should be once it has acted: shown, or hidden (ride.mjs).
-        const cursorWrong = step.cursor ? await cursorFailure(page, step.cursor) : null;
+        // A step may say how the cursor should be once it has acted: shown, or hidden. It is read here, straight after the act and
+        // before the step's second of settling and its still, and the reading goes in the step's line below (ride.mjs).
+        const cursorRead = step.cursor ? await cursorNow(page) : null;
+        const cursorWrong = step.cursor ? cursorFailure(step.cursor, cursorRead) : null;
         if (cursorWrong) perFile.fail(`${device}-${step.shot}.png`, cursorWrong);
         if (step.near === undefined) await page.waitForTimeout(STEP_SETTLE_MS);
         const file = `${device}-${step.shot}.png`;
         await takeStill(page, file, step.ride, { path: join(outDir, file), fullPage: true, clip });
-        console.log(`${file}  ${url}  ${step.near !== undefined ? `near ${step.near}` : selector ?? (step.press ? `press ${step.press}` : step.move ? "a pointer's move" : step.world ? "a press on the world" : `waited for ${step.waitFor}`)}`);
+        console.log(`${file}  ${url}  ${step.near !== undefined ? `near ${step.near}` : selector ?? (step.press ? `press ${step.press}` : step.move ? "a pointer's move" : step.world ? "a press on the world" : `waited for ${step.waitFor}`)}${cursorRead ? `  cursor ${cursorRead} as the step acted` : ""}`);
         const stats = await logStats(page, file);
         // A near still of the wrong song fails the run: the stats say which song the visitor stands by. Its page plays nothing, so the
         // player's lines are left out: each read of the page waits on a frame, and a software renderer's frame is a third of a second.
@@ -1007,10 +1009,11 @@ try {
               .catch(() => console.log(`night ${device}-${step.later.shot}.png  the world's hour had not reached the show's`));
           }
           const laterFile = `${device}-${step.later.shot}.png`;
-          const laterCursorWrong = step.later.cursor ? await cursorFailure(page, step.later.cursor) : null;
+          const laterCursorRead = step.later.cursor ? await cursorNow(page) : null;
+          const laterCursorWrong = step.later.cursor ? cursorFailure(step.later.cursor, laterCursorRead) : null;
           if (laterCursorWrong) perFile.fail(laterFile, laterCursorWrong);
           await takeStill(page, laterFile, step.later.ride, { path: join(outDir, laterFile), fullPage: true, clip });
-          console.log(`${laterFile}  ${url}  ${selector}`);
+          console.log(`${laterFile}  ${url}  ${selector}${laterCursorRead ? `  cursor ${laterCursorRead} before the still` : ""}`);
           await logStats(page, laterFile);
           await logPage(page, laterFile);
           // Serialised in the page, so each reading prints as one line of JSON.

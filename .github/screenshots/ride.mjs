@@ -70,13 +70,15 @@ export async function pressFailure(page, from, waitMs = LOOK_WAIT_MS) {
   return now === from ? null : `the press needs the ride ${from}, and the page had it ${now}`;
 }
 
-// What is wrong with a page whose cursor should be `want`, "shown" or "hidden": null where it is. A settled page hides its cursor,
-// and shows it for three seconds after a pointer's move or press, or a key (the class on <html>, ride.ts). A still cannot show a
-// cursor, and a slow renderer's still outlasts those three seconds, so the shoot reads it as soon as the step has acted.
-export async function cursorFailure(page, want) {
-  const now = (await page.evaluate(() => document.documentElement.classList.contains("cursor-off"))) ? "hidden" : "shown";
-  return now === want ? null : `the cursor should be ${want}, and it is ${now}`;
-}
+// The page's cursor as the page has it now: "hidden" under the class a settled page hides it with, else "shown" (ride.ts). A settled
+// page shows its cursor for three seconds after a pointer's move or press, or a key. A still cannot show a cursor, and on a slow
+// renderer the step's second of settling and its still outlast those three seconds, so the line the shoot logs of the page after
+// the still can read "hidden" for a cursor the step did bring back. So a step that says how its cursor should be (`cursor`) has
+// it read here straight after it has acted, the reading is in the step's own line of the log, and a wrong one fails the run.
+export const cursorNow = async (page) => ((await page.evaluate(() => document.documentElement.classList.contains("cursor-off"))) ? "hidden" : "shown");
+
+// What is wrong with a cursor that should be `want`, "shown" or "hidden", and was read as `now`: null where it is as it should be.
+export const cursorFailure = (want, now) => (now === want ? null : `the cursor should be ${want}, and it is ${now}`);
 
 // A place over the world, clear of every plate of both looks, on a desktop and on a phone, where the settled look's corner ends
 // 184 px down and its chip begins 489 px down of 844: left of the middle and a little above it.
@@ -186,6 +188,8 @@ export const FOCUS_STOPS = [
 // The ride's recordings. One that is of the ride with the bears, and not of its settling, asks for a minute's wait, so the ride stays
 // awake through its ten seconds and whatever a slow renderer adds to them.
 const STAYS_AWAKE = "idle=60";
+// How long the return from the crane is held awake for the recording of it: over the 35 s CI took to draw the ease.
+const RETURN_HOLD_MS = 40_000;
 const ONCE_READY = `#world[data-world='ready'] ~ div ${RIDE}`, PRESSED = `${RIDE}[aria-pressed='true']`;
 export const RIDE_RECORDINGS = {
   // The ride on the TV: the button starts it; two seconds on it settles, and the camera goes out to the crane, three seconds of world
@@ -199,9 +203,12 @@ export const RIDE_RECORDINGS = {
   phone: { device: "phone", name: "ride", path: `/2026-10-20?${STAYS_AWAKE}`, click: ONCE_READY, required: true, waitFor: PRESSED },
   // A ride that settles and wakes, on the fixed day: three seconds after the button the HUD strips and the camera eases out to the
   // crane; once it is there (`settled`, which logs the stats on the crane), a look to the left wakes the page and brings the camera
-  // back to the rig the look turns, as slowly. Each way is three seconds of world time, half a minute in a software renderer.
+  // back to the rig the look turns, as slowly. Each way is three seconds of world time, which CI's software renderer took about
+  // 35 s to draw, and left alone the page would settle again three seconds into the way back and send the camera out once more.
+  // So Shift is held for the length of the return: a key held down is input for as long as it is held (watchIdle in ride.ts), and
+  // Shift alone gives the world no control (public/world/input.js), so the page stays awake and the camera comes all the way back.
   settleWake: {
     device: "desktop", name: "ride-settle-wake", path: "/2026-10-20?idle=3", click: ONCE_READY, required: true, waitFor: SETTLED, settled: true,
-    keys: [["ArrowLeft", 600]], recordMs: 40_000,
+    keys: [["ArrowLeft", 600], ["ShiftLeft", RETURN_HOLD_MS]], recordMs: RETURN_HOLD_MS + 5_000,
   },
 };
