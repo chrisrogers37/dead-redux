@@ -428,10 +428,10 @@ export function makeBuilders(phone) {
   const blend = (hex, other, share) => [16, 8, 0].reduce((sum, bit) => sum | (Math.round(((hex >> bit) & 255) * (1 - share) + ((other >> bit) & 255) * share) << bit), 0);
   /* A stone's tones, worked out once for each of the four: its own, a shade darker and a shade lighter for its faces' grain, a
      paler one for a face where it has broken or a mason has cut it, and its own with moss on it and with lichen. The four are a
-     grey, a bluestone, a sandstone and a pale rock: the grey's darkest face is the plain block's own grey (0x8e8a82), so no stone
+     grey, a bluestone, a sandstone and a pale rock: the grey's darkest face is the plain block's own grey (BLOCK_GREY), so no stone
      is darker than the block was, and the four stand a step apart in lightness and warm against cool, so that they are still four
      in the dusk's red light. What grows on a stone is a pale grey-green or an ochre over its own tone, never a dark coat. */
-  const GREY_STONE = 0x969289, BLUESTONE = 0xa8bad2, SANDSTONE = 0xcea670, PALE_ROCK = 0xe6dfcf, MOSSY = 0xa0b08c, LICHEN = 0xccb464;
+  const BLOCK_GREY = 0x8e8a82, GREY_STONE = 0x969289, BLUESTONE = 0xa8bad2, SANDSTONE = 0xcea670, PALE_ROCK = 0xe6dfcf, MOSSY = 0xa0b08c, LICHEN = 0xccb464;
   const STONE_TONES = [GREY_STONE, PALE_ROCK, BLUESTONE, SANDSTONE].map((tone) => ({ tone, dark: shade(tone, 0.95), light: shade(tone, 1.06), fresh: shade(tone, 1.15), moss: blend(tone, MOSSY, 0.55), lichen: blend(tone, LICHEN, 0.55) }));
   /* What a title's number gives its stone: its tones, which way it leans or points (`turn`, 1 or -1), how tall it stands of its
      kind's full height, and a salt for each of its pieces. Two stones of one kind differ in all four. */
@@ -562,12 +562,13 @@ export function makeBuilders(phone) {
     /* A menhir: the broadest and the tallest single stone of them all, full to its shoulder, then drawn in to a point that stands
        off to one side. Widest at its belly: 0.01 + 0.755 x 1.04 = 0.795 m across, 0.54 x 1.04 = 0.562 m along. */
     menhir: { rings: [[-SUNK, 0.73, 0.52], [0.35, 0.75, 0.54], [1.0, 0.755, 0.54, 0.005], [1.7, 0.755, 0.53, 0.01], [2.4, 0.755, 0.51, 0.01], [3.05, 0.75, 0.48, 0.015], [3.6, 0.735, 0.44, 0.035], [4.0, 0.63, 0.36, 0.1], [4.28, 0.38, 0.24, 0.2]], tip: [0.3, 4.5, 0.02], sides: [9, 7], fine: [2, 5], rough: 0.04, square: 2.6 },
-    /* The pair: a broad stone, its top broken off aslant, and a slim one beside it, a head shorter, its top blunt, with a hand's
-       gap between them from the ground up. The broad one reaches 0.305 + 0.47 x 1.05 = 0.799 m across, to one side, and 0.189 m
-       to the other; the slim one, 0.505 + 0.28 x 1.05 = 0.799 m and no nearer the middle than 0.211 m: so they never meet. Along
-       the path they reach 0.5 x 1.05 = 0.525 m. The slanted top stands 4.28 + 0.4 x 0.478 + 0.01 = 4.48 m at its high side. */
-    elder: { rings: [[-SUNK, 0.46, 0.48, -0.305], [0.3, 0.47, 0.5, -0.305], [1.1, 0.47, 0.5, -0.305], [2.0, 0.47, 0.49, -0.305], [2.9, 0.47, 0.47, -0.305], [3.7, 0.465, 0.45, -0.305], [4.28, 0.455, 0.42, -0.305, 0, -0.4]], tip: [-0.5, 4.36, 0], sides: [8, 7], fine: [2, 4], rough: 0.05, square: 3 },
-    younger: { rings: [[-SUNK, 0.275, 0.44, 0.505], [0.3, 0.28, 0.46, 0.505], [1.2, 0.28, 0.45, 0.505], [2.2, 0.28, 0.44, 0.505], [3.2, 0.28, 0.42, 0.505], [4.06, 0.265, 0.38, 0.505]], tip: [0.505, 4.16, 0], sides: [6, 5], fine: [2, 4], rough: 0.05, square: 3 },
+    /* The pair: a tall broad stone, full at its belly and drawn in a little as it rises to a top broken off aslant, and a short
+       slim one beside it, under three quarters of its height, its top blunt, with a hand's gap between them from the ground up.
+       The tall one reaches 0.305 + 0.46 x 1.07 = 0.797 m across, to one side, and 0.187 m to the other; the short one,
+       0.51 + 0.27 x 1.07 = 0.799 m and no nearer the middle than 0.221 m: so they never meet. Along the path they reach
+       0.5 x 1.07 = 0.535 m. The slanted top stands 4.28 + 0.4 x 0.385 + 0.01 = 4.44 m at its high side, and the short one 3.2 m. */
+    elder: { rings: [[-SUNK, 0.45, 0.48, -0.305], [0.3, 0.46, 0.5, -0.305], [1.1, 0.46, 0.5, -0.305], [2.0, 0.45, 0.49, -0.305], [2.9, 0.43, 0.46, -0.305], [3.7, 0.4, 0.43, -0.305], [4.28, 0.36, 0.38, -0.305, 0, -0.4]], tip: [-0.46, 4.35, 0], sides: [8, 7], fine: [2, 4], rough: 0.07, square: 2.6 },
+    younger: { rings: [[-SUNK, 0.265, 0.42, 0.51], [0.3, 0.27, 0.44, 0.51], [1.1, 0.27, 0.43, 0.51], [1.9, 0.26, 0.41, 0.51], [2.6, 0.245, 0.38, 0.51], [3.05, 0.22, 0.33, 0.51]], tip: [0.5, 3.2, 0], sides: [6, 5], fine: [2, 4], rough: 0.07, square: 2.6 },
   };
   const plain = (g, of, shape, part) => piece(g, of.tones, of.salt(part), (salt) => hewnAs(shape, of.turn, of.tall, salt));
 
@@ -657,20 +658,24 @@ export function makeBuilders(phone) {
       under = piece(g, STONE_TONES[(STONE_TONES.indexOf(of.tones) + k + 1) & 3], of.salt(5 + k), laid).geometry;
     });
   }
-  /* 4. A trilithon: two upright slabs, one the broader and the shorter, with a lintel laid across them that overhangs them before
-     and behind, and the sky through the doorway, which faces the walker. The lintel lies on both: it is tilted as their tops
-     are, the shorter upright's end the lower, so the taller upright shows. An upright reaches 0.525 + 0.26 x 1.05 = 0.798 m
-     across and 0.43 x 1.05 = 0.452 m along. The lintel is hewn standing and laid over, its length across the path, and tilted
-     0.175 rad at the most a title gives it: its tip, 0.79 m out on its middle line, then reaches 0.79 x 0.985 = 0.778 m across,
-     and its end ring, 0.74 m out and 0.27 x 1.06 = 0.286 m off that line, 0.74 x 0.985 + 0.286 x 0.174 = 0.779 m; along, it
-     reaches 0.55 x 1.06 = 0.583 m. Its top is no higher than the taller upright's, 3.71 m, + its own thickness, 0.636 m, + the
-     rise of its tilt, 0.79 x 0.174 = 0.137 m, - LAP: 4.43 m. */
-  const LINTEL = { rings: [[-0.74, 0.27, 0.52], [0, 0.3, 0.55], [0.74, 0.27, 0.52]], tip: [0, 0.79, 0], sides: [6, 5], fine: [1], rough: 0.06, square: 3.5 };
+  /* 4. A trilithon: two rough uprights, thick at the foot and drawn in as they rise, one the broader and the shorter, with a
+     heavy lintel laid across them that overhangs them before and behind, and the sky through the doorway, which faces the walker
+     and widens as the uprights draw in. The lintel lies on both: it is tilted as their tops are, the shorter upright's end the
+     lower, so the taller upright shows. An upright's outer side stands at the block's: each ring's middle is `out` less its
+     half-width x (1 + its roughness) from the block's middle, so the ring reaches 0.795 m across at the most, and its inner side
+     is no nearer the middle than 0.795 - 2 x 0.31 x 1.08 = 0.125 m for the broader and 0.19 m for the other: the doorway is never
+     under 0.31 m. Along the path an upright reaches 0.43 x 1.08 = 0.464 m. The lintel is hewn standing and laid over, its length
+     across the path, and tilted 0.175 rad at the most a title gives it: its tip, 0.79 m out on its middle line, then reaches
+     0.79 x 0.985 = 0.778 m across, and its end ring, 0.74 m out and 0.33 x 1.07 = 0.353 m off that line,
+     0.74 x 0.985 + 0.353 x 0.174 = 0.79 m; along, it reaches 0.55 x 1.07 = 0.589 m. Its top is no higher than the taller
+     upright's, 3.6 m, + its own thickness, 2 x 0.37 x 1.07 = 0.79 m, + the rise of its tilt, 0.79 x 0.174 = 0.137 m, - LAP: 4.48 m. */
+  const UPRIGHT = { broad: [[-SUNK, 0.3], [0.3, 0.31], [1.2, 0.29], [2.1, 0.3], [2.9, 0.27], [3.36, 0.25]], slim: [[-SUNK, 0.27], [0.3, 0.28], [1.2, 0.265], [2.1, 0.275], [2.9, 0.25], [3.54, 0.23]], out: 0.795, rough: 0.08 };
+  const LINTEL = { rings: [[-0.74, 0.33, 0.52], [0, 0.37, 0.55], [0.74, 0.33, 0.52]], tip: [0, 0.79, 0], sides: [6, 5], fine: [1], rough: 0.07, square: 3 };
   function trilithon(g, of) {
     /* Each upright stands on its own side; the title's turn says which is the broader and the shorter. */
     const uprights = [-1, 1].map((side) => {
-      const lesser = side === of.turn, wide = lesser ? 0.26 : 0.24, tall = lesser ? 3.5 : 3.68;
-      return { rings: [[-SUNK, wide, 0.42, side * 0.525], [0.3, wide, 0.43, side * 0.525], [1.9, wide - 0.01, 0.42, side * 0.52], [tall, wide - 0.03, 0.4, side * 0.51]], tip: [side * 0.51, tall + 0.03, 0], sides: [6, 5], fine: [2], rough: 0.05, square: 3.5 };
+      const rings = (side === of.turn ? UPRIGHT.broad : UPRIGHT.slim).map(([y, rx]) => [y, rx, 0.43, side * (UPRIGHT.out - rx * (1 + UPRIGHT.rough))]), [top, , , at] = rings[rings.length - 1];
+      return { rings, tip: [at, top + 0.04, 0], sides: [6, 5], fine: [2, 4], rough: UPRIGHT.rough, square: 2.6 };
     });
     const [left, right] = uprights.map((upright, k) => piece(g, of.tones, of.salt(5 + 2 * k), (salt) => hewnAs(upright, 1, of.tall, salt)).geometry);
     const tilt = Math.atan2((uprights[1].tip[1] - uprights[0].tip[1]) * of.tall, uprights[1].tip[0] - uprights[0].tip[0]);
@@ -678,27 +683,40 @@ export function makeBuilders(phone) {
   }
   /* 5. A pair: two plain stones. */
   const stonePair = (g, of) => { plain(g, of, PLAIN.elder, 9); plain(g, of, PLAIN.younger, 10); };
-  /* 6. A stele: one worked stone, broad and squared, with four flat faces and its four edges hewn back, each by its own share of
-     the stone's width and no two heights alike, so its edges are rough and its faces true. It narrows a little as it rises and
-     has settled a little to one side, a band is cut into it all round, a hand deep, and its top is shouldered, one shoulder cut
-     away further than the other: it has no cap. Each broad face is flat from edge to edge and is one tone. A level is [height,
-     how far the face on the side it leans to is drawn in, the face on the other side, and the two along the path]. A face stands
-     furthest out at the ground, 0.79 m across at the most and 0.56 m along: it draws in faster than the stone leans. */
-  const STELE = { levels: [[-SUNK, 0, 0, 0], [2.6, 0, 0, 0], [2.6, 0.06, 0.06, 0.06], [2.86, 0.06, 0.06, 0.06], [2.86, 0, 0, 0], [3.85, 0, 0, 0], [4.2, 0.04, 0.17, 0.04], [4.42, 0.13, 0.46, 0.12]], lean: 0.018, taper: [0.024, 0.012] };
+  /* 6. A stele: an upright slab, worked: broad to the walker and under half as thick, its sides straight and drawn in a little
+     as it rises, its top squared, with one corner broken off, and leaning a little. It has no band, no shoulder and no head:
+     from the ground up it is nowhere wider than it was below. Its two broad faces are flat, and in the near one a panel is cut,
+     a hand deep, as for an inscription. The panel's sill is a broad bevel and its head a sharp one, so that in shade, where only
+     what looks up or down shows, it is a pale line low down and a hair of shadow high up, and no slot. It begins 1.45 m up, over
+     CLEAR, and ends where the break begins. Over the panel the near face is worn back to the top, `worn` at the top itself: one
+     flat facet at a slight angle, which catches the light the face under it does not. Its upright edges are chipped, each by its
+     own share of the slab's thickness and no two levels alike (a phone's far two are left square).
+     It wears the plain block's own grey all over, whatever its song's tone: a worked face is one flat tone, and a pale one in
+     the dusk's sun reads as a casting, so a stele is weathered to the darkest a stone may be.
+     `levels` are its rings' heights: its foot, the panel's sill (two, for its bevel), the panel's head (two), and its top. It is
+     widest at its foot, 0.755 + 0.025 = 0.78 m across at the most and 0.26 m along: it draws in faster than it leans. */
+  const STELE = { levels: [-SUNK, 1.45, 1.55, 3.57, 3.6, 4.42], wide: 0.755, deep: 0.26, taper: [0.013, 0.004], lean: 0.008, panel: [0.48, 0.1, 0.08], broken: 0.45, worn: 0.16 };
+  const WORKED = Object.fromEntries(Object.keys(STONE_TONES[0]).map((worn) => [worn, BLOCK_GREY]));
   function stele(g, of) {
-    /* How far each face stands out at the ground: left, right, before, behind. */
-    const out = [0, 1, 2, 3].map((k) => (k < 2 ? 0.75 : 0.52) + 0.04 * roll(k, 0, 3, of.salt(11)));
-    const P = STELE.levels.map(([level, inTo, inFrom, inZ], j) => {
-      const y = level > 0 ? level * of.tall : level, up = Math.max(0, y), lean = STELE.lean * up * of.turn;
-      const xl = -(out[0] - STELE.taper[0] * up - (of.turn < 0 ? inTo : inFrom)) + lean, xr = out[1] - STELE.taper[0] * up - (of.turn < 0 ? inFrom : inTo) + lean, zf = -(out[2] - STELE.taper[1] * up - inZ), zb = out[3] - STELE.taper[1] * up - inZ;
-      /* Each edge is hewn back by its own share of the lesser half-width, a little more or less at each level. */
-      const cut = [0, 1, 2, 3].map((k) => (0.14 + 0.1 * roll(k, 1, 3, of.salt(11)) + 0.08 * roll(k, 2 + j, 3, of.salt(11))) * Math.min(xr - xl, zb - zf) / 2);
-      /* Its eight corners, going round as a hewn ring's do, so its faces look outward. */
-      return [[xr - cut[0], y, zf], [xl + cut[3], y, zf], [xl, y, zf + cut[3]], [xl, y, zb - cut[2]], [xl + cut[2], y, zb], [xr - cut[1], y, zb], [xr, y, zb - cut[1]], [xr, y, zf + cut[0]]];
+    const salt = of.salt(11), wide = STELE.wide + 0.025 * roll(0, 0, 3, salt), [across, splay, sunk] = STELE.panel, top = STELE.levels.length - 1;
+    const P = STELE.levels.map((level, j) => {
+      /* How high the level stands over the foot's own foot: the slab draws in, and leans, by that. */
+      const y = level > 0 ? level * of.tall : level, h = y + SUNK, mid = STELE.lean * h, deep = STELE.deep - STELE.taper[1] * h;
+      const xl = mid - wide + STELE.taper[0] * h, xr = mid + wide - STELE.taper[0] * h - (j === top ? STELE.broken : 0), zf = -deep + (j === top ? STELE.worn : 0), zb = deep;
+      /* Each upright edge is chipped back by its own share of the slab's half-thickness, a little more or less at each level. */
+      const cut = [0, 1, 2, 3].map((k) => (0.12 + 0.16 * roll(k, 1, 3, salt) + 0.12 * roll(k, 2 + j, 3, salt)) * deep);
+      /* The panel's two sides, and how deep it is cut at this level. At the top, where the break has narrowed the face, the
+         lines of its sides run on in the flat of the face, drawn in with it. */
+      const pl = j === top ? xl + 0.3 * (xr - xl) : mid - across, pr = j === top ? xl + 0.7 * (xr - xl) : mid + across, cutIn = j === 2 || j === 3 ? sunk : 0;
+      /* Its corners, going round as a hewn ring's do, so its faces look outward: along the near face, panel and all, then the
+         far side. */
+      const far = phone ? [[xl, y, zb], [xr, y, zb]] : [[xl, y, zb - cut[2]], [xl + cut[2], y, zb], [xr - cut[1], y, zb], [xr, y, zb - cut[1]]];
+      const ring = [[xr - cut[0], y, zf], [pr, y, zf], [pr - splay, y, zf + cutIn], [pl + splay, y, zf + cutIn], [pl, y, zf], [xl + cut[3], y, zf], [xl, y, zf + cut[3]], ...far, [xr, y, zf + cut[0]]];
+      /* Turned the other way it is its own mirror, its corners going round the other way. */
+      return of.turn > 0 ? ring : ring.map(([x, ...rest]) => [-x, ...rest]).reverse();
     });
     const middle = (ring) => [0, 1, 2].map((k) => ring.reduce((sum, corner) => sum + corner[k], 0) / ring.length);
-    const band = (x, y) => y > STELE.levels[1][0] * of.tall && y < STELE.levels[4][0] * of.tall;
-    piece(g, of.tones, of.salt(11), () => loft(P, middle(P[P.length - 1]), middle(P[0]), () => false, true), band);
+    piece(g, WORKED, salt, () => loft(P, middle(P[top]), middle(P[0]), () => false, true));
   }
   /* 7. A rock on a rock: a great uneven boulder, heavy at one shoulder and cut away under the other, its top aslant, lying on a
      squat rough stone of another tone that stands in the ground, whose top slopes, so the boulder lies tilted. The squat stone
