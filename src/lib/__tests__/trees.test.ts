@@ -91,6 +91,9 @@ const built = (trees: Spot[], phone = false) => { const scene = new THREE.Scene(
 // Every show as a desktop has it and as a phone has it; the fixed day's of each; and the fixed day's trees built. Placing the 38 shows' trees on two tiers takes
 // several seconds on a busy machine, more than a hook's ten, so it has a limit of its own, as the standing stones' has.
 let DESKTOP: World[], PHONE: World[], WORLDS: World[], fixed: World, fixedPhone: World, made: ReturnType<typeof built>, phones: ReturnType<typeof built>;
+// A show by its date, as a desktop has it or as a phone has it. Tests that look at a few shows name them by date: an index into the
+// shows moves whenever a show is added, and a number pinned on the show that used to stand there then fails for no reason.
+const on = (date: string, phone = false) => { const w = (phone ? PHONE : DESKTOP).find((world) => world.date === date); if (!w) throw new Error(`no show of ${date}`); return w; };
 beforeAll(() => {
   DESKTOP = DATES.map((date) => world(date));
   PHONE = DATES.map((date) => world(date, true));
@@ -187,7 +190,7 @@ describe("where the trees stand", () => {
     for (const w of PHONE) expect(w.trees, w.date).toHaveLength(TARGET.phone);
     // A desktop draws as many as a TV: the island has no room for more that stand out of its cameras' way (the cameras' ways, below).
     expect(TARGET).toEqual({ desktop: 75, tv: 75, phone: 45 });
-    for (const w of [fixed, DESKTOP[5], PHONE[20]]) {
+    for (const w of [fixed, on("1971-03-14"), on("1986-02-12", true)]) {
       expect(placed(w.ask).spots).toEqual(w.trees);
       // With the same cameras' ways, fewer are the first of more: a TV's 75 of a desktop's 100.
       expect(placed({ ...w.ask, count: w.phone ? 20 : TARGET.tv }).spots).toEqual(w.trees.slice(0, w.phone ? 20 : TARGET.tv));
@@ -290,7 +293,7 @@ describe("where the trees stand", () => {
   });
 
   it("tries a square's other places when a neighbour's tree stands too near its first: every tree at one of its square's TRIES places, a square growing one at the most, some at a later place", () => {
-    for (const w of [fixed, fixedPhone, DESKTOP[11], PHONE[2]]) {
+    for (const w of [fixed, fixedPhone, on("1973-11-28"), on("1970-08-30", true)]) {
       const squares = new Set<string>(), tries = [0, 0, 0];
       for (const t of w.trees) {
         const a = Math.floor(t.x / CELL), b = Math.floor(t.z / CELL);
@@ -588,7 +591,7 @@ describe("the cameras' ways", () => {
   });
 
   it("fills the places that spoil no view first, and one that spoils a view only when no cheaper place is left: each tree says the worst cost of the views it stands in, and no tier's trees could have spoiled less", () => {
-    for (const w of [fixed, fixedPhone, DESKTOP[3], PHONE[3], DESKTOP[20], PHONE[31]]) {
+    for (const w of [fixed, fixedPhone, on("1970-12-31"), on("1970-12-31", true), on("1986-02-12"), on("1988-09-12", true)]) {
       // What each tree spoils is the highest cost among the views its foot lies in.
       const costly = w.ways.views.filter((v) => v.cost);
       for (const t of w.trees) expect(t.spoils, `${w.date}: the tree at ${t.x}, ${t.z}`).toBe(Math.max(0, ...costly.filter((v) => lies(v, t.x, t.z)).map((v) => v.cost!)));
@@ -799,7 +802,7 @@ describe("a walk among the trees", () => {
   });
 
   it("leaves the ground a walk can stand on in one piece, on the fixed day's show and on three more", () => {
-    for (const w of [fixed, fixedPhone, DESKTOP[0], DESKTOP[17], PHONE[37]]) {
+    for (const w of [fixed, fixedPhone, on("1966-02-25"), on("1982-04-02"), on("1994-09-27", true)]) {
       // Every quarter metre of the island a walker may stand on, and those reached from the trailhead by steps of a quarter metre:
       // finer than PASS, the least a walker has between two trunks' reaches.
       const n = Math.ceil(BOUND * 4), at = (i: number) => (i - n) / 4, side = 2 * n + 1;
@@ -1090,7 +1093,7 @@ describe("the trees as they are built", () => {
   });
 
   it("hold every tree inside the bounds it gives the camera: what stands out past its trunk is no further out than its reach, no lower than its base, no higher than its top", () => {
-    for (const w of [fixed, fixedPhone, DESKTOP[3], PHONE[30]]) {
+    for (const w of [fixed, fixedPhone, on("1970-12-31"), on("1987-12-30", true)]) {
       const { meshes } = built(w.trees, w.phone);
       // The least room any corner leaves inside its tree's reach and under its top; and, of the corners that stand out past the
       // trunk's foot, over its base: those are its crown.
@@ -1138,7 +1141,7 @@ describe("the trees as they are built", () => {
 
   it("keep every trunk, as high as a bear is tall, within TRUNK_R_MAX of the middle of its foot, where a walk is held TREE_REACH off", () => {
     let widest = 0;
-    for (const w of [fixed, fixedPhone, DESKTOP[3], PHONE[30]]) {
+    for (const w of [fixed, fixedPhone, on("1970-12-31"), on("1987-12-30", true)]) {
       const { meshes } = built(w.trees, w.phone);
       byKind(w.trees).forEach((mine, k) => corners(meshes[k], mine, (x, y, z, tree) => {
         if (y < tree.y + TOP) widest = Math.max(widest, Math.hypot(x - tree.x, z - tree.z));
@@ -1387,7 +1390,7 @@ describe("the walk's camera among the trees", () => {
     const wide = 1.3;
     let lowest = Infinity;
     eachTree((t, w) => {
-      if (w !== fixed && w !== fixedPhone && w !== DESKTOP[9] && w !== PHONE[25]) return;
+      if (w !== fixed && w !== fixedPhone && w !== on("1973-03-30") && w !== on("1986-07-07", true)) return;
       for (let dx = -(t.reach + 30); dx <= t.reach + 30; dx += 1) for (let dz = -(t.reach + 30); dz <= t.reach + 30; dz += 1) {
         const x = t.x + dx, z = t.z + dz;
         if (Math.hypot(x, z) > BOUND) continue;
