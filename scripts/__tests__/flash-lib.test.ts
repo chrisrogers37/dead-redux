@@ -25,9 +25,9 @@ const job = (line: string): Job => {
 };
 
 describe("parseJobs", () => {
-  it("takes a variant and a window, and gives the rest its defaults: behind the crowd, 800 by 500 at 1, the whole frame, rung 0, both grids", () => {
+  it("takes a variant and a window, and gives the rest its defaults: behind the crowd, 800 by 500 at 1, the whole frame, rung 0, all four grids", () => {
     expect(job("branch Q")).toEqual({
-      variant: "branch", window: "Q", pose: "crowd", view: { width: 800, height: 500 }, dpr: 1, tier: "", still: false, rung: 0, grids: [[0, 0], [1, 1]],
+      variant: "branch", window: "Q", pose: "crowd", view: { width: 800, height: 500 }, dpr: 1, tier: "", still: false, rung: 0, grids: [[0, 0], [1, 1], [1, 0], [0, 1]],
     });
   });
 
@@ -83,13 +83,13 @@ describe("jobUrl", () => {
 describe("tagOf", () => {
   it("names a job's file by every field that tells it from another, in letters, figures and . _ + - ~ only", () => {
     const others = ["branch Q", "main S", "main Q pose=stage", "main Q pose=1,2,3,0.1", "main Q pose=1,2,3,-0.1", "main Q view=800x600", "main Q view=600x500", "main Q dpr=2", "main Q tier=phone", "main Q tier=tv",
-      "main Q still=1", "main Q rung=1", "main Q rung=11", "main Q grids=0,0", "main Q grids=1,1", "main Q grids=1,0+0,1"];
+      "main Q still=1", "main Q rung=1", "main Q rung=11", "main Q grids=0,0", "main Q grids=1,1", "main Q grids=0,0+1,1", "main Q grids=1,0+0,1"];
     const tags = ["main Q", ...others].map((line) => tagOf(job(line)));
     expect(new Set(tags).size).toBe(tags.length);
-    expect(tags[0]).toBe("main_Q_crowd_800x500_x1_auto_whole_rung0_g00+11");
+    expect(tags[0]).toBe("main_Q_crowd_800x500_x1_auto_whole_rung0_g00+11+10+01");
     // The defaults spelled out are the same job, and so the same file.
-    expect(tagOf(job("main Q pose=crowd view=800x500 dpr=1 tier= still=0 rung=0 grids=0,0+1,1"))).toBe(tags[0]);
-    expect(tagOf(job("branch S pose=12.5,-30,1.2,0.1 view=400x800 dpr=1.5 tier=phone still=1 rung=1"))).toBe("branch_S_12.5~-30~1.2~0.1_400x800_x1.5_phone_still_rung1_g00+11");
+    expect(tagOf(job("main Q pose=crowd view=800x500 dpr=1 tier= still=0 rung=0 grids=0,0+1,1+1,0+0,1"))).toBe(tags[0]);
+    expect(tagOf(job("branch S pose=12.5,-30,1.2,0.1 view=400x800 dpr=1.5 tier=phone still=1 rung=1"))).toBe("branch_S_12.5~-30~1.2~0.1_400x800_x1.5_phone_still_rung1_g00+11+10+01");
   });
 });
 
@@ -114,10 +114,10 @@ describe("matrixJobs", () => {
       [`${variant} S dpr=1.5 still=1 rung=1`, `${variant} S tier=phone view=390x844 dpr=2 still=1 rung=1`])));
   });
 
-  it.each(["quick", "standard"])("gives each job of the %s set its own file and counts both grids in each", (name) => {
+  it.each(["quick", "standard"])("gives each job of the %s set its own file and counts all four grids in each", (name) => {
     const jobs = parsed(name);
     expect(new Set(jobs.map(tagOf)).size).toBe(jobs.length);
-    for (const j of jobs) expect(j.grids).toEqual([[0, 0], [1, 1]]);
+    for (const j of jobs) expect(j.grids).toEqual([[0, 0], [1, 1], [1, 0], [0, 1]]);
   });
 
   it("has no other set", () => {
@@ -611,7 +611,7 @@ describe("tables", () => {
   const MAIN = { hash: "a".repeat(64), from: "main", ref: "origin/main", commit: "c27c328c6edad881146e743042bdbc6409f86fac", dirty: false };
   const BRANCH = { hash: "b".repeat(64), from: "WORLD_DIR", ref: "/checkout/public/world", commit: "d774c43000000000000000000000000000000000", dirty: false };
   // A result as capture.mjs writes one, with what the table reads: `most` swings at the worst block of each grid, and `at5` blocks at 5
-  // or more.
+  // or more. `counts` has a pair for each grid of the line's job: the four, unless the line names fewer.
   const row = (line: string, counts: [number, number][], world: Partial<typeof MAIN & { renderer: string }> = {}) => {
     const j = job(line), phone = j.tier === "phone";
     const frame = { width: j.view.width * j.dpr, height: j.view.height * j.dpr };
@@ -628,11 +628,14 @@ describe("tables", () => {
   ];
 
   it("puts main's count beside the branch's for the same job, a row a grid, and names the two worlds", () => {
-    const { markdown, worlds, warnings } = tables([row("branch S dpr=1.5 still=1", [[4, 0], [5, 1]]), row("main S dpr=1.5 still=1", [[4, 0], [6, 1]])]);
+    // No grid is named, so each job has the four, in the order a job counts them.
+    const { markdown, worlds, warnings } = tables([row("branch S dpr=1.5 still=1", [[4, 0], [5, 1], [4, 0], [3, 0]]), row("main S dpr=1.5 still=1", [[4, 0], [6, 1], [4, 0], [4, 2]])]);
     expect(markdown.split("\n")).toEqual([
       ...HEAD,
       "| desktop, 1.5×: 1200×750 | 0 | S (Seeks through the night) | crowd | light alone | even | 4, 0 | 4, 0 |",
       "| desktop, 1.5×: 1200×750 | 0 | S (Seeks through the night) | crowd | light alone | moved 1 px right, 1 px down | 6, 1 | 5, 1 |",
+      "| desktop, 1.5×: 1200×750 | 0 | S (Seeks through the night) | crowd | light alone | moved 1 px right, 0 px down | 4, 0 | 4, 0 |",
+      "| desktop, 1.5×: 1200×750 | 0 | S (Seeks through the night) | crowd | light alone | moved 0 px right, 1 px down | 4, 2 | 3, 0 |",
     ]);
     expect(worlds).toEqual(["main: aaaaaaaaaaaa (main at c27c328)", "branch: bbbbbbbbbbbb (/checkout/public/world at d774c43)"]);
     expect(warnings).toEqual([]);
@@ -658,15 +661,15 @@ describe("tables", () => {
   it("refuses rows whose branch worlds differ, or whose main worlds do, and names each world and its jobs", () => {
     // One PR's quick set read with another's standard set would print the other's counts as this branch's.
     const other = { hash: "c".repeat(64), ref: "/another/public/world", commit: "e145cb0000000000000000000000000000000000", dirty: true };
-    const mixed = [row("branch S", [[5, 2], [5, 1]]), row("branch Q", [[2, 0], [2, 0]], other), row("main S", [[5, 2], [6, 1]])];
+    const mixed = [row("branch S grids=0,0+1,1", [[5, 2], [5, 1]]), row("branch Q grids=0,0+1,1", [[2, 0], [2, 0]], other), row("main S grids=0,0+1,1", [[5, 2], [6, 1]])];
     expect(() => tables(mixed)).toThrow("the branch rows are of 2 worlds, and one table would set counts of different code side by side: " +
       "bbbbbbbbbbbb (/checkout/public/world at d774c43): branch_S_crowd_800x500_x1_auto_whole_rung0_g00+11; " +
       "cccccccccccc (/another/public/world at e145cb0, changed since): branch_Q_crowd_800x500_x1_auto_whole_rung0_g00+11");
-    expect(() => tables([row("main S", [[5, 2], [6, 1]]), row("main Q", [[2, 0], [2, 0]], { hash: "d".repeat(64), commit: "f20c256000000000000000000000000000000000" })])).toThrow("the main rows are of 2 worlds");
+    expect(() => tables([row("main S grids=0,0+1,1", [[5, 2], [6, 1]]), row("main Q grids=0,0+1,1", [[2, 0], [2, 0]], { hash: "d".repeat(64), commit: "f20c256000000000000000000000000000000000" })])).toThrow("the main rows are of 2 worlds");
     // A checkout that was changed between two runs is two worlds, though its commit is one: the hash tells them, not the commit.
-    expect(() => tables([row("branch S", [[5, 2], [5, 1]]), row("branch Q", [[2, 0], [2, 0]], { hash: "c".repeat(64), dirty: true })])).toThrow("the branch rows are of 2 worlds");
+    expect(() => tables([row("branch S grids=0,0+1,1", [[5, 2], [5, 1]]), row("branch Q grids=0,0+1,1", [[2, 0], [2, 0]], { hash: "c".repeat(64), dirty: true })])).toThrow("the branch rows are of 2 worlds");
     // And the same modules are one world, whatever commit or folder they were read from.
-    expect(tables([row("branch S", [[5, 2], [5, 1]]), row("branch Q", [[2, 0], [2, 0]], { ref: "/another/public/world", commit: "e145cb0000000000000000000000000000000000" })]).worlds).toHaveLength(1);
+    expect(tables([row("branch S grids=0,0+1,1", [[5, 2], [5, 1]]), row("branch Q grids=0,0+1,1", [[2, 0], [2, 0]], { ref: "/another/public/world", commit: "e145cb0000000000000000000000000000000000" })]).worlds).toHaveLength(1);
     // Told to, it prints them, and says what it has mixed.
     const { markdown, worlds, warnings } = tables(mixed, { mixed: true });
     expect(markdown.split("\n")).toHaveLength(2 + 4);
@@ -687,37 +690,37 @@ describe("tables", () => {
   });
 
   it("refuses a result that does not say which world it counted, as an earlier counter's does not", () => {
-    const old = { ...row("branch Q", [[2, 0], [2, 0]]), world: { tier: "desktop", renderer: METAL } };
-    expect(() => tables([row("branch S", [[5, 2], [5, 1]]), old as unknown as ReturnType<typeof row>])).toThrow(
+    const old = { ...row("branch Q grids=0,0+1,1", [[2, 0], [2, 0]]), world: { tier: "desktop", renderer: METAL } };
+    expect(() => tables([row("branch S grids=0,0+1,1", [[5, 2], [5, 1]]), old as unknown as ReturnType<typeof row>])).toThrow(
       "1 of 2 results do not say which world they counted: they are of an earlier flash counter (branch_Q_crowd_800x500_x1_auto_whole_rung0_g00+11)");
   });
 
   it("tells a server's own world, and a folder in no checkout, by their hashes alone", () => {
     const { worlds } = tables([
-      row("branch S", [[5, 2], [5, 1]], { from: "server", ref: "https://preview.test", commit: null as unknown as string, dirty: null as unknown as boolean }),
-      row("main S", [[5, 2], [5, 1]]),
+      row("branch S grids=0,0+1,1", [[5, 2], [5, 1]], { from: "server", ref: "https://preview.test", commit: null as unknown as string, dirty: null as unknown as boolean }),
+      row("main S grids=0,0+1,1", [[5, 2], [5, 1]]),
     ]);
     expect(worlds).toEqual(["main: aaaaaaaaaaaa (main at c27c328)", "branch: bbbbbbbbbbbb (the server's own, https://preview.test)"]);
-    expect(tables([row("branch S", [[5, 2], [5, 1]], { commit: null as unknown as string })]).worlds).toEqual(["branch: bbbbbbbbbbbb (/checkout/public/world)"]);
+    expect(tables([row("branch S grids=0,0+1,1", [[5, 2], [5, 1]], { commit: null as unknown as string })]).worlds).toEqual(["branch: bbbbbbbbbbbb (/checkout/public/world)"]);
   });
 
   it("warns when its rows come from two renderers, whose counts are not comparable", () => {
-    const { warnings } = tables([row("branch S", [[5, 2], [5, 1]]), row("main S", [[5, 2], [6, 1]], { renderer: "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device), SwiftShader driver)" })]);
+    const { warnings } = tables([row("branch S grids=0,0+1,1", [[5, 2], [5, 1]]), row("main S grids=0,0+1,1", [[5, 2], [6, 1]], { renderer: "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device), SwiftShader driver)" })]);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("the rows come from 2 renderers, and counts from different renderers are not comparable");
     expect(warnings[0]).toContain("SwiftShader");
   });
 
   it("warns of the jobs whose frames nothing checked against the canvas, by name: one frame unchecked is enough", () => {
-    const { warnings } = tables([row("branch S dpr=1.5", [[5, 2], [5, 1]]), row("branch S tier=phone view=390x844 dpr=2", [[5, 2], [5, 1]])]);
+    const { warnings } = tables([row("branch S dpr=1.5 grids=0,0+1,1", [[5, 2], [5, 1]]), row("branch S tier=phone view=390x844 dpr=2 grids=0,0+1,1", [[5, 2], [5, 1]])]);
     expect(warnings).toEqual(["1 of 2 jobs have frames that were not checked against the canvas (the world draws them at another size than the screen's): branch_S_crowd_390x844_x2_phone_whole_rung0_g00+11"]);
-    const one = row("branch Q dpr=1.5", [[2, 0], [2, 0]]);
+    const one = row("branch Q dpr=1.5 grids=0,0+1,1", [[2, 0], [2, 0]]);
     one.canvasCheck = { checked: 780, unchecked: 1, worst: 0 };
     expect(tables([one]).warnings).toEqual([expect.stringContaining("1 of 1 jobs have frames that were not checked against the canvas")]);
   });
 
   it("warns of the jobs that could not check their pose stood still, by name: a world from before it said where the visitor stands", () => {
-    const held = row("branch S dpr=1.5", [[5, 2], [5, 1]]), unheld = { ...row("main S dpr=1.5", [[5, 2], [5, 1]]), poseHeld: false }, opening = { ...row("branch Q dpr=1.5 pose=home", [[2, 0], [2, 0]]), poseHeld: null };
+    const held = row("branch S dpr=1.5 grids=0,0+1,1", [[5, 2], [5, 1]]), unheld = { ...row("main S dpr=1.5 grids=0,0+1,1", [[5, 2], [5, 1]]), poseHeld: false }, opening = { ...row("branch Q dpr=1.5 pose=home grids=0,0+1,1", [[2, 0], [2, 0]]), poseHeld: null };
     expect(tables([{ ...held, poseHeld: true }, opening]).warnings).toEqual([]);
     expect(tables([{ ...held, poseHeld: true }, unheld, opening]).warnings).toEqual([
       "1 of 3 jobs could not check that the visitor stood still at their pose (their world is from before window.__hill.walker): main_S_crowd_800x500_x1.5_auto_whole_rung0_g00+11",
