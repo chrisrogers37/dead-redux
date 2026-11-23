@@ -268,14 +268,15 @@ describe("the band, as it is built", () => {
     });
   });
 
-  it("hangs every limb from its own side: a left arm from the left shoulder with its elbow out to the left, a left leg from the left hip, and the right the same", () => {
+  it("hangs every limb from its own side, each elbow against the trunk: a left arm from the left shoulder, its elbow left of the body's middle and no farther out than the shoulder; a left leg from the left hip; and the right the same", () => {
     const seen: string[] = [];
     band.bones.forEach((bone: Bone, k: number) => {
       if (!/^(left|right) (upper arm|forearm|thigh)$/.test(bone.name)) return;
-      const from = own(band, bone.of, ends(band, k).a).x;
-      // An upper arm and a thigh begin at the body. A forearm begins at the elbow, which stands out past its shoulder.
-      const out = bone.name.endsWith("forearm") ? from - own(band, bone.of, ends(band, boneNamed(band, bone.of, bone.name.replace("forearm", "upper arm"))).a).x : from;
-      expect([bone.of, bone.name, (bone.name.startsWith("left") ? out : -out) > 0.05]).toEqual([bone.of, bone.name, true]);
+      const side = bone.name.startsWith("left") ? 1 : -1, from = side * own(band, bone.of, ends(band, k).a).x;
+      // An upper arm and a thigh begin at the body, on their own side of it. A forearm begins at the elbow, which lies against the
+      // trunk: on its own side of the body's middle, and no farther out than a finger past its shoulder.
+      const shoulder = bone.name.endsWith("forearm") ? side * own(band, bone.of, ends(band, boneNamed(band, bone.of, bone.name.replace("forearm", "upper arm"))).a).x : Infinity;
+      expect([bone.of, bone.name, bone.name.endsWith("forearm") ? from > 0.02 && from < shoulder + 0.03 : from > 0.05]).toEqual([bone.of, bone.name, true]);
       seen.push(bone.name.replace(/^\w+ /, ""));
     });
     // The keys and the drummers reach with both arms, and all but the drummers stand on legs that move.
@@ -294,7 +295,7 @@ describe("the band, as it is built", () => {
     });
   });
 
-  it("stands each microphone before its player's mouth: 3 to 10 cm in front of the face at its height, as the body rests, upright or leaning", () => {
+  it("stands each microphone at its player's mouth: its head within 3 cm of the face's front at its height, as the body rests, upright or leaning, and its stand toward the crowd from there", () => {
     stage.updateMatrixWorld(true);
     const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
     const gaps = band.players.flatMap((p: { plays: string; body: { matrixWorld: unknown; geometry: { getAttribute(name: string): { count: number } } } }, k: number) => {
@@ -312,25 +313,140 @@ describe("the band, as it is built", () => {
       return [{ plays: p.plays, before: mic.z - face }];
     });
     expect(gaps.map(({ plays }: { plays: string }) => plays)).toEqual(["bass", "guitar", "guitar", "keys"]);
-    for (const { plays, before } of gaps) expect([plays, before > 0.03 && before < 0.1]).toEqual([plays, true]);
+    // In the player's own metres: a head 0.027 across that stood off the face as it did, 0.065 before it, would fail this.
+    for (const { plays, before } of gaps) expect([plays, before > -0.03 && before < 0.03]).toEqual([plays, true]);
+    // The stand's foot: the lowest corner of the stand. From the mouth it lies toward the crowd, +z on the stage, within 0.2 rad.
+    band.players.forEach((p: { plays: string; g: { matrix: unknown } }, k: number) => {
+      const stand: Part[] = band.still.userData.parts.filter((part: Part) => part.of === "microphone" && part.by === k);
+      if (!stand.length) return;
+      const foot = new THREE.Vector3(0, Infinity, 0), head = new THREE.Vector3(0, -Infinity, 0);
+      for (const part of stand) for (let i = part.from; i < part.from + part.count; i++) {
+        if (still.getY(i) < foot.y) foot.fromBufferAttribute(still, i);
+        if (still.getY(i) > head.y) head.fromBufferAttribute(still, i);
+      }
+      expect([p.plays, Math.abs(Math.atan2(foot.x - head.x, foot.z - head.z)) < 0.2 + (p.plays === "keys" ? 0.15 : 0)]).toEqual([p.plays, true]);
+    });
   });
 
-  it("stands a kit's poles nearly upright: a piece over half a metre tall and thin one way is under 30 cm across the other, in the drummer's metres", () => {
+  it("stands a kit's poles upright, each cymbal within reach of one: a piece over 45 cm tall and thin is under 5 cm across, and every disc's middle is within 30 cm of a pole, in the drummer's metres", () => {
     const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
     band.players.forEach((p: { plays: string }, k: number) => {
       if (p.plays !== "drums") return;
-      const poles: number[] = [];
+      const poles: { x: number; z: number; across: number }[] = [], discs: { x: number; z: number }[] = [];
       for (const part of band.still.userData.parts as Part[]) {
         if (part.of !== "kit" || part.by !== k) continue;
         const box = new THREE.Box3();
         for (let i = part.from; i < part.from + part.count; i++) box.expandByPoint(own(band, k, at.fromBufferAttribute(still, i)));
-        const across = [box.max.x - box.min.x, box.max.z - box.min.z];
-        if (box.max.y - box.min.y > 0.5 && Math.min(...across) < 0.4) poles.push(Math.max(...across));
+        const across = [box.max.x - box.min.x, box.max.z - box.min.z], tall = box.max.y - box.min.y, middle = { x: (box.max.x + box.min.x) / 2, z: (box.max.z + box.min.z) / 2 };
+        if (tall > 0.45 && Math.min(...across) < 0.1) poles.push({ ...middle, across: Math.max(...across) });
+        // A cymbal: a disc, level and thin, over the height of the drummer's knees.
+        if (tall < 0.12 && Math.min(...across) > 0.25 && box.min.y > 0.65) discs.push(middle);
       }
-      // The snare's stand and the three cymbals'.
-      expect(poles).toHaveLength(4);
-      expect(Math.max(...poles)).toBeLessThan(0.3);
+      // The snare's stand and a cymbal's pole at the least; a hi-hat's two cymbals, a ride and, for the first drummer, a crash.
+      expect(poles.length).toBeGreaterThanOrEqual(2);
+      expect(Math.max(...poles.map((pole) => pole.across))).toBeLessThan(0.05);
+      expect(discs.length).toBe(k === 2 ? 4 : 3);
+      for (const disc of discs) expect(Math.min(...poles.map((pole) => Math.hypot(pole.x - disc.x, pole.z - disc.z)))).toBeLessThan(0.3);
     });
+  });
+});
+
+// The outlines' rule (band.js): nothing here is antialiased, so a gap a pixel or two wide between a limb and a trunk, an instrument or
+// another limb is lit or black a whole pixel at a time, and flickers where an edge rests on it. The band is drawn here in black and
+// white as a rasterizer has it, a pixel black where its middle is inside a triangle, from the front and far off: once from 0.5 rad up
+// at 12 cm a pixel, as from the hill on a desktop, and once from 0.12 rad up at 4 cm a pixel, as from the front of the crowd. What
+// stands under 0.6 m over the floor is left out: from the hill that is seen against the floor, not the panel.
+describe("the band's outlines, from the front, through four counts of playing", () => {
+  const FROM = 0.6, UP = 2;
+  // Every triangle of the band as it stands: each corner's place across the stage and up the view, and whether its part moves.
+  function triangles({ stage, band }: { stage: { updateMatrixWorld(force: boolean): void }; band: Band }, tilt: number) {
+    stage.updateMatrixWorld(true);
+    const out: number[] = [], at = new THREE.Vector3(), c = Math.cos(tilt), sn = Math.sin(tilt);
+    const push = (corner: { count: number }, m: unknown, moving: number) => {
+      for (let i = 0; i < corner.count; i++) {
+        at.fromBufferAttribute(corner, i);
+        if (m) at.applyMatrix4(m);
+        out.push(at.x, FLOOR + (at.y - FLOOR) * c - at.z * sn, moving);
+      }
+    };
+    push(band.still.geometry.getAttribute("position"), null, 0);
+    for (const p of band.players) push(p.body.geometry.getAttribute("position"), p.body.matrixWorld, 1);
+    band.bones.forEach((_: Bone, k: number) => { band.limbs.getMatrixAt(k, matrix); push(band.limbs.geometry.getAttribute("position"), matrix, 1); });
+    return out;
+  }
+  // The outline at a pixel `px` m across, 1 where a still part covers a pixel's middle and 2 where a moving one does. `thin` counts
+  // the lit pixels in a gap 1 or 2 px wide, across or down, with a moving part at one end; `pockets` the lit patches shut in by
+  // black, under 3 px one way, with a moving part at their edge.
+  function gaps(tris: number[], px: number) {
+    const w = Math.ceil(18 / px), h = Math.ceil(6 / px), mask = new Uint8Array(w * h), low = Math.ceil((FROM + UP) / px);
+    for (let t = 0; t < tris.length; t += 9) {
+      const ax = (tris[t] + 9) / px, ay = (tris[t + 1] - FLOOR + UP) / px, bx = (tris[t + 3] + 9) / px, by = (tris[t + 4] - FLOOR + UP) / px, cx = (tris[t + 6] + 9) / px, cy = (tris[t + 7] - FLOOR + UP) / px;
+      const kind = tris[t + 2] + 1, area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      if (area === 0) continue;
+      for (let y = Math.max(0, Math.ceil(Math.min(ay, by, cy) - 0.5)); y <= Math.min(h - 1, Math.floor(Math.max(ay, by, cy) - 0.5)); y++) {
+        for (let x = Math.max(0, Math.ceil(Math.min(ax, bx, cx) - 0.5)); x <= Math.min(w - 1, Math.floor(Math.max(ax, bx, cx) - 0.5)); x++) {
+          const qx = x + 0.5, qy = y + 0.5;
+          const inside = ((bx - ax) * (qy - ay) - (by - ay) * (qx - ax)) / area >= 0 && ((cx - bx) * (qy - by) - (cy - by) * (qx - bx)) / area >= 0 && ((ax - cx) * (qy - cy) - (ay - cy) * (qx - cx)) / area >= 0;
+          if (inside && mask[y * w + x] < kind) mask[y * w + x] = kind;
+        }
+      }
+    }
+    let thin = 0, pockets = 0;
+    const run = (o: number, step: number, within: (q: number) => boolean) => {
+      let a = o, b = o;
+      while (within(a - step) && !mask[a - step] && (o - a) / step < 2) a -= step;
+      while (within(b + step) && !mask[b + step] && (b - o) / step < 2) b += step;
+      return within(a - step) && within(b + step) && mask[a - step] > 0 && mask[b + step] > 0 && (b - a) / step < 2 && (mask[a - step] === 2 || mask[b + step] === 2);
+    };
+    for (let y = low; y < h; y++) for (let x = 0; x < w; x++) {
+      const o = y * w + x;
+      if (!mask[o] && (run(o, 1, (q) => q >= y * w && q < (y + 1) * w) || run(o, w, (q) => q >= 0 && q < w * h))) thin += 1;
+    }
+    const seen = new Uint8Array(w * h);
+    const flood = (start: number) => {
+      const got = [start];
+      let moving = false;
+      seen[start] = 1;
+      for (let i = 0; i < got.length; i++) {
+        const x = got[i] % w, y = (got[i] - x) / w;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const X = x + dx, Y = y + dy;
+          if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
+          const n = Y * w + X;
+          if (mask[n]) moving ||= mask[n] === 2;
+          else if (!seen[n]) { seen[n] = 1; got.push(n); }
+        }
+      }
+      return { got, moving };
+    };
+    // What the frame's edge reaches through lit pixels is the light outside; the rest are pockets.
+    for (let x = 0; x < w; x++) for (const o of [x, (h - 1) * w + x]) if (!mask[o] && !seen[o]) flood(o);
+    for (let y = 0; y < h; y++) for (const o of [y * w, y * w + w - 1]) if (!mask[o] && !seen[o]) flood(o);
+    for (let o = 0; o < w * h; o++) {
+      if (mask[o] || seen[o]) continue;
+      const { got, moving } = flood(o), xs = got.map((g) => g % w), ys = got.map((g) => Math.floor(g / w));
+      if (moving && Math.max(...ys) >= low && Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) < 2) pockets += 1;
+    }
+    return { thin, pockets };
+  }
+
+  it("leaves few gaps under 3 px with a moving part at their edge: from the hill no more than 36 thin pixels and 4 small pockets in any of 16 poses, and from the front of the crowd 176 and 5", () => {
+    const built = stand();
+    built.play(1.5, 96);
+    const most = { far: { thin: 0, pockets: 0 }, near: { thin: 0, pockets: 0 } };
+    for (let sample = 0; sample < 16; sample++) {
+      built.play(0.15, 96);
+      for (const [view, px, tilt] of [["far", 0.12, 0.5], ["near", 0.04, 0.12]] as ["far" | "near", number, number][]) {
+        const found = gaps(triangles(built, tilt), px);
+        most[view] = { thin: Math.max(most[view].thin, found.thin), pockets: Math.max(most[view].pockets, found.pockets) };
+      }
+    }
+    // Counted 34 and 4 from the hill and 170 and 4 from the front; the band before its outlines were closed counted 100 and 12,
+    // and 250 and 20. Something is counted: a wedge's tip is thin wherever two parts part.
+    // Counted 34 and 4 from the hill and 170 and 4 from the front; the band before its outlines were closed counted 100 and 12,
+    // and 255 and 21. Something is counted: a wedge's tip is thin wherever two parts part.
+    expect(most.far.thin).toBeGreaterThan(10);
+    expect([most.far.thin <= 36, most.far.pockets <= 4, most.near.thin <= 176, most.near.pockets <= 5]).toEqual([true, true, true, true]);
   });
 });
 
@@ -512,6 +628,54 @@ describe("the band's playing", () => {
       else if (up && y < 0.002) { taps += 1; up = false; }
     });
     expect(taps / 20).toBeCloseTo(92 / 60, 1);
+  });
+
+  // A part that went a little one way in one frame and back in the next, over and over, would flicker every edge that rests near a
+  // pixel's middle (CLAUDE.md, "Motion and flashes"). Each bone's ends and each body's place and turn are followed here, frame by
+  // frame: none turns back twice within three frames; none's pace quickens and slackens by turns through four frames, as a part
+  // would that moved by uneven steps; and none's change of pace from one frame to the next is over what the band's sharpest move
+  // makes, a stick's landing.
+  it("moves every part smoothly from frame to frame, at rest and through four bars at 90, 120 and 140 a minute: no part goes back and forth within three frames or shivers through four, and none's pace changes by more than a stick's landing", () => {
+    const zigzags: string[] = [], shivers: string[] = [];
+    let sharpest = 0, sharpestAtRest = 0;
+    for (const [bpm, playing] of [[96, false], [90, true], [120, true], [140, true]] as [number, boolean][]) {
+      const { band, play } = stand();
+      if (playing) play(3, bpm);
+      const series = new Map<string, number[]>();
+      const follow = (name: string, value: number) => { const list = series.get(name) ?? []; list.push(value); series.set(name, list); };
+      play(playing ? (16 * 60) / bpm : 8, bpm, playing, () => {
+        band.bones.forEach((bone: Bone, k: number) => {
+          const { a, b } = ends(band, k);
+          for (const [end, at] of [["a", a], ["b", b]] as [string, Vec][]) { follow(`${bone.of} ${bone.name} ${end} x`, at.x); follow(`${bone.of} ${bone.name} ${end} y`, at.y); follow(`${bone.of} ${bone.name} ${end} z`, at.z); }
+        });
+        band.players.forEach((p: { plays: string; body: { position: Vec; rotation: Vec } }, k: number) => {
+          follow(`${k} ${p.plays} across`, p.body.position.x); follow(`${k} ${p.plays} up`, p.body.position.y); follow(`${k} ${p.plays} nod`, p.body.rotation.x); follow(`${k} ${p.plays} lean`, p.body.rotation.z);
+        });
+      });
+      expect(series.size).toBe(band.bones.length * 6 + 24);
+      for (const [name, values] of series) {
+        for (let i = 2; i < values.length; i++) {
+          const before = values[i - 1] - values[i - 2], after = values[i] - values[i - 1];
+          if (playing) sharpest = Math.max(sharpest, Math.abs(after - before)); else sharpestAtRest = Math.max(sharpestAtRest, Math.abs(after - before));
+          // Back, forth and back again in three frames, by more than rounding: a bone's end is read from its matrix, which holds
+          // 32-bit numbers, good to a few millionths of a metre here; a body's place and turn are whole.
+          const bone = / [ab] [xyz]$/.test(name), slack = bone ? 4e-6 : 1e-12;
+          if (i >= 3) { const first = values[i - 2] - values[i - 3]; if (first * before < 0 && before * after < 0 && Math.min(Math.abs(first), Math.abs(before), Math.abs(after)) > slack) zigzags.push(`${name} at ${bpm}, frame ${i}`); }
+          // The pace up, down, up and down again over four frames, each by more than the same rounding makes of a change of pace.
+          if (i >= 5) {
+            const d2 = [0, 1, 2, 3].map((n) => values[i - n] - 2 * values[i - n - 1] + values[i - n - 2]);
+            if (d2.every((v, n) => Math.abs(v) > (bone ? 5e-5 : 1e-9) && (n === 0 || v * d2[n - 1] < 0))) shivers.push(`${name} at ${bpm}, frame ${i}`);
+          }
+        }
+      }
+    }
+    expect(zigzags).toEqual([]);
+    expect(shivers).toEqual([]);
+    // A frame's change of pace, in the stage's metres or in radians: the most is where a stick lands, 3 cm a frame at its tip; a
+    // band that stands only breathes and shifts its weight.
+    expect(sharpest).toBeGreaterThan(0.01);
+    expect(sharpest).toBeLessThan(0.045);
+    expect(sharpestAtRest).toBeLessThan(2e-5);
   });
 
   it("jumps nowhere as the tempo changes or the show stops: no bone's end moves faster then than the fastest of a steady song, by a quarter", () => {

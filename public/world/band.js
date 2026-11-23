@@ -27,7 +27,16 @@ export const SCALE = 1.77;
    shows against the panel comes and goes once in four counts: a sway of the hips, a stick's stroke, a hand at the keys, each by no
    more than a hand's breadth, a pixel from the back of the crowd on a phone. What is quicker moves black over black: a hand
    strumming over its instrument, one way on a count and back on the next; or against the floor: a foot tapping the count. The
-   heads stay at their microphones, and nothing moves on the half count. */
+   heads stay at their microphones, and nothing moves on the half count.
+
+   And the outlines are closed. Nothing here is antialiased, so a pocket of the panel's light a pixel or two wide inside a player's
+   outline is lit or black as a whole pixel, and an edge that rests on that pixel's centre flips it from one frame to the next: a
+   drummer's arm, nearly still, counted 11 swings in a second at one pixel under it at daybreak, with the edge within three
+   thousandths of a pixel of the centre for 18 frames. So no limb stands a little off a trunk or an instrument: an arm lies
+   against its trunk to the elbow, a fretting arm's bend is filled to the neck, a cymbal reaches into its drummer's outline or
+   stands well clear, each microphone's stand rises on the crowd's line of sight to its singer, and the amplifiers stand at the
+   floor's front corners, clear of everyone. What thin gaps are left are a wedge's tip where two parts part, the notches of an
+   instrument's own outline, and gaps between parts that stand still (`band.test.ts` counts them). */
 export const HALF_OVER = 1.75, HALF_UNDER = 1.5;
 
 /* The counts in which a move comes and goes once, each set by a count of flashes (scripts/flash; the bar is 6 swings a second at a
@@ -120,6 +129,8 @@ function lay(m, a, b, wide, thick, pads, ref) {
 /* A limb that never moves, as a part: the same bar, laid once. */
 const laid = new THREE.Matrix4();
 const limb = (a, b, wide, thick = wide, pads = [0, 0], ref = X) => LIMB.clone().applyMatrix4(lay(laid, a, b, wide, thick, pads, ref));
+/* A web: a flat piece between three points, seen from both sides, that fills what three parts enclose. */
+const web = (a, b, c) => new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute([a, b, c, a, c, b].flatMap((v) => [v.x, v.y, v.z]), 3));
 /* A trouser cuff round an ankle, `hem` in radius at its foot and `tall`, and a shoe from heel to toe. */
 const cuff = (ankle, hem = 0.084, tall = 0.14) => new THREE.CylinderGeometry(0.062, hem, tall, 8).translate(ankle.x, 0.125, ankle.z);
 const shoe = (heel, toe) => limb(heel, toe, 0.105, 0.08);
@@ -137,9 +148,10 @@ function elbowOf(elbow, from, to, upper, fore, pole) {
 
 /* A posture: how high the hips are, and how far over them the waist is, about which the body turns. */
 const STANDING = { hips: 0.92, waist: 0.01 }, SEATED = { hips: 0.6, waist: 0.02 };
-/* A trunk and a head in a posture, facing +z. `broad` widens it. The hair is an outline and no more: "short", "long" past the
-   shoulders, a "bob" to the jaw, "curls", a "cap" with a peak, a "knot" on the crown. Returns the parts, the `pivot` at the waist,
-   the `hip` and the `shoulder` of a side (1 the player's left, +x, and -1 their right), and the mouth. */
+/* A trunk and a head in a posture, facing +z. `broad` widens it. A collar stands from the shoulders' slope to under the head's
+   widest, so no notch is open under the jaw. The hair is an outline and no more: "short", "long" past the shoulders, a "bob" to
+   them, "curls" down to them, a "cap" with a peak, a "knot" on the crown. Returns the parts, the `pivot` at the waist, the `hip`
+   and the `shoulder` of a side (1 the player's left, +x, and -1 their right), and the mouth. */
 function trunk({ hips: h, waist }, broad, hair) {
   const head = V(0, h + 0.735, 0.005);
   const parts = [
@@ -148,6 +160,7 @@ function trunk({ hips: h, waist }, broad, hair) {
     new THREE.CapsuleGeometry(0.07, 0.41 * broad, 2, 8).rotateZ(Math.PI / 2).scale(1, 1, 0.9).translate(0, h + 0.455, 0),
     new THREE.CylinderGeometry(0.07, 0.2, 0.09, 8).scale(broad, 1, 0.62).translate(0, h + 0.495, 0),
     new THREE.CylinderGeometry(0.05, 0.058, 0.1, 6).translate(0, h + 0.585, 0),
+    new THREE.CylinderGeometry(0.094, 0.115, 0.15, 8).scale(1, 1, 0.8).translate(0, h + 0.6, 0),
     ball(head, 0.112, 0.88, 1.12, 1),
   ];
   const lift = (x, y, z) => V(head.x + x, head.y + y, head.z + z);
@@ -157,9 +170,9 @@ function trunk({ hips: h, waist }, broad, hair) {
   if (hair === "short" || hair === "knot") parts.push(ball(lift(0, 0.024, -0.018), 0.113, 0.93, 1, 1.02));
   if (hair === "knot") parts.push(ball(lift(0, 0.15, -0.045), 0.052));
   if (hair === "long") parts.push(...fall(0.33, 0.152));
-  if (hair === "bob") parts.push(...fall(0.15, 0.142));
+  if (hair === "bob") parts.push(...fall(0.215, 0.15));
   if (hair === "curls") for (const a of [-0.5, 0.2, 0.9, 1.57, 2.25, 2.95, 3.65]) parts.push(ball(lift(0.094 * Math.cos(a), 0.02 + 0.094 * Math.sin(a), -0.012), 0.064, 1, 1, 1, 0));
-  if (hair === "curls") parts.push(ball(lift(0, 0.03, -0.075), 0.09, 1, 1, 1, 0));
+  if (hair === "curls") parts.push(ball(lift(0, 0.03, -0.075), 0.09, 1, 1, 1, 0), ball(lift(0, -0.115, -0.02), 0.105, 1.5, 0.9, 0.8, 0));
   if (hair === "cap") parts.push(new THREE.CylinderGeometry(0.096, 0.106, 0.08, 8).translate(head.x, head.y + 0.094, head.z), box(0.16, 0.014, 0.115, head.x, head.y + 0.062, head.z + 0.15));
   return { parts, pivot: V(0, h + waist, 0), hip: (side) => V(side * 0.09 * broad, h - 0.02, 0), shoulder: (side) => V(side * 0.205 * broad, h + 0.455, 0), mouth: V(0, h + 0.685, 0.105) };
 }
@@ -205,9 +218,11 @@ function microphone(to, [x, z], boom) {
 }
 
 /* A cymbal on a stand, in a drummer's frame: `r` in radius, its middle at `c`, tipped `tip` rad toward the drummer and `roll` to the
-   side, on a pole from a tripod at `foot` ([x, z]). */
+   side, at the end of a level arm from a pole that stands upright on a tripod at `foot` ([x, z]): the pole stands off the cymbal's
+   middle, clear of the drummer, where a pole from under the middle would stand a hand from their arm. */
 function cymbal(c, r, tip, roll, [x, z]) {
-  const parts = [drum(c, 0.03, r, 0.035, 12, tip, roll), bar(V(x, 0.25, z), c, 0.013, 0.011, 5), bar(V(x, 0.02, z), V(x, 0.25, z), 0.015, 0.015, 5)];
+  const top = V(x, c.y - 0.03, z);
+  const parts = [drum(c, 0.03, r, 0.035, 12, tip, roll), bar(V(x, 0.25, z), top, 0.013, 0.011, 5), bar(top, c, 0.011, 0.011, 4), bar(V(x, 0.02, z), V(x, 0.25, z), 0.015, 0.015, 5)];
   for (const a of [0.9, 3, 5.1]) parts.push(bar(V(x, 0.26, z), V(x + 0.22 * Math.cos(a), 0.016, z + 0.22 * Math.sin(a)), 0.011, 0.011, 4));
   return parts;
 }
@@ -298,11 +313,12 @@ export function buildBand(stage, floor) {
     }
     return tap;
   }
-  /* A player's microphone on its stand, the microphone before the mouth where the body has it at rest: where it was drawn, for one
-     who stands upright, and leaned with the body for one who leans. */
+  /* A player's microphone on its stand, the microphone at the mouth where the body has it at rest: where it was drawn, for one who
+     stands upright, and leaned with the body for one who leans. The stand's foot is `reach` from there toward the crowd, the way
+     the stage faces, so from the crowd's side of the stage the stand and its arm rise in front of the singer and not beside them. */
   function voice(p, t, mic) {
-    const at = V(0, t.mouth.y - 0.005, 0.17);
-    keep(p, "microphone", microphone(p.lean ? leaned(p, at) : at, mic.foot, mic.boom));
+    const at = V(0, t.mouth.y - 0.005, 0.125), tip = p.lean ? leaned(p, at) : at, facing = p.g.rotation.y;
+    keep(p, "microphone", microphone(tip, [tip.x - mic.reach * Math.sin(facing), tip.z + mic.reach * Math.cos(facing)], mic.boom));
   }
 
   /* The players' moves, each a share of `level` (0 standing, 1 playing), on the band's count less the player's own lag, a whole
@@ -311,19 +327,21 @@ export function buildBand(stage, floor) {
 
   /* A guitar or a bass: standing, legs apart, the instrument across the body with its neck risen to the player's left, the left hand
      on the neck and the right over the strings. The hips sway to one side and, two counts on, to the other, the instrument with
-     them, under a head that stays at its microphone. The right arm hangs by the trunk to an elbow tucked behind the instrument, and
-     the forearm lies over it from there: it turns at the elbow, `strum` rad either way, the hand crossing the strings one way on a
-     count and back on the next, black over the instrument's black from the front. The left foot taps, down on the count. */
+     them, under a head that stays at its microphone. Both upper arms lie against the trunk. The left elbow is tucked under the
+     neck, and the bend of that arm is filled, from the shoulder to the hand and down to where the neck leaves the body, so no
+     pocket stands open between the arm and the neck. The right forearm lies over the instrument from its elbow: it turns there,
+     `strum` rad either way, the hand crossing the strings one way on a count and back on the next, black over the instrument's
+     black from the front. The left foot taps, down on the count. */
   function strummer(plays, spot, facing, { size, broad, hair, stance, toes, hold, fret, sway, strum, tap, lag, mic }) {
     const p = player(plays, spot, facing, size);
     const t = trunk(STANDING, broad, hair), a = axe(hold);
     const left = t.shoulder(1), right = t.shoulder(-1);
-    const hand = a.on(fret, -0.01, -0.035), elbow = elbowOf(V(), left, hand, 0.29, 0.27, V(0.75, -1, -0.2));
+    const hand = a.on(fret, -0.01, -0.035), elbow = elbowOf(V(), left, hand, 0.29, 0.27, V(-0.2, -1, -0.5));
     /* The strumming arm: its wrist over the strings behind the hand's reach, its fingers at them. */
     const wrist = a.on(hold.strum - 0.05, 0.075, 0.06), fingers = a.on(hold.strum + 0.005, 0.01, 0.05);
-    const tucked = elbowOf(V(), right, wrist, 0.29, 0.26, V(-0.55, -0.5, -0.65));
+    const tucked = elbowOf(V(), right, wrist, 0.29, 0.26, V(0.2, -1, -0.6));
     embody(p, [...t.parts, ...a.parts, bar(left, elbow, 0.058, 0.049), ball(elbow, 0.051, 1, 1, 1, 0), bar(elbow, hand, 0.049, 0.038), ball(hand, 0.052, 1, 0.85, 1, 0),
-      bar(right, tucked, 0.06, 0.053), ball(tucked, 0.055, 1, 1, 1, 0)], t.pivot);
+      bar(right, tucked, 0.06, 0.053), ball(tucked, 0.055, 1, 1, 1, 0), web(elbow, hand, a.on(hold.joint, 0, 0)), web(left, elbow, a.on(hold.joint, 0, 0)), web(left, elbow, hand), web(right, tucked, wrist)], t.pivot);
     const face = a.on(0, 0, 1).sub(a.on(0, 0)).normalize();
     const strumming = hinge(p, true, ofBody(p, tucked), face, [wrist.clone().sub(tucked), fingers.clone().sub(wrist)],
       [bone(p, "strumming forearm", 0.1, 0.1, [0.03, 0.01]), bone(p, "strumming hand", 0.08, 0.05, [0.02, 0.012], face)]);
@@ -341,14 +359,17 @@ export function buildBand(stage, floor) {
     return p;
   }
 
-  /* The keys: two keyboards on a crossed stand, the player standing behind it, a hand on each. The hands rise and fall in turn, each
-     down once in four counts, and the shoulders dip toward the keys with the left while the hands stay where they play. */
+  /* The keys: two keyboards in one body on a crossed stand, the player standing behind it, turned a little from the crowd, a hand on
+     each. The elbows are tucked at the waist, so from the crowd the arms lie over the trunk and the keyboards. The hands rise and
+     fall in turn, each down once in four counts, and the shoulders dip toward the keys with the left while the hands stay where
+     they play. */
   function keys(spot, facing, { size, broad, hair, stance, lag, mic }) {
     const p = player("keys", spot, facing, size);
     const t = trunk(STANDING, broad, hair);
     embody(p, t.parts, t.pivot, 0.1);
     const lower = { y: 0.9, z: 0.46 }, upper = { y: 1.1, z: 0.64 };
-    const rig = [box(1.32, 0.09, 0.31, 0, lower.y, lower.z), new THREE.BoxGeometry(1.06, 0.08, 0.27).rotateX(0.22).translate(0.04, upper.y, upper.z)];
+    const rig = [box(1.14, 0.09, 0.31, 0, lower.y, lower.z), new THREE.BoxGeometry(0.96, 0.08, 0.27).rotateX(0.22).translate(0.02, upper.y, upper.z),
+      box(0.96, upper.y - lower.y, 0.24, 0.02, (upper.y + lower.y) / 2, upper.z + 0.01)];
     for (const s of [1, -1]) {
       rig.push(bar(V(s * 0.52, 0.03, lower.z), V(-s * 0.44, 0.85, lower.z), 0.02, 0.02, 4), box(0.05, 0.035, 0.52, s * 0.52, 0.0175, lower.z),
         box(0.05, 0.03, 0.34, s * 0.44, 0.85, lower.z), bar(V(s * 0.4, 0.85, lower.z + 0.1), V(s * 0.4, upper.y - 0.03, upper.z + 0.02), 0.018, 0.018, 4));
@@ -361,7 +382,7 @@ export function buildBand(stage, floor) {
       { side: -1, name: "right", tip: V(-0.2, upper.y + 0.085, upper.z - 0.05), lead: -1 },
     ].map(({ side, name, tip, lead }) => {
       const wrist = tip.clone().add(V(side * 0.012, 0.035, -0.08));
-      return { wrist, fingers: tip.clone().sub(wrist), lead, arm: arm(p, name, t.shoulder(side), 0.29, 0.26, V(side * 0.9, -1, -0.9), [bone(p, `${name} hand`, 0.085, 0.045, [0.02, 0.012])]) };
+      return { wrist, fingers: tip.clone().sub(wrist), lead, arm: arm(p, name, t.shoulder(side), 0.29, 0.26, V(-0.15 * side, -1, -0.7), [bone(p, `${name} hand`, 0.085, 0.045, [0.02, 0.012])]) };
     });
     stand(p, t, stance, 0.18, -0.02, false);
     voice(p, t, mic);
@@ -381,24 +402,29 @@ export function buildBand(stage, floor) {
     return p;
   }
 
-  /* A drummer at a kit, seated: a kick drum facing the crowd with toms over it, a snare, a floor tom, a hi-hat and two cymbals on
-     stands. The hands play in front of the trunk, the left on the snare and the right on a tom, so from the hill the sticks, which
-     are thin, move over the black of the kit and the drummer, and what shows against the panel is the elbows, out to either side.
-     The right stick falls on one count and the left two counts on: each rises slowly and falls once in four counts, so one is
-     down while the other is at its top. The trunk rocks once in four counts, and the hands stay where they play. */
+  /* A drummer at a kit, seated: a kick drum facing the crowd with toms over it, a snare, a floor tom, a hi-hat, a ride and, for the
+     first of the two, a crash on a pole. The hands play in front of the trunk, the left on the snare and the right on a tom, and the elbows hang
+     by the waist: from the crowd the arms and the sticks move over the black of the drummer and the kit, and what moves against
+     the panel is the trunk, which rocks once in four counts. The right stick falls on one count and the left two counts on: each
+     rises slowly and falls once in four counts, so one is down while the other is at its top. The hi-hat stands to the side `hat`
+     is on, or under the drummer's hands where its x is small; the floor tom and the ride stand to the other. The ride lies level
+     at the shoulder and reaches into the drummer's outline; a block fills the kit's middle, between the kick, the snare and the
+     drummer's knees. */
   function drummer(spot, facing, { size, broad, hair, lag, toms, tom, ride, crash, hat }) {
+    const out = Math.sign(hat.x), stand = (c, off, z) => [c.x + Math.sign(c.x) * off, c.z + z];
     const p = player("drums", spot, facing, size);
     const t = trunk(SEATED, broad, hair);
     embody(p, t.parts, t.pivot, 0.07);
     const kit = [
       drum(V(0, 0.29, 0.88), 0.28, 0.28, 0.42, 16, Math.PI / 2), bar(V(0.2, 0.22, 1.02), V(0.34, 0.016, 1.12), 0.012, 0.012, 4), bar(V(-0.2, 0.22, 1.02), V(-0.34, 0.016, 1.12), 0.012, 0.012, 4),
       drum(V(0.05, 0.6, 0.4), 0.18, 0.18, 0.14, 12), bar(V(0.05, 0.53, 0.4), V(0.05, 0.02, 0.4), 0.014, 0.014, 5),
-      drum(V(-0.45, 0.42, 0.3), 0.2, 0.2, 0.36, 12), bar(V(-0.63, 0.3, 0.3), V(-0.67, 0.016, 0.3), 0.011, 0.011, 4), bar(V(-0.35, 0.3, 0.46), V(-0.33, 0.016, 0.5), 0.011, 0.011, 4),
+      drum(V(-0.45 * out, 0.42, 0.3), 0.2, 0.2, 0.36, 12), bar(V(-0.63 * out, 0.3, 0.3), V(-0.67 * out, 0.016, 0.3), 0.011, 0.011, 4), bar(V(-0.35 * out, 0.3, 0.46), V(-0.33 * out, 0.016, 0.5), 0.011, 0.011, 4),
       drum(V(0, 0.5, -0.02), 0.17, 0.17, 0.07, 10), bar(V(0, 0.47, -0.02), V(0, 0.2, -0.02), 0.022, 0.022, 5),
-      ...cymbal(hat, 0.18, 0, 0, [hat.x, hat.z]), drum(V(hat.x, hat.y - 0.045, hat.z), 0.18, 0.03, 0.035, 12),
-      ...cymbal(ride, 0.26, -0.3, -0.12, [ride.x + 0.14, ride.z + 0.2]),
-      ...cymbal(crash, 0.22, 0.28, 0.1, [crash.x + 0.06, crash.z + 0.1]),
+      ...cymbal(hat, 0.16, 0, 0, stand(hat, 0.14, 0)), drum(V(hat.x, hat.y - 0.045, hat.z), 0.16, 0.03, 0.035, 12),
+      ...cymbal(ride, 0.24, 0, 0.12 * out, stand(ride, 0.2, 0.14)),
     ];
+    if (crash) kit.push(...cymbal(crash, 0.17, 0.1, -0.1 * out, stand(crash, 0, 0.12)));
+    kit.push(box(0.4, 0.44, 0.5, 0, 0.5, 0.45));
     for (const a of [0.5, 2.6, 4.7]) kit.push(bar(V(0, 0.22, -0.02), V(0.24 * Math.cos(a), 0.018, -0.02 + 0.24 * Math.sin(a)), 0.014, 0.014, 4));
     for (const { x, r } of toms) kit.push(drum(V(x, 0.83, 0.74), r, r, 0.2, 12, -0.42), bar(V(x * 0.6, 0.72, 0.8), V(0, 0.56, 0.84), 0.014, 0.014, 4));
     keep(p, "kit", kit);
@@ -411,13 +437,12 @@ export function buildBand(stage, floor) {
     }
     /* The arms. Each stick's tip rests where it falls, the left on the snare and the right on the tom at `tom`, its hand a stick's
        hold behind, and falls `delay` counts after the drummer's own count. A stroke tips the stick back RAISE rad, over the kit's
-       black, and lifts the hand a little, out to its `side`: the elbows stand beside the cymbals, and an arm that swept past one
-       would flicker the gap between them. */
+       black, and lifts the hand a little, out to its `side`. The elbows bend down and back, against the trunk. */
     const sticks = [
-      { side: 1, name: "left", tip: V(0.07, 0.69, 0.36), grip: V(0.25, 0.79, 0.13), delay: SLOW / 2 },
-      { side: -1, name: "right", tip: tom.clone(), grip: V(tom.x - 0.07, tom.y - 0.03, tom.z - 0.31), delay: 0 },
+      { side: 1, name: "left", tip: V(0.07, 0.69, 0.36), grip: V(0.13, 0.8, 0.07), delay: SLOW / 2 },
+      { side: -1, name: "right", tip: tom.clone(), grip: V(tom.x * 0.6, tom.y - 0.03, tom.z - 0.31), delay: 0 },
     ].map(({ side, name, tip, grip, delay }) => ({ grip, aim: tip.clone().sub(grip), delay, lift: V(side * 0.005, 0.035, -0.01),
-      arm: arm(p, name, t.shoulder(side), 0.29, 0.25, V(side, -0.2, -0.45), [bone(p, `${name} stick`, 0.03, 0.03, [0.09, 0]), bone(p, `${name} hand`, 0.085, 0.07, [0, 0], X, [-0.14, 0.14])]) }));
+      arm: arm(p, name, t.shoulder(side), 0.29, 0.25, V(-0.1 * side, -1, -0.5), [bone(p, `${name} stick`, 0.03, 0.03, [0.09, 0]), bone(p, `${name} hand`, 0.085, 0.07, [0, 0], X, [-0.14, 0.14])]) }));
     const { body, pivot, lean } = p;
     p.pose = (count, level, time) => {
       const c = count - lag, slow = swing(c, SLOW);
@@ -435,23 +460,24 @@ export function buildBand(stage, floor) {
   /* The line-up, from the crowd's left: the guitars in front, the bass and the keys a step back, and the drummers behind, side by
      side. They stand close enough that from the front of the crowd all six fall on the light panel, and apart enough that from
      the hill no instrument's head sways across a neighbour's cymbal or stand: where one black edge slides past another a pixel
-     away, the gap between them flickers. No two stand, sway or wear their hair alike. */
+     away, the gap between them flickers. So the first drummer's cymbals stand toward the second, away from the guitar's head,
+     and the second's hi-hat stands low. No two stand, sway or wear their hair alike. */
   strummer("bass", [-6.05, -1.3], 0.25, { size: 1.0, broad: 1.06, hair: "curls", stance: 0.2, toes: 0.3, fret: 0.9, sway: 0.035, strum: 0.05, tap: 0.1, lag: 1,
-    hold: { ...BASS, at: V(-0.1, 0.9, 0.18), rise: 0.76, yaw: 0.2, big: 1.08 }, mic: { foot: [0.03, 0.38], boom: false } });
+    hold: { ...BASS, at: V(-0.1, 0.9, 0.18), rise: 0.76, yaw: 0.2, big: 1.08 }, mic: { reach: 0.26, boom: false } });
   strummer("guitar", [-3.5, 1.5], 0.1, { size: 1.035, broad: 0.98, hair: "short", stance: 0.18, toes: 0.22, fret: 0.76, sway: -0.04, strum: 0.15, tap: 0.13, lag: 0,
-    hold: { ...TWO_HORNS, at: V(-0.13, 0.99, 0.18), rise: 0.5, yaw: 0.22, big: 1.1 }, mic: { foot: [0.02, 0.4], boom: false } });
-  drummer([-1.25, -2.5], 0.06, { size: 0.99, broad: 1.04, hair: "knot", lag: 0, toms: [{ x: 0.17, r: 0.15 }, { x: -0.18, r: 0.165 }], tom: V(-0.19, 0.93, 0.58), hat: V(0.5, 0.88, 0.3), ride: V(-0.6, 1.12, 0.46), crash: V(0.36, 1.3, 0.7) });
-  drummer([1.3, -2.5], -0.06, { size: 1.02, broad: 1.0, hair: "bob", lag: 1, toms: [{ x: 0.0, r: 0.165 }], tom: V(-0.06, 0.93, 0.58), hat: V(0.5, 0.9, 0.32), ride: V(-0.52, 1.04, 0.44), crash: V(0.42, 1.22, 0.66) });
+    hold: { ...TWO_HORNS, at: V(-0.13, 0.99, 0.18), rise: 0.5, yaw: 0.22, big: 1.1 }, mic: { reach: 0.28, boom: false } });
+  drummer([-1.25, -2.5], 0.06, { size: 0.99, broad: 1.04, hair: "knot", lag: 0, toms: [{ x: 0.17, r: 0.15 }, { x: -0.18, r: 0.165 }], tom: V(-0.19, 0.93, 0.58), hat: V(-0.02, 0.8, 0.25), ride: V(0.3, 1.12, 0.1), crash: V(0.5, 1.5, 0.3) });
+  drummer([1.3, -2.5], -0.06, { size: 1.02, broad: 1.0, hair: "bob", lag: 1, toms: [{ x: 0.0, r: 0.165 }], tom: V(-0.06, 0.93, 0.58), hat: V(0.3, 0.76, 0.32), ride: V(-0.3, 1.1, 0.08) });
   strummer("guitar", [3.35, 1.4], -0.12, { size: 0.955, broad: 0.93, hair: "long", stance: 0.16, toes: 0.25, fret: 0.68, sway: 0.045, strum: 0.13, tap: 0.11, lag: 2,
-    hold: { ...ONE_CUT, at: V(-0.12, 1.02, 0.18), rise: 0.38, yaw: 0.3, big: 1.1 }, mic: { foot: [0.3, 0.47], boom: true } });
-  keys([6.35, -1.2], -1.1, { size: 1.0, broad: 1.02, hair: "cap", stance: 0.17, lag: 3, mic: { foot: [0.82, 0.3], boom: true } });
+    hold: { ...ONE_CUT, at: V(-0.12, 1.02, 0.18), rise: 0.38, yaw: 0.3, big: 1.1 }, mic: { reach: 0.3, boom: false } });
+  keys([6.2, -1.2], -0.25, { size: 1.0, broad: 1.02, hair: "cap", stance: 0.17, lag: 3, mic: { reach: 0.9, boom: true } });
 
-  /* The furniture, in the stage's frame: three amplifiers, each with its head on it, low and set between the players or behind the
-     outer two, so each stands clear of every instrument from the hill; and three wedge monitors at the lip, between the players'
-     feet. */
+  /* The furniture, in the stage's frame: two amplifiers, each with its head on it and low, at the front corners of the floor, turned
+     in: there each stands half a metre clear of every player's outline, and from the hill against the floor, not the panel; and
+     three wedge monitors at the lip, between the players' feet. */
   const wedge = (x, z, turn) => plate([[-0.27, 0], [0.27, 0], [0.27, 0.32], [0.1, 0.34], [-0.27, 0.08]], 0.62, false).rotateY(-Math.PI / 2 + turn).translate(x, floor, z);
   const amplifier = (x, z, w, h, turn) => [new THREE.BoxGeometry(w, h, 0.5).translate(0, h / 2, 0), new THREE.BoxGeometry(w * 0.8, 0.22, 0.38).translate(0, h + 0.11, 0)].map((part) => part.rotateY(turn).translate(x, floor, z));
-  keep(null, "amplifier", [...amplifier(-7.3, -3.4, 1.0, 0.8, 0.25), ...amplifier(-5.5, -3.2, 0.9, 0.7, 0.1), ...amplifier(7.35, -3.3, 0.9, 0.7, -0.25)]);
+  keep(null, "amplifier", [...amplifier(-7.5, 1.7, 0.8, 0.8, 0.5), ...amplifier(7.4, 1.8, 0.8, 0.7, -0.5)]);
   keep(null, "monitor", [wedge(-3.95, 3.0, 0.2), wedge(-2.45, 3.3, -0.1), wedge(2.2, 3.2, 0.15)]);
 
   /* The still parts as one mesh, which remembers the corners each named part holds. */
