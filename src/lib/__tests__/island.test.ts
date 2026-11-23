@@ -332,7 +332,10 @@ describe("the crowd's worn earth", () => {
     for (const word of ["trodden(", "tread(", "worn("]) expect(plain).not.toContain(word);
   });
 
-  it("is no brighter than the turf it lies on under any light of the show, so a figure dancing against it swings a block of the frame no further than against turf", () => {
+  // The measure is against the crowd's turf as a whole, its mean colour, under each light as a luma-weighted sum. Turf varies from
+  // patch to patch by about a sixth, so against the darkest patch the earth is the brighter by up to a sixth; a review measured the
+  // mean ratio at 0.9 to 0.97 with the lights reckoned as the renderer does, and 1.17 against the darkest turf in white light.
+  it("is no brighter than the crowd's turf is on the whole, its mean, under any light of the show, so that figures dancing against it swing the frame no further than against turf", () => {
     // The turf's own colour, as the ground's vertices carry it, taken evenly over the whole of the crowd's ground.
     const turf = [0, 0, 0], here = new THREE.Color();
     let count = 0;
