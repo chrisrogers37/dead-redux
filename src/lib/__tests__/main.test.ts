@@ -62,7 +62,7 @@ const fake = vi.hoisted(() => {
     rig: { show: Float32Array; mesh: { visible: boolean; renderOrder?: number } };
     move: (dt: number, t: number, beats: number) => void;
   };
-  type CrowdMesh = { count: number; renderOrder?: number };
+  type CrowdMesh = { renderOrder?: number };
   type Sky = { uniforms: Record<string, { value: number | Vec }> };
 
   // What the world main.js built: its scene, its camera, every bear it made (a downgrade drops some from the scene), and where the
@@ -117,6 +117,12 @@ const fake = vi.hoisted(() => {
     miracle: { position: { y: 4 } },
     stage: undefined as unknown as Stage,
     crowd: undefined as unknown as CrowdMesh,
+    // Whether main.js asked for the crowd's figures built plain, as a phone's are (crowd.js).
+    crowdPlain: undefined as unknown as boolean,
+    // What main.js did to draw each frame, in order: asked the crowd whether a figure is in view ("cull"), and drew ("render"); and
+    // the camera it handed each.
+    drew: [] as string[],
+    drewFrom: [] as unknown[],
     sky: undefined as unknown as Sky,
     sun: undefined as unknown as { castShadow: boolean },
     meshes: [] as { material: unknown; position: Vec; visible: boolean }[],
@@ -200,7 +206,10 @@ const fake = vi.hoisted(() => {
       shadowMap = (world.shadowMap = { enabled: false, autoUpdate: true, needsUpdate: false });
       setPixelRatio() {}
       setSize() {}
-      render() {}
+      render(_scene: unknown, camera: unknown) {
+        world.drew.push("render");
+        world.drewFrom.push(camera);
+      }
     },
     Scene,
     PerspectiveCamera: Camera,
@@ -380,10 +389,24 @@ const fake = vi.hoisted(() => {
       STAGE_SOUND: { x: 0, y: 0, z: 0, facing: [0, 0, 1] },
     },
     crowd: {
-      // As many figures as the tier asks for, which the downgrade may halve, the pose each frame gives them, and its parting.
-      buildCrowd: (_scene: Scene, { count }: { count: number }) => ({
-        mesh: (world.crowd = { count }),
+      // As many figures as the tier asks for, of which the downgrade may have only the first half drawn, the pose each frame gives
+      // them, its parting, and its own word on whether a camera has a figure in view.
+      buildCrowd: (_scene: Scene, { count, plain }: { count: number; plain: boolean }) => {
+        let shown = count;
+        return {
+        mesh: (world.crowd = ((world.crowdPlain = plain), {})),
         count,
+        get shown() {
+          return shown;
+        },
+        show: (some: number) => {
+          shown = some;
+        },
+        cull: (camera: unknown) => {
+          world.drew.push("cull");
+          world.drewFrom.push(camera);
+          return true;
+        },
         pose: (beats: number, dance: number, rise: number, sit: number) => {
           world.posed = { beats, dance, rise, sit };
         },
@@ -394,7 +417,8 @@ const fake = vi.hoisted(() => {
         ahead: () => {},
         hold: () => {},
         parted: 0,
-      }),
+        };
+      },
     },
   };
   return { world, three, modules, TURN, LIT, OUTLINE, WAYS, SLIDE, CEILING, TREE_REACH, TRUNK_ROOM, BAND_GLOW, PATH };
@@ -700,6 +724,33 @@ describe("main.js's frames", () => {
     for (let k = 0; k < 1500 && hill().crowd.drawn === made; k++) page.run(0.05, { ms: 50 });
     expect(hill().crowd.drawn).toBe(Math.ceil(made / 2));
     expect(page.shown()).toHaveLength(fake.world.bears.length);
+  });
+
+  it("asks the crowd before it draws each frame whether the camera it draws from has a figure in view", async () => {
+    // The crowd is sent to be drawn only in a frame that shows a figure of it (crowd.js cull): three alone culls it by one sphere
+    // round the whole crowd. So each frame asks first, with the camera the frame is then drawn from.
+    const page = await startWorld({ search: "?pose=crowd" });
+    fake.world.drew.length = 0;
+    fake.world.drewFrom.length = 0;
+    page.run(0.5, { ms: 50 });
+    const { drew, drewFrom } = fake.world;
+    expect(drew.length).toBeGreaterThanOrEqual(10);
+    expect(drew.filter((_, k) => k % 2 === 0).every((did) => did === "cull")).toBe(true);
+    expect(drew.filter((_, k) => k % 2 === 1).every((did) => did === "render")).toBe(true);
+    expect(drew.length % 2).toBe(0);
+    expect(new Set(drewFrom).size).toBe(1);
+    expect(drewFrom[0]).toBeTruthy();
+  });
+
+  it("builds the crowd's figures whole on a desktop and plain on a phone and a TV, whose crowds are drawn with fewer triangles a figure", async () => {
+    // A desktop's figure has every part there is to wear; a plain one leaves seven out and rounds the rest with fewer sides (crowd.js).
+    // A tier that got the wrong one would draw half as many triangles again for its crowd, or lose the parts its screen can show.
+    await startWorld();
+    expect([hill().tier, fake.world.crowdPlain]).toEqual(["desktop", false]);
+    await startWorld({ search: "?tier=phone" });
+    expect([hill().tier, fake.world.crowdPlain]).toEqual(["phone", true]);
+    await startWorld({ search: "?tier=tv" });
+    expect([hill().tier, fake.world.crowdPlain]).toEqual(["tv", true]);
   });
 
   it("draws a handful of the land's tufts for the draw-call sweep, whose frames are counted and never looked at, and all of them otherwise", async () => {

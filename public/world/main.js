@@ -169,7 +169,7 @@ function start(gl) {
   const bears = buildBears(scene, budget.bears);
 
   /* ---------- the crowd ---------- */
-  const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks });
+  const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks, plain: tier !== "desktop" });
 
   /* ---------- the visitor's bear ---------- */
   /* The walk's camera keeps out of the landmarks and the stage's column, climbs over the crowd, and among the trees slides round a
@@ -476,7 +476,7 @@ function start(gl) {
     sun.castShadow = quality.shadows;
     stage.light.visible = quality.stageLight;
     /* The seats run front first, so half the crowd is its front half. */
-    crowd.mesh.count = quality.fullCrowd ? crowd.count : Math.ceil(crowd.count / 2);
+    crowd.show(quality.fullCrowd ? crowd.count : Math.ceil(crowd.count / 2));
     /* The land's tufts and fireflies are the first thing a slow device loses half of: at the ladder's first rung, with the render scale. */
     flora.thin(quality.scale < budget.scale);
   }
@@ -530,7 +530,7 @@ function start(gl) {
     near: stat(() => (nearAt === null ? null : { index: nearAt, title: landmarkTitle(nearAt), clear: nearClear })),
     /* The crowd: how many figures it draws (the tier's, or the front-weighted half of them once the downgrade halves it), how far it
        dances, the music's factor in, how far it sits, and how many figures stand off their seats for the visitor. */
-    crowd: stat(() => ({ drawn: crowd.mesh.count, dance: r3(dancing * layer2.dance), sit: r3(sitting), parted: crowd.parted })),
+    crowd: stat(() => ({ drawn: crowd.shown, dance: r3(dancing * layer2.dance), sit: r3(sitting), parted: crowd.parted })),
     /* The rig: how far it is lit; how far its beams are gathered, following the build-up as it rises and opening again over RIG_OPEN_S
        seconds past a peak; and how far Space has lifted them. They swing as far as the crowd dances. */
     rig: stat(() => ({ lit: r3(stage.rig.show[1]), gather: r3(stage.rig.show[3]), lift: r3(stage.rig.show[4]) })),
@@ -777,6 +777,8 @@ function start(gl) {
     rig[3] = Math.max(layer2.rise, rig[3] - dt / RIG_OPEN_S);
     rig[4] = sitting;
     stage.rig.mesh.visible = rig[1] > 0;
+    /* The crowd is sent to be drawn only in a frame that has a figure of it in view (crowd.js). */
+    crowd.cull(camera);
 
     renderer.render(scene, camera);
     /* The sound's listener is the visitor: their bear's head in third person, the camera in first (listenerAt); it faces where the
