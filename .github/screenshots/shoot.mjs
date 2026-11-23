@@ -1,7 +1,6 @@
 import { appendFile, mkdir, mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { chromium } from "playwright";
 import { TEST_POSES } from "../../public/world/ground.js";
 import { logText } from "../../scripts/job-text.mjs";
 import {
@@ -18,6 +17,7 @@ import {
   walkPoses,
 } from "./assets.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
+import { planFiles, shardPlan } from "./shards.mjs";
 
 const DEVICES = {
   desktop: { viewport: { width: 1440, height: 900 } },
@@ -821,6 +821,15 @@ const logPage = async (page, file) => {
   console.log(logText(`next ${file} ${next}`));
 };
 
+// The part of the shoot this process does: the whole of it, or the part SHARD names (shards.mjs), as each of the workflow's jobs does.
+// A name that is no shard's stops the script here, before it asks for a site.
+const plan = shardPlan(process.env.SHARD, { devices: Object.keys(DEVICES), byName: BY_NAME, pages: PAGES, recordings: RECORDINGS, assets: ASSETS });
+// SHOOT_PLAN=1 prints that part as the files it saves and stops, with no site and no browser: the shards' test reads it.
+if (process.env.SHOOT_PLAN) {
+  console.log(JSON.stringify({ shard: process.env.SHARD ?? null, ...planFiles(plan) }, null, 2));
+  process.exit(0);
+}
+
 const site = new URL(process.env.SITE_URL);
 if (site.protocol !== "https:") {
   throw new Error(`SITE_URL must be an https URL, got ${process.env.SITE_URL}`);
@@ -841,11 +850,14 @@ if (process.env.GITHUB_OUTPUT) {
 const outDir = process.env.OUT_DIR;
 await mkdir(outDir, { recursive: true });
 
+// The browser's package is loaded here and not at the top, so that SHOOT_PLAN works where it is not installed, as in the unit tests.
+const { chromium } = await import("playwright");
 // The runner has no GPU, so WebGL runs in software; the no-WebGL devices get a browser with it off.
 const browser = await chromium.launch({ args: ["--enable-unsafe-swiftshader"] });
 const noWebGL = await chromium.launch({ args: ["--disable-webgl", "--disable-webgl2", "--disable-3d-apis"] });
 try {
-  for (const [device, options] of Object.entries(DEVICES)) {
+  for (const [device, pages] of plan.pages) {
+    const options = DEVICES[device];
     const context = await (NO_WEBGL.has(device) ? noWebGL : browser).newContext(options);
     await watchPolicies(context, device);
     const page = await context.newPage();
@@ -857,9 +869,6 @@ try {
       height: options.viewport.height * MAX_SCREENS,
     };
 
-    // The pages this device shoots. The TV device is for lean-back, so it shoots the home page and only the other pages that name it. A
-    // page may name the devices that shoot it; a device without WebGL, and the phone on its side, shoot only the pages that do.
-    const pages = PAGES.filter(({ path, devices }) => (device !== "tv" || path === "/" || devices?.includes("tv")) && (devices ? devices.includes(device) : !BY_NAME.has(device)));
     for (const [k, { path, shots, steps, end, ready, sweep, failAudio, status, served, whole }] of pages.entries()) {
       const url = pageUrl(path, device);
       if (failAudio) await page.route(isTrackAudio, (route) => route.abort());
@@ -1039,7 +1048,7 @@ try {
     await context.close();
   }
 
-  recording: for (const { device, name, path = "/", click, waitFor, keys, stick, recordMs = RECORD_MS } of RECORDINGS) {
+  recording: for (const { device, name, path = "/", click, waitFor, keys, stick, recordMs = RECORD_MS } of plan.recordings) {
     const options = DEVICES[device];
     // Frames arrive at the viewport's CSS size, whatever the device scale factor.
     const context = await browser.newContext({
@@ -1140,7 +1149,7 @@ try {
     );
   }
 
-  failures.push(...(await saveAssets(site, ASSETS, outDir)));
+  failures.push(...(await saveAssets(site, plan.assets, outDir)));
   for (const failure of failures) console.log(`failure ${failure}`);
   if (failures.length > 0) throw new Error(`${failures.length} failure(s); each has its own "failure" line above`);
 } finally {
