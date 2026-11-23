@@ -16,7 +16,7 @@ import { keepOuts, parting, PERSON, seats } from "./seats.js";
    shoulders SHOULDER_X either side and SHOULDER_Y up and bending at the elbow, ELBOW down them. Each leg has a ring at the knee,
    halfway up it, where it bends. Its head's middle stands at HEAD_Y, and nods about NECK_Y. */
 export const LEG = 0.86, SHOULDER_X = 0.285, SHOULDER_Y = 1.44, TALL = 1.8076;
-const HEAD_Y = 1.655, NECK_Y = 1.56, HIP_X = 0.095, ELBOW = 0.27;
+const HEAD_Y = 1.655, NECK_Y = 1.56, HIP_X = 0.095, ELBOW = 0.27, HAND_Y = SHOULDER_Y - 0.565, STAND_Z = 0.22;
 
 /* What a figure may wear or carry, each a part of the one geometry with a bit of its own. A figure's `parts` (aWear.x) is the sum of
    the bits it wears, and the vertex shader folds every other part to a point inside its head. A plain figure, a phone's and a TV's
@@ -117,7 +117,7 @@ export function figureGeometry(plain = false) {
     add(new THREE.CylinderGeometry(0.088, 0.062, LEG, 6, 2, true).translate(side * HIP_X, LEG / 2, 0), RIG.LEG, 0, (x, y) => (y > LEG / 2 ? TINT.LEGS : TINT.SHIN));
     add(new THREE.BoxGeometry(0.11, 0.07, 0.21).translate(side * HIP_X, 0.035, 0.05), RIG.FOOT, 0, TINT.SHOE);
     add(new THREE.CylinderGeometry(0.056, 0.042, 0.54, 6, 2, true).translate(side * SHOULDER_X, SHOULDER_Y - 0.27, 0), arm, 0, (x, y) => (y > SHOULDER_Y - ELBOW ? TINT.TOP : TINT.FOREARM));
-    add(new THREE.IcosahedronGeometry(0.05, 0).translate(side * SHOULDER_X, SHOULDER_Y - 0.565, 0), arm, 0, TINT.SELF);
+    add(new THREE.IcosahedronGeometry(0.05, 0).translate(side * SHOULDER_X, HAND_Y, 0), arm, 0, TINT.SELF);
     /* The shoulder: a ball at the arm's pivot, part of the body, which the torso's top runs into and the arm's open top turns
        inside, so an arm that swings or lifts stays joined to its figure and shows no hollow from above. */
     add(new THREE.IcosahedronGeometry(0.064, 0).translate(side * SHOULDER_X, SHOULDER_Y, 0), RIG.BODY, 0, TINT.TOP);
@@ -173,10 +173,10 @@ export function figureGeometry(plain = false) {
   add(rope([[0.285, 0.885, 0.03], [0.2, 1.96, -0.03]], [0.008, 0.008], 3), RIG.BODY, PART.BALLOON, TINT.SHOE, lift);
   /* A taper's stand before the left foot, on the ground: a pole to over the head, a bar across its top and, but on a plain figure, a
      microphone at each end. */
-  add(new THREE.CylinderGeometry(0.014, 0.014, 2.2, 4, 1, true).translate(-0.14, 1.1, 0.22), RIG.GROUND, PART.STAND, TINT.SHOE);
-  add(new THREE.BoxGeometry(0.18, 0.022, 0.022).translate(-0.14, 2.19, 0.22), RIG.GROUND, PART.STAND, TINT.SHOE);
-  if (!plain) for (const side of [-1, 1]) add(new THREE.BoxGeometry(0.034, 0.085, 0.034).translate(-0.14 + side * 0.08, 2.195, 0.22), RIG.GROUND, PART.STAND, TINT.SHOE);
-  add(new THREE.ConeGeometry(0.06, 0.1, 3).translate(-0.14, 0.05, 0.22), RIG.GROUND, PART.STAND, TINT.SHOE);
+  add(new THREE.CylinderGeometry(0.014, 0.014, 2.2, 4, 1, true).translate(-0.14, 1.1, STAND_Z), RIG.GROUND, PART.STAND, TINT.SHOE);
+  add(new THREE.BoxGeometry(0.18, 0.022, 0.022).translate(-0.14, 2.19, STAND_Z), RIG.GROUND, PART.STAND, TINT.SHOE);
+  if (!plain) for (const side of [-1, 1]) add(new THREE.BoxGeometry(0.034, 0.085, 0.034).translate(-0.14 + side * 0.08, 2.195, STAND_Z), RIG.GROUND, PART.STAND, TINT.SHOE);
+  add(new THREE.ConeGeometry(0.06, 0.1, 3).translate(-0.14, 0.05, STAND_Z), RIG.GROUND, PART.STAND, TINT.SHOE);
   /* The finger of the right hand, for the one who holds it up for a ticket. */
   add(new THREE.ConeGeometry(0.016, 0.1, 4).rotateX(Math.PI).translate(SHOULDER_X, 0.79, 0), RIG.ARM_R, PART.FINGER, TINT.SELF);
   /* A hoop in the hands at the hips, which a dancer lifts and swings; a hand drum at the left hip. */
@@ -213,20 +213,28 @@ export const DROP = [-0.12, 0.3];
    overhead, over four beats; one turns on the spot, there and back over eight beats, a skirt flaring as it turns; one nods with its
    arms folded; one claps on every other beat, before its chest; one stands and watches, its hands on its hips or at its sides. A stance,
    folded arms or hands on hips, is kept dancing or not, but let go, like the dance, as the parting stills a figure. Seated, every
-   arm hangs.
+   arm hangs but one that holds something (below).
+   A hand that holds something keeps hold of it, standing, seated, as the build-up lifts the rest, and held still by the parting:
+   the right hand at the foot of a flag's pole or a balloon's string; both hands at the legs of a child on the shoulders; a
+   drummer's at the drum, each tapping on its own slow beat; and the finger held up stays up, which a figure tucks into its fist
+   only as the parting brings that arm down. A hoop is in the hands only at rest: dancing, it goes round the hips and the arms
+   stand clear of it.
    The dance is slow on purpose, for the flash count (CLAUDE.md, motion and flashes): a limb that passes over lit ground or the stage
    swings each block on its way twice as it goes and twice as it comes back. So no arm goes out and back more than once in two
-   beats, and a clap is kept before the chest, where the figure's own body covers it; what keeps every beat is the bob's knees and
-   the nod alone; and no arm is raised by one that sits, as the whole crowd does through Space. It is counted by render, with scripts/flash, and the PR's text holds the
-   counts: a new way of moving is counted the same way before it merges.
+   beats, a drummer's among them, and a clap is kept before the chest, where the figure's own body covers it; what keeps every
+   beat is the bob's knees and the nod alone, and every figure's knees as the build-up lifts it (below), as they did before; and no
+   arm is raised by one that sits, as the whole crowd does through Space, but the one held up with a finger, which does not move
+   of itself. It is counted by render, with scripts/flash, and the PR's text holds the counts: a new way of moving is counted the
+   same way before it merges.
    No way of moving carries a hand further from the figure's axis than the bob does as the build-up lifts its arms, so the reaches
    below bound them all (crowd.test.ts). */
 const BOB = 0.12, ARM_SWING = 0.5, SWAY = 0.08, JITTER = 0.12;
 /* The beats the phase is kept to: the longest move's cycle, the turn's, which every other divides. */
 export const CYCLE = 8;
-/* The rise before a peak: a figure stands, its arms go up to ARM_UP rad and its knees bend twice as deep, as `rise` passes from
-   RISE_FROM to RISE_FROM + RISE_W at the front rows and RISE_SPAN later at the back (aFig.z, 0 at the front and 1 at the back), so the
-   rise ripples outward from the stage and the whole crowd is up at the peak. A hand that holds something keeps hold of it. */
+/* The rise before a peak: a figure stands, its arms go up to ARM_UP rad and its knees bend on every beat and twice as deep, as
+   `rise` passes from RISE_FROM to RISE_FROM + RISE_W at the front rows and RISE_SPAN later at the back (aFig.z, 0 at the front and 1
+   at the back), so the rise ripples outward from the stage and the whole crowd is up at the peak, but for the hands that hold
+   something. */
 const ARM_UP = 2.7, RISE_FROM = 0.3, RISE_SPAN = 0.6, RISE_W = 0.1;
 /* How far a figure reaches in its own units, over every pose: its farthest vertex HAND from its axis (its arms level partway up the
    rise, swaying at the dance's widest), its highest TOP over its feet (its hands up at the rise's peak), and PAST beyond the bounds it
@@ -451,8 +459,10 @@ export function wearing(p) {
 
 /* How far a figure's rest reaches from its axis in its own units, standing still with its arms down, and how high over its feet at the
    most, its arms up: what buildCrowd fits inside HANG and TOP. Each part's number is its farthest vertex, as it is built and as the
-   figure's own numbers widen it; a stoop carries what is on the head forward, and a lean back carries a pack back. The unit tests
-   stand every figure through every pose against the same bounds (crowd.test.ts), so a number here that fell short fails there. */
+   figure's own numbers widen it; a stoop carries what is on the head forward, and a lean back carries a pack back. It is a bound
+   on the safe side, and not a tight one: a figure's breadth is its build's before it is the reach's (buildCrowd), so most figures
+   stand some 10 cm inside HANG, and a number here that fell a little short would pass unseen on them. The unit tests stand every
+   figure through every pose against the same bounds (crowd.test.ts), which catches a short number where the fit binds. */
 function reaches(p, wear) {
   const has = (name) => (wear.parts & PART[name]) !== 0, forward = Math.max(p.stoop, 0) * 0.95, back = Math.max(-p.stoop, 0) * 0.6;
   let out = Math.max(SHOULDER_X * p.wide + 0.06, 0.166 * p.girth);
@@ -584,6 +594,7 @@ if (!worn) {
   }
   if (!legRig && !footRig && !skirtRig && !groundRig) y += up;
   if (bit == ${B.FLAG}) z += 0.06 * dance * aMark.w * sin(quarter - 2.6 * aMark.w);
+  if (bit == ${B.FINGER}) y = ${f(HAND_Y)} + (y - ${f(HAND_Y)}) * mix(0.37, 1.0, moves);
   if (bit == ${B.BALLOON}) { x += 0.06 * dance * aMark.w * four; z += 0.04 * dance * aMark.w * cos(eight); }
   if (bit == ${B.HOOP}) y += (1.0 - sit) * (0.13 * going + 0.28 * min(dance, 1.2) * (x * cos(quarter) + z * sin(quarter)));
 
@@ -599,8 +610,8 @@ if (!worn) {
     else if (akimbo) { lift = 0.62 * stand; bend = 1.5 * stand; inward = 1.0; }
     if (${is("arms", ARMS.flag)} && side > 0.0) { lift = 0.0; fore = 0.0; bend = 0.0; held = 1.0; }
     else if (${is("arms", ARMS.finger)} && side > 0.0) { lift = 2.95 * moves; fore = 0.0; bend = 0.0; held = 1.0; }
-    else if (${is("arms", ARMS.rider)}) { lift = 0.1 * moves; fore = 0.55 * moves; bend = 2.1 * moves; inward = 0.35; held = 1.0; }
-    else if (${is("arms", ARMS.drum)}) { lift = 0.1 * stand; fore = 0.35 * stand; bend = (1.25 + 0.3 * dance * (side > 0.0 ? bounce : 1.0 - bounce)) * stand; inward = 0.55; }
+    else if (${is("arms", ARMS.rider)}) { lift = 0.0; fore = 0.3; bend = 2.1; inward = 0.6; held = 1.0; }
+    else if (${is("arms", ARMS.drum)}) { lift = 0.1 * moves; fore = 0.15; bend = 1.2 + 0.3 * dance * (side > 0.0 ? slow : 1.0 - slow); inward = 0.8; held = 1.0; }
     else if (${is("arms", ARMS.hoop)}) lift = 0.6 * aloft;
     float lifted = rise * (1.0 - held);
     lift = mix(lift, ${f(ARM_UP)}, lifted); fore *= 1.0 - lifted; bend *= 1.0 - lifted;
@@ -631,9 +642,11 @@ if (!worn) {
   /* A seat stands as much higher as the thighs are thicker, so that a broad figure's rest on the ground as a slight one's do. */
   float lower = legL * ${f(1 - FOLD)} * bob + (legL - ${f(SEAT)} - 0.044 * max(girth - 1.0, 0.0)) * sit;
   bool onLeg = legRig || footRig || (skirtRig && y < legL + 0.001);
+  /* How far the ground falls (or, below nought, rises) from the seat to the seated feet ahead of it. */
+  float fall = clamp(aFig.w, ${f(DROP[0])}, ${f(DROP[1])});
   if (onLeg) {
     /* The hip, the foot and the knee between them, as forward (Z) and up (Y). */
-    float fall = clamp(aFig.w, ${f(DROP[0])}, ${f(DROP[1])}), hipY = legL - lower;
+    float hipY = legL - lower;
     float footZ = sit * ${f(FOOT[0])}, footY = sit * (${f(FOOT[1])} - fall);
     float span = max(sqrt(footZ * footZ + (footY - hipY) * (footY - hipY)), 1e-4);
     float alongZ = footZ / span, alongY = (footY - hipY) / span, halfway = 0.5 * min(span, legL - 1e-3);
@@ -673,7 +686,12 @@ if (!worn) {
     float turn = spin * 1.6 * min(dance, 1.3) * sin(eight) * (1.0 - sit), cr = cos(turn), sr = sin(turn);
     x = cr * tx + sr * z; y = ty; z = cr * z - sr * tx;
   }
-  if (skirtRig) y = max(y, 0.012 - clamp(aFig.w, ${f(DROP[0])}, ${f(DROP[1])}) * z / ${f(FOOT[0])});
+  /* The ground under the figure falls or rises ahead of its seat as far as its seated feet follow it. A skirt's hem never passes
+     under it; nor does anything else of a figure as far as it sits, where a lap, a hem, a hoop or a hanging hand would; and a
+     taper's stand goes down to it where it falls away. */
+  if (skirtRig) y = max(y, 0.012 - fall * z / ${f(FOOT[0])});
+  else if (groundRig) y -= max(fall, 0.0) * ${f(STAND_Z)} / ${f(FOOT[0])};
+  else y = max(y, -fall * z / ${f(FOOT[0])} - 0.4 * (1.0 - sit));
   transformed.x = x; transformed.y = y; transformed.z = z;
 }`;
 /* After color_vertex, where the colour is the instance's own, its top's: a face that is not its top's takes one of the figure's four
