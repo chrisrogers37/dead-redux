@@ -612,7 +612,7 @@ function start(gl) {
       if (elapsed >= nextDrop || (peak && elapsed - dropAt > 5)) drop();
       lastIndex = index; lastPos = trackPos;
       skyMat.uniforms.uDrop.value.z = elapsed - dropAt;
-      for (const m of hold ? [] : moving) {
+      if (!hold) for (const m of moving) {
         if (m.kind === "spin") m.obj.rotation.y += dt * 0.3;
         else if (m.kind === "pulse") m.obj.material.emissiveIntensity = 0.6 + 0.4 * Math.sin(elapsed * 3);
         else if (m.kind === "bob") m.obj.position.y = 4 + 0.5 * Math.sin(elapsed * 1.5);

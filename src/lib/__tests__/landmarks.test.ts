@@ -4,6 +4,8 @@ import * as THREE from "three";
 import { hull, outside, standClear } from "../../../public/world/collide.js";
 import { FIRST_EYE, height } from "../../../public/world/ground.js";
 import { makeBuilders, mergeLandmarks, mergeStill, mesh, songKey, STONE_KINDS, stoneKind, titleHash } from "../../../public/world/landmarks.js";
+// The builders' own depths and tones, which the newest five's tests read and do not state again.
+import { BAND_SUNK, BOW_TONES, BRASS, COPPER, CREAM, DARK_TIMBER, GREY, IRON, KITE_TONES, PALE_STONE, PIER_NICHE, PIER_PLINTH, PLAQUE, POST, SIGN_DARK, SIGN_YELLOW, STONE, STRING, SUNK as COMMON_SUNK, TIMBER, TRESTLE_SUNK } from "../../../public/world/landmarks.js";
 import { buildPath, buildWalkLine, layout, placeLandmarks } from "../../../public/world/path.js";
 import { readdirSync, readFileSync } from "fs";
 
@@ -94,6 +96,21 @@ const standAt = (u: number, outline: number[][]): Stand => {
 // How high the ground under a place of a landmark's own frame stands over the landmark's own ground: it stands level, turned
 // about the vertical.
 const groundAt = (stand: Stand, x: number, z: number) => height(stand.x + x * stand.cos + z * stand.sin, stand.z - x * stand.sin + z * stand.cos) - stand.own;
+// The feet of what stands in the ground go deep enough for any slope the path gives them, and no deeper than the slope asks.
+// `corners` are those of the pieces that stand in the ground; their feet are the corners `sunk` m under the landmark's own ground,
+// or within `slack` of that for a foot cut aslant, `least` of them or more. At each of `stands`, under every corner of a foot, the
+// ground must be FOOT_COVER m or more over it: less, and a slope's lower side shows daylight under the foot. And where it is
+// least, it is under FOOT_SPARE: the depth is the slope's, not a guess. Gives that least, the shallowest a foot lies anywhere.
+const FOOT_COVER = 0.2, FOOT_SPARE = 1.7;
+const shallowestFoot = (stands: Stand[], position: Corners, corners: number[], sunk: number, where: string, least: number, slack = 0) => {
+  const feet = footRing(position, corners, slack - sunk);
+  expect(feet.length, where).toBeGreaterThanOrEqual(least);
+  let shallowest = Infinity;
+  for (const stand of stands) for (const [x, z] of feet) shallowest = Math.min(shallowest, groundAt(stand, x, z) + sunk);
+  if (shallowest < FOOT_COVER) expect.fail(`${where}: a foot ${shallowest} m under the ground beneath it, at the path's steepest`);
+  expect(shallowest, where).toBeLessThan(FOOT_SPARE);
+  return shallowest;
+};
 // How sharply a mesh's faces meet: the least dot of the ways two faces that share an edge look. Two faces that lie one over the
 // other, the skin folded there, give -1; the sharpest true edge of any standing stone, where a split stone's crack meets its side,
 // gives -0.8.
@@ -126,8 +143,8 @@ const cornersOf = (part: unknown) => {
 // `plain` is that shape: its corners, its outline seen from above (path.js stands a landmark by its outline) and the top a
 // landmark may not pass. `built` is a landmark on a tier, built once for every test that reads it: its still mesh and that mesh's
 // pieces, every part's corners, and its own outline seen from above. `tiers` visits every one on both tiers. `along` is the whole
-// path as places for one of them: where it stands, by its own outline, at every second metre; two that share an outline share the
-// sweep.
+// path as places for one of them: where it stands, by its own outline, at every second metre, or every `step` m; two that share
+// an outline share the sweep.
 type PlainShape = { corners: [number, number, number][]; outline: number[][]; top: number };
 type Built = { parts: Part[]; moving: { obj: unknown; kind?: string }[]; still: Part; position: Corners; color: Corners; pieces: Piece[]; corners: [number, number, number][]; outline: number[][] };
 type Batch = ReturnType<typeof batchOf>;
@@ -151,11 +168,11 @@ function batchOf(titles: string[], shapes: Record<string, (phone: boolean) => [u
     return builds.get(key) as Built;
   };
   const tiers = (visit: (b: Built, title: string, phone: boolean, where: string) => void) => { for (const phone of [false, true]) for (const title of titles) visit(built(title, phone), title, phone, `${title}${phone ? " on a phone" : ""}`); };
-  const along = (title: string, phone = false) => {
-    const { outline } = built(title, phone), key = JSON.stringify(outline);
+  const along = (title: string, phone = false, step = 2) => {
+    const { outline } = built(title, phone), key = `${step}:${JSON.stringify(outline)}`;
     if (!sweeps.has(key)) {
       const stands: Stand[] = [];
-      for (let d = 0; d < path.curveLength; d += 2) stands.push(standAt(d / path.curveLength, outline));
+      for (let d = 0; d < path.curveLength; d += step) stands.push(standAt(d / path.curveLength, outline));
       sweeps.set(key, stands);
     }
     return sweeps.get(key) as Stand[];
@@ -1881,14 +1898,9 @@ describe("the drum circle, the banner, Space's rim, the magnolia and the leaning
         if (piece.low < 0.25) expect(piece.low, where).toBeCloseTo(-SUNK[title], 5);
       }
       expect(pieces.some((piece) => piece.low < 0.25), where).toBe(true);
-      // And that depth is enough anywhere on the path: under every corner of a foot, the ground is 0.2 m or more over it.
-      const feet = footRing(position, pieces.flatMap((piece) => piece.corners), -SUNK[title]);
-      expect(feet.length, where).toBeGreaterThan(4);
-      let shallowest = Infinity;
-      for (const stand of along(title, phone)) for (const [x, z] of feet) shallowest = Math.min(shallowest, groundAt(stand, x, z) + SUNK[title]);
-      if (shallowest < 0.2) expect.fail(`${where}: a foot ${shallowest} m under the ground beneath it, at the path's steepest`);
-      // No deeper than it need be by more than a metre and a half: the depth is the slope's, not a guess.
-      expect(shallowest, where).toBeLessThan(1.7);
+      // And that depth is enough anywhere on the path, under every corner of a foot, five corners of them or more, and no deeper
+      // than the slope asks (shallowestFoot).
+      shallowestFoot(along(title, phone), position, pieces.flatMap((piece) => piece.corners), SUNK[title], where, 5);
     });
   });
 
@@ -2323,7 +2335,7 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
   // The five, by a title of each, and how far under its own ground each one's feet go.
   const SIGN = "Truckin'", ROAD = "Goin' Down The Road Feeling Bad", KITE = "Playin' In The Band", PIER = "Not Fade Away", BAND = "Uncle John's Band";
   const FIVE = [SIGN, ROAD, KITE, PIER, BAND];
-  const SUNK: Record<string, number> = { [SIGN]: 1.6, [ROAD]: 7.4, [KITE]: 1.6, [PIER]: 1.6, [BAND]: 4.4 };
+  const SUNK: Record<string, number> = { [SIGN]: COMMON_SUNK, [ROAD]: TRESTLE_SUNK, [KITE]: COMMON_SUNK, [PIER]: COMMON_SUNK, [BAND]: BAND_SUNK };
   // The plain shapes they replace, as main built them on each tier, each part [geometry, x, y, z, its turn about z]. A phone's
   // bandstand had no posts.
   const PLAIN: Record<string, (phone: boolean) => [unknown, number, number, number, number?][]> = {
@@ -2339,9 +2351,8 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
   };
   // None may stand over its plain shape's top.
   const batch = batchOf(FIVE, PLAIN, Object.fromEntries(FIVE.map((title) => [title, 0]))), { plain, built, tiers, along } = batch;
-  // The colours the tests know parts by.
-  const TIMBER = 0x6b4e2e, DARK_TIMBER = 0x4a3520, IRON = 0x55595c, STRING = 0xcfc8b4, BRASS = 0xb08a3c, STONE = 0x8e8a82, GREY = 0x7d7a74, PALE_STONE = 0xa9a59c;
-  const YELLOW = 0xd4a056, SIGN_DARK = 0x3a2a1e, PLAQUE = 0xe0d9c4, POST = 0x7a5230, ROSE = 0xd4607a, GOLD = 0xe8b04b, BOWS = [0x5b8fb5, 0xf0dba0], PLINTH = 0x6f6a63, NICHE = 0x2a2622, CREAM = 0xd8d2c4, COPPER = [0x5f8f7f, 0x4e7a6c];
+  // The tones the tests know parts by are the builders' own (imported above); the sail's two are its rose and its gold.
+  const [ROSE, GOLD] = KITE_TONES;
   // A piece's breadth across the path, its depth along it and its height; its middle; and how far a place is from the upright
   // through the landmark's middle.
   const wide = (piece: Piece) => piece.x1 - piece.x0, deep = (piece: Piece) => piece.z1 - piece.z0, tall = (piece: Piece) => piece.high - piece.low;
@@ -2426,11 +2437,14 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
     }
   });
 
-  // This test stands ten outlines at every second metre of the path: it has 20 s, not the usual 5.
-  it("go into the ground as far as it can fall away under them: a post, a plinth and a step each goes on down to its landmark's depth, and no foot shows on any slope of the path", { timeout: 20000 }, () => {
+  // This test stands ten outlines at every second metre of the path, and three of them at every quarter metre, some six seconds
+  // of standClear on a quiet machine: it has 60 s, not the usual 5.
+  it("go into the ground as far as it can fall away under them: a post, a plinth and a step each goes on down to its landmark's depth, and no foot shows on any slope of the path", { timeout: 60000 }, () => {
+    // How far the ground falls under a foot of the trestle and of the bandstand, at the most, in metres.
+    const FALLS: Record<string, number> = { [ROAD]: 6.95, [BAND]: 3.89 };
     // What stands in the ground, of each, and how many: the sign's post; the trestle's posts, two to a bent; the kite's post;
     // the pier's plinth; and the bandstand's plinth and its two steps.
-    const FOOTED: Record<string, [number[], number, number]> = { [SIGN]: [[TIMBER], 1, 1], [ROAD]: [[POST], 10, 6], [KITE]: [[TIMBER], 1, 1], [PIER]: [[PLINTH], 1, 1], [BAND]: [[STONE, PALE_STONE], 3, 3] };
+    const FOOTED: Record<string, [number[], number, number]> = { [SIGN]: [[TIMBER], 1, 1], [ROAD]: [[POST], 10, 6], [KITE]: [[TIMBER], 1, 1], [PIER]: [[PIER_PLINTH], 1, 1], [BAND]: [[STONE, PALE_STONE], 3, 3] };
     tiers((b, title, phone, where) => {
       const [tones, desktop, phones] = FOOTED[title], grounded = b.pieces.filter((piece) => piece.low < 0), feet = of(b, ...tones).filter((piece) => piece.low < 0);
       expect(feet, where).toHaveLength(phone ? phones : desktop);
@@ -2439,14 +2453,15 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
       for (const piece of feet) expect(Math.abs(piece.low + SUNK[title]), where).toBeLessThan(0.02);
       // Nothing else comes down to the ground's level, but under the trestle, whose caps, braces and girts hang on its posts.
       if (title !== ROAD) expect(grounded, where).toHaveLength(feet.length);
-      // And that depth is enough anywhere on the path: under every corner of a foot, the ground is 0.2 m or more over it.
-      const ring = footRing(b.position, feet.flatMap((piece) => piece.corners), 0.03 - SUNK[title]);
-      expect(ring.length, where).toBeGreaterThanOrEqual(4);
-      let shallowest = Infinity;
-      for (const stand of along(title, phone)) for (const [x, z] of ring) shallowest = Math.min(shallowest, groundAt(stand, x, z) + SUNK[title]);
-      if (shallowest < 0.2) expect.fail(`${where}: a foot ${shallowest} m under the ground beneath it, at the path's steepest`);
-      // No deeper than it need be by more than a metre and a half: the depth is the slope's, not a guess.
-      expect(shallowest, where).toBeLessThan(1.7);
+      // And that depth is enough anywhere on the path, under every corner of a foot, four corners of them or more, and no deeper
+      // than the slope asks (shallowestFoot). A trestle's post's foot is cut aslant: its corners are within 3 cm of its depth.
+      const corners = feet.flatMap((piece) => piece.corners);
+      shallowestFoot(along(title, phone), b.position, corners, SUNK[title], where, 4, 0.03);
+      // The two that are broad are sunk by a measure, which their builders' comments give: stood at every quarter metre of the
+      // path, the lowest the ground lies under a corner of a foot, under the landmark's own ground. It is held here, at those
+      // steps, where a foot must be covered too: a ground or a foot that moved would leave the comment's figure, and the depth
+      // set by it, behind.
+      if (title in FALLS) expect(SUNK[title] - shallowestFoot(along(title, phone, 0.25), b.position, corners, SUNK[title], where, 4, 0.03), where).toBeCloseTo(FALLS[title], 2);
     });
   });
 
@@ -2501,9 +2516,9 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
   it("builds the sign in layers: a yellow board on a dark one, a border's width inside it all round, the winding road painted on the yellow, and the post behind the yellow's face", () => {
     for (const phone of [false, true]) {
       const sign = built(SIGN, phone), { position } = sign, where = phone ? "on a phone" : "on a desktop";
-      const dark = of(sign, SIGN_DARK), [yellow] = of(sign, YELLOW), [post] = of(sign, TIMBER), [plaque] = of(sign, PLAQUE);
+      const dark = of(sign, SIGN_DARK), [yellow] = of(sign, SIGN_YELLOW), [post] = of(sign, TIMBER), [plaque] = of(sign, PLAQUE);
       const border = dark.reduce((best, piece) => (wide(piece) > wide(best) ? piece : best));
-      expect(of(sign, YELLOW), where).toHaveLength(1);
+      expect(of(sign, SIGN_YELLOW), where).toHaveLength(1);
       // The two boards stand on their corners, 4.6 m up at their middles as the plain board was, turned 0.04 rad askew: in
       // their own frame the border board is 1.69 m square and the yellow one 12 cm inside it all round. A border flush with
       // the yellow's edge, or lost under it, is no border.
@@ -2537,9 +2552,9 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
       expect(Math.min(...marks.map((mark) => mark.x0)), where).toBeLessThan(-0.3);
       expect(Math.max(...marks.map((mark) => mark.x1)), where).toBeGreaterThan(0.25);
       expect(marks.reduce((best, mark) => (mark.high > best.high ? mark : best)).corners.length / 3, where).toBe(24);
-      // The post goes 1.6 m into the ground and up behind the boards, a plank no wider than the plain pole: its face is a
+      // The post goes into the ground to the common depth and up behind the boards, a plank no wider than the plain pole: its face is a
       // centimetre behind the yellow board's, so the sign's face is whole, and its back a centimetre inside the border's back.
-      expect(post.low, where).toBeCloseTo(-1.6, 5);
+      expect(post.low, where).toBeCloseTo(-SUNK[SIGN], 5);
       expect(post.high, where).toBeGreaterThan(4.6);
       expect(post.high, where).toBeLessThan(yellow.high - 0.5);
       expect(wide(post), where).toBeCloseTo(0.24, 5);
@@ -2613,7 +2628,7 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
         expect(pair, which).toHaveLength(2);
         for (const [k, post] of pair.entries()) {
           const side = k ? 1 : -1;
-          // Its head is in the cap, 10 cm up into it, under the stringer; its foot is 7.4 m down and 1.8 m out. A post that
+          // Its head is in the cap, 10 cm up into it, under the stringer; its foot is 1.8 m out, at the trestle's depth. A post that
           // stopped short of its cap would leave the deck on nothing.
           expect(post.high > cap.low + 0.08 && post.high < cap.high, which).toBe(true);
           expect(side * feet(post, true), which).toBeCloseTo(1.15, 1);
@@ -2652,9 +2667,9 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
   it("flies the kite on its line over its post: a sail as large as the plain board, its spars showing on both faces, the line from the post's head to the spars' crossing, and a tail of bows tied to its foot, clear of the post", () => {
     for (const phone of [false, true]) {
       const kite = built(KITE, phone), { position, color } = kite, where = phone ? "on a phone" : "on a desktop";
-      const [post] = of(kite, TIMBER), spars = of(kite, DARK_TIMBER), bows = of(kite, ...BOWS).sort((p, q) => q.high - p.high);
-      // The post is upright, 5 m tall and 1.6 m into the ground, and no thicker than the plain pole.
-      expect([post.low, post.high], where).toEqual([expect.closeTo(-1.6, 5), expect.closeTo(5, 5)]);
+      const [post] = of(kite, TIMBER), spars = of(kite, DARK_TIMBER), bows = of(kite, ...BOW_TONES).sort((p, q) => q.high - p.high);
+      // The post is upright, 5 m tall and into the ground to the common depth, and no thicker than the plain pole.
+      expect([post.low, post.high], where).toEqual([expect.closeTo(-SUNK[KITE], 5), expect.closeTo(5, 5)]);
       expect(Math.max(wide(post), deep(post)), where).toBeLessThanOrEqual(0.3);
       expect(Math.abs(midst(post)[0]), where).toBeLessThan(1e-6);
       // The sail and its tail's cords are one piece: the tail is tied to the sail's foot, corner to corner, and each cord
@@ -2700,7 +2715,7 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
       bows.forEach((bow, k) => {
         const knot = midst(bow), nearest = Math.min(...cords.map((i) => far(at(i), knot)));
         expect(nearest, `${where}, bow ${k}`).toBeLessThan(0.035);
-        expect(isTone(color, bow.corners[0], BOWS[(k + 1) % 2]), `${where}, bow ${k}`).toBe(true);
+        expect(isTone(color, bow.corners[0], BOW_TONES[(k + 1) % 2]), `${where}, bow ${k}`).toBe(true);
         expect(Math.hypot(wide(bow), tall(bow)), `${where}, bow ${k}`).toBeGreaterThan(0.6);
         expect([bow.z0, bow.z1], `${where}, bow ${k}`).toEqual([expect.closeTo(-0.03, 6), expect.closeTo(0.03, 6)]);
       });
@@ -2716,9 +2731,9 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
   it("builds the pier in courses under its lantern: a plinth, six courses of two blocks drawn in as they rise, a niche in its near face, a cornice and a cap, and an iron cage round main's ball with no bar before its middle", () => {
     for (const phone of [false, true]) {
       const pier = built(PIER, phone), { position } = pier, where = phone ? "on a phone" : "on a desktop";
-      const [plinth] = of(pier, PLINTH), [niche] = of(pier, NICHE), stones = of(pier, STONE, GREY, PALE_STONE), iron = of(pier, IRON);
-      // The plinth goes 1.6 m into the ground and is nearly as broad as the plain block, 1.6 m by 1.2 m.
-      expect([plinth.low, plinth.high], where).toEqual([expect.closeTo(-1.6, 5), expect.closeTo(0.55, 5)]);
+      const [plinth] = of(pier, PIER_PLINTH), [niche] = of(pier, PIER_NICHE), stones = of(pier, STONE, GREY, PALE_STONE), iron = of(pier, IRON);
+      // The plinth goes into the ground to the common depth and is nearly as broad as the plain block, 1.6 m by 1.2 m.
+      expect([plinth.low, plinth.high], where).toEqual([expect.closeTo(-SUNK[PIER], 5), expect.closeTo(0.55, 5)]);
       expect(wide(plinth) > 1.5 && deep(plinth) > 1.1, where).toBe(true);
       // The courses: six, each 0.55 m, from the plinth's top to 3.85 m. Each is of two blocks that lap at their joint, so no
       // sky shows through it, and the joint steps from one side of the middle to the other, course by course; a niche's
@@ -2786,9 +2801,9 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
       const band = built(BAND, phone), { position, color } = band, where = phone ? "on a phone" : "on a desktop";
       const [base] = of(band, STONE), steps = of(band, PALE_STONE).sort((p, q) => q.high - p.high), cream = of(band, CREAM), posts = cream.filter((piece) => tall(piece) > 2.5), rails = cream.filter((piece) => tall(piece) < 1 && piece.high < 2);
       const from = (i: number) => Math.hypot(position.getX(i), position.getZ(i)), round = (piece: Piece) => { const [x, , z] = midst(piece); return ((Math.atan2(x, z) / (2 * Math.PI)) * 8 + 8) % 8; };
-      // The plinth and the deck on it are one piece, from 4.4 m under the ground to the floor, 0.8 m up as the plain floor
+      // The plinth and the deck on it are one piece, from the stand's depth under the ground to the floor, 0.8 m up as the plain floor
       // was: the plinth is stone, as broad as the plain floor, 4 m to its corners, and the deck timber, from 0.45 m up.
-      expect([base.low, base.high], where).toEqual([expect.closeTo(-4.4, 5), expect.closeTo(0.8, 5)]);
+      expect([base.low, base.high], where).toEqual([expect.closeTo(-SUNK[BAND], 5), expect.closeTo(0.8, 5)]);
       const deck = base.corners.filter((i) => isTone(color, i, TIMBER)), plinth = base.corners.filter((i) => isTone(color, i, STONE));
       expect(Math.min(...deck.map((i) => position.getY(i))), where).toBeCloseTo(Math.max(...plinth.map((i) => position.getY(i))), 5);
       expect(Math.max(...plinth.map((i) => position.getY(i))), where).toBeCloseTo(0.45, 5);
@@ -2796,7 +2811,7 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
       // The steps: two, of stone, each a third of the floor's height over the one under it, going down as far as the plinth.
       // The upper lies against the plinth's side and the lower against the upper, on the side that looks to the walker's
       // right: steps round the back, or off the plinth, lead nowhere.
-      expect(steps.map((step) => [step.low, step.high]), where).toEqual([[expect.closeTo(-4.4, 5), expect.closeTo(1.6 / 3, 5)], [expect.closeTo(-4.4, 5), expect.closeTo(0.8 / 3, 5)]]);
+      expect(steps.map((step) => [step.low, step.high]), where).toEqual([[expect.closeTo(-SUNK[BAND], 5), expect.closeTo(1.6 / 3, 5)], [expect.closeTo(-SUNK[BAND], 5), expect.closeTo(0.8 / 3, 5)]]);
       const out = (step: Piece, pick: (...values: number[]) => number) => pick(...step.corners.map((i) => position.getX(i) * Math.sin((3.5 / 8) * 2 * Math.PI) + position.getZ(i) * Math.cos((3.5 / 8) * 2 * Math.PI)));
       const side = 4 * Math.cos(Math.PI / 8);
       expect(out(steps[0], Math.min), where).toBeCloseTo(side - 0.01, 4);
@@ -2831,6 +2846,9 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
         }
         const level = here.filter((rail) => tall(rail) < 0.2).sort((p, q) => p.low - q.low), laths = here.filter((rail) => tall(rail) > 0.2);
         expect(level.map((rail) => Math.round(midst(rail)[1] * 1e3) / 1e3), which).toEqual([1, 1.75]);
+        // A rail lies level, its top and its underside each at one height: a timber turned the shortest way from upright, as
+        // a rod is, is twisted about its run by the way it heads, and a rail's top with it.
+        for (const rail of level) expect(new Set(rail.corners.map((i) => position.getY(i).toFixed(4))).size, which).toBe(2);
         expect(laths, which).toHaveLength(phone ? 0 : 2);
         for (const lath of laths) expect(lath.low > level[0].low - 0.01 && lath.high < level[1].high + 0.01, which).toBe(true);
       }

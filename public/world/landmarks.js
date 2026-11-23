@@ -73,9 +73,26 @@ export const titleHash = (title) => {
 export const STONE_KINDS = 8;
 export const stoneKind = (title) => titleHash(title) % STONE_KINDS;
 
+/* How far a footing or a post goes on down under the landmark's own ground: a landmark stands level, and on a slope the ground
+   falls away under its lower side. */
+export const SUNK = 1.6;
+/* The plain stone's own grey, and the tones the builders share. They are said out here, with the newest five's own depths and
+   tones under them, so that those five's tests read them from here and state none of them again (landmarks.test.ts). */
+export const STONE = 0x8e8a82;
+export const BRASS = 0xb08a3c, TIMBER = 0x6b4e2e, DARK_TIMBER = 0x4a3520, ROOF = 0x3b2a1a, IRON = 0x55595c;
+export const STRAW = 0xc9a24a, PALE_STRAW = 0xdcc079, LEATHER = 0x8a5a34, STRAP = 0x6a4426, STRING = 0xcfc8b4;
+export const GREY = 0x7d7a74, PALE_STONE = 0xa9a59c, MOSS = 0x55663f, SNOW = 0xeceae4, BASALT = 0x4a3a30, PINE = 0x33503a;
+/* The road sign's, the trestle's, the kite's, the pier's and the bandstand's own: how far the trestle's posts and the bandstand's
+   plinth go down, which is as far as the ground falls under them on the path and a hand more (their builders say how far that
+   is), and their tones. */
+export const TRESTLE_SUNK = 7.4, BAND_SUNK = 4.4;
+export const SIGN_YELLOW = 0xd4a056, SIGN_DARK = 0x3a2a1e, PLAQUE = 0xe0d9c4, POST = 0x7a5230;
+export const KITE_TONES = [0xd4607a, 0xe8b04b], BOW_TONES = [0x5b8fb5, 0xf0dba0];
+export const PIER_PLINTH = 0x6f6a63, PIER_NICHE = 0x2a2622, CREAM = 0xd8d2c4, COPPER = [0x5f8f7f, 0x4e7a6c];
+
 /* The builders table: a title rule and the landmark it builds; a song no rule matches gets one of eight standing stones, by its title. */
 export function makeBuilders(phone) {
-  const stone = new THREE.MeshLambertMaterial({ color: 0x8e8a82, flatShading: true });
+  const stone = new THREE.MeshLambertMaterial({ color: STONE, flatShading: true });
   const wood = new THREE.MeshLambertMaterial({ color: 0x6b4e2e, flatShading: true });
   const amber = new THREE.MeshLambertMaterial({ color: 0xe8b04b, emissive: 0xe8b04b, emissiveIntensity: 0.6 });
   const moving = []; // objects that spin, bob, pulse or swell, and the flame's light (still under reduced motion)
@@ -98,11 +115,6 @@ export function makeBuilders(phone) {
     parts.updateMatrix();
     for (const m of [...parts.children]) { m.updateMatrix(); m.applyMatrix4(parts.matrix); g.add(m); }
   };
-  /* How far a footing or a post goes on down under the landmark's own ground: a landmark stands level, and on a slope the ground
-     falls away under its lower side. */
-  const SUNK = 1.6;
-  const BRASS = 0xb08a3c, TIMBER = 0x6b4e2e, DARK_TIMBER = 0x4a3520, ROOF = 0x3b2a1a, IRON = 0x55595c;
-  const STRAW = 0xc9a24a, PALE_STRAW = 0xdcc079, LEATHER = 0x8a5a34, STRAP = 0x6a4426, STRING = 0xcfc8b4;
 
   /* A number 0 to 1 from a corner's own place and a salt, the same on every visit, so corners that faces share move together and a
      landmark is built the same each time. */
@@ -150,7 +162,6 @@ export function makeBuilders(phone) {
   /* A loose stone lies with its middle LOOSE of its radius under the landmark's ground, so most of it is in the ground, it still
      shows on the level, and a slope's lower side seldom shows under it. */
   const LOOSE = -0.55;
-  const GREY = 0x7d7a74, PALE_STONE = 0xa9a59c, MOSS = 0x55663f, SNOW = 0xeceae4, BASALT = 0x4a3a30, PINE = 0x33503a;
 
   /* Where a landmark stands is reckoned from its outline seen from above (path.js): one that reaches further than the bears' line
      leaves room for is stood off its song's point, as far as it must go, and on the summit that is a long way. So each of these
@@ -746,13 +757,18 @@ export function makeBuilders(phone) {
      A wide landmark sees more of a slope than a stone does: it stands level, and under its far side the ground falls further than
      SUNK. So each foot here goes down as far as the ground falls under its own place anywhere on the path, and a hand more. */
   const UP = new THREE.Vector3(0, 1, 0);
-  /* A rod from one place to another, `r` thick, of `sides` flat sides, open at its ends unless `capped`. */
-  const rod = (g, mat, from, to, r, sides = 4, capped = false) => {
+  /* Lays a part from one place to another and gives it back: `shape(length)` makes it upright and as long as the way between
+     them, it is put at their middle, and `turn(quaternion, way)` turns it from upright to the way from the one to the other. */
+  const laid = (g, mat, from, to, shape, turn) => {
     const along = new THREE.Vector3(...to).sub(new THREE.Vector3(...from)), length = along.length();
-    const m = mesh(new THREE.CylinderGeometry(r, r, length, sides, 1, !capped), mat, (from[0] + to[0]) / 2, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2);
-    m.quaternion.setFromUnitVectors(UP, along.divideScalar(length));
+    const m = mesh(shape(length), mat, (from[0] + to[0]) / 2, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2);
+    turn(m.quaternion, along.divideScalar(length));
     g.add(m);
+    return m;
   };
+  /* A rod from one place to another, `r` thick, of `sides` flat sides, open at its ends unless `capped`. It is turned the
+     shortest way from upright, which is all a round thing asks. */
+  const rod = (g, mat, from, to, r, sides = 4, capped = false) => { laid(g, mat, from, to, (length) => new THREE.CylinderGeometry(r, r, length, sides, 1, !capped), (quaternion, way) => quaternion.setFromUnitVectors(UP, way)); };
   /* A shape turned about the upright from a profile of [radius, height], foot first, with `sides` flat sides. Where the profile
      meets the upright it closes on a point, with no face of no area there. */
   const turned = (profile, sides) => {
@@ -1025,15 +1041,14 @@ export function makeBuilders(phone) {
      is deep enough for each. Two are broad, and stand level on a slope: so the trestle's posts and the bandstand's plinth go
      down as far as the ground falls under them anywhere on the path. */
   /* A squared timber from one place to another: `level` across, measured level and square to its run (an upright one's is across
-     the path), and `tall` the other way. Its ends are cut square, and it is not twisted about its run. */
-  const beam = (g, mat, from, to, level, tall) => {
-    const run = new THREE.Vector3(...to).sub(new THREE.Vector3(...from)), length = run.length(), y = run.divideScalar(length), x = new THREE.Vector3().crossVectors(UP, y);
+     the path), and `tall` the other way. Its ends are cut square. It is laid as a rod is, but not turned as one: the shortest
+     turn from upright twists a level timber about its run, by the way it heads, and leaves a rail's top out of level. So its
+     sides are set by its run: one level, across the run, and the other square to both. */
+  const beam = (g, mat, from, to, level, tall) => laid(g, mat, from, to, (length) => new THREE.BoxGeometry(level, length, tall), (quaternion, y) => {
+    const x = new THREE.Vector3().crossVectors(UP, y);
     if (x.lengthSq() < 1e-12) x.set(1, 0, 0);
-    const m = mesh(new THREE.BoxGeometry(level, length, tall), mat, (from[0] + to[0]) / 2, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2);
-    m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x.normalize(), y, new THREE.Vector3().crossVectors(x, y)));
-    g.add(m);
-    return m;
-  };
+    quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x.normalize(), y, new THREE.Vector3().crossVectors(x, y)));
+  });
   /* A flat piece cut from a board `thick` through that stands across the path: its outline is [x, y] in the board's own face. */
   const cut = (outline, thick) => new THREE.ExtrudeGeometry(new THREE.Shape(outline.map(([x, y]) => new THREE.Vector2(x, y))), { depth: thick, bevelEnabled: false }).translate(0, 0, -thick / 2);
 
@@ -1042,15 +1057,14 @@ export function makeBuilders(phone) {
      head. Under the sign a pale plaque carries two lines. The boards are turned a little askew on their post, as a sign is that
      has stood a while.
      It is built in layers, each SIGN.board through. The border board is layer 0, and its back is a millimetre inside the plain
-     board's;
-     the yellow board is layer 1; the road, and the plaque, layer 2; the plaque's lines, layer 3. A layer's face stands SIGN.proud
-     nearer the walker (-z) than the face of the layer behind it, which it lies a centimetre into. The post is a plank behind
-     the yellow board's face, so the sign's face is whole, and it shows only under the boards, with the plaque on its face.
+     board's; the yellow board is layer 1; the road, and the plaque, layer 2; the plaque's lines, layer 3. A layer's face stands
+     SIGN.proud nearer the walker (-z) than the face of the layer behind it, which it lies a centimetre into. The post is a
+     plank behind the yellow board's face, so the sign's face is whole, and it shows only under the boards, with the plaque on
+     its face.
      The plain shape's outline is deepest at its middle, where its pole stood, and comes to the board's own two faces at its
      tips: 14 cm nearer the walker at the middle for each metre in from a tip. So each layer is no wider than the outline lets
      it be at its face: the yellow board's tips are 1.03 m out, the road and the plaque keep within 0.45 m of the middle, and
      the plaque's lines and bolts within 0.4 m. */
-  const SIGN_YELLOW = 0xd4a056, SIGN_DARK = 0x3a2a1e, PLAQUE = 0xe0d9c4;
   const SIGN = { at: 4.6, side: 1.69, rim: 0.12, askew: 0.04, back: 0.149, board: 0.06, proud: 0.05, plaque: 2.95, stroke: 0.11 };
   function roadSign(g) {
     const dark = tone(SIGN_DARK, true), iron = tone(IRON, true), { board, proud, stroke } = SIGN, bolt = new THREE.BoxGeometry(0.07, 0.07, board);
@@ -1086,9 +1100,10 @@ export function makeBuilders(phone) {
      them on the walker's side, twice over, and a girt across at each cross's foot on the far side; a phone has three bents, with
      no girts, where a desktop has five. On level ground nothing of a bent shows but its cap. But a landmark stands level, and
      this one is 18 m long: wherever the ground falls away along it, it stands out from the hill on its bents, and where the
-     ground rises along it, it runs into the hill, as the slab did. On the path the ground falls up to 6.96 m under a post's
-     foot, so the posts go TRESTLE_SUNK down. */
-  const TRESTLE_SUNK = 7.4, POST = 0x7a5230;
+     ground rises along it, it runs into the hill, as the slab did. Stood at every quarter metre of the path, turned to the path
+     there and where its outline stands clear of the bears' line, as a landmark is stood (collide.js standClear), the ground under
+     a corner of a post's foot lies 6.95 m under the landmark's own ground at the lowest: so the posts go TRESTLE_SUNK down, and
+     their feet are 0.45 m in the ground there. Its test measures the fall so and holds the figure (landmarks.test.ts). */
   /* The deck, from the rails down: each layer's top and how tall it is. */
   const DECK = { rail: [0.495, 0.085], tie: [0.41, 0.12], stringer: [0.29, 0.22], cap: [0.07, 0.26] };
   function trestle(g) {
@@ -1123,7 +1138,6 @@ export function makeBuilders(phone) {
      is KITE.sail through and its spars a centimetre proud of each face, its line lies on its near spar's face, and its bows
      are cut from the sail's cloth. The kite is nearly as broad as the plain board was, corner to corner, and taller than it. */
   const KITE = { wing: 1.2, nose: 0.9, tail: 1.9, tilt: 0.2, at: [0.08, 7.98], sail: 0.06, line: 0.03 };
-  const KITE_TONES = [0xd4607a, 0xe8b04b], BOW_TONES = [0x5b8fb5, 0xf0dba0];
   /* A panel of a sail `thick` through, between its middle and two of its corners, each [x, y] in the sail's own face, the
      corners in their order round the sail as its far side sees them go clockwise: its near face, its far one, and its edge
      from the one corner to the other. Its other two sides are the panels' beside it, so a sail's panels close it between them. */
@@ -1167,12 +1181,12 @@ export function makeBuilders(phone) {
   const CAGE = { r: 0.47, bar: 0.03, foot: 4.5, top: 5.35, ring: 0.1 };
   const BALL = { r: 0.4, y: 5 };
   function stonePillar(g) {
-    const greys = [0x8e8a82, GREY, PALE_STONE], rows = Array.from({ length: PIER.courses }, (_, k) => k), nicheTop = PIER.niche[PIER.niche.length - 1];
+    const greys = [STONE, GREY, PALE_STONE], rows = Array.from({ length: PIER.courses }, (_, k) => k), nicheTop = PIER.niche[PIER.niche.length - 1];
     /* A dressed block, its corners a little out of true: from its low corner [x0, y0, z0] to its high one. */
     const block = (x0, y0, z0, x1, y1, z1, hex, salt) => put(g, roughen(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), 0.02, salt), tone(hex, true), (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
     /* A course's foot, and its half-breadth and half-depth. */
     const level = (k) => PIER.foot + k * PIER.course, half = (k) => [(PIER.wide - k * PIER.draw) / 2, (PIER.deep - k * PIER.draw) / 2];
-    block(-0.78, -SUNK, -0.58, 0.78, PIER.foot, 0.58, 0x6f6a63, 90);
+    block(-0.78, -SUNK, -0.58, 0.78, PIER.foot, 0.58, PIER_PLINTH, 90);
     for (const k of rows) {
       const [w, d] = half(k), grey = (n) => greys[Math.floor(greys.length * roll(k, n, 0, 91))], salt = 92 + 3 * k, LAP = 0.015;
       /* A niche's course is two jambs; the course over it, two blocks and the keystone between them, proud of them; any other,
@@ -1184,7 +1198,7 @@ export function makeBuilders(phone) {
     }
     /* The niche's back, set PIER.recess in from the face, and its sill, proud of it. */
     const sill = level(PIER.niche[0]), face = -half(PIER.niche[0])[1];
-    block(-PIER.bay - 0.02, sill, face + PIER.recess, PIER.bay + 0.02, level(nicheTop + 1), 0.4, 0x2a2622, 110);
+    block(-PIER.bay - 0.02, sill, face + PIER.recess, PIER.bay + 0.02, level(nicheTop + 1), 0.4, PIER_NICHE, 110);
     put(g, new THREE.BoxGeometry(0.84, 0.1, 0.22), tone(PALE_STONE, true), 0, sill - 0.05, -0.49);
     /* The cornice, the cap, and the block the lantern stands on, up to the cage's foot. */
     const shaft = level(PIER.courses), under = shaft + PIER.cornice, over = under + PIER.cap;
@@ -1210,9 +1224,9 @@ export function makeBuilders(phone) {
      a rail, a top one and a bottom one with a cross of laths between, in every bay but the steps'; and the roof: an eave's
      board and soffit, three courses of copper green, the middle one the darker, that rise more gently as they go, a cupola
      under its own cap, and a brass ball on that. A phone's posts are four-sided and simpler, and its rail has no laths.
-     The stand is 9 m across and stands level: on the path the ground falls up to 3.89 m under its plinth's foot, so the plinth
-     and the steps go BAND_SUNK down. */
-  const BAND_SUNK = 4.4, CREAM = 0xd8d2c4, COPPER = [0x5f8f7f, 0x4e7a6c];
+     The stand is 9 m across and stands level. Stood at every quarter metre of the path, as the trestle is, the ground under a
+     corner of its plinth's foot or of a step's lies 3.89 m under the landmark's own ground at the lowest: so the plinth and
+     the steps go BAND_SUNK down, and are 0.51 m in the ground there. Its test measures the fall so and holds the figure. */
   const BAND = { sides: 8, plinth: [4, 0.45], deck: 3.88, floor: 0.8, posts: 3.55, steps: 3, tread: 0.27, rail: [0.95, 0.2], soffit: 0.16 };
   /* The roof's courses, each ring [radius, height], from the eave up to the cupola's foot. */
   const BAND_ROOF = [[4.6, 3.8], [3.45, 4.4], [2.2, 4.9], [0.95, 5.28]];
