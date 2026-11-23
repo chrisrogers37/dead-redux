@@ -2,7 +2,9 @@
 // them depends on which of its two looks the ride is in as the still is taken, and the page changes look on a timer, so a slow
 // renderer can take a still of the wrong look, or look for a control that has gone. So each step here says the look it needs
 // (`ride`: "awake" or "settled"), the shoot reads the page's own mark just before the still and just after, and a still taken in
-// any other look fails the run (stillInLook). A control a step clicks is `required`: one that is missing fails the run too.
+// any other look fails the run (stillInLook). A control a step presses that is not on the page fails the run for the still it would
+// have taken, and a state a `required` step waits for that never comes fails it too. Each still has one failure line, its first,
+// which says why (fileFailures).
 // A settled page is used as it is: a pointer that moves only shows its cursor, and a press on one of its controls does that
 // control's work. What wakes it is a press on the bare world, or a key that is no control's. The steps below try each of these.
 // scripts/__tests__/ride-shoot.test.ts holds every step to that, and the stills' names to the list there.
@@ -26,6 +28,23 @@ export const rideIdle = (device) => RIDE_IDLE_S[device] ?? RIDE_IDLE_ELSE_S;
 export function rideFailure(need, before, after) {
   if (before === need && after === need) return null;
   return `the still needs the ride ${need}, and the page had it ${before} just before the still and ${after} just after`;
+}
+
+// A file's failures, one line a file: its first, which says why. A step can fail in several ways one after another, a look it never
+// came to and then a still taken in the wrong one, and the later ones only follow from the first. `untaken` is the files that
+// were not saved for a reason said here (`taken` false), a step's control that was not on the page: when what the run saved is
+// held to its plan, those are not listed again for being missing (planFailures in shards.mjs).
+export function fileFailures(failures) {
+  const failed = new Set(), untaken = new Set();
+  return {
+    untaken,
+    fail(file, why, taken = true) {
+      if (!taken) untaken.add(file);
+      if (failed.has(file)) return;
+      failed.add(file);
+      failures.push(`${file}: ${why}`);
+    },
+  };
 }
 
 // The ride's look as the page marks it on <main>: "awake" or "settled", or "none" out of a ride.
@@ -109,19 +128,28 @@ export const ridePages = (playWaitMs) => ({
   fixed: { devices: null, steps: rideSteps("fixed-ride", true) },
   // Without WebGL the ride is the page's half of it.
   still: { devices: ["desktop-nowebgl", "phone-nowebgl"], steps: rideSteps("fixed-ride") },
-  // The new day's chip: under the title's plate while the ride is awake, over the title once it has settled. With a mouse
-  // (`touch: false`) the pointer then moves over the world: the cursor shows and the page stays settled. A press on the bare world
-  // wakes it, a tap where the device has a touch screen, which is a look too. Left alone it settles again, and the press on the
-  // settled chip's link waits for that (`from`): a tap on a touch screen, else a click, the pointer's way to it waking nothing. The
-  // link is followed at that first press, and today's page arrives riding and settled at once.
+  // The new day's chip: under the title's plate while the ride is awake, over the title once it has settled. With a mouse the
+  // pointer then moves over the world: the cursor shows and the page stays settled. A press on the bare world wakes it. Left alone
+  // it settles again, and the press on the settled chip's link waits for that (`from`), the pointer's way to it waking nothing.
+  // The link is followed at that first press, and today's page arrives riding and settled at once.
   newday: {
-    devices: ["desktop", "phone", "desktop-reduced"],
+    devices: ["desktop", "desktop-reduced"],
     steps: [
       ...rideSteps("fixed-newday-ride"),
-      { touch: false, move: true, cursor: "shown", ride: "settled", shot: "fixed-newday-ride-moved" },
+      { move: true, cursor: "shown", ride: "settled", shot: "fixed-newday-ride-moved" },
       { world: true, waitFor: AWAKE, required: true, ride: "awake", shot: "fixed-newday-ride-woken" },
-      { touch: false, click: NEXT_LINK, from: "settled", required: true, waitFor: ARRIVED, waitMs: playWaitMs, player: true, ride: "settled", shot: "fixed-newday-tapped" },
-      { touch: true, tap: NEXT_LINK, from: "settled", required: true, waitFor: ARRIVED, waitMs: playWaitMs, player: true, ride: "settled", shot: "fixed-newday-tapped" },
+      { click: NEXT_LINK, from: "settled", required: true, waitFor: ARRIVED, waitMs: playWaitMs, player: true, ride: "settled", shot: "fixed-newday-tapped" },
+    ],
+  },
+  // The same on the phone, a page of its own since its steps are others: a finger has no pointer to move over the page, its tap on
+  // the world is a look too, and it taps the settled chip's link. Every step of a page is taken on every device that shoots the
+  // page, so the shoot's plan can name each device's stills from the page's steps (stillFiles in shards.mjs).
+  newdayTouch: {
+    devices: ["phone"],
+    steps: [
+      ...rideSteps("fixed-newday-ride"),
+      { world: true, waitFor: AWAKE, required: true, ride: "awake", shot: "fixed-newday-ride-woken" },
+      { tap: NEXT_LINK, from: "settled", required: true, waitFor: ARRIVED, waitMs: playWaitMs, player: true, ride: "settled", shot: "fixed-newday-tapped" },
     ],
   },
   // The sleep timer counting seconds: the ride's own row has it while the page is awake, and one press sets 30 s. The later still

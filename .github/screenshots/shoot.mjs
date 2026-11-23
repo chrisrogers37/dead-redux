@@ -17,7 +17,7 @@ import {
   walkPoses,
 } from "./assets.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
-import { cursorFailure, FOCUS_STOPS, movePointer, pressFailure, pressWorld, RIDE_RECORDINGS, rideIdle, ridePages, stillInLook } from "./ride.mjs";
+import { cursorFailure, fileFailures, FOCUS_STOPS, movePointer, pressFailure, pressWorld, RIDE_RECORDINGS, rideIdle, ridePages, stillInLook } from "./ride.mjs";
 import { planFailures, planFiles, shardPlan, writtenSince } from "./shards.mjs";
 
 const DEVICES = {
@@ -293,6 +293,13 @@ const PAGES = [
     devices: RIDE_PAGES.newday.devices,
     shots: ["fixed-newday"],
     steps: [playStep("fixed-newday-playing", { ms: 8000, shot: "fixed-newday-8s" }), ...RIDE_PAGES.newday.steps],
+  },
+  // The same on the phone, whose finger has no pointer to move over the page and taps where a mouse clicks.
+  {
+    path: "/2026-10-20?day=2099-01-01",
+    devices: RIDE_PAGES.newdayTouch.devices,
+    shots: ["fixed-newday"],
+    steps: [playStep("fixed-newday-playing", { ms: 8000, shot: "fixed-newday-8s" }), ...RIDE_PAGES.newdayTouch.steps],
   },
   // The night the show carries the island through (night.js), at four of its hours, while the show plays with ?drive=map: the last light,
   // as Jack Straw opens set 1; the deep of the night, in Space, with the moon; first light, as U.S. Blues, the encore, begins; and
@@ -593,6 +600,8 @@ const RECORD_MS = 10_000;
 // missing or whose state never comes, a page whose HTML arrives without the text it names (`served`), a sweep that cannot finish, and a
 // policy problem (below).
 const failures = [];
+// A still's or a recording's own failures, one line a file, and those of them that were not saved (ride.mjs).
+const perFile = fileFailures(failures);
 
 // What the log says when a read had to wait for the page to load again: the shot was taken, then the page navigated as it was read.
 const reread = (file) => () => console.log(`reread ${file}: the page navigated while it was read`);
@@ -615,7 +624,7 @@ const logStats = async (page, file) => {
 const takeStill = async (page, file, need, options) => {
   const failure = await stillInLook(page, need, () => page.screenshot(options));
   if (!failure) return;
-  failures.push(`${file}: ${failure}`);
+  perFile.fail(file, failure);
   console.log(`${file}: ${failure}`);
 };
 
@@ -899,21 +908,19 @@ try {
       }
 
       for (const step of steps ?? []) {
-        // A step may be for the devices with a touch screen alone, or for those without one.
-        if (step.touch !== undefined && step.touch !== Boolean(options.hasTouch)) continue;
         const selector = step.click ?? step.tap ?? step.focus;
-        // A control missing from the page is logged and the step skipped; a step that only presses a key has none to miss. A required
-        // step says so in a failure of its own; any step's untaken still fails the run at its end, when what was saved is held to
-        // the plan (planFailures).
+        // A control missing from the page is logged and the step skipped; a step that only presses a key has none to miss. Its
+        // untaken stills fail the run, each in one line that says why (perFile.fail), and are not listed again at the run's end, when
+        // what was saved is held to the plan (planFailures).
         if (selector && (await page.locator(selector).count()) === 0) {
-          if (step.required) failures.push(`${device}-${step.shot}.png: ${selector} absent`);
+          for (const shot of [step.shot, step.later?.shot].filter(Boolean)) perFile.fail(`${device}-${shot}.png`, `${selector} absent, so the still was not taken`, false);
           console.log(`${step.shot}: ${selector} absent`);
           continue;
         }
         // A press that is of a control in one look of the ride waits for that look, and fails the run where the page is in another as it
         // is made (ride.mjs).
         const pressedWrong = step.from ? await pressFailure(page, step.from) : null;
-        if (pressedWrong) failures.push(`${device}-${step.shot}.png: ${pressedWrong}`);
+        if (pressedWrong) perFile.fail(`${device}-${step.shot}.png`, pressedWrong);
         if (step.focus) await page.focus(selector);
         else if (step.tap) await page.tap(selector);
         else if (step.click) await page.click(selector);
@@ -953,7 +960,7 @@ try {
             .waitForSelector(step.waitFor, { timeout: step.waitMs ?? 15_000 })
             .catch(() => {
               console.log(`${step.shot}: waitFor timed out; shooting anyway`);
-              if (step.required) failures.push(`${device}-${step.shot}.png: never reached ${step.waitFor}`);
+              if (step.required) perFile.fail(`${device}-${step.shot}.png`, `never reached ${step.waitFor}`);
             });
         }
         // A settled ride's still waits for the camera to reach the crane (public/world/main.js's `ride` stat), where the page has a
@@ -976,7 +983,7 @@ try {
         }
         // A step may say how the cursor should be once it has acted: shown, or hidden (ride.mjs).
         const cursorWrong = step.cursor ? await cursorFailure(page, step.cursor) : null;
-        if (cursorWrong) failures.push(`${device}-${step.shot}.png: ${cursorWrong}`);
+        if (cursorWrong) perFile.fail(`${device}-${step.shot}.png`, cursorWrong);
         if (step.near === undefined) await page.waitForTimeout(STEP_SETTLE_MS);
         const file = `${device}-${step.shot}.png`;
         await takeStill(page, file, step.ride, { path: join(outDir, file), fullPage: true, clip });
@@ -1001,7 +1008,7 @@ try {
           }
           const laterFile = `${device}-${step.later.shot}.png`;
           const laterCursorWrong = step.later.cursor ? await cursorFailure(page, step.later.cursor) : null;
-          if (laterCursorWrong) failures.push(`${laterFile}: ${laterCursorWrong}`);
+          if (laterCursorWrong) perFile.fail(laterFile, laterCursorWrong);
           await takeStill(page, laterFile, step.later.ride, { path: join(outDir, laterFile), fullPage: true, clip });
           console.log(`${laterFile}  ${url}  ${selector}`);
           await logStats(page, laterFile);
@@ -1066,8 +1073,8 @@ try {
     const file = `${device}-${name}.webm`;
     await open(page, url);
     if (click) {
-      // A control missing from the page is logged and the recording skipped. A required recording says so in a failure of its own;
-      // the run then fails at its end, for a recording the plan names and nothing saved (planFailures).
+      // A control missing from the page is logged and the recording skipped, and the run fails for it in one line that says why
+      // (perFile.fail), which the plan's check at the run's end does not repeat (planFailures).
       // Scripts may draw the control after load, so it gets time to appear.
       const found = await page.waitForSelector(click, { timeout: 15_000 }).then(
         () => true,
@@ -1075,7 +1082,7 @@ try {
       );
       if (!found) {
         console.log(`${file}: ${click} absent`);
-        if (required) failures.push(`${file}: ${click} absent`);
+        perFile.fail(file, `${click} absent, so nothing was recorded`, false);
         await context.close();
         continue;
       }
@@ -1083,7 +1090,7 @@ try {
       if (waitFor) {
         await page.waitForSelector(waitFor, { timeout: 15_000 }).catch(() => {
           console.log(`${file}: waitFor timed out; recording anyway`);
-          if (required) failures.push(`${file}: never reached ${waitFor}`);
+          if (required) perFile.fail(file, `never reached ${waitFor}`);
         });
       }
     }
@@ -1091,7 +1098,7 @@ try {
     if (settled) {
       await page.waitForFunction(() => window.__hill?.ride?.lean === 1, null, { timeout: 90_000 }).catch(() => {
         console.log(`${file}: the camera had not reached the crane; recording on`);
-        if (required) failures.push(`${file}: the camera never reached the crane`);
+        if (required) perFile.fail(file, "the camera never reached the crane");
       });
       await logStats(page, `${file} settled`);
     }
@@ -1164,8 +1171,9 @@ try {
 
   failures.push(...(await saveAssets(site, plan.assets, outDir)));
   // What this run saved, against what its plan names (shards.mjs). A still or a recording the plan names and the run did not save
-  // fails it: a step skipped because its control is absent logs a line above and takes no still. So does a file the plan does not name.
-  failures.push(...planFailures(planFiles(plan), await writtenSince(outDir, began)));
+  // fails it, and so does a file the plan does not name. A step skipped because its control is absent takes no still: its stills
+  // have their failure already, with its cause, and are not listed here again.
+  failures.push(...planFailures(planFiles(plan), await writtenSince(outDir, began), perFile.untaken));
   for (const failure of failures) console.log(`failure ${failure}`);
   if (failures.length > 0) throw new Error(`${failures.length} failure(s); each has its own "failure" line above`);
 } finally {

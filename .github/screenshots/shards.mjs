@@ -58,8 +58,8 @@ export function onlyLooks(page) {
 }
 
 /**
- * The pages a device shoots, in the list's order. The TV device is for lean-back, so it shoots the home page and only the other pages
- * that name it. A page may name the devices that shoot it; a device in `byName` (one without WebGL, and the phone on its side) shoots
+ * The pages a device shoots, in the list's order. The TV device is for a ride left alone, so it shoots the home page and only the
+ * other pages that name it. A page may name the devices that shoot it; a device in `byName` (one without WebGL, and the phone on its side) shoots
  * only the pages that do.
  */
 export function devicePages(device, pages, byName) {
@@ -122,13 +122,15 @@ export async function writtenSince(dir, since) {
 /**
  * Why the files a run saved are not its plan's, each a failure's line, or none: a still or a recording the plan names that the run
  * did not save, as when a step is skipped because its control is absent, and a file it saved that the plan does not name, those by
- * name. A generated image may be missing: one the site answers with a 404 is skipped, not failed (assetAction, assets.mjs).
+ * name. A generated image may be missing: one the site answers with a 404 is skipped, not failed (assetAction, assets.mjs). A file
+ * the run did not save for a reason one of its failures already gives (`explained`) is not listed a second time for being missing.
  *
  * @param files - The plan as planFiles gives it.
  * @param written - The names of the files the run saved.
+ * @param {Iterable<string>} [explained] - The names of the files the run did not save and has said why.
  */
-export function planFailures({ pages, recordings, assets }, written) {
-  const saved = new Set(written);
+export function planFailures({ pages, recordings, assets }, written, explained = []) {
+  const saved = new Set([...written, ...explained]);
   const named = new Set([...pages.flatMap(({ stills }) => stills), ...recordings, ...assets]);
   return [
     ...pages.flatMap(({ device, path, stills }) => stills.filter((file) => !saved.has(file)).map((file) => `${file}: the plan names this still, of ${device} ${path}, and it was not saved`)),
