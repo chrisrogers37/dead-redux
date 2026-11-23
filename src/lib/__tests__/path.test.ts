@@ -250,6 +250,32 @@ describe("the lit bands' mask", () => {
     expect(bandAway(small, middle(3), 2 * BAND_SIDE)).toBeCloseTo(far(texel(3, 7)), 12);
   });
 
+  it("lights the stretch after each song that runs into the next and no other, the first song's and the last but one's among them", () => {
+    // Song k's stretch on the straight path, from its point to the next song's, as x; and a show in which song k alone runs on.
+    const stretch = (k: number) => [-100 + 200 * points[k], -100 + 200 * points[k + 1]];
+    const only = (k: number) => Array.from({ length: 5 }, (_, i) => ({ title: `Song ${i}`, duration: 300, segueOut: i === k }));
+    const cell = BAND_SIDE / 512;
+    for (const k of [0, 1, 2, 3]) {
+      // A mask that passed over the show's first song, or its last but one, would be null here, and the band missing.
+      const mask = bandMask(straight, only(k), points) as Mask, [from, to] = stretch(k);
+      expect(mask, `song ${k} runs on`).not.toBeNull();
+      // On the band all along its own stretch, its two ends among them.
+      for (const part of [0, 0.25, 0.5, 0.75, 1]) expect(bandAway(mask, from + part * (to - from), 20), `song ${k}'s stretch, ${part} of the way along`).toBeLessThanOrEqual(cell / 2 + quantum);
+      // And every other song's stretch is off it, at its end furthest from the band: 10 m or more away.
+      for (const other of [0, 1, 2, 3, 4]) {
+        if (other === k) continue;
+        const far = stretch(other)[other < k ? 0 : 1];
+        expect(Math.min(Math.abs(far - from), Math.abs(far - to)), `song ${other}'s far end from song ${k}'s band`).toBeGreaterThanOrEqual(10);
+        expect(bandAway(mask, far, 20), `song ${other}'s stretch, with song ${k} running on`).toBe(BAND_RANGE);
+      }
+    }
+    // The first and the last but one together, the two ends of the show: both bands, and the songs between them dark.
+    const ends = bandMask(straight, Array.from({ length: 5 }, (_, i) => ({ title: `Song ${i}`, duration: 300, segueOut: i === 0 || i === 3 })), points) as Mask;
+    expect(bandAway(ends, -80, 20)).toBeLessThanOrEqual(cell / 2 + quantum);
+    expect(bandAway(ends, 85, 20)).toBeLessThanOrEqual(cell / 2 + quantum);
+    expect(bandAway(ends, 0, 20)).toBe(BAND_RANGE);
+  });
+
   it("is null for a show none of whose songs runs into the next, and the last song's segue joins nothing", () => {
     const none = Array.from({ length: 5 }, (_, i) => ({ title: `Song ${i}`, duration: 300 }));
     expect(bandMask(straight, none, points)).toBeNull();

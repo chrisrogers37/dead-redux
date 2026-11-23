@@ -188,9 +188,14 @@ export function placeLandmarks(scene, { at, tangentAt }, tracks, hasShow, { BUIL
    island. They are drawn in the ground's own shader (island.js grained), which reads how far a point of the ground lies from the
    middle of the nearest band from a mask made here, in code: one byte a texel over the island's square, BAND_SIDE m a side, 255 on a
    band's centre line, one less for every BAND_RANGE / 255 m from it (2.4 cm), and 0 from BAND_RANGE m on, which is all the ground
-   off the bands. The mask holds the distance and not the band's own soft edge: a distance read between four texels is still the
-   distance, so the shader draws the edge as smooth from a phone's mask as from a desktop's, however near the eye, and widens it by
-   what a pixel takes in of the ground, however far. A band's centre line is the path's own, in steps of BAND_STEP m or so.
+   off the bands. The mask holds the distance and not the band's own soft edge: a distance read between four texels is nearly the
+   distance still, so the shader draws the edge with no texel's steps in it, from a phone's mask as from a desktop's, however near
+   the eye, and widens it by what a pixel takes in of the ground, however far. Nearly: within a texel of a band's middle, where the
+   distance turns, the four texels round it off, by up to half a texel on the middle itself. A desktop's texel is half a metre and
+   a phone's a metre, and a band's eased edge begins 0.8 m out (island.js): so on a phone the edge's inner rim wanders by a third of
+   a metre along a band, any one reading across the edge out by a quarter of a metre at the most, where a desktop's is out by a
+   tenth (reckoned on the bands of 1986-07-04). Close up on a phone that shows as scallops along the edge, beside those of the
+   grain's own lattice. A band's centre line is the path's own, in steps of BAND_STEP m or so.
    What island.js draws of a band lies inside BAND_RANGE m of its middle, since the mask says nothing of the ground past that: the
    band's reach, with half its fray and half of what a far pixel is reckoned to take in (island.js; island.test.ts holds its
    numbers to this range). */

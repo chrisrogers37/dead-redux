@@ -93,6 +93,8 @@ export function wearAt(x, z, tussocks = GRAIN_EVEN) {
    the turf is thinnest than where a tussock stands thickest, by the ground's own tussock grain, as the worn earth's patches go by
    it. Where a pixel cannot hold that grain the edge runs even, so nothing dithers. At its furthest the edge is inside the room the
    path keeps clear of tufts (LOOP_ROOM), so nothing grows through a band.
+   So a band is wider than the ribbon it replaced, which was 2 m across and whole to its edge: 3.4 m from rim to rim on even grain
+   and up to 3.9 m where the turf is thin on both sides, whole across 1.6 m of that and half lit across 2.5 m.
    The mask holds distances out to path.js's BAND_RANGE m and no further, so all of a band's look lies inside that, or the mask
    could not say where it ends: BAND_REACH, with half of BAND_FRAY and half of BAND_BLUR (below), is under BAND_RANGE, and
    island.test.ts holds these numbers to it. */

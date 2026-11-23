@@ -17,11 +17,39 @@ const n = (v: number) => v.toFixed(4);
 // GLSL's smoothstep. island.js eases with one of its own (`ease`), which is not imported here either, on purpose: the tests that
 // hold the island's numbers to this one are a check of that one.
 const smoothstep = (a: number, b: number, x: number) => { const t = Math.min(Math.max((x - a) / (b - a), 0), 1); return t * t * (3 - 2 * t); };
+// What glslToJs will not take, each of which would run here and mean something else on a GPU, or nothing:
+// - a whole number written without its point: GLSL ES makes no float of an int and does not compile, and JavaScript divides two of
+//   them as floats;
+// - a smoothstep whose edges, written as numbers, are not in order: GLSL leaves it undefined, and here it would ramp the other way;
+// - a vector held in a variable of the text's own, or a function that answers one: a vector is a plain pair here, with no sums;
+// - a function called above where it is declared: JavaScript finds it all the same, and GLSL does not compile.
+// What it cannot see, and so takes and gets wrong: a sum on a vector it is handed whole (p * 2.0 is no number here), a smoothstep
+// whose edges are not plain numbers, and anything of ints, loops, matrices or structs. The text it is given has none of these.
+const glslFaults = (text: string) => {
+  const faults: string[] = [], code = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  // Numbers with a point or an exponent are floats; a whole number left standing by itself is an int.
+  const whole = code.replace(/(?<![\w.])(?:\d+\.\d*|\.\d+)(?:[eE][-+]?\d+)?|(?<![\w.])\d+[eE][-+]?\d+/g, "F").match(/(?<![\w.])\d+(?![\w.])/g);
+  if (whole) faults.push(`a whole number written without its point: ${whole.join(", ")}`);
+  for (const [call, from, to] of code.matchAll(/\bsmoothstep\(\s*(\(?\s*-?(?:\d+\.?\d*|\.\d+)\s*\)?)\s*,\s*(\(?\s*-?(?:\d+\.?\d*|\.\d+)\s*\)?)\s*,/g)) {
+    const [a, b] = [from, to].map((edge) => Number(edge.replace(/[()\s]/g, "")));
+    if (!(a < b)) faults.push(`a smoothstep whose edges are not in order: ${call}`);
+  }
+  const held = code.replace(/\bfloat \w+\([^)]*\)\s*\{/g, "").match(/\b[ibu]?vec[234]\s+\w+/g);
+  if (held) faults.push(`a vec of the text's own: ${held.join(", ")}`);
+  for (const declared of code.matchAll(/\bfloat (\w+)\(/g)) {
+    if (code.search(new RegExp(`\\b${declared[1]}\\(`)) < declared.index + "float ".length) faults.push(`${declared[1]} called before it is declared`);
+  }
+  return faults;
+};
 // The ground's shader text as JavaScript, so that it runs here as it stands and no number of the shader's is written a second
 // time in a test: a GLSL float is a number, a function of floats and vec2s a function, and a uniform is what the test hands in.
-const glslToJs = (text: string) => text.replace(/^uniform [^\n]*\n/gm, "")
-  .replace(/\bfloat (\w+)\(([^)]*)\)\s*\{/g, (_: string, name: string, args: string) => `function ${name}(${args.replace(/\b(float|vec2) /g, "")}) {`)
-  .replace(/\bfloat /g, "let ");
+// Text it cannot translate faithfully (glslFaults) it refuses.
+const glslToJs = (text: string) => {
+  const code = text.replace(/^uniform [^\n]*\n/gm, ""), faults = glslFaults(code);
+  if (faults.length) throw new Error(`glslToJs cannot run this GLSL as a GPU would: ${faults.join("; ")}`);
+  return code.replace(/\bfloat (\w+)\(([^)]*)\)\s*\{/g, (_: string, name: string, args: string) => `function ${name}(${args.replace(/\b(float|vec2) /g, "")}) {`)
+    .replace(/\bfloat /g, "let ");
+};
 // The GLSL built-ins the ground's functions use: Math's own, a vec2 as a pair and a vec3 as a triple, and mix as a float's.
 const BUILT_INS = `const { abs, min, max, sin, cos, sqrt, sign } = Math, atan = Math.atan2;
   const clamp = (v, a, b) => min(max(v, a), b), mix = (a, b, t) => a + (b - a) * t, vec2 = (x, y) => ({ x, y }), vec3 = (x, y, z) => ({ x, y, z });`;
@@ -29,6 +57,32 @@ const BUILT_INS = `const { abs, min, max, sin, cos, sqrt, sign } = Math, atan = 
 // not its own, by name: a uniform, a sampler's reading.
 const runGlsl = <T>(glsl: string, body: string, given: Record<string, unknown> = {}): T =>
   new Function("smoothstep", ...Object.keys(given), `${BUILT_INS}\n${glslToJs(glsl)}\n${body}`)(smoothstep, ...Object.values(given)) as T;
+
+describe("the tests' own reading of the ground's shader", () => {
+  it("runs GLSL of floats as it stands, and refuses what would run here and mean something else on a GPU", () => {
+    // Two functions of floats, the second calling the first, with a smoothstep, a number with an exponent and a vec2 handed in.
+    const glsl = "float twice(float x) { return x * 2.0; }\nfloat eased(vec2 p, float x) { return smoothstep(-1.0, 3.0, twice(x)) + 1e-3 + p.y; }";
+    expect(runGlsl<number>(glsl, "return eased(vec2(0.0, 0.25), 0.5);")).toBeCloseTo(smoothstep(-1, 3, 1) + 0.001 + 0.25, 12);
+    const refused = (text: string) => { try { glslToJs(text); return null; } catch (error) { return (error as Error).message; } };
+    expect(refused(glsl)).toBeNull();
+    // A whole number without its point: GLSL ES does not compile 2 * x, and x / 2 of two ints would not be a half.
+    expect(refused("float half(float x) { return x / 2; }")).toMatch(/whole number written without its point: 2$/);
+    expect(refused("float f(float x) { return 2 * x + 1.5 - 1e-6; }")).toMatch(/whole number written without its point: 2$/);
+    // A smoothstep from a higher edge to a lower, or between two the same: undefined on a GPU, a ramp the other way here.
+    expect(refused("float f(float x) { return smoothstep(0.6, 0.2, x); }")).toMatch(/smoothstep whose edges are not in order/);
+    expect(refused("float f(float x) { return 1.0 - smoothstep((-0.5), -1.5, x); }")).toMatch(/smoothstep whose edges are not in order/);
+    expect(refused("float f(float x) { return smoothstep(1.0, 1.0, x); }")).toMatch(/smoothstep whose edges are not in order/);
+    expect(refused("float f(float x) { return smoothstep(-2.0000, 2.0000, x) + smoothstep((-1.5), -0.5, x); }")).toBeNull();
+    // A vector of the text's own, which has no sums here.
+    expect(refused("float f(vec2 p, vec2 a) { vec2 ab = a - p; return ab.x; }")).toMatch(/a vec of the text's own: vec2 ab$/);
+    expect(refused("vec3 tint(float x) { return vec3(x, x, x); }")).toMatch(/a vec of the text's own: vec3 tint$/);
+    expect(refused("float f(vec2 p) { return texture2D(uMask, vec2(p.x, p.y)).r; }")).toBeNull();
+    // A function called above its own declaration, which JavaScript would find and GLSL would not.
+    expect(refused("float outer(float x) { return inner(x); }\nfloat inner(float x) { return x; }")).toMatch(/inner called before it is declared$/);
+    // Every fault of a text is named.
+    expect(refused("float f(float x) { vec2 q = vec2(x, 2); return smoothstep(3.0, 1.0, q.x); }")).toMatch(/whole number.*smoothstep.*a vec of the text's own/);
+  });
+});
 
 describe("takesPool", () => {
   it("adds the stage's glow to three's Lambert shader as the pinned version writes it: its place from the vertex shader, its light in the fragment shader", () => {
@@ -470,8 +524,9 @@ describe("the lit bands", () => {
     expect(bandAt(BAND_REACH + BAND_HELD)).toBe(0);
     // Never brighter further out.
     for (let away = 0; away < BAND_RANGE; away += 0.01) expect(bandAt(away + 0.01)).toBeLessThanOrEqual(bandAt(away) + 1e-12);
-    // No hard edge: the ease is over half a metre or more, and the band is whole across a metre or more, as the mesh it replaces
-    // was 2 m across. Its reach is no less than 1.6 m.
+    // No hard edge: the ease is over half a metre or more, and the band is whole across a metre or more. It is wider than the mesh
+    // it replaces, which was 2 m across and whole to its edge: 3.4 m from rim to rim on even grain, and up to 3.9 m where the turf
+    // is thin on both sides. Its reach is no less than 1.6 m.
     expect(BAND_REACH - BAND_CORE).toBeGreaterThanOrEqual(0.5);
     expect(BAND_CORE).toBeGreaterThanOrEqual(0.5);
     expect(BAND_REACH).toBeGreaterThanOrEqual(1.6);
@@ -636,10 +691,16 @@ describe("the lit bands", () => {
     expect(luma(tone.clone().lerp(turf, 1 - BAND_LAY))).toBeGreaterThan(1.5 * luma(turf));
     expect(BAND_GLOW * luma(amber)).toBeGreaterThan(0.8 * luma(turf));
     expect(0.32 * BAND_GLOW * luma(amber)).toBeGreaterThan(0.03);
+    // And the glow is no stronger than it was when its flashes were counted: a quarter of the amber 0xe8b04b. It is the one number
+    // of a band's look that is light of its own, and the night's passing changes it, in seconds where a seek takes the night
+    // through its hours. A stronger glow, by its strength or by its colour, is counted again with scripts/flash before it merges:
+    // through the seeks (window S) from on a band (pose=path, and a pose that looks down one), on a desktop at 1.5 and the phone
+    // tier, the light alone and the whole frame, on all four grids; and this bound is then moved to what was counted.
+    expect(BAND_GLOW * luma(amber)).toBeLessThanOrEqual(0.25 * luma(new THREE.Color(0xe8b04b)) + 1e-12);
     expect(BAND_LAY).toBeLessThanOrEqual(1);
   });
 
-  it("change nothing of the ground's shader but what they add, and a ground with no bands has the shader it had before there were any", () => {
+  it("change nothing of the ground's shader but what they add: a ground handed no bands has the text of a ground never asked about them, and a ground with bands has every line of that, in order", () => {
     const { vertexShader, fragmentShader } = THREE.ShaderLib.lambert;
     const compiled = (relief: boolean, bands?: Bands | null) => {
       const shader = { uniforms: {} as Record<string, unknown>, vertexShader, fragmentShader };
@@ -649,7 +710,8 @@ describe("the lit bands", () => {
     };
     for (const relief of [false, true]) {
       const before = compiled(relief), without = compiled(relief, null), banded = compiled(relief, bandsOf(256));
-      // No bands: the same text, to the letter, and no uniform of theirs.
+      // Handed no bands (null), against never asked (the argument left out): the same text, to the letter, and no uniform of
+      // theirs. Neither is held to main's text of before the bands: the next change to the ground would break that for nothing.
       expect(without.fragmentShader).toBe(before.fragmentShader);
       expect(without.vertexShader).toBe(before.vertexShader);
       expect(Object.keys(without.uniforms).sort()).toEqual(Object.keys(before.uniforms).sort());
