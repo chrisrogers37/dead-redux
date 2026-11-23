@@ -39,6 +39,15 @@ export function nearFailure(stats) {
 }
 
 /**
+ * The stills from inside the groves on the fixed day, each its shot's name and the pose it is taken from: x, z, heading and pitch, as
+ * ?pose= takes four numbers (main.js). Each stands clear of every trunk's reach on a desktop and on a phone, whose trees differ, with
+ * trees of its kind in the view from the visitor's own eye, as the stills are shot (trees.test.ts): the pine wood in the island's
+ * west, from its seaward edge looking in through its trunks, their crowns overhead; and the broad-crowned grove in the south, looking
+ * north-east through its trunks.
+ */
+export const GROVE_POSES = { "fixed-grove-pines": [-102, 52, 5.236, 0.2], "fixed-grove-broad": [18, 80, 5.76, 0.2] };
+
+/**
  * The poses the sweep puts the visitor's bear in, level: every place on a square grid `spacing` metres apart inside the walk, which keeps
  * within BOUND of the island's centre (ground.js), and on the ring at the bound itself at about the same spacing, each faced `headings`
  * ways evenly round.
