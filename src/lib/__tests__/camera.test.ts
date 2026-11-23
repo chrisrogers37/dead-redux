@@ -1,13 +1,12 @@
 import { readFileSync } from "fs";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
 import { boomLength, buildAvatar, eyeRoom, GATHER, GRACE, HEAD, keepOutBox, LAND, SLACK, swift } from "../../../public/world/avatar.js";
 import { LEAST } from "../../../public/world/boom.js";
 import { BOUND, height, STAGE, STAGE_COLUMN, STAGE_REACH } from "../../../public/world/ground.js";
-import { makeBuilders } from "../../../public/world/landmarks.js";
 import { confine, walkLimits } from "../../../public/world/modes.js";
-import { buildPath, buildWalkLine, layout, placeLandmarks } from "../../../public/world/path.js";
+import { type Avatar, crossings, DT, landmarksOf, pace, path, stride, tracksOf, type Walker, walkCamera, within } from "./world-walks";
 
 // The walk's camera at the landmarks and the stage (issue #178), stepped here with the world's own avatar.js, boom.js and collide.js
 // and no browser, as main.js steps it: the visitor walks, the bear takes its step, the boom places the camera. The landmarks are a
@@ -21,22 +20,28 @@ import { buildPath, buildWalkLine, layout, placeLandmarks } from "../../../publi
 // - 1987-09-12 from track 18, with Space at its cave's mouth.
 const SHOWS: [string, number][] = [["1986-07-04", 7], ["1971-12-09", 17], ["1970-12-31", 11], ["1987-09-12", 18]];
 
+// Every Vector3, Box3 and Matrix4 the world's modules make is counted, so that a test can say how many a frame of the camera made.
+// They are three's own classes with nothing changed but the count.
+const made = vi.hoisted(() => ({ count: 0 }));
+vi.mock("three", async (original) => {
+  const three = await original<Record<string, new (...args: never[]) => object>>();
+  const counted = (Base: new (...args: never[]) => object) => class extends Base { constructor(...args: never[]) { super(...args); made.count += 1; } };
+  return { ...three, Vector3: counted(three.Vector3), Box3: counted(three.Box3), Matrix4: counted(three.Matrix4) };
+});
+
 type Point = { x: number; y: number; z: number };
-type Box = { min: Point; max: Point };
-type Walker = { x: number; z: number; heading: number; pitch: number };
-// A walk: where it starts and the keys held at each frame (forward, sideways, turn, run, tilt, as main.js reads them).
-type Walk = { of: string; name: string; start: Walker; frames: number; keys(f: number, walker: Walker): number[] };
-type Avatar = { step(x: number, z: number, heading: number, dt: number): void; boom(camera: unknown, walker: Walker, dt: number, cut: boolean): Point; settle(position: unknown, aim: unknown): void };
+type Box = { min: Point; max: Point; containsPoint(p: unknown): boolean };
+// A walk: where it starts and the keys held at each frame (world-walks.ts `stride`). One that swings is one whose keys walk or run
+// while they turn, and so may themselves move the boom's end further in a frame than the camera's swift pace.
+type Walk = { of: string; name: string; start: Walker; frames: number; swings?: boolean; keys(f: number, walker: Walker): number[] };
 type Mark = { position: Point; rotation: { y: number }; userData: { reach?: number }; updateMatrixWorld(force: boolean): void; traverse(see: (o: Part) => void): void };
 type Part = { isMesh?: boolean; matrixWorld: unknown; geometry: { index: { count: number; getX(i: number): number } | null; attributes: { position: { count: number } } } };
 const avatarOf = (marks: unknown[], phone: boolean, more: Record<string, unknown> = {}) =>
   buildAvatar(new THREE.Scene(), marks as never[], { phone, reduced: false, columns: [STAGE_COLUMN] as never[], ...more }) as unknown as Avatar;
+// A camera that nothing is in the way of: no landmark and no column.
+const bareOf = (phone: boolean) => buildAvatar(new THREE.Scene(), [], { phone, reduced: false }) as unknown as Avatar;
 const cameraOf = (phone: boolean) => new THREE.PerspectiveCamera(phone ? 75 : 60, phone ? 390 / 844 : 1440 / 900, 0.5, 900);
-
-const MAPS = new URL("../../../public/maps/", import.meta.url);
-const tracksOf = (date: string) => (JSON.parse(readFileSync(new URL(`${date}.json`, MAPS), "utf8")) as { tracks: { title: string; playingDuration: number }[] }).tracks.map((t) => ({ title: t.title, duration: t.playingDuration }));
-const path = buildPath(), line = buildWalkLine(path, 7);
-const DT = 1 / 60, WALK = 12, RUN = 1.6, TURN = 1.6, TILT = 1.2;
+const WALK = 12, RUN = 1.6, TURN = 1.6;
 
 // Every triangle a landmark draws, where it stands: nine numbers each.
 function trianglesOf(mark: Mark) {
@@ -49,35 +54,6 @@ function trianglesOf(mark: Mark) {
   });
   return Float64Array.from(out);
 }
-function boundsOf(tris: Float64Array): Box {
-  const b = { min: { x: Infinity, y: Infinity, z: Infinity }, max: { x: -Infinity, y: -Infinity, z: -Infinity } };
-  for (let i = 0; i < tris.length; i += 3) {
-    b.min.x = Math.min(b.min.x, tris[i]); b.max.x = Math.max(b.max.x, tris[i]);
-    b.min.y = Math.min(b.min.y, tris[i + 1]); b.max.y = Math.max(b.max.y, tris[i + 1]);
-    b.min.z = Math.min(b.min.z, tris[i + 2]); b.max.z = Math.max(b.max.z, tris[i + 2]);
-  }
-  return b;
-}
-// How many of the triangles the line from a point along a way crosses, up to `most` of the way.
-function crossings(tris: Float64Array, x: number, y: number, z: number, dx: number, dy: number, dz: number, most: number) {
-  let hits = 0;
-  for (let o = 0; o < tris.length; o += 9) {
-    const ax = tris[o], ay = tris[o + 1], az = tris[o + 2], e1x = tris[o + 3] - ax, e1y = tris[o + 4] - ay, e1z = tris[o + 5] - az, e2x = tris[o + 6] - ax, e2y = tris[o + 7] - ay, e2z = tris[o + 8] - az;
-    const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x, det = e1x * px + e1y * py + e1z * pz;
-    if (Math.abs(det) < 1e-12) continue;
-    const tx = x - ax, ty = y - ay, tz = z - az, u = (tx * px + ty * py + tz * pz) / det;
-    if (u < 0 || u > 1) continue;
-    const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x, w = (dx * qx + dy * qy + dz * qz) / det;
-    if (w < 0 || u + w > 1) continue;
-    const t = (e2x * qx + e2y * qy + e2z * qz) / det;
-    if (t > 0 && t < most) hits += 1;
-  }
-  return hits;
-}
-// Inside what is drawn: a nearly level line from the point crosses the skin an odd number of times, along each of three ways.
-const LEVEL = [[1, 0.0003, 0.0007], [-0.5, 0.0005, 0.866], [-0.5, -0.0004, -0.866]];
-const within = (tris: Float64Array, x: number, y: number, z: number) => LEVEL.every(([dx, dy, dz]) => crossings(tris, x, y, z, dx, dy, dz, Infinity) % 2 === 1);
-const inBox = (b: Box, x: number, y: number, z: number) => x >= b.min.x && x <= b.max.x && y >= b.min.y && y <= b.max.y && z >= b.min.z && z <= b.max.z;
 // Whether the line from a to b passes through a box at all.
 function meets(b: Box, ax: number, ay: number, az: number, bx: number, by: number, bz: number) {
   let t0 = 0, t1 = 1;
@@ -92,10 +68,10 @@ function meets(b: Box, ax: number, ay: number, az: number, bx: number, by: numbe
 // A small seeded generator, so that the random walks are the same on every run.
 const seeded = (seed: number) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 
-// A show's landmarks placed, with what each draws, the box the camera keeps out of, and the box of what it draws.
+// A show's landmarks placed, with what each draws, the box the camera keeps out of, and the box of all it draws.
 function world(date: string, set2: number, phone: boolean) {
-  const tracks = tracksOf(date), marks = placeLandmarks(new THREE.Scene(), path, tracks, true, makeBuilders(phone), layout(tracks, set2, path), line) as unknown as Mark[];
-  const solids = marks.map((mark) => { const tris = trianglesOf(mark); return { tris, drawn: boundsOf(tris), keep: keepOutBox(mark as never) as unknown as Box }; });
+  const tracks = tracksOf(date), marks = landmarksOf(tracks, set2, phone).landmarks as unknown as Mark[];
+  const solids = marks.map((mark) => ({ tris: trianglesOf(mark), drawn: new THREE.Box3().setFromObject(mark) as Box, keep: keepOutBox(mark as never) as unknown as Box }));
   return { date, set2, phone, tracks, marks, solids };
 }
 type World = ReturnType<typeof world>;
@@ -122,7 +98,7 @@ function walksOf({ marks }: World, every = 1): Walk[] {
     walk([len, o], [-len, o], "across looking down", { pitch: -0.6 });
     // Round it, and turning on the spot inside it, beside it and further off.
     const [x, z] = to(R + 1, 0);
-    out.push({ of: `song ${k}`, name: `round song ${k}`, start: { x, z, heading: mark.rotation.y, pitch: 0 }, frames: Math.ceil((2 * Math.PI * (R + 1)) / (WALK * DT)), keys: hold(1, 0, -WALK / (TURN * (R + 1)), 0, 0) });
+    out.push({ of: `song ${k}`, name: `round song ${k}`, start: { x, z, heading: mark.rotation.y, pitch: 0 }, frames: Math.ceil((2 * Math.PI * (R + 1)) / (WALK * DT)), swings: true, keys: hold(1, 0, -WALK / (TURN * (R + 1)), 0, 0) });
     for (const [r, a] of [[1.5, 0], [R + 1, 1], [R + 1, 4], [R + 6, 6]]) {
       const [px, pz] = to(r * Math.cos(a * 0.8 + 0.2), r * Math.sin(a * 0.8 + 0.2));
       out.push({ of: `song ${k}`, name: `turning ${r.toFixed(1)} m from song ${k}`, start: { x: px, z: pz, heading: a, pitch: a % 2 ? 0.3 : 0 }, frames: 240, keys: hold(0, 0, a % 2 ? 1 : -1, 0, 0) });
@@ -133,8 +109,8 @@ function walksOf({ marks }: World, every = 1): Walk[] {
   const [sx, sz] = STAGE;
   for (const r of [STAGE_REACH + 0.05, STAGE_REACH + 4]) for (const way of [1, -1]) {
     const frames = Math.ceil((2 * Math.PI * r) / (WALK * DT));
-    out.push({ of: "the stage", name: `round the stage ${r.toFixed(0)} m out`, start: { x: sx + r, z: sz, heading: way > 0 ? 0 : Math.PI, pitch: 0 }, frames, keys: hold(1, 0, (-way * WALK) / (TURN * r), 0, 0) });
-    if (way > 0) out.push({ of: "the stage", name: `sideways round the stage ${r.toFixed(0)} m out`, start: { x: sx + r, z: sz, heading: -Math.PI / 2, pitch: 0.3 }, frames, keys: hold(0, 1, -WALK / (TURN * r), 0, 0) });
+    out.push({ of: "the stage", name: `round the stage ${r.toFixed(0)} m out`, start: { x: sx + r, z: sz, heading: way > 0 ? 0 : Math.PI, pitch: 0 }, frames, swings: true, keys: hold(1, 0, (-way * WALK) / (TURN * r), 0, 0) });
+    if (way > 0) out.push({ of: "the stage", name: `sideways round the stage ${r.toFixed(0)} m out`, start: { x: sx + r, z: sz, heading: -Math.PI / 2, pitch: 0.3 }, frames, swings: true, keys: hold(0, 1, -WALK / (TURN * r), 0, 0) });
   }
   for (const r of [STAGE_REACH + 0.05, STAGE_REACH + 2, STAGE_REACH + 6]) for (let a = 0; a < 6; a++) {
     out.push({ of: "the stage", name: `turning ${r.toFixed(0)} m from the stage`, start: { x: sx + r * Math.cos(a + r), z: sz + r * Math.sin(a + r), heading: a, pitch: [0, 0.4, -0.4][a % 3] }, frames: 240, keys: hold(0, 0, a % 2 ? 1 : -1, 0, 0) });
@@ -148,7 +124,7 @@ function walksOf({ marks }: World, every = 1): Walk[] {
   for (const [way, run] of [[1, 0], [-1, 1]]) {
     const p0 = path.at(0), t0 = path.tangentAt(0);
     let u = 0;
-    out.push({ of: "the path", name: `the path ${way > 0 ? "on" : "back at a run"}`, start: { x: p0.x, z: p0.z, heading: Math.atan2(-t0.x * way, -t0.z * way), pitch: 0 }, frames: Math.floor(path.curveLength / (WALK * (run ? RUN : 1) * DT)),
+    out.push({ of: "the path", name: `the path ${way > 0 ? "on" : "back at a run"}`, start: { x: p0.x, z: p0.z, heading: Math.atan2(-t0.x * way, -t0.z * way), pitch: 0 }, frames: Math.floor(path.curveLength / (WALK * (run ? RUN : 1) * DT)), swings: true,
       keys: (f, walker) => {
         if (f === 1) u = 0;
         let best = Infinity, at = u;
@@ -164,45 +140,40 @@ function walksOf({ marks }: World, every = 1): Walk[] {
   starts.forEach((from, i) => {
     const random = seeded(7919 + i * 104729), pick = (list: number[]) => list[Math.floor(random() * list.length)];
     let till = 0, now = [0, 0, 0, 0, 0];
-    out.push({ of: "at random", name: `at random, ${i}`, start: { x: from.x + (random() - 0.5) * 16, z: from.z + (random() - 0.5) * 16, heading: random() * 6.283, pitch: 0 }, frames: 600,
+    out.push({ of: "at random", name: `at random, ${i}`, start: { x: from.x + (random() - 0.5) * 16, z: from.z + (random() - 0.5) * 16, heading: random() * 6.283, pitch: 0 }, frames: 600, swings: true,
       keys: (f) => { if (f >= till) { till = f + 20 + Math.floor(random() * 70); now = [pick([1, 1, 1, 0, -1, -1]), pick([0, 0, 0, 1, -1]), pick([0, 0, 1, -1, 0.4, -0.4]), pick([0, 0, 1]), pick([0, 0, 0, 1, -1])]; } return now; } });
   });
   return out;
 }
 
-// One frame of a walk, as main.js takes it: the keys move the walker, and the walk's limits keep it on the island and off the stage.
+// The walk's limits with no bear and no tree: the island's edge and the stage's reach.
 const limits = walkLimits([]);
-function stride(walker: Walker, [spd, side, turn, run, tilt]: number[]) {
-  walker.pitch = Math.max(-0.8, Math.min(0.8, walker.pitch + tilt * TILT * DT));
-  walker.heading += turn * TURN * DT;
-  const fx = -Math.sin(walker.heading), fz = -Math.cos(walker.heading), pace = WALK * (run ? RUN : 1) * DT;
-  walker.x += (fx * spd - fz * side) * pace; walker.z += (fz * spd + fx * side) * pace;
-  confine(walker, limits);
-}
 
-// Walks the walks with the world's camera and, beside it, one that nothing is in the way of. Tells, of every frame: how far the
-// camera moved, and the other; whether the eye is under the ground, lower over it than the camera keeps, in the stage's column or in
-// something a landmark draws; how near the head it is; and whether a landmark stands between it and the bear's head, with the head
-// in no landmark's box.
+// Walks the walks with the world's camera, and each walk that swings with a camera that nothing is in the way of besides: a walk
+// that does not swing, straight or turning on the spot, moves that camera less than the swift pace, so it has no need of one. Tells,
+// of every frame: how far the camera moved, in a walk that swings and in one that does not, and how far the other camera did;
+// whether the eye is under the ground, lower over it than the camera keeps, in the stage's column or in something a landmark draws;
+// how near the head it is; and whether a landmark stands between it and the bear's head, with the head in no landmark's box.
 function measure(w: World, walks: Walk[]) {
-  const { phone, marks, solids } = w, mine = avatarOf(marks, phone), bare = buildAvatar(new THREE.Scene(), [], { phone, reduced: false }) as unknown as Avatar;
-  const camera = cameraOf(phone), other = cameraOf(phone), was = new THREE.Vector3(), otherWas = new THREE.Vector3();
-  const told = { frames: 0, most: 0, mostAt: "", bareMost: 0, under: 0, low: 0, inColumn: 0, inDrawn: [] as string[], nearer: 0, nearest: Infinity, hidden: 0, run: 0, runAt: "" };
+  const { phone, marks, solids } = w, mine = avatarOf(marks, phone), bare = bareOf(phone);
+  const camera = cameraOf(phone), other = cameraOf(phone), was = new THREE.Vector3(), otherWas = new THREE.Vector3(), head = new THREE.Vector3();
+  const told = { frames: 0, most: 0, mostAt: "", steadyMost: 0, steadyAt: "", bareMost: 0, under: 0, low: 0, inColumn: 0, inDrawn: [] as string[], nearer: 0, nearest: Infinity, hidden: 0, run: 0, runAt: "" };
   for (const walk of walks) {
     const walker = { ...walk.start };
     confine(walker, limits);
     let run = 0;
     for (let f = 0; f < walk.frames; f++) {
-      if (f > 0) stride(walker, walk.keys(f, walker));
+      if (f > 0) stride(walker, walk.keys(f, walker), limits);
       mine.step(walker.x, walker.z, walker.heading, DT);
       mine.boom(camera, walker, DT, f === 0);
-      bare.boom(other, walker, DT, f === 0);
+      if (walk.swings) bare.boom(other, walker, DT, f === 0);
       const { x, y, z } = camera.position as Point, hy = height(walker.x, walker.z) + HEAD;
       // The frames after a cut settle the boom: they count for where the camera is, not for how it moved.
       if (f > 1) {
         const moved = camera.position.distanceTo(was);
         if (moved > told.most) { told.most = moved; told.mostAt = `${walk.name}, frame ${f}`; }
-        told.bareMost = Math.max(told.bareMost, other.position.distanceTo(otherWas));
+        if (walk.swings) told.bareMost = Math.max(told.bareMost, other.position.distanceTo(otherWas));
+        else if (moved > told.steadyMost) { told.steadyMost = moved; told.steadyAt = `${walk.name}, frame ${f}`; }
       }
       was.copy(camera.position); otherWas.copy(other.position);
       const ground = height(x, z), from = Math.hypot(x - walker.x, y - hy, z - walker.z);
@@ -212,10 +183,11 @@ function measure(w: World, walks: Walk[]) {
       if (from < LEAST - 1e-6) told.nearer += 1;
       told.nearest = Math.min(told.nearest, from);
       let hidden = false, headIn = false;
+      head.set(walker.x, hy, walker.z);
       for (const s of solids) {
-        if (inBox(s.keep, walker.x, hy, walker.z)) headIn = true;
-        if (inBox(s.drawn, x, y, z) && within(s.tris, x, y, z)) told.inDrawn.push(`${walk.name}, frame ${f}`);
-        if (!hidden && meets(s.drawn, x, y, z, walker.x, hy, walker.z) && crossings(s.tris, x, y, z, walker.x - x, hy - y, walker.z - z, 1) > 0) hidden = true;
+        if (s.keep.containsPoint(head)) headIn = true;
+        if (s.drawn.containsPoint(camera.position) && within(s.tris, x, y, z)) told.inDrawn.push(`${walk.name}, frame ${f}`);
+        if (!hidden && meets(s.drawn, x, y, z, walker.x, hy, walker.z) && crossings(s.tris, x, y, z, [walker.x - x, hy - y, walker.z - z], 1) > 0) hidden = true;
       }
       if (hidden && !headIn) { told.hidden += 1; run += 1; if (run > told.run) { told.run = run; told.runAt = `${walk.name}, to frame ${f}`; } } else run = 0;
       told.frames += 1;
@@ -224,18 +196,10 @@ function measure(w: World, walks: Walk[]) {
   return told;
 }
 // The largest move of the camera in one frame of a walk, with the world's camera.
-function largestMove(w: World, walk: Walk, more: Record<string, unknown> = {}) {
-  const avatar = avatarOf(w.marks, w.phone, more), camera = cameraOf(w.phone), was = new THREE.Vector3(), walker = { ...walk.start };
+function largestMove(w: World, walk: Walk) {
+  const walker = { ...walk.start };
   confine(walker, limits);
-  let most = 0;
-  for (let f = 0; f < walk.frames; f++) {
-    if (f > 0) stride(walker, walk.keys(f, walker));
-    avatar.step(walker.x, walker.z, walker.heading, DT);
-    avatar.boom(camera, walker, DT, f === 0);
-    if (f > 1) most = Math.max(most, camera.position.distanceTo(was));
-    was.copy(camera.position);
-  }
-  return most;
+  return walkCamera(avatarOf(w.marks, w.phone), cameraOf(w.phone), walker, walk.frames, (f, at) => { if (f > 0) stride(at, walk.keys(f, at), limits); });
 }
 // A walk from a to b in a landmark's own frame, forwards at a walk, looking level.
 function across(mark: Mark, a: number[], b: number[], name: string): Walk {
@@ -250,14 +214,13 @@ const on = (date: string, phone: boolean) => WORLDS.find((w) => w.date === date 
 beforeAll(() => { WORLDS = SHOWS.flatMap(([date, set2]) => [false, true].map((phone) => world(date, set2, phone))); }, 30000);
 
 describe("the walk's camera at a landmark and the stage", () => {
-  // How far the camera's place goes in a sixtieth of a second at its swiftest: 0.55 m on a desktop and 1 m on a phone.
-  const pace = (phone: boolean) => swift(phone) / 60;
-  // How far over its swift pace, or over the same walk with nothing in its way, a frame may move the camera: what keeping over
-  // rising ground adds to a step at the full pace.
+  // How far over its swift pace (world-walks.ts `pace`), or over the same walk with nothing in its way, a frame may move the
+  // camera: what keeping over rising ground adds to a step at the full pace.
   const OVER = 0.05;
 
-  it("goes no faster than three boom lengths a second, which a sixtieth of a second makes 0.55 m on a desktop and 1 m on a phone", () => {
-    expect([boomLength(false), boomLength(true)]).toEqual([11, 20]);
+  it("goes no faster than three boom lengths a second", () => {
+    expect([swift(false), swift(true)]).toEqual([3 * boomLength(false), 3 * boomLength(true)]);
+    // The one place the figures are held: in a sixtieth of a second, on a desktop and on a phone.
     expect([pace(false), pace(true)]).toEqual([0.55, 1]);
   });
 
@@ -273,6 +236,8 @@ describe("the walk's camera at a landmark and the stage", () => {
         const w = on(date, phone), told = measure(w, walksOf(w)), where = `${date} on a ${phone ? "phone" : "desktop"}`;
         // No cut. Main's camera moved up to 22 m in a frame on walks like these on a desktop and 36 m on a phone (issue #178).
         expect(told.most, `${where}: ${told.mostAt}`).toBeLessThanOrEqual(Math.max(pace(phone), told.bareMost) + OVER);
+        // A walk that does not swing has no camera beside it to be held to: it is held to the pace alone.
+        expect(told.steadyMost, `${where}: ${told.steadyAt}`).toBeLessThanOrEqual(pace(phone) + OVER);
         if (told.most > sum.most) { sum.most = told.most; sum.mostAt = `${where}: ${told.mostAt}`; }
         if (told.run > sum.run) { sum.run = told.run; sum.runAt = `${where}: ${told.runAt}`; }
         sum.bareMost = Math.max(sum.bareMost, told.bareMost); sum.nearest = Math.min(sum.nearest, told.nearest);
@@ -281,8 +246,9 @@ describe("the walk's camera at a landmark and the stage", () => {
       }
       const tier = phone ? "phone" : "desktop";
       expect(sum.frames, tier).toBeGreaterThan(350000);
-      // With nothing in its way the camera's largest move is the walk's own: running and turning at once swings the boom's end
-      // 0.71 m in a frame on a desktop and 0.87 m on a phone. With the landmarks and the stage it is that, or its swift pace.
+      // With nothing in its way the camera's largest move is the walk's own: in the walks that swing, running and turning at
+      // once swings the boom's end 0.71 m in a frame on a desktop and 0.87 m on a phone. With the landmarks and the stage it is
+      // that, or its swift pace.
       expect(sum.bareMost, tier).toBeCloseTo(phone ? 0.87 : 0.71, 1);
       expect(sum.most, `${tier}: ${sum.mostAt}`).toBeLessThanOrEqual(Math.max(pace(phone), sum.bareMost) + OVER);
       // Over the ground by what the boom keeps, and out of the stage's column, in every frame.
@@ -345,15 +311,15 @@ describe("the walk's camera at a landmark and the stage", () => {
     for (const phone of [false, true]) {
       // Beat It On Down The Line's stone, 4.4 m tall, on the line through its middle.
       const w = on("1971-12-09", phone), STONE = 6, walk = across(w.marks[STONE], [0, -24], [0, 24], "through the stone");
-      const mine = avatarOf(w.marks, phone), bare = buildAvatar(new THREE.Scene(), [], { phone, reduced: false }) as unknown as Avatar;
+      const mine = avatarOf(w.marks, phone), bare = bareOf(phone);
       const camera = cameraOf(phone), other = cameraOf(phone), walker = { ...walk.start };
       let apart = 0, inside = 0;
       for (let f = 0; f < walk.frames; f++) {
-        if (f > 0) stride(walker, walk.keys(f, walker));
+        if (f > 0) stride(walker, walk.keys(f, walker), limits);
         mine.boom(camera, walker, DT, f === 0);
         bare.boom(other, walker, DT, f === 0);
         apart = Math.max(apart, camera.position.distanceTo(other.position));
-        if (inBox(w.solids[STONE].keep, walker.x, height(walker.x, walker.z) + HEAD, walker.z)) inside += 1;
+        if (w.solids[STONE].keep.containsPoint(new THREE.Vector3(walker.x, height(walker.x, walker.z) + HEAD, walker.z))) inside += 1;
       }
       // The head is in the stone's box for some frames of the walk; and the camera is never more than a hand from where it
       // would be with no stone. Without the grace it stood 5.6 m higher, a second after the stone.
@@ -373,7 +339,7 @@ describe("the walk's camera at a landmark and the stage", () => {
       const after: number[] = [];
       const was = new THREE.Vector3();
       for (let f = 0; f < walk.frames + 240; f++) {
-        if (f > 0 && f < walk.frames) stride(walker, walk.keys(f, walker));
+        if (f > 0 && f < walk.frames) stride(walker, walk.keys(f, walker), limits);
         avatar.step(walker.x, walker.z, walker.heading, DT);
         avatar.boom(camera, walker, DT, f === 0);
         const moved = camera.position.distanceTo(was);
@@ -397,7 +363,7 @@ describe("the walk's camera at a landmark and the stage", () => {
       expect(out, where).toBeGreaterThanOrEqual(room - 1e-6);
       expect(Math.hypot(x - walker.x, y - hy, z - walker.z), where).toBeGreaterThanOrEqual(LEAST - 1e-6);
       expect(Math.hypot(x - walker.x, z - walker.z), where).toBeLessThan(Math.hypot(mark.position.x - walker.x, mark.position.z - walker.z));
-      expect(crossings(tris, x, y, z, walker.x - x, hy - y, walker.z - z, 1), where).toBe(0);
+      expect(crossings(tris, x, y, z, [walker.x - x, hy - y, walker.z - z], 1), where).toBe(0);
       // And that is where a cut to the same stand puts it: easing there lands where it would have landed.
       const cut = avatarOf(w.marks, phone), fresh = cameraOf(phone);
       cut.step(walker.x, walker.z, walker.heading, 0);
@@ -412,7 +378,7 @@ describe("the walk's camera at a landmark and the stage", () => {
       // between that place and the bear, so the walk's camera has somewhere else to go from there.
       const w = on("1986-07-04", phone), mark = w.marks[17], walk = across(mark, [0, -20], [0, 7], "past the tower"), avatar = avatarOf(w.marks, phone), camera = cameraOf(phone), walker = { ...walk.start };
       for (let f = 0; f < walk.frames; f++) {
-        if (f > 0) stride(walker, walk.keys(f, walker));
+        if (f > 0) stride(walker, walk.keys(f, walker), limits);
         avatar.step(walker.x, walker.z, walker.heading, DT);
         avatar.boom(camera, walker, DT, f === 0);
       }
@@ -427,13 +393,96 @@ describe("the walk's camera at a landmark and the stage", () => {
     }
   });
 
+  it("gathers its pace from nothing each time: cut off in the middle of its way, it sets off the next time a landmark comes into the boom's way as slowly as it did the first", () => {
+    for (const phone of [false, true]) {
+      // The bear stands 9 m from the Lovelight tower's middle and turns on the spot at the keys' rate, so that the boom sweeps
+      // round onto the tower. A camera with nothing in its way turns beside it, to tell the frame the tower moves this one.
+      const w = on("1986-07-04", phone), mark = w.marks[17], avatar = avatarOf(w.marks, phone), bare = bareOf(phone), camera = cameraOf(phone), other = cameraOf(phone), was = new THREE.Vector3();
+      const walker = { x: mark.position.x + 9, z: mark.position.z + 1, heading: 0, pitch: 0 }, turn = () => { walker.heading += (TURN * 1) / 60; avatar.step(walker.x, walker.z, walker.heading, DT); };
+      // Cuts to a heading, turns on, and tells the first frame in which the camera is not where the other is: how far it moved in
+      // that frame, and the heading. The frame of the cut has nothing in the boom's way.
+      const setsOff = (heading: number) => {
+        walker.heading = heading;
+        for (let f = 0; f < 300; f++) {
+          if (f > 0) turn();
+          avatar.boom(camera, walker, DT, f === 0);
+          bare.boom(other, walker, DT, f === 0);
+          const apart = camera.position.distanceTo(other.position);
+          if (f === 0) expect(apart, "at the cut").toBeLessThan(1e-9);
+          else if (apart > 1e-9) return { moved: camera.position.distanceTo(was), heading: walker.heading };
+          was.copy(camera.position);
+        }
+        throw new Error("nothing came into the boom's way in a whole turn");
+      };
+      // The heading the boom is clear at for the longest stretch of a turn, told by a cut to each heading of one: the cut is
+      // made a third of a second into it.
+      let best = 0, from = 0;
+      for (let n = 0, run = 0; n < 472; n++) {
+        const heading = (n * TURN) / 60;
+        walker.heading = heading;
+        avatar.boom(camera, walker, 0, true); bare.boom(other, walker, 0, true);
+        run = camera.position.distanceTo(other.position) < 1e-9 ? run + 1 : 0;
+        if (run > best) { best = run; from = heading - ((run - 1) * TURN) / 60; }
+      }
+      expect(best, phone ? "phone" : "desktop").toBeGreaterThan(40);
+      const first = setsOff(from + (20 * TURN) / 60);
+      // On for a fifth of a second, the camera going after its goal and gathering pace; then the cut, to a third of a second
+      // before that heading, and the turn again.
+      for (let f = 0; f < 12; f++) { turn(); avatar.boom(camera, walker, DT, false); }
+      const second = setsOff(first.heading - (20 * TURN) / 60);
+      // Each time it sets off from nothing: in its first frame it goes what a frame of gathering gives, 0.023 m on a desktop
+      // and 0.042 m on a phone, where a pace kept from before the cut would take it ten times as far.
+      const gathered = swift(phone) / GATHER / 3600;
+      expect(first.moved, phone ? "phone" : "desktop").toBeLessThanOrEqual(gathered + 1e-6);
+      expect(second.moved, phone ? "phone" : "desktop").toBeLessThanOrEqual(gathered + 1e-6);
+      // The same landmark, a frame or two sooner: the boom had not yet fallen as far behind the turn as in a whole one.
+      expect(Math.abs(second.heading - first.heading)).toBeLessThan(0.1);
+    }
+  });
+
+  it("makes nothing in a frame: no vector, box or matrix as it goes round the tower and lands, and its code has no loop over a list but by its indexes, no function made as it runs and no object or list written out", () => {
+    for (const phone of [false, true]) {
+      // The walk of the rest's test: through the Lovelight tower, a stop 6 m past it, and a second and a half more.
+      const w = on("1986-07-04", phone), walk = across(w.marks[17], [0, -20], [0, 7], "past the tower"), avatar = avatarOf(w.marks, phone), bare = bareOf(phone);
+      const camera = cameraOf(phone), other = cameraOf(phone), walker = { ...walk.start };
+      // The counter sees what the world's modules make: building the bear and its camera made vectors.
+      expect(made.count).toBeGreaterThan(0);
+      let frames = 0, apart = 0;
+      for (let f = 0; f < walk.frames + 90; f++) {
+        if (f > 0 && f < walk.frames) stride(walker, walk.keys(f, walker), limits);
+        avatar.step(walker.x, walker.z, walker.heading, DT);
+        const before = made.count;
+        avatar.boom(camera, walker, DT, f === 0);
+        frames += made.count - before;
+        bare.boom(other, walker, DT, f === 0);
+        apart = Math.max(apart, camera.position.distanceTo(other.position));
+      }
+      // The landmarks did move this camera: it stood metres from where it would with none, going after its goal. And made nothing.
+      expect(apart, phone ? "phone" : "desktop").toBeGreaterThan(5);
+      expect(frames, phone ? "phone" : "desktop").toBe(0);
+    }
+    // What a count of three's classes cannot see: a list walked by `for ... of` makes an iterator, an arrow or a function written in
+    // a function is made at each call, and an object or a list written out is made where it stands. None is in the frame's code:
+    // boom.js's functions, and avatar.js's boom. (rise's Math.hypot is as it was: a root in its place is another number.)
+    const made0 = /\bnew\b|=>|\bfunction\b.*\bfunction\b|\bfor \([^;)]*\bof\b|\.\.\.|return \{|[=(,] \[|= \{|\.(map|filter|some|every|forEach|slice|concat)\(/;
+    const boomJs = readFileSync(new URL("../../../public/world/boom.js", import.meta.url), "utf8"), avatarJs = readFileSync(new URL("../../../public/world/avatar.js", import.meta.url), "utf8");
+    const bodies = ["nearest", "enters", "standOff", "goRound", "rise"].map((name) => { const from = boomJs.indexOf(`function ${name}(`); return [name, boomJs.slice(from, boomJs.indexOf("\n}\n", from))]; });
+    bodies.push(["boom", avatarJs.slice(avatarJs.indexOf("  function boom(camera, walker, dt, cut) {"), avatarJs.indexOf("  /* Another camera placed the view"))]);
+    for (const [name, text] of bodies) {
+      expect(text.length, name).toBeGreaterThan(200);
+      expect(text.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter((line) => made0.test(line)), name).toEqual([]);
+    }
+    // And the check can fail: each of these would be caught.
+    for (const bad of ["for (const b of boxes) {", "const aim = (a) => { dir.x = a; };", "return { lift, room };", "const out = [];", "boxes.some((b) => b)", "new THREE.Vector3()"]) expect(made0.test(bad), bad).toBe(true);
+  });
+
   it("is where it comes to rest in every frame under reduced motion: where a cut to that stand would put it, with nothing left to draw once the input ends", () => {
     for (const phone of [false, true]) {
       const w = on("1986-07-04", phone), walk = across(w.marks[17], [1, -20], [1, 20], "past the tower");
       const still = avatarOf(w.marks, phone, { reduced: true }), camera = cameraOf(phone), fresh = cameraOf(phone), again = new THREE.Vector3(), walker = { ...walk.start };
       let moved = 0;
       for (let f = 0; f < walk.frames; f++) {
-        if (f > 0) stride(walker, walk.keys(f, walker));
+        if (f > 0) stride(walker, walk.keys(f, walker), limits);
         still.step(walker.x, walker.z, walker.heading, DT);
         still.boom(camera, walker, DT, false);
         // A camera cut to the same stand, in a world of its own.
@@ -450,19 +499,25 @@ describe("the walk's camera at a landmark and the stage", () => {
     }
   });
 
-  it("stands on its goal wherever no landmark and no column is in the boom's way: the same camera to the last bit as one in a world with none, on a walk that keeps far from both", () => {
+  it("stands on its goal wherever no landmark and no column is in the boom's way: the same camera to the last bit as one in a world with none, on a walk that keeps far from both, and that one eases after the bear as the boom always has", () => {
     for (const phone of [false, true]) {
       // A world of the stage's column and one landmark, the Lovelight tower, and a walk on the island's west side, 100 m from both.
-      const w = on("1986-07-04", phone), tower = w.marks[17], mine = avatarOf([tower], phone), bare = buildAvatar(new THREE.Scene(), [], { phone, reduced: false }) as unknown as Avatar;
+      const w = on("1986-07-04", phone), tower = w.marks[17], mine = avatarOf([tower], phone), bare = bareOf(phone);
       const camera = cameraOf(phone), other = cameraOf(phone), walker = { x: -60, z: 0, heading: 0.4, pitch: 0 }, random = seeded(3);
+      // The boom's own ease, a fifth of a second, toward its length behind the bear and 0.35 rad over its head, less the look's
+      // tilt (avatar.js). The ground and the crowd move the camera up and down only, so its place seen from above is that ease's.
+      const ease = 1 - Math.exp(-DT / 0.2), was = { x: 0, z: 0 };
       let keys = [1, 0, 0, 0, 0];
       for (let f = 0; f < 900; f++) {
         // The keys change every three quarters of a second; a walker 20 m from where it set out turns back.
         if (f % 45 === 0) keys = [1, random() < 0.3 ? 1 : 0, random() < 0.5 ? 1 : -1, random() < 0.4 ? 1 : 0, random() < 0.3 ? 1 : random() < 0.5 ? -1 : 0];
-        if (f > 0) stride(walker, Math.hypot(walker.x + 60, walker.z) < 20 ? keys : [1, 0, 1, 0, 0]);
+        if (f > 0) stride(walker, Math.hypot(walker.x + 60, walker.z) < 20 ? keys : [1, 0, 1, 0, 0], limits);
         mine.boom(camera, walker, DT, f === 0);
         bare.boom(other, walker, DT, f === 0);
         expect((camera.position as { toArray(): number[] }).toArray(), `frame ${f}`).toEqual((other.position as { toArray(): number[] }).toArray());
+        const { x, z } = camera.position as Point, back = boomLength(phone) * Math.cos(0.35 - walker.pitch), to = { x: walker.x + Math.sin(walker.heading) * back, z: walker.z + Math.cos(walker.heading) * back };
+        if (f > 0) expect([x, z], `frame ${f}`).toEqual([expect.closeTo(was.x + (to.x - was.x) * ease, 9), expect.closeTo(was.z + (to.z - was.z) * ease, 9)]);
+        was.x = x; was.z = z;
         expect(Math.min(Math.hypot(walker.x - tower.position.x, walker.z - tower.position.z), Math.hypot(walker.x - STAGE[0], walker.z - STAGE[1]))).toBeGreaterThan(100);
       }
       expect(Math.hypot(walker.x, walker.z)).toBeLessThan(BOUND);

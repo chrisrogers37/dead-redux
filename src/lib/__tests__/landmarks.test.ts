@@ -1,14 +1,15 @@
 import { beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
-import { buildAvatar, keepOutBox, swift } from "../../../public/world/avatar.js";
+import { buildAvatar, keepOutBox } from "../../../public/world/avatar.js";
 import { hull, outside, standClear } from "../../../public/world/collide.js";
 import { FIRST_EYE, height } from "../../../public/world/ground.js";
 import { makeBuilders, mergeLandmarks, mergeStill, mesh, songKey, STONE_KINDS, stoneKind, titleHash } from "../../../public/world/landmarks.js";
 // The builders' own depths and tones, which the newest five's tests read and do not state again.
 import { BAND_SUNK, BOW_TONES, BRASS, COPPER, CREAM, DARK_TIMBER, GREY, HANDRAIL, IRON, KITE_TONES, PALE_STONE, PIER_NICHE, PIER_PLINTH, PLANK_TONES, PLAQUE, POST, SIGN_DARK, SIGN_YELLOW, STONE, STRING, SUNK as COMMON_SUNK, TIMBER, TRESTLE_SUNK } from "../../../public/world/landmarks.js";
-import { buildPath, buildWalkLine, layout, placeLandmarks } from "../../../public/world/path.js";
-import { readdirSync, readFileSync } from "fs";
+import { layout, placeLandmarks } from "../../../public/world/path.js";
+import { readdirSync } from "fs";
+import { type Avatar, landmarksOf, line, MAPS, pace, path, tracksOf, walkCamera } from "./world-walks";
 
 type Part = { isMesh?: boolean; material: { vertexColors: boolean; flatShading: boolean; emissive: { getHex(): number } }; geometry: { index: unknown; attributes: Record<string, { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number }> } };
 type Build = (g: unknown, title?: string) => void;
@@ -80,14 +81,10 @@ const sliced = (position: Corners, piece: Piece, y: number, along: "x" | "z" = "
 // A foot's ring: the places [x, z] of the corners at a depth or under it, each once.
 const footRing = (position: Corners, corners: number[], depth: number) => [...new Set(corners.filter((i) => position.getY(i) < depth + 1e-3).map((i) => `${position.getX(i)},${position.getZ(i)}`))].map((corner) => corner.split(",").map(Number));
 // Every show's songs as its map has them, and one show's.
-const shows = readdirSync(new URL("../../../public/maps", import.meta.url)).filter((file) => file.endsWith(".json")).sort().map((file) => {
-  const map = JSON.parse(readFileSync(new URL(`../../../public/maps/${file}`, import.meta.url), "utf8")) as { tracks: { title: string; playingDuration: number }[] };
-  return { show: file.slice(0, -5), tracks: map.tracks.map((t) => ({ title: t.title, duration: t.playingDuration })) };
-});
-const tracksOf = (show: string) => (shows.find((one) => one.show === show) as (typeof shows)[number]).tracks;
+const shows = readdirSync(MAPS).filter((file) => file.endsWith(".json")).sort().map((file) => ({ show: file.slice(0, -5), tracks: tracksOf(file.slice(0, -5)) }));
 // The world's own path and the bears' line, a point every quarter metre; and where a landmark with an outline stands at a place
 // along the path: the spot standClear gives it, its turn, its own ground's height, and how far that is from the path's point.
-const path = buildPath(), line = buildWalkLine(path, 7), linePoints: [number, number][] = [];
+const linePoints: [number, number][] = [];
 for (let d = 0; d < line.length; d += 0.25) { const at = line.at(d); linePoints.push([at.x, at.z]); }
 type Stand = { x: number; z: number; cos: number; sin: number; own: number; off: number };
 const standAt = (u: number, outline: number[][]): Stand => {
@@ -742,7 +739,7 @@ describe("the rough-hewn landmarks", () => {
     // The pinned show (1986-07-04, set 2 from track 7, where Cold Rain And Snow stands on the summit between two stretches of the
     // bears' line): its landmarks placed as main.js places them, on both tiers.
     const tracks = tracksOf("1986-07-04"), landmarkU = layout(tracks, 7, path);
-    const stood = (phone: boolean) => placeLandmarks(new THREE.Scene(), path, tracks, true, makeBuilders(phone), landmarkU, line) as { position: { x: number; z: number } }[];
+    const stood = (phone: boolean) => landmarksOf(tracks, 7, phone).landmarks as { position: { x: number; z: number } }[];
     const desktop = stood(false), phone = stood(true);
     for (const i of [5, 6, 7, 8, 9]) {
       expect(ROUGH.some((title) => tracks[i].title.startsWith(title))).toBe(true);
@@ -1967,7 +1964,7 @@ describe("the drum circle, the banner, Space's rim, the magnolia and the leaning
     // blues and two of the magnolia's songs. Main stands every one of them on its song's point.
     for (const [show, set2Start, songs] of [["1986-07-04", 7, [13, 14, 15, 18]], ["1987-12-28", 9, [3, 7, 13, 15, 16, 21]]] as const) {
       const tracks = tracksOf(show), landmarkU = layout(tracks, set2Start, path);
-      const [desktop, phone] = [false, true].map((tier) => placeLandmarks(new THREE.Scene(), path, tracks, true, makeBuilders(tier), landmarkU, line) as { position: { x: number; z: number } }[]);
+      const [desktop, phone] = [false, true].map((tier) => landmarksOf(tracks, set2Start, tier).landmarks as { position: { x: number; z: number } }[]);
       const rules = builders(false).table, five = FIVE.map((title) => rules.find(([re]) => re.test(title)));
       for (const i of songs) {
         // The song is one of the five's.
@@ -2517,7 +2514,7 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
       // These are the show's songs that one of the five's rules takes.
       expect(tracks.map((_, i) => i).filter((i) => FIVE.some((title) => ruleOf(title) === ruleOf(tracks[i].title))), show).toEqual(songs);
       for (const phone of [false, true]) {
-        const stood = placeLandmarks(new THREE.Scene(), path, tracks, true, makeBuilders(phone), landmarkU, line) as { position: { x: number; z: number } }[];
+        const stood = landmarksOf(tracks, set2Start, phone).landmarks as { position: { x: number; z: number } }[];
         for (const i of songs) {
           const at = path.at(landmarkU[i]), far = Math.hypot(stood[i].position.x - at.x, stood[i].position.z - at.z), where = `${show}, song ${i}, "${tracks[i].title}"${phone ? " on a phone" : ""}`;
           expect(far, where).toBeCloseTo((off as Record<number, number>)[i], 3);
@@ -2969,17 +2966,13 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
   // from 8 m before its middle to 8 m past it. The view is tilted up by `tilt` rad.
   const WALKS = { along: [-4.5, -3, 0, 3, 4.5], across: [-8, -4, 0, 4, 8], pace: 12 / 60 };
   const largestMove = (g: unknown, frame: Stand, phone: boolean, tilt = 0) => {
-    const avatar = buildAvatar(new THREE.Scene(), [g], { phone, reduced: false }), camera = new THREE.PerspectiveCamera(phone ? 75 : 60, phone ? 0.46 : 1.6, 0.5, 900), was = new THREE.Vector3();
+    const avatar = buildAvatar(new THREE.Scene(), [g], { phone, reduced: false }) as unknown as Avatar, camera = new THREE.PerspectiveCamera(phone ? 75 : 60, phone ? 0.46 : 1.6, 0.5, 900);
     const at = ([x, z]: number[]) => [frame.x + x * frame.cos + z * frame.sin, frame.z - x * frame.sin + z * frame.cos];
     let most = 0;
+    // Each walk cuts to its start in a frame of no length, with the bear stood where the walker is: every frame after it counts.
     const walk = (from: number[], to: number[]) => {
       const [ax, az] = at(from), [bx, bz] = at(to), steps = Math.round(Math.hypot(bx - ax, bz - az) / WALKS.pace), walker = { x: ax, z: az, heading: Math.atan2(ax - bx, az - bz), pitch: tilt };
-      for (let f = 0; f <= steps; f++) {
-        walker.x = ax + ((bx - ax) * f) / steps; walker.z = az + ((bz - az) * f) / steps;
-        avatar.boom(camera, walker, f ? 1 / 60 : 0, f === 0);
-        if (f) most = Math.max(most, camera.position.distanceTo(was));
-        was.copy(camera.position);
-      }
+      most = Math.max(most, walkCamera(avatar, camera, walker, steps + 1, (f, w) => { w.x = ax + ((bx - ax) * f) / steps; w.z = az + ((bz - az) * f) / steps; }, { counted: 1, first: 0, steps: false }));
     };
     for (const way of [1, -1]) {
       for (const x of WALKS.along) walk([x, -24 * way], [x, 24 * way]);
@@ -2990,18 +2983,23 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
 
   // This test walks the camera past the road at every stop of the shows named, 202 places, five times over on each tier,
   // 7 million frames: it has 30 s, not the usual 5.
-  it("leaves the walk's camera at the road as it was without the handrails, and moves it no further in a frame there than its swift pace, past the trestle as past main's slab", { timeout: 30000 }, () => {
+  it("leaves the walk's camera at the road as it was without the handrails, no further in a frame than its swift pace, and no further than past main's slab but where the bents' depth sends it another way", { timeout: 30000 }, () => {
     // Main's slab is stood where the trestle stands. Before the walk's camera stopped cutting (issue #178, camera.test.ts)
     // the camera past it jumped at 85 of these 202 places on a desktop and 88 on a phone, as the bear's head left the
-    // slab's box: 1.5 to 15 m in a frame on a desktop, 1.1 to 25 m on a phone; and past the trestle by up to 3 m more
-    // (4.4 m on a phone) for its bents' depth. Now it moves no further in a frame than its swift pace at any of them,
-    // 0.55 m on a desktop and 1 m on a phone, past either; and with the view tilted up TILT rad, where the camera hangs
-    // as low as the rails, by no more than LOW m over that, which is what keeping over the ground adds to a step (0.004 m
-    // on a desktop and 0.11 m on a phone). And at every place, level and tilted, the camera moves as it does past the
-    // trestle with its handrails taken off, to a micron.
-    const TILT = 0.6, LOW = 0.15;
+    // slab's box, and past the trestle by more for its bents' depth. What is held now, at every place:
+    // - the camera moves as it does past the trestle with its handrails taken off, to a micron, with the view level and
+    //   with it tilted up TILT rad, where the camera hangs as low as the rails;
+    // - past the trestle and past the slab it moves no further in a frame than its swift pace (world-walks.ts `pace`), and
+    //   with the view tilted up by no more than LOW m over that, which is what keeping over the ground adds to a step:
+    //   0.004 m on a desktop and 0.106 m on a phone;
+    // - past the trestle it moves no more than MARGIN m further than past the slab, which a camera that left no stop of
+    //   main's slab worse would keep everywhere. It does at all but MORE of the places, 4 on a desktop and 6 on a phone:
+    //   there the trestle's box, as deep as its bents, takes in a bear's head on the slope that the slab's leaves out, and
+    //   the camera goes round it by another way, moving up to 0.19 m further in a frame on a desktop and 0.46 m on a phone,
+    //   FURTHER at the most.
+    const TILT = 0.6, MARGIN = 0.01, LOW = [0.01, 0.12], MORE = [4, 6], FURTHER = [0.2, 0.47];
     for (const phone of [false, true]) {
-      const road = built(ROAD, phone), where = phone ? "on a phone" : "on a desktop";
+      const road = built(ROAD, phone), where = phone ? "on a phone" : "on a desktop", tier = phone ? 1 : 0, more: number[] = [];
       // The trestle as it is built; the same with its handrails taken off, its rails' and their posts' corners left out;
       // and main's slab. Each is stood where the trestle stands, so that only what the camera keeps out of differs.
       const real = landmark(ROAD, phone).g as { position: { set(x: number, y: number, z: number): void }; rotation: { y: number }; updateMatrixWorld(force: boolean): void };
@@ -3018,7 +3016,8 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
       };
       // First where the review found it: 1971-12-09, song 20, with set 2 from track 16, where the ground falls 6 m beside the
       // trestle. Main's camera moves 0.31 m in a frame at the most there (0.39 m on a phone), and so does this one. With the
-      // box taken from the whole trestle, rails and all, it moved 9.9 m in one frame, and 19.1 m on a phone.
+      // box taken from the whole trestle, rails and all, it goes after another goal there, at its swift pace: 0.55 m in a
+      // frame on a desktop, where the camera that cut moved 9.9 m, and 19.1 m on a phone.
       const found = moves(layout(tracksOf("1971-12-09"), 16, path)[20]);
       expect(found.main, where).toBeCloseTo(phone ? 0.385 : 0.309, 2);
       expect(found.head, `${where}, 1971-12-09, song 20, with set 2 from track 16`).toBeCloseTo(found.main, 2);
@@ -3029,9 +3028,12 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
         seen.add(u);
         const { head, without, main, tilted } = moves(u);
         if (Math.abs(head - without) > 1e-6 || Math.abs(tilted[0] - tilted[1]) > 1e-6) expect.fail(`${where}, ${which}: the camera's largest move in a frame is ${head} m, and ${without} m with the handrails taken off; with the view tilted up, ${tilted[0]} m and ${tilted[1]} m`);
-        if (Math.max(head, main) > swift(phone) / 60 + 1e-6 || tilted[0] > swift(phone) / 60 + LOW) expect.fail(`${where}, ${which}: the camera's largest move in a frame is ${head} m past the trestle and ${main} m past main's slab; with the view tilted up, ${tilted[0]} m`);
+        if (Math.max(head, main) > pace(phone) + 1e-6 || tilted[0] > pace(phone) + LOW[tier]) expect.fail(`${where}, ${which}: the camera's largest move in a frame is ${head} m past the trestle and ${main} m past main's slab; with the view tilted up, ${tilted[0]} m`);
+        if (head > main + MARGIN) more.push(head - main);
       }
       expect(seen.size, where).toBeGreaterThan(150);
+      expect(more.length, `${where}: the trestle's camera moves further than main's slab's at ${more.length} places, by ${more.map((by) => by.toFixed(3)).join(", ")} m`).toBeLessThanOrEqual(MORE[tier]);
+      expect(Math.max(0, ...more), where).toBeLessThan(FURTHER[tier]);
     }
   });
 

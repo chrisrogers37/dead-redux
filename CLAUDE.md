@@ -72,11 +72,13 @@ One file: `npx vitest run src/lib/__tests__/quality.test.ts`. The dev server sen
 
 ## The walk's camera at a landmark and the stage
 
-- The walk's camera never cuts there (#178). Where a landmark's box or the stage's column would have it, in front of the landmark or raised over it (`rise` in `boom.js`), is its goal, and its place goes to the goal no faster than three boom lengths a second, the walk's own moving of it counted in: 0.55 m in a sixtieth of a second on a desktop and 1 m on a phone (`swift` in `avatar.js`). It gathers that pace and lands (`GATHER`, `LAND`). `camera.test.ts` walks four shows, named by date, at and across every landmark and round the stage: the camera's largest move in a frame is that pace, or what the same walk moves it with nothing in its way.
+- The walk's camera never cuts there (#178). Where a landmark's box or the stage's column would have it, in front of the landmark or raised over it (`rise` in `boom.js`), is its goal, and its place goes to the goal no faster than three boom lengths a second, the walk's own moving of it counted in (`swift` in `avatar.js`, which says what that is in a frame). It gathers that pace and lands (`GATHER`, `LAND`). `camera.test.ts` walks four shows, named by date, at and across every landmark and round the stage: the camera's largest move in a frame is that pace, or what the same walk moves it with nothing in its way.
 - On its way the place goes round a landmark or over it, never through it, and comes to rest what the eye's near plane needs from it, over the ground and no nearer the bear's head than the boom's least (`goRound` and `standOff` in `boom.js`, `eyeRoom`; `boom.test.ts`). The eye is in something a landmark draws only where the bear itself walks through that landmark with the camera's place in its box, and never in the stage's column (`camera.test.ts`).
 - Meanwhile the landmark may stand between the camera and the bear, for under a second: `camera.test.ts` holds the share of frames and the longest run.
 - For `GRACE` s after the bear's head leaves a landmark's box the boom takes no notice of that box. A walk along the path goes through every landmark on it, and the camera then passes the landmark as it would with none there.
 - Under reduced motion, and on a cut, the camera is where it comes to rest (`camera.test.ts`). The crowd still raises the camera at once, by its own rule (`over` in `crowd.js`).
+- A frame of the camera makes nothing: no vector, no list walked but by its indexes, no function and no object (`boom` in `avatar.js`, and all of `boom.js`). `camera.test.ts` counts what a walk round a landmark makes, and reads the code for the rest.
+- The tests that walk the world share one helper, `src/lib/__tests__/world-walks.ts`: a show's landmarks placed, a frame of a walk, the camera stepped through one, and a point tried against what is drawn.
 
 ## Motion and flashes
 

@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { height } from "./ground.js";
 import { buildBear, stride } from "./bears.js";
-import { goRound, LEAST, rise, standOff } from "./boom.js";
+import { goRound, HAIR, LEAST, rise, standOff } from "./boom.js";
 
 /* The visitor's bear: a sixth bear in the site's ink, seen from behind and above. Its legs, bob and lean follow its speed, so it
    lopes while the five walk. The walk's camera hangs on a boom behind its head and eases after it; a landmark between them draws the
@@ -24,7 +24,8 @@ export const swift = (phone) => 3 * boomLength(phone);
 /* It gathers that pace over GATHER s and comes to rest over the last LAND s of its way, and within SLACK m of its goal it is there.
    A goal that moves no more than SLACK m further in a frame than the walk moved the boom has moved with the walk. And for GRACE s
    after the bear's head leaves a landmark's box the boom takes no notice of that box, as while the head was in it: at a walk the
-   bear is 3 m clear of it by then, and the landmark is the camera's to pass, not the boom's to clear. */
+   bear is by then as far clear of it as the boom rises for (boom.js CLOSE), and the landmark is the camera's to pass, not the
+   boom's to clear. */
 export const GATHER = 0.4, LAND = 0.08, SLACK = 0.02, GRACE = 0.25;
 /* How far over the ground the camera's place keeps, and the middle of its boom. */
 const FLOOR = 1.2;
@@ -89,12 +90,12 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
   const raise = new Float64Array(1), way = Float64Array.of(0, 0, 0, AHEAD, LOOKS, CLIMB, 0, 0);
   const hung = new THREE.Vector3(), was = new THREE.Vector3();
   /* Where the landmarks and the stage would have the camera this frame (`goal`) and a frame ago, and its place, which goes there
-     at a pace of its own (`pace`, in m/s) and is `behind` until it is there; where the place stood, and a place to step from; and
-     where the boom's two ends stood a frame ago, the head and the place it hangs to. */
+     at a pace of its own (`pace`, in m/s): it is behind while it is not where the goal was. Where the place stood, and a place
+     to step from; and where the boom's two ends stood a frame ago, the head and the place it hangs to. */
   const goal = new THREE.Vector3(), goalWas = new THREE.Vector3(), place = new THREE.Vector3(), stood = new THREE.Vector3(), from = new THREE.Vector3();
   const hungWas = new THREE.Vector3(), pivotWas = new THREE.Vector3();
   const SWIFT = swift(phone);
-  let pace = 0, behind = false;
+  let pace = 0;
   /* How long ago the head last stood in each box, in s, and the boxes the boom meets this frame, in one array that is the same
      every frame. */
   const left = new Float32Array(boxes.length).fill(Infinity), met = [];
@@ -116,10 +117,10 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
      in along that line.
      Where a landmark or the stage's column would have the camera is its goal, and the goal can leap: a landmark comes into the
      boom's way, or the bear's head leaves one. The camera's place does not. It stands on its goal while the goal moves with the
-     walk; when the goal leaps it goes after it, no faster than SWIFT, round or over whatever stands between (boom.js goRound), so
-     the view swings or rises where it used to cut, and the eye is in no landmark on the way. Meanwhile the landmark may stand
-     between the camera and the bear. Its goal is out of every landmark's room, what the eye's near plane needs (boom.js standOff),
-     over the ground, and no nearer the head than the boom's least. Under reduced motion, and on a cut, the place is its goal.
+     walk; when the goal leaps it goes after it, no faster than SWIFT, and what stands between sends it round (boom.js goRound), so
+     the view swings or rises where it used to cut. Meanwhile the landmark may stand between the camera and the bear. Its goal is
+     out of every landmark's room (boom.js standOff), over the ground, and no nearer the head than the boom's least. Under reduced
+     motion, and on a cut, the place is its goal.
      Among the trees (trees.js) the boom keeps its length. As it eases, the camera's place slides level round a trunk in its way
      (`slide`) and comes down under a crown (`ceiling`), never under what the ground asks, since a crown's ceiling stands over that;
      and the same holds again where a landmark or the crowd has moved the camera from that place. The aim is as it would be with no
@@ -163,22 +164,21 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     lift = r.lift;
     reach = r.room < reach ? r.room : reach + (r.room - reach) * k;
     goal.copy(pivot).addScaledVector(dir, len * reach);
-    if (boxes.length > 0 || columns.length > 0) {
-      const gx = goal.x, gy = goal.y, gz = goal.z;
-      standOff(goal, pivot, boxes, columns, room);
-      /* Where a landmark has drawn it in, raised it or put it out of its room, it still keeps no nearer the head than the boom's
-         least and over the ground. Nearer the head, it goes straight up to the least: a landmark's sides stand upright, so that
-         takes it into no room but one it comes up under, and it is put out of that again. */
-      if (reach < 1 || lift > 0 || goal.x !== gx || goal.y !== gy || goal.z !== gz) {
-        const dx = goal.x - pivot.x, dy = goal.y - pivot.y, dz = goal.z - pivot.z, short = LEAST * LEAST - dx * dx - dz * dz;
-        if (short > dy * dy) { goal.y = pivot.y + Math.sqrt(short); standOff(goal, pivot, boxes, columns, room); }
-        goal.y = Math.max(goal.y, height(goal.x, goal.z) + FLOOR);
-      }
+    const gx = goal.x, gy = goal.y, gz = goal.z;
+    standOff(goal, pivot, boxes, columns, room);
+    /* Where a landmark has drawn it in, raised it or put it out of its room, it still keeps no nearer the head than the boom's
+       least and over the ground. Nearer the head, it goes straight up to the least: a landmark's sides stand upright, so that
+       takes it into no room but one it comes up under, and it is put out of that again. */
+    if (reach < 1 || lift > 0 || goal.x !== gx || goal.y !== gy || goal.z !== gz) {
+      const dx = goal.x - pivot.x, dy = goal.y - pivot.y, dz = goal.z - pivot.z, short = LEAST * LEAST - dx * dx - dz * dz;
+      if (short > dy * dy) { goal.y = pivot.y + Math.sqrt(short); standOff(goal, pivot, boxes, columns, room); }
+      goal.y = Math.max(goal.y, height(goal.x, goal.z) + FLOOR);
     }
-    /* How far the walk itself moved the boom's ends this frame. A goal that moved no further than that, and SLACK, moved with the
-       walk; one that moved further leapt. */
-    const walked = Math.max(hung.distanceTo(hungWas), pivot.distanceTo(pivotWas)), leapt = goal.distanceTo(goalWas) > walked + SLACK;
-    if (reduced || cut || !(dt > 0) || (!behind && !leapt)) place.copy(goal);
+    /* How far the walk itself moved the boom's ends this frame, squared. A goal that moved no further than that, and SLACK, moved
+       with the walk; one that moved further leapt. Most frames need no root to tell. */
+    const walked = Math.max(hung.distanceToSquared(hungWas), pivot.distanceToSquared(pivotWas)), went = goal.distanceToSquared(goalWas);
+    const leapt = went > walked && Math.sqrt(went) > Math.sqrt(walked) + SLACK;
+    if (reduced || cut || !(dt > 0) || (!leapt && place.equals(goalWas))) { place.copy(goal); pace = 0; }
     else {
       /* The place goes as its goal went, or with the bear in a frame the goal leapt, and then on toward the goal, gathering its
          pace and landing: no faster in all than SWIFT. What it meets stops it and sends it round (goRound). */
@@ -191,13 +191,13 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
       /* No nearer the head than the boom's least: straight out from the head, stopped again at what that would take it into, and
          in all no further this frame than SWIFT takes it; then, where a landmark's room has kept it nearer, on toward the goal,
          which is no nearer, by what SWIFT leaves. */
-      const d = place.distanceTo(pivot);
+      const d = place.distanceToSquared(pivot) < LEAST * LEAST * HAIR ? place.distanceTo(pivot) : LEAST;
       if (d < LEAST && d > 1e-9) {
         from.copy(place);
         place.sub(pivot).multiplyScalar(LEAST / d).add(pivot);
         goRound(place, from, null, pivot, hung, boxes, columns, room);
-        const went = place.distanceTo(stood);
-        if (went > most) { place.sub(stood).multiplyScalar(most / went).add(stood); goRound(place, stood, null, pivot, hung, boxes, columns, room); }
+        const gone = place.distanceTo(stood);
+        if (gone > most) { place.sub(stood).multiplyScalar(most / gone).add(stood); goRound(place, stood, null, pivot, hung, boxes, columns, room); }
         const still = place.distanceTo(goal), spare = most - place.distanceTo(stood);
         if (place.distanceTo(pivot) < LEAST && still > 0 && spare > 0) {
           from.copy(place);
@@ -206,10 +206,8 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
         }
       }
       place.y = Math.max(place.y, height(place.x, place.z) + FLOOR);
-      if (place.distanceTo(goal) <= SLACK) place.copy(goal);
+      if (place.distanceToSquared(goal) <= SLACK * SLACK * HAIR && place.distanceTo(goal) <= SLACK) { place.copy(goal); pace = 0; }
     }
-    behind = !place.equals(goal);
-    if (!behind) pace = 0;
     goalWas.copy(goal); hungWas.copy(hung); pivotWas.copy(pivot);
     camera.position.copy(place);
     if (camera.position.distanceToSquared(cam) > 1e-6) { slide(camera.position, room); under(camera.position, room); }
@@ -220,7 +218,7 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
   /* Another camera placed the view: the boom eases on from there, its place on its goal. */
   function settle(position, aim) {
     cam.copy(position); look.copy(aim); reach = 1; lift = 0; raise[0] = 0;
-    place.copy(position); goalWas.copy(position); hungWas.copy(position); pivotWas.set(feet.x, feet.y + HEAD, feet.z); pace = 0; behind = false;
+    place.copy(position); goalWas.copy(position); hungWas.copy(position); pivotWas.set(feet.x, feet.y + HEAD, feet.z); pace = 0;
   }
 
   const d = new THREE.Vector3(), r = new THREE.Vector3(), u = new THREE.Vector3(), f = new THREE.Vector3();
