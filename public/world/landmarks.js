@@ -375,8 +375,8 @@ export function makeBuilders(phone) {
   const BUILDERS = [
     /* The tuning peg, Drums and Space by the world's title rule (seats.js); each other landmark by its song's name anywhere in a title. */
     [{ test: isTuning }, tuningPeg],
-    [/playin/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(0.15, 0.15, 7, 6), wood, 0, 3.5, 0)); const k = mesh(new THREE.BoxGeometry(1.8, 1.8, 0.08), new THREE.MeshLambertMaterial({ color: 0xd4607a, flatShading: true }), 0, 7.6, 0); k.rotation.z = Math.PI / 4; g.add(k); }],
-    [/truckin/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(0.12, 0.12, 4.4, 6), stone, 0, 2.2, 0)); const s = mesh(new THREE.BoxGeometry(1.7, 1.7, 0.1), new THREE.MeshLambertMaterial({ color: 0xd4a056, flatShading: true }), 0, 4.6, 0.1); s.rotation.z = Math.PI / 4; g.add(s); }],
+    [/playin/i, kitePost],
+    [/truckin/i, roadSign],
     [/sugar magnolia|sugaree/i, magnolia],
     [/ripple/i, (g) => { g.add(mesh(new THREE.CircleGeometry(3, 24).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x0e1014 }), 0, 0.12, 0)); const r = mesh(new THREE.TorusGeometry(3.2, 0.15, 6, 32), stone, 0, 0.15, 0); r.rotation.x = -Math.PI / 2; g.add(r); }],
     [/eyes/i, (g) => { for (const x of [-0.9, 0.9]) g.add(mesh(new THREE.CylinderGeometry(0.12, 0.12, 3.2, 6), wood, x, 1.6, 0), mesh(new THREE.SphereGeometry(0.45, 8, 6), amber, x, 3.5, 0)); }],
@@ -385,7 +385,7 @@ export function makeBuilders(phone) {
     [/dark star/i, (g) => { g.add(mesh(new THREE.BoxGeometry(2, 1.2, 2), stone, 0, 0.6, 0), mesh(new THREE.SphereGeometry(1.4, 12, 8), new THREE.MeshBasicMaterial({ color: 0x0b0b0d }), 0, 2.6, 0)); }],
     [/morning dew/i, (g) => { g.add(mesh(new THREE.DodecahedronGeometry(2.2), new THREE.MeshPhongMaterial({ color: 0x7d7a74, specular: 0xffffff, shininess: 80, flatShading: true }), 0, 1.8, 0)); }],
     [/box of rain/i, (g) => { for (const z of [-1.5, 1.5]) g.add(mesh(new THREE.BoxGeometry(3.2, 2.6, 0.2), stone, 0, 1.3, z)); for (const x of [-1.5, 1.5]) g.add(mesh(new THREE.BoxGeometry(0.2, 2.6, 2.8), stone, x, 1.3, 0)); }],
-    [/not fade/i, (g) => { g.add(mesh(new THREE.BoxGeometry(1.6, 4.5, 1.2), stone, 0, 2.25, 0)); const l = mesh(new THREE.SphereGeometry(0.4, 8, 6), new THREE.MeshLambertMaterial({ color: 0xe8b04b, emissive: 0xe8b04b, emissiveIntensity: 0.6 }), 0, 5, 0); g.add(l); moving.push({ obj: l, kind: "pulse" }); }],
+    [/not fade/i, stonePillar],
     [/one more saturday/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(0.15, 0.15, 5, 6), wood, 0, 2.5, 0)); for (const [x, y, ry] of [[0.9, 4.2, 0.4], [-0.9, 3.5, -0.5]]) { const b = mesh(new THREE.BoxGeometry(2.2, 0.5, 0.1), wood, x, y, 0); b.rotation.y = ry; g.add(b); } }],
     [/straw/i, strawBales],
     [/diamond/i, cutDiamond],
@@ -399,11 +399,11 @@ export function makeBuilders(phone) {
     [/samson/i, templePillars],
     [/wheel/i, (g) => { const w = mesh(new THREE.TorusGeometry(3.2, 0.4, 6, 16), wood, 0, 3.6, 0); g.add(w); moving.push({ obj: w, kind: "spin" }); }],
     [/miracle/i, (g) => { const s = mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.9 }), 0, 4, 0); g.add(s); moving.push({ obj: s, kind: "bob" }); }],
-    [/band/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(4, 4, 0.8, 8), wood, 0, 0.4, 0)); if (!phone) for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; g.add(mesh(new THREE.CylinderGeometry(0.2, 0.2, 3, 5), wood, Math.cos(a) * 3.6, 2.3, Math.sin(a) * 3.6)); } g.add(mesh(new THREE.ConeGeometry(4.6, 2, 8), stone, 0, 4.8, 0)); }],
+    [/band/i, bandstand],
     [{ test: isDrums }, drumCircle],
     [{ test: isSpace }, spaceRim],
     [/lovin/i, leaningStones],
-    [/road/i, (g) => { g.add(mesh(new THREE.BoxGeometry(4, 0.2, 18), stone, 0, 0.4, 0)); }],
+    [/road/i, trestle],
     [/lovelight|light/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(1.2, 1.6, 10, 8), new THREE.MeshLambertMaterial({ color: 0xeceae4, flatShading: true }), 0, 5, 0)); const b = mesh(new THREE.BoxGeometry(1, 1, 1), amber, 0, 10.6, 0); g.add(b); moving.push({ obj: b, kind: "spin" }); }],
     [/blues/i, bannerPole],
   ];
@@ -1016,6 +1016,242 @@ export function makeBuilders(phone) {
     other.translate(-fall(onItsSide(other), onItsSide(taller)) - LAP, 0, 0);
     put(g, paint(taller, leanSkin(LEANING.taller, 71)), painted, 0, 0, 0);
     put(g, paint(other, leanSkin(LEANING.other, 72)), painted, 0, 0, 0);
+  }
+
+  /* ---------- Truckin', the road, Playin', Not Fade Away and Uncle John's Band ---------- */
+  /* These five keep inside the outlines of the plain shapes they replace, seen from above, and under their tops, as the five
+     before them do; and each holds what its plain shape held of the walker's view. Two of those outlines are slivers, a thin
+     pole's with a board on its corner at its top: so the sign and the kite are flat things, built in layers where the outline
+     is deep enough for each. Two are broad, and stand level on a slope: so the trestle's posts and the bandstand's plinth go
+     down as far as the ground falls under them anywhere on the path. */
+  /* A squared timber from one place to another: `level` across, measured level and square to its run (an upright one's is across
+     the path), and `tall` the other way. Its ends are cut square, and it is not twisted about its run. */
+  const beam = (g, mat, from, to, level, tall) => {
+    const run = new THREE.Vector3(...to).sub(new THREE.Vector3(...from)), length = run.length(), y = run.divideScalar(length), x = new THREE.Vector3().crossVectors(UP, y);
+    if (x.lengthSq() < 1e-12) x.set(1, 0, 0);
+    const m = mesh(new THREE.BoxGeometry(level, length, tall), mat, (from[0] + to[0]) / 2, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2);
+    m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x.normalize(), y, new THREE.Vector3().crossVectors(x, y)));
+    g.add(m);
+    return m;
+  };
+  /* A flat piece cut from a board `thick` through that stands across the path: its outline is [x, y] in the board's own face. */
+  const cut = (outline, thick) => new THREE.ExtrudeGeometry(new THREE.Shape(outline.map(([x, y]) => new THREE.Vector2(x, y))), { depth: thick, bevelEnabled: false }).translate(0, 0, -thick / 2);
+
+  /* Truckin': a road sign on its corner, where the plain board stood and as large. A dark board is its border; on it lies a
+     yellow board, SIGN.rim smaller all round; and on the yellow are painted the bends of a winding road, with an arrow at its
+     head. Under the sign a pale plaque carries two lines. The boards are turned a little askew on their post, as a sign is that
+     has stood a while.
+     It is built in layers, each SIGN.board through. The border board is layer 0, and its back is a millimetre inside the plain
+     board's;
+     the yellow board is layer 1; the road, and the plaque, layer 2; the plaque's lines, layer 3. A layer's face stands SIGN.proud
+     nearer the walker (-z) than the face of the layer behind it, which it lies a centimetre into. The post is a plank behind
+     the yellow board's face, so the sign's face is whole, and it shows only under the boards, with the plaque on its face.
+     The plain shape's outline is deepest at its middle, where its pole stood, and comes to the board's own two faces at its
+     tips: 14 cm nearer the walker at the middle for each metre in from a tip. So each layer is no wider than the outline lets
+     it be at its face: the yellow board's tips are 1.03 m out, the road and the plaque keep within 0.45 m of the middle, and
+     the plaque's lines and bolts within 0.4 m. */
+  const SIGN_YELLOW = 0xd4a056, SIGN_DARK = 0x3a2a1e, PLAQUE = 0xe0d9c4;
+  const SIGN = { at: 4.6, side: 1.69, rim: 0.12, askew: 0.04, back: 0.149, board: 0.06, proud: 0.05, plaque: 2.95, stroke: 0.11 };
+  function roadSign(g) {
+    const dark = tone(SIGN_DARK, true), iron = tone(IRON, true), { board, proud, stroke } = SIGN, bolt = new THREE.BoxGeometry(0.07, 0.07, board);
+    /* Where a layer's middle stands along the path. */
+    const layer = (n) => SIGN.back - board / 2 - n * proud;
+    /* A stroke of paint on layer 2, between two places in the board's face; its ends run on half its width, so two strokes that
+       meet at a place close the corner there. */
+    const stroked = (parts, [x0, y0], [x1, y1]) => put(parts, new THREE.BoxGeometry(Math.hypot(x1 - x0, y1 - y0) + stroke, stroke, board), dark, (x0 + x1) / 2, (y0 + y1) / 2, layer(2), 0, 0, Math.atan2(y1 - y0, x1 - x0));
+    const sign = new THREE.Group(), yellow = SIGN.side - 2 * SIGN.rim;
+    put(sign, new THREE.BoxGeometry(SIGN.side, SIGN.side, board), dark, 0, 0, layer(0), 0, 0, Math.PI / 4);
+    put(sign, new THREE.BoxGeometry(yellow, yellow, board), tone(SIGN_YELLOW, true), 0, 0, layer(1), 0, 0, Math.PI / 4);
+    /* The road, from its foot to its head, and the arrow's two barbs. */
+    const road = [[0, -0.56], [0, -0.3], [0.26, -0.02], [-0.2, 0.26], [-0.2, 0.54]], head = road[road.length - 1], barb = 0.2;
+    for (let k = 0; k + 1 < road.length; k++) stroked(sign, road[k], road[k + 1]);
+    for (const side of [-1, 1]) stroked(sign, head, [head[0] + side * barb, head[1] - barb]);
+    /* A bolt's head over the road and one under it, where the boards are bolted to the post. A phone leaves the bolts out. */
+    if (!phone) for (const y of [-0.82, 0.82]) put(sign, bolt, iron, 0, y, layer(2));
+    stand(g, sign, 0, SIGN.at, 0, 0, 0, SIGN.askew);
+    /* The post: its face is `inset` behind the yellow board's, and its back `inset` inside the border board's. */
+    const inset = board - proud, front = layer(1) - board / 2 + inset, back = SIGN.back - inset, high = SIGN.at + 0.3;
+    put(g, new THREE.BoxGeometry(0.24, high + SUNK, back - front), tone(TIMBER, true), 0, (high - SUNK) / 2, (front + back) / 2);
+    put(g, new THREE.BoxGeometry(0.9, 0.34, board), tone(PLAQUE, true), 0, SIGN.plaque, layer(2));
+    for (const [y, wide] of [[0.07, 0.66], [-0.07, 0.44]]) put(g, new THREE.BoxGeometry(wide, 0.08, board), dark, 0, SIGN.plaque + y, layer(3));
+    if (!phone) for (const x of [-0.36, 0.36]) put(g, bolt, iron, x, SIGN.plaque, layer(3));
+  }
+
+  /* Goin' Down The Road Feeling Bad, and the railroad blues: a length of railway on a timber trestle, where the plain slab lay,
+     as long and nearly as broad, its rails' tops half a centimetre under the slab's top. Ties lie across two stringers, each tie
+     a little out of true, 21 of them and on a phone 14, with a rail over each stringer and a guard timber along the ties' ends.
+     The lit band that lies along the path between two songs that run on (path.js buildSegues) is 2 m broad and lies along this
+     landmark: the rails stand wider apart than that, so the band runs between them and hides neither.
+     Under the deck are the bents: a cap under the stringers on two posts that spread as they go down, a cross of braces between
+     them on the walker's side, twice over, and a girt across at each cross's foot on the far side; a phone has three bents, with
+     no girts, where a desktop has five. On level ground nothing of a bent shows but its cap. But a landmark stands level, and
+     this one is 18 m long: wherever the ground falls away along it, it stands out from the hill on its bents, and where the
+     ground rises along it, it runs into the hill, as the slab did. On the path the ground falls up to 6.96 m under a post's
+     foot, so the posts go TRESTLE_SUNK down. */
+  const TRESTLE_SUNK = 7.4, POST = 0x7a5230;
+  /* The deck, from the rails down: each layer's top and how tall it is. */
+  const DECK = { rail: [0.495, 0.085], tie: [0.41, 0.12], stringer: [0.29, 0.22], cap: [0.07, 0.26] };
+  function trestle(g) {
+    const timber = tone(TIMBER, true), dark = tone(DARK_TIMBER, true), post = tone(POST, true), iron = tone(IRON, true);
+    const long = 17.9, rail = 1.15, square = 0.3, middle = ([top, tall]) => top - tall / 2;
+    for (const x of [-rail, rail]) {
+      put(g, new THREE.BoxGeometry(square, DECK.stringer[1], long), timber, x, middle(DECK.stringer), 0);
+      put(g, new THREE.BoxGeometry(0.1, DECK.rail[1], long), iron, x, middle(DECK.rail), 0);
+    }
+    for (const x of [-1.72, 1.72]) put(g, new THREE.BoxGeometry(0.16, DECK.rail[1], long), timber, x, middle(DECK.rail), 0);
+    const ties = phone ? 14 : 21, first = -8.7;
+    for (let k = 0; k < ties; k++) put(g, new THREE.BoxGeometry(3.7, DECK.tie[1], square), dark, 0.1 * (roll(k, 0, 0, 81) - 0.5), middle(DECK.tie), first - (2 * first * k) / (ties - 1), 0, 0.03 * (roll(k, 1, 0, 81) - 0.5), 0);
+    /* A post's middle line: under its stringer at its head, `foot` out at its foot. Its head is INTO its cap. */
+    const head = DECK.cap[0] - DECK.cap[1], foot = 1.8, INTO = 0.1, spread = (y) => rail + ((foot - rail) * (head - y)) / (head + TRESTLE_SUNK);
+    /* Each cross of braces, from its foot to its head, a board's depth before the posts' middle; the girts are as far behind it. */
+    const crosses = [[-2.3, -0.3], [-4.3, -2.3]], board = [0.08, 0.16], off = 0.19;
+    for (const z of phone ? [-8, 0, 8] : [-8, -4, 0, 4, 8]) {
+      put(g, new THREE.BoxGeometry(3, DECK.cap[1], square), dark, 0, middle(DECK.cap), z);
+      for (const side of [-1, 1]) {
+        beam(g, post, [side * foot, -TRESTLE_SUNK, z], [side * spread(head + INTO), head + INTO, z], square, square);
+        for (const [low, high] of crosses) beam(g, timber, [side * spread(low), low, z - off], [-side * spread(high), high, z - off], ...board);
+      }
+      if (!phone) for (const [low] of crosses) put(g, new THREE.BoxGeometry(2 * spread(low) + 0.5, board[1], board[0]), timber, 0, low, z + off);
+    }
+  }
+
+  /* Playin' In The Band: a kite, flying on its line over a post, where the plain board stood on its pole. A diamond kite of four
+     panels, two of the plain board's own rose and two gold, on a spine and a cross spar that show on both its faces; its line
+     runs up from the post's head to where the spars cross; and from its foot hangs a tail of cord that swings out clear of the
+     post, with a bow tied at each knot. A phone's tail has three bows, where a desktop's has five.
+     The plain shape's outline is 0.3 m deep at its middle and the board's own 8 cm at its tips, so the kite is flat: its sail
+     is KITE.sail through and its spars a centimetre proud of each face, its line lies on its near spar's face, and its bows
+     are cut from the sail's cloth. The kite is nearly as broad as the plain board was, corner to corner, and taller than it. */
+  const KITE = { wing: 1.2, nose: 0.9, tail: 1.9, tilt: 0.2, at: [0.08, 7.98], sail: 0.06, line: 0.03 };
+  const KITE_TONES = [0xd4607a, 0xe8b04b], BOW_TONES = [0x5b8fb5, 0xf0dba0];
+  /* A panel of a sail `thick` through, between its middle and two of its corners, each [x, y] in the sail's own face, the
+     corners in their order round the sail as its far side sees them go clockwise: its near face, its far one, and its edge
+     from the one corner to the other. Its other two sides are the panels' beside it, so a sail's panels close it between them. */
+  const panel = (middle, from, to, thick) => {
+    const near = ([x, y]) => [x, y, -thick / 2], far = ([x, y]) => [x, y, thick / 2];
+    return solid([near(middle), near(from), near(to), far(middle), far(to), far(from), near(from), far(to), near(to), near(from), far(from), far(to)].flat());
+  };
+  /* A bow in its own frame, its knot at the middle and the cord running along x: two wings drawn in to a waist. */
+  const BOW = [[-0.13, 0.3], [0.13, 0.3], [0.03, 0], [0.13, -0.3], [-0.13, -0.3], [-0.03, 0]];
+  function kitePost(g) {
+    const high = 5;
+    put(g, new THREE.CylinderGeometry(0.1, 0.13, high + SUNK, 6), tone(TIMBER, true), 0, (high - SUNK) / 2, 0);
+    /* The kite in its own frame, the spars' crossing at its middle: its nose, a wing, its foot, the other wing. */
+    const kite = new THREE.Group(), { wing, nose, tail, sail, line } = KITE, spar = tone(DARK_TIMBER, true), string = tone(STRING);
+    const corners = [[0, nose], [wing, 0], [0, -tail], [-wing, 0]], thick = sail + 0.02, short = 0.05, broad = 0.07;
+    corners.forEach((corner, k) => put(kite, panel([0, 0], corner, corners[(k + 1) % corners.length], sail), tone(KITE_TONES[k % 2], true), 0, 0, 0));
+    beam(kite, spar, [0, short - tail, 0], [0, nose - short, 0], broad, thick);
+    beam(kite, spar, [short - wing, 0, 0], [wing - short, 0, 0], thick, broad);
+    const [cx, cy] = KITE.at, sin = Math.sin(KITE.tilt), cos = Math.cos(KITE.tilt);
+    stand(g, kite, cx, cy, 0, 0, 0, -KITE.tilt);
+    /* The line, from inside the post's head to where the spars cross, its side on the near spar's face. */
+    const before = -(thick / 2 + line);
+    rod(g, string, [0, high - 0.12, before], [cx, cy, before], line);
+    /* The tail, from the kite's foot: each knot is this far from the foot, and a bow is tied at each after it, across the cord. */
+    const knots = [[0, 0], [0.3, -0.4], [0.64, -0.78], [0.84, -1.26], [0.94, -1.78], [0.98, -2.3]].slice(0, phone ? 4 : 6).map(([x, y]) => [cx - tail * sin + x, cy - tail * cos + y]);
+    for (let k = 1; k < knots.length; k++) {
+      const [x0, y0] = knots[k - 1], [x, y] = knots[k], turn = Math.atan2(y - y0, x - x0);
+      rod(g, string, [x0, y0, 0], [x, y, 0], line);
+      put(g, cut(BOW, sail), tone(BOW_TONES[k % 2], true), x, y, 0, 0, 0, turn);
+    }
+  }
+
+  /* Not Fade Away: a lantern on a stone pier, where the plain block stood with its ball on it. The pier is built: a plinth
+     nearly as broad as the block; six courses of dressed stone, drawn in a little as they rise, each of two blocks whose joint steps from
+     side to side up the pier, the blocks of three greys and their corners a little out of true; in its near face a niche, two
+     courses tall, dark inside, with a pale sill under it and a pale keystone over it; and a cornice, a cap as broad as the
+     block, and a block for the lantern to stand on. The lantern is an iron cage, a ring at its foot and one at its top with
+     bars between, and in it main's own ball, which glows and pulses as it did: its size, its place and its material are main's.
+     No bar stands before the ball's middle as the walker sees it. A phone's cage has four bars, where a desktop's has six. */
+  const PIER = { wide: 1.5, deep: 1.08, draw: 0.03, foot: 0.55, course: 0.55, courses: 6, niche: [3, 4], bay: 0.3, recess: 0.3, cornice: 0.15, cap: 0.22 };
+  const CAGE = { r: 0.47, bar: 0.03, foot: 4.5, top: 5.35, ring: 0.1 };
+  const BALL = { r: 0.4, y: 5 };
+  function stonePillar(g) {
+    const greys = [0x8e8a82, GREY, PALE_STONE], rows = Array.from({ length: PIER.courses }, (_, k) => k), nicheTop = PIER.niche[PIER.niche.length - 1];
+    /* A dressed block, its corners a little out of true: from its low corner [x0, y0, z0] to its high one. */
+    const block = (x0, y0, z0, x1, y1, z1, hex, salt) => put(g, roughen(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), 0.02, salt), tone(hex, true), (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    /* A course's foot, and its half-breadth and half-depth. */
+    const level = (k) => PIER.foot + k * PIER.course, half = (k) => [(PIER.wide - k * PIER.draw) / 2, (PIER.deep - k * PIER.draw) / 2];
+    block(-0.78, -SUNK, -0.58, 0.78, PIER.foot, 0.58, 0x6f6a63, 90);
+    for (const k of rows) {
+      const [w, d] = half(k), grey = (n) => greys[Math.floor(greys.length * roll(k, n, 0, 91))], salt = 92 + 3 * k, LAP = 0.015;
+      /* A niche's course is two jambs; the course over it, two blocks and the keystone between them, proud of them; any other,
+         two blocks that lap at their joint. */
+      const jambs = PIER.niche.includes(k), joint = jambs || k === nicheTop + 1 ? PIER.bay - (jambs ? 0 : LAP) : (k % 2 ? 0.24 : -0.24) + LAP;
+      block(-w, level(k), -d, jambs || k === nicheTop + 1 ? -joint : joint, level(k + 1), d, grey(0), salt);
+      block(jambs || k === nicheTop + 1 ? joint : joint - 2 * LAP, level(k), -d + (jambs ? 0 : 0.02 * roll(k, 5, 0, 91)), w, level(k + 1), d, grey(1), salt + 1);
+      if (k === nicheTop + 1) block(-PIER.bay, level(k), -d - 0.03, PIER.bay, level(k + 1), d, PALE_STONE, salt + 2);
+    }
+    /* The niche's back, set PIER.recess in from the face, and its sill, proud of it. */
+    const sill = level(PIER.niche[0]), face = -half(PIER.niche[0])[1];
+    block(-PIER.bay - 0.02, sill, face + PIER.recess, PIER.bay + 0.02, level(nicheTop + 1), 0.4, 0x2a2622, 110);
+    put(g, new THREE.BoxGeometry(0.84, 0.1, 0.22), tone(PALE_STONE, true), 0, sill - 0.05, -0.49);
+    /* The cornice, the cap, and the block the lantern stands on, up to the cage's foot. */
+    const shaft = level(PIER.courses), under = shaft + PIER.cornice, over = under + PIER.cap;
+    put(g, new THREE.BoxGeometry(1.5, PIER.cornice, 1.1), tone(GREY, true), 0, (shaft + under) / 2, 0);
+    put(g, new THREE.BoxGeometry(1.6, PIER.cap, 1.2), tone(PALE_STONE, true), 0, (under + over) / 2, 0);
+    put(g, new THREE.BoxGeometry(1.24, CAGE.foot - over, 1.04), tone(greys[0], true), 0, (over + CAGE.foot) / 2, 0);
+    /* The lantern's cage: its bars stand half a step round from the walker's line, so none is before the ball's middle. */
+    const iron = tone(IRON, true), bars = phone ? 4 : 6;
+    put(g, new THREE.CylinderGeometry(0.55, 0.58, CAGE.ring, phone ? 6 : 8), iron, 0, CAGE.foot + CAGE.ring / 2, 0);
+    for (let k = 0; k < bars; k++) {
+      const a = ((k + 0.5) / bars) * 2 * Math.PI, x = CAGE.r * Math.sin(a), z = CAGE.r * Math.cos(a);
+      rod(g, iron, [x, CAGE.foot + CAGE.ring, z], [x, CAGE.top, z], CAGE.bar);
+    }
+    put(g, new THREE.TorusGeometry(CAGE.r, 0.04, 4, phone ? 8 : 10), iron, 0, CAGE.top, 0, Math.PI / 2);
+    const ball = mesh(new THREE.SphereGeometry(BALL.r, 8, 6), new THREE.MeshLambertMaterial({ color: 0xe8b04b, emissive: 0xe8b04b, emissiveIntensity: 0.6 }), 0, BALL.y, 0);
+    g.add(ball);
+    moving.push({ obj: ball, kind: "pulse" });
+  }
+
+  /* Uncle John's Band: a bandstand, eight-sided as the plain roof was and as broad, a corner of it toward the walker as the
+     roof's was. A stone plinth as broad as the plain floor, a timber deck on it at the plain floor's height, and two stone
+     steps up to it on the side that looks to the walker's right; eight turned posts, one at each corner, cream; between them
+     a rail, a top one and a bottom one with a cross of laths between, in every bay but the steps'; and the roof: an eave's
+     board and soffit, three courses of copper green, the middle one the darker, that rise more gently as they go, a cupola
+     under its own cap, and a brass ball on that. A phone's posts are four-sided and simpler, and its rail has no laths.
+     The stand is 9 m across and stands level: on the path the ground falls up to 3.89 m under its plinth's foot, so the plinth
+     and the steps go BAND_SUNK down. */
+  const BAND_SUNK = 4.4, CREAM = 0xd8d2c4, COPPER = [0x5f8f7f, 0x4e7a6c];
+  const BAND = { sides: 8, plinth: [4, 0.45], deck: 3.88, floor: 0.8, posts: 3.55, steps: 3, tread: 0.27, rail: [0.95, 0.2], soffit: 0.16 };
+  /* The roof's courses, each ring [radius, height], from the eave up to the cupola's foot. */
+  const BAND_ROOF = [[4.6, 3.8], [3.45, 4.4], [2.2, 4.9], [0.95, 5.28]];
+  function bandstand(g) {
+    const { sides, floor } = BAND, [plinth, plinthTop] = BAND.plinth, [roof, eave] = BAND_ROOF[0], cream = tone(CREAM, true);
+    /* Round the stand by its corners: corner k is at this turn, and the side after it looks out half a step further round. */
+    const turn = (k) => (k / sides) * 2 * Math.PI, at = (r, k) => [r * Math.sin(turn(k)), r * Math.cos(turn(k))];
+    put(g, new THREE.CylinderGeometry(plinth, plinth, plinthTop + BAND_SUNK, sides), stone, 0, (plinthTop - BAND_SUNK) / 2, 0);
+    put(g, new THREE.CylinderGeometry(BAND.deck, BAND.deck, floor - plinthTop, sides), tone(TIMBER, true), 0, (floor + plinthTop) / 2, 0);
+    /* The steps, the upper one first: each a tread deep and a third of the floor's height over the one below, against the
+       plinth's side and a centimetre into what is behind it. */
+    const out = turn(BAND.steps + 0.5), side = plinth * Math.cos(Math.PI / sides), LAP = 0.01;
+    for (const n of [2, 1]) {
+      const d = side + (2.5 - n) * BAND.tread - LAP / 2, high = (n * floor) / 3;
+      put(g, new THREE.BoxGeometry(1.8, high + BAND_SUNK, BAND.tread + LAP), tone(PALE_STONE, true), d * Math.sin(out), (high - BAND_SUNK) / 2, d * Math.cos(out), 0, out, 0);
+    }
+    /* The posts, from the floor up into the eave's soffit. */
+    const soffit = eave - BAND.soffit, tall = soffit - floor + 0.04;
+    const profile = phone ? [[0.16, 0], [0.1, 0.4], [0.09, tall - 0.32], [0.14, tall - 0.2]] : [[0.17, 0], [0.17, 0.28], [0.11, 0.42], [0.1, 1.04], [0.14, 1.12], [0.09, tall - 0.32], [0.15, tall - 0.2]];
+    for (let k = 0; k < sides; k++) { const [x, z] = at(BAND.posts, k); put(g, lathe([...profile, [profile[profile.length - 1][0], tall]], phone ? 4 : 6), tone(CREAM), x, floor, z); }
+    /* The rail, post to post: a top rail, a bottom one, and on a desktop a cross of laths between them. */
+    const [top, bottom] = BAND.rail.map((y) => floor + y);
+    for (let k = 0; k < sides; k++) {
+      if (k === BAND.steps) continue;
+      const [x0, z0] = at(BAND.posts, k), [x1, z1] = at(BAND.posts, k + 1);
+      for (const [y, deep] of [[top, 0.1], [bottom, 0.08]]) beam(g, cream, [x0, y, z0], [x1, y, z1], 0.1, deep);
+      if (!phone) for (const [from, to] of [[bottom, top], [top, bottom]]) beam(g, cream, [x0, from, z0], [x1, to, z1], 0.06, 0.08);
+    }
+    /* The roof: the eave's board and soffit, the courses, the cupola, its cap, and the ball. */
+    put(g, new THREE.CylinderGeometry(roof, roof, BAND.soffit, sides), cream, 0, eave - BAND.soffit / 2, 0);
+    for (let k = 0; k + 1 < BAND_ROOF.length; k++) {
+      const [r0, y0] = BAND_ROOF[k], [r1, y1] = BAND_ROOF[k + 1];
+      put(g, new THREE.CylinderGeometry(r1, r0, y1 - y0, sides, 1, true), tone(COPPER[k % 2], true), 0, (y0 + y1) / 2, 0);
+    }
+    /* The cupola's cap has an eave of its own: its underside, its edge, and its slope up to a point. */
+    const [cupola, crown] = BAND_ROOF[BAND_ROOF.length - 1], drum = 0.16, under = crown + drum, tip = under + 0.26, ball = 0.08;
+    put(g, new THREE.CylinderGeometry(cupola, cupola, drum, sides, 1, true), cream, 0, crown + drum / 2, 0);
+    put(g, turned([[0, under], [1.2, under], [1.2, under + 0.06], [0, tip]], sides), tone(COPPER[1], true), 0, 0, 0);
+    put(g, new THREE.SphereGeometry(ball, 6, 4), tone(BRASS), 0, tip + 0.01, 0);
   }
 
   /* Each landmark's still parts merge into one mesh once it is built; a part that moves stays apart. The standing stone alone is

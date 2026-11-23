@@ -306,6 +306,11 @@ function start(gl) {
      calls this pass the light alone (scripts/flash/README.md). */
   const still = hooks?.get("still") === "1";
   if (still) for (const b of bears) b.g.visible = false;
+  /* ?hold=1: the landmarks' moving parts are held as they were built, and nothing else. A wheel is not turned, a ball glows as it
+     was made to and does not pulse, a miracle hangs where it was hung, and a flame keeps its own size and its light its own
+     strength, whatever the time and the music. The shoot's near pages ask for it (.github/screenshots/near.mjs): the shoot does not
+     hold the moment a still is taken at, so a still of a part that moved would differ from one run to the next. */
+  const hold = hooks?.get("hold") === "1";
   /* ?rung=N, N from 1 to 99: the world starts N rungs down its quality ladder (fewer if the ladder ends) and holds there, as a slow
      device would after N slow seconds. The sweep and reduced motion, which hold rung 0, ignore it. */
   const rungAsked = Number(/^\d{1,2}$/.exec(hooks?.get("rung") ?? "")?.[0] ?? 0);
@@ -509,6 +514,8 @@ function start(gl) {
     /* Whether ?still=1 was heard: the flash counter reads it, so a world from before the hook never passes for one with its figures
        stilled. */
     still: stat(() => still),
+    /* Whether ?hold=1 was heard: the landmarks' moving parts are held as they were built. */
+    hold: stat(() => hold),
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
     frameMs: stat(() => Math.round(sampler.frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
     mode: stat(() => mode),
@@ -605,7 +612,7 @@ function start(gl) {
       if (elapsed >= nextDrop || (peak && elapsed - dropAt > 5)) drop();
       lastIndex = index; lastPos = trackPos;
       skyMat.uniforms.uDrop.value.z = elapsed - dropAt;
-      for (const m of moving) {
+      for (const m of hold ? [] : moving) {
         if (m.kind === "spin") m.obj.rotation.y += dt * 0.3;
         else if (m.kind === "pulse") m.obj.material.emissiveIntensity = 0.6 + 0.4 * Math.sin(elapsed * 3);
         else if (m.kind === "bob") m.obj.position.y = 4 + 0.5 * Math.sin(elapsed * 1.5);

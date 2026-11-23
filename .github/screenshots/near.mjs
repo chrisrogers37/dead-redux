@@ -45,9 +45,11 @@ export const NEAR_FRAMES = 2;
 // other titles: it opens beside the first, and each step stands the visitor by a song's landmark and shoots it as `<prefix>-<slug>`.
 // The page is shot `whole`: in first person, where the visitor's own bear is out of the frame, with the shelves away. It waits for
 // the world to be `ready` before its first step, as the shoot's other pages that need a running world do: a step taken on a page
-// that is still loading would find no world to stand the visitor in.
+// that is still loading would find no world to stand the visitor in. And it holds the landmarks' moving parts as they were built
+// (?hold=1, public/world/main.js): the shoot takes a still whenever its frames have been drawn, so a ball that pulsed or a wheel
+// that turned would be shot at another moment on every run, and two runs' stills of it would differ with nothing changed.
 const nearPage = (songs, prefix, as = []) => ({
-  path: `/${FIXED_DAY}?pose=near-${songs[0][0]}${as.map(([index, title]) => `&as=${index}:${encodeURIComponent(title)}`).join("")}`,
+  path: `/${FIXED_DAY}?pose=near-${songs[0][0]}&hold=1${as.map(([index, title]) => `&as=${index}:${encodeURIComponent(title)}`).join("")}`,
   devices: ["desktop", "phone"],
   ready: "#world[data-world='ready']",
   whole: true,

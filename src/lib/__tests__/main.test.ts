@@ -66,7 +66,8 @@ const fake = vi.hoisted(() => {
   type Sky = { uniforms: Record<string, { value: number | Vec }> };
 
   // What the world main.js built: its scene, its camera, every bear it made (a downgrade drops some from the scene), and where the
-  // visitor's bear last stepped; the flame of a fire landmark, the stage, the crowd's mesh, the sky, its sun and the meshes main.js makes
+  // visitor's bear last stepped; the landmarks' moving parts, one of each kind (a fire landmark's flame and its light, a ball that
+  // pulses, a wheel that turns and a miracle that bobs), the stage, the crowd's mesh, the sky, its sun and the meshes main.js makes
   // itself (the beam); and the figures' phase in beats, as the last frame gave it to the stage, the crowd's pose, as the last frame gave
   // it to the crowd, and whether its last parting stood the figures at once.
   // `line` is the bears' line each test gives it, and `onset` the time of the last onset the analyser heard, which each test sets (null
@@ -105,6 +106,10 @@ const fake = vi.hoisted(() => {
     laidOut: [] as string[],
     placed: [] as string[],
     flame: { scale: new Vec(1, 1, 1) },
+    torch: { intensity: 40 },
+    ball: { material: { emissiveIntensity: 0.6 } },
+    wheel: { rotation: { y: 0 } },
+    miracle: { position: { y: 4 } },
     stage: undefined as unknown as Stage,
     crowd: undefined as unknown as CrowdMesh,
     sky: undefined as unknown as Sky,
@@ -256,10 +261,16 @@ const fake = vi.hoisted(() => {
       buildWalkLine: () => world.line,
     },
     landmarks: {
-      // One part that moves: a fire landmark's flame, which swells before a peak.
+      // The parts that move, one of each kind, each as landmarks.js builds it: a fire landmark's flame, which swells before a
+      // peak, and its light, which follows the low end; Not Fade Away's ball, which pulses; a wheel, which turns; and a miracle,
+      // which bobs.
       makeBuilders: () => {
         world.flame = { scale: new Vec(1, 1, 1) };
-        return { moving: [{ obj: world.flame, kind: "swell" }] };
+        world.torch = { intensity: 40 };
+        world.ball = { material: { emissiveIntensity: 0.6 } };
+        world.wheel = { rotation: { y: 0 } };
+        world.miracle = { position: { y: 4 } };
+        return { moving: [{ obj: world.flame, kind: "swell" }, { obj: world.torch, kind: "flame", base: world.torch.intensity }, { obj: world.ball, kind: "pulse" }, { obj: world.wheel, kind: "spin" }, { obj: world.miracle, kind: "bob" }] };
       },
       mergeLandmarks: () => {},
     },
@@ -447,6 +458,7 @@ type Hill = {
   near: { index: number; title: string; clear: boolean } | null;
   rung: number;
   still: boolean;
+  hold: boolean;
   walker: { x: number; z: number; heading: number; pitch: number };
   crowd: { drawn: number; dance: number; sit: number; parted: number };
   analysis: { source: string | null; weight: number };
@@ -1051,6 +1063,67 @@ describe("main.js's frames", () => {
         await near("?pose=near-1");
         expect(fake.world.placed).toEqual(real);
       });
+    });
+  });
+
+  describe("?hold=1", () => {
+    // A show that plays where the analyser cannot hear it, on a map whose low end is half of full and whose one peak is at 300 s,
+    // cued 8 s before the peak and run 2 s: the flame has swelled, its light follows the low end, and the ball, the wheel and the
+    // miracle have moved by the time alone.
+    const moved = async (search: string, hooks = true) => {
+      const page = await startWorld({ playing: true, routing: "plain", map: showMap({ bass: 128, peaks: [[300, 0.9]] }), search, hooks });
+      page.seek(292);
+      page.run(2);
+      const { flame, torch, ball, wheel, miracle } = fake.world;
+      return { page, parts: [flame.scale.x, torch.intensity, ball.material.emissiveIntensity, wheel.rotation.y, miracle.position.y] };
+    };
+    // Each part as landmarks.js builds it: the flame its own size, its light 40, the ball glowing 0.6, the wheel unturned, the miracle
+    // 4 m up.
+    const BUILT = [1, 40, 0.6, 0, 4];
+
+    it("holds the landmarks' moving parts as they were built, and nothing else: the band plays on, the bears walk and the crowd dances", async () => {
+      fake.world.beats = NaN;
+      const { parts } = await moved("?hold=1");
+      expect(hill().hold).toBe(true);
+      expect(parts).toEqual(BUILT);
+      // All else moves: the band is moved to the beat, the crowd dances, and no bear is hidden.
+      expect(fake.world.beats).toBeGreaterThan(0);
+      expect(fake.world.posed.dance).toBeGreaterThan(0);
+      expect(fake.world.bears.filter((b) => b.g.visible === false)).toEqual([]);
+      expect(hill().still).toBe(false);
+    });
+
+    it("moves every one of them without it: the same two seconds swell the flame, drive its light, pulse the ball, turn the wheel and lift the miracle", async () => {
+      const { parts } = await moved("?pose=crowd");
+      expect(hill().hold).toBe(false);
+      parts.forEach((value, k) => expect(Math.abs(value - BUILT[k]), `part ${k}`).toBeGreaterThan(0.01));
+    });
+
+    it.each(["?hold=0", "?hold=", "?hold=true", "?hold=2", "?hold=01", "?hold=1x", "?hold"])("holds nothing under %s: only ?hold=1 does", async (search) => {
+      // A hook that took any word for yes would hold the parts of a page that asked for them moving: the flash counter's, which
+      // counts the ball's pulse.
+      const { parts } = await moved(search);
+      expect(hill().hold).toBe(false);
+      parts.forEach((value, k) => expect(Math.abs(value - BUILT[k]), `part ${k}`).toBeGreaterThan(0.01));
+    });
+
+    it("answers only on a preview: elsewhere the parts move as ever", async () => {
+      const { parts } = await moved("?hold=1", false);
+      expect(hill().hold).toBe(false);
+      parts.forEach((value, k) => expect(Math.abs(value - BUILT[k]), `part ${k}`).toBeGreaterThan(0.01));
+    });
+
+    it("holds them beside a landmark, on the page the shoot's near stills are taken from, through a move to another song's", async () => {
+      fake.world.nearSpot = (k: number) => ({ x: 30 + k, z: 20, heading: 0, pitch: 0, clear: true });
+      const landmarks = [40.6, 60.3].map((d) => ({ position: LINE.at(d), rotation: { y: 0 } }));
+      const page = await startWorld({ search: "?pose=near-0&hold=1", songs: 2, landmarks });
+      page.run(1);
+      document.dispatchEvent(new CustomEvent("world:near", { detail: { index: 1 } }));
+      page.run(1);
+      expect(hill().near?.index).toBe(1);
+      expect(hill().hold).toBe(true);
+      const { flame, torch, ball, wheel, miracle } = fake.world;
+      expect([flame.scale.x, torch.intensity, ball.material.emissiveIntensity, wheel.rotation.y, miracle.position.y]).toEqual(BUILT);
     });
   });
 
