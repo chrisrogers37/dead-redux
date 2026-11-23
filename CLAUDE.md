@@ -24,6 +24,7 @@ One file: `npx vitest run src/lib/__tests__/quality.test.ts`. The dev server sen
 - `public/maps/<show date>.json`: one map per show.
 - `data/shows.json`: the catalog. `data/pick-schedule.json`: every date's show.
 - `scripts/`: the catalog refresh and the Maps workflow's scripts.
+- `scripts/flash/`: the flash counter (`README.md` there).
 - `src/lib/__tests__/` (the world's tests too) and `scripts/__tests__/`: vitest.
 - `.github/workflows/`: `ci.yml`, `screenshots.yml`, `maps.yml`. `.github/screenshots/`: the shoot, with its own `package.json`.
 
@@ -60,13 +61,15 @@ One file: `npx vitest run src/lib/__tests__/quality.test.ts`. The dev server sen
 ## Motion and flashes
 
 - Under `prefers-reduced-motion` the world holds still. It draws a frame only for an input or a change of state, or while a control is held, always at full quality (`main.js`; `main.test.ts`). The shoot takes two reduced-motion stills of the home page and two of `?pose=crowd`, and fails when a pair differs (`compare.mjs`).
-- The light show's bar is at most 6 swings of 10 % in relative luminance in any second at any 2×2-pixel block, which is 3 flashes. #128 and #140 measured the light show against it, by render, and their PR text holds the counts. No test or CI job counts flashes, so a change that speeds a light's rise or fall, or adds a fast swing in brightness, is measured the same way before it merges.
+- The light show's bar is at most 6 swings of 10 % in relative luminance in any second at any 2×2-pixel block, which is 3 flashes. #128 and #140 measured the light show against it, by render, and their PR text holds the counts. No CI job counts flashes. `scripts/flash/` counts them by render, on a machine with a GPU, and a change that speeds a light's rise or fall, or adds a fast swing in brightness, is counted with it before it merges, the PR text holding the counts.
 
 ## Test hooks
 
-The test hooks, `?at=`, `?t=`, `?stats=1`, `?day=`, `?sleep=`, `?lookup=`, `?pose=`, `?as=` and `?drive=`, answer only on Vercel previews. The server reads the switch, never a `NEXT_PUBLIC_` variable (`src/lib/test-hooks.ts`; `test-hooks.test.ts`). `?tier=` works anywhere.
+The test hooks, `?at=`, `?t=`, `?stats=1`, `?day=`, `?sleep=`, `?lookup=`, `?pose=`, `?as=`, `?drive=`, `?still=` and `?rung=`, answer only on Vercel previews. The server reads the switch, never a `NEXT_PUBLIC_` variable (`src/lib/test-hooks.ts`; `test-hooks.test.ts`). `?tier=` works anywhere.
 
 `?pose=near-K` stands the visitor on the path beside song K's landmark, facing it (`nearStand` in `public/world/path.js`), and `?as=K:Title` builds song K's landmark as a song of that title would have it. With them the shoot takes a still of every landmark of the fixed day, and then of every other kind of landmark, on a desktop and a phone (`.github/screenshots/near.mjs`). `scripts/__tests__/near-landmarks.test.ts` holds those titles to the builders' table, so a new kind of landmark gets a still there.
+
+`?still=1`, `?rung=N` and a `?pose=` of four numbers, `X,Z,HEADING,PITCH`, are the flash counter's (`public/world/main.js`; `main.test.ts`). `?still=1` stills the figures and nothing else: the bears are hidden, the band is not moved and the crowd is posed standing still, while the rig and the lights, the sky, the sea, the tufts in the wind, the fireflies and the landmarks' moving parts move as ever. `?rung=N` starts the world N rungs down its quality ladder and holds it there. The four numbers stand the visitor anywhere a walker may stand.
 
 ## The daily pick
 
