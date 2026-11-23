@@ -29,8 +29,8 @@ export const AS_TITLES = [
 
 // The standing stones: a song with no landmark of its own gets one of eight kinds of stone, by its title (stoneKind,
 // public/world/landmarks.js). On a third load of the fixed day, eight of its songs' landmarks are built as these eight songs would have
-// them: songs from the maps that no rule matches, one of each kind in the kinds' own order (a menhir, a leaning slab, a split stone, a
-// cairn, a trilithon, a pair, a stele, a balanced boulder), at points where the view is clear from 14 m. The cairn stands on the
+// them: songs from the maps that no rule matches, one of each kind in the kinds' own order (a menhir, a holed stone, a split stone, a
+// cairn, a trilithon, a pair, a stele, a rock on a rock), at points where the view is clear from 14 m. The cairn stands on the
 // steep climb, where the visitor looks up at a stone's lower side: one that hung over the slope or lay buried in it would show
 // there. The test holds this table to all of that.
 export const STONE_TITLES = [
