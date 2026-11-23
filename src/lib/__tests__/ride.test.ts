@@ -879,6 +879,31 @@ describe("createRide", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("gives the cursor back as the page goes while its ride is settled: the cursor is the document's, which outlives the page; and hides it again if the page listens again", () => {
+    const p = page();
+    p.ride.toggle();
+    vi.advanceTimersByTime(MS);
+    expect(p.classes.has("cursor-off")).toBe(true);
+    p.stop();
+    expect(p.classes.has("cursor-off")).toBe(false);
+    vi.advanceTimersByTime(CURSOR_MS);
+    expect(p.classes.has("cursor-off")).toBe(false);
+    // React runs an effect's cleanup and then the effect again: the ride is settled still, and so the cursor hides again.
+    const again = p.ride.start({ idleMs: MS, unitMs: 60_000 });
+    expect(p.ride.state().settled).toBe(true);
+    expect(p.classes.has("cursor-off")).toBe(true);
+    again();
+    expect(p.classes.has("cursor-off")).toBe(false);
+    // An awake ride's page hides nothing as it begins to listen, nor one out of a ride.
+    for (const riding of [true, false]) {
+      const awake = page();
+      if (riding) awake.ride.toggle();
+      awake.stop();
+      awake.ride.start({ idleMs: MS, unitMs: 60_000 });
+      expect(awake.classes.has("cursor-off"), String(riding)).toBe(false);
+    }
+  });
+
   it("brings a visitor who was riding on the page before in riding, settled at once, with the sleep timer as it was; and one who was not, not", () => {
     const p = page();
     const endsAt = Date.now() + 25 * 60_000;
@@ -1095,6 +1120,91 @@ describe("createRide", () => {
       expect(p.ride.state().settled, `${code} on ${kind}`).toBe(false);
       p.stop();
     }
+  });
+
+  it("wakes the settled page on a walking key by its own hand, as on any key that is not quiet, and ends the ride on the world's word that the key began a walk: the HUD is whole after", () => {
+    for (const [code, key] of [["ArrowUp", "ArrowUp"], ["ArrowDown", "ArrowDown"], ["ArrowLeft", "ArrowLeft"], ["ArrowRight", "ArrowRight"], ["KeyW", "w"], ["KeyD", "d"], ["KeyQ", "q"]]) {
+      const { p, Kind } = settledPage();
+      p.win.dispatchEvent(input("keydown", { code, key, target: new Kind("div") }));
+      // The page alone: awake, and riding still. On the still, which has no world to say more, that is all a walking key does.
+      expect(p.ride.state(), code).toEqual({ riding: true, settled: false, sleepEndsAt: null });
+      expect(p.classes.has("cursor-off"), code).toBe(false);
+      // The world takes the key for a step and says a walk has begun: the ride is over, and no look of it is left on the page.
+      p.world("walk");
+      expect(p.ride.state(), code).toEqual({ riding: false, settled: false, sleepEndsAt: null });
+      p.stop();
+    }
+    // The world's word alone ends a settled ride the same, and the cursor is back.
+    const { p } = settledPage();
+    p.world("walk");
+    expect(p.ride.state()).toEqual({ riding: false, settled: false, sleepEndsAt: null });
+    expect(p.classes.has("cursor-off")).toBe(false);
+  });
+
+  it("gives the ride's button the focus Leave had when a key pressed it, in either look, and the same when Escape, B or F leaves with focus on Leave or the sleep timer; a pointer's press on Leave moves no focus", () => {
+    const RIDE = '[data-action="ride"]', given = { preventScroll: true };
+    // A ride in one of its looks, with focus on one of the page's controls. The awake look has the ride's button on the page; the
+    // settled look does not, until the page is drawn awake again.
+    const riding = (settled: boolean, focusOn: string | null) => {
+      const p = page(), button = { dataset: { action: "ride" }, focus: vi.fn() };
+      p.ride.toggle();
+      if (settled) vi.advanceTimersByTime(MS);
+      else p.doc.found[RIDE] = button;
+      if (focusOn) p.doc.activeElement = { dataset: { action: focusOn } };
+      // The page draws itself anew out of the ride: what had focus is gone, and the ride's button is there.
+      const drawn = () => {
+        p.doc.found[RIDE] = button;
+        p.doc.activeElement = p.body;
+        p.ride.refocus();
+      };
+      return { p, button, drawn };
+    };
+    // Each way a key leaves: Enter or Space on Leave, whose click counts no press of a pointer; Escape; B; F.
+    const byKey: [string, (p: ReturnType<typeof page>) => void, string[]][] = [
+      ["Enter on Leave", (p) => p.ride.leave({ detail: 0 }), ["leave"]],
+      ["Escape", (p) => tap(p, "Escape"), ["leave", "sleep"]],
+      ["B", (p) => tap(p, "KeyB"), ["leave", "sleep"]],
+      ["F", (p) => tap(p, "KeyF"), ["leave", "sleep"]],
+    ];
+    for (const [name, leave, controls] of byKey) for (const focusOn of controls) {
+      // Awake, the button is on the page and takes the focus at once.
+      const awake = riding(false, focusOn);
+      leave(awake.p);
+      expect(awake.p.ride.state().riding, `${name}, awake`).toBe(false);
+      expect(awake.button.focus, `${name}, awake, focus on ${focusOn}`).toHaveBeenCalledExactlyOnceWith(given);
+      // Settled, it is not on the page yet: it has the focus once the page has drawn it, and once only.
+      const settled = riding(true, focusOn);
+      leave(settled.p);
+      expect(settled.p.ride.state(), `${name}, settled`).toEqual({ riding: false, settled: false, sleepEndsAt: null });
+      expect(settled.button.focus, `${name}, settled`).not.toHaveBeenCalled();
+      settled.drawn();
+      expect(settled.button.focus, `${name}, settled, focus on ${focusOn}`).toHaveBeenCalledExactlyOnceWith(given);
+      settled.drawn();
+      expect(settled.button.focus, `${name}, settled`).toHaveBeenCalledTimes(1);
+    }
+    // A pointer's press on Leave, which the browser may focus as it is pressed: no focus is moved, now or once the page is drawn.
+    for (const press of [{ detail: 1 }, { detail: 2 }, undefined]) for (const settled of [false, true]) {
+      const pressed = riding(settled, "leave");
+      pressed.p.ride.leave(press);
+      expect(pressed.p.ride.state().riding).toBe(false);
+      pressed.drawn();
+      expect(pressed.button.focus, `${JSON.stringify(press)} ${settled}`).not.toHaveBeenCalled();
+    }
+    // A key that leaves with focus on what the leave does not take away, or on nothing, moves none: the world, the slider, the page.
+    for (const focusOn of ["seek", "play", null]) for (const settled of [false, true]) {
+      const kept = riding(settled, focusOn);
+      tap(kept.p, "Escape");
+      if (focusOn === null || settled) kept.drawn();
+      expect(kept.button.focus, `Escape with focus on ${focusOn}, ${settled}`).not.toHaveBeenCalled();
+    }
+    // Nor does the world's word that a walk has begun, whatever has focus: no key of the page's asked for it.
+    const walked = riding(false, "leave");
+    walked.p.world("walk");
+    expect(walked.button.focus).not.toHaveBeenCalled();
+    // And Leave from the button itself, the ride's one control, has its focus already.
+    const toggled = riding(false, "ride");
+    toggled.p.ride.toggle();
+    expect(toggled.button.focus).not.toHaveBeenCalled();
   });
 
   it("finds a control again by its action, and a shelf's tab by its shelf too; what has neither is not one it keeps", () => {

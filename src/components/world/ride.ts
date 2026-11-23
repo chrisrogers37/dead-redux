@@ -216,7 +216,11 @@ export interface Ride {
   start(options: RideOptions): () => void;
   /** The one control: starts the ride, and the show with it, or ends it. */
   toggle(): void;
-  leave(): void;
+  /**
+   * Leaves the ride. Leave's own press says how it was made: a click that counts no press of a pointer (`detail` 0) is a key's,
+   * Enter or Space on the button, and then the ride's button has the focus Leave had.
+   */
+  leave(press?: { detail?: number }): void;
   /** A press on the sleep timer. */
   pressSleep(): void;
   /** What the page before handed over: a visitor who was riding arrives riding, settled at once, the sleep timer still running. */
@@ -245,6 +249,10 @@ const MODIFIERS = new Set(["Shift", "Control", "Alt", "Meta"]);
  * shortcut); and Enter on a control, which presses it. Every other key wakes the page.
  */
 const quietKey = (e: KeyboardEvent) => e.key === "Tab" || MODIFIERS.has(e.key) || keyBelongsToControl(e) || (e.key === "Enter" && onControl(e.target));
+
+/** The ride's button, and the actions of the ride's own two controls, which leaving the ride takes off the page. */
+const RIDE_BUTTON = '[data-action="ride"]';
+const OWN = new Set(["sleep", "leave"]);
 
 /** How to find a control again once the page has drawn it anew: by its action, and a shelf's tab by its shelf. Null for any other. */
 export function controlKey(el: Element | null): string | null {
@@ -315,12 +323,22 @@ export function createRide(): Ride {
     for (const listener of listeners) listener();
   }
 
-  function leave() {
+  /* Leaves the ride. Where a key asked for it (`byKey`) and focus is on one of the ride's own two controls, which go with the
+     ride, the ride's button has the focus after, so it does not fall to the page: at once where the button is on the page, the
+     awake look, and else once the page has drawn it, which the settled look does not (refocus). A pointer's press moves no focus:
+     it drew no ring on what it pressed, and gets none on another button. */
+  function leave(byKey = false) {
+    if (!state.riding) return;
+    const own = byKey && OWN.has((document.activeElement as HTMLElement | null)?.dataset?.action ?? "");
     become({ riding: false, settled: false, sleepEndsAt: null });
+    if (!own) return;
+    const button = document.querySelector<HTMLElement>(RIDE_BUTTON);
+    if (button) button.focus({ preventScroll: true });
+    else lost = RIDE_BUTTON;
   }
-  function toggle() {
+  function toggle(byKey = false) {
     if (state.riding) {
-      leave();
+      leave(byKey);
       return;
     }
     /* Asks the player to start the show (nothing once it has), inside the press that asked for the ride. */
@@ -328,8 +346,8 @@ export function createRide(): Ride {
     become({ riding: true, settled: false, sleepEndsAt: null });
   }
   function onKey(e: KeyboardEvent) {
-    if (e.key === "Escape") leave();
-    else if ((e.code === "KeyB" || e.code === "KeyF") && !e.repeat && !keyBelongsToControl(e) && lettersActive(e)) toggle();
+    if (e.key === "Escape") leave(true);
+    else if ((e.code === "KeyB" || e.code === "KeyF") && !e.repeat && !keyBelongsToControl(e) && lettersActive(e)) toggle(true);
   }
 
   return {
@@ -349,17 +367,20 @@ export function createRide(): Ride {
       document.addEventListener("world:mode", mode);
       watch();
       armSleep();
+      /* A page that listens again while its ride is settled hides the cursor again. */
+      hideCursor(state.settled);
       return () => {
         options = null;
         window.removeEventListener("keydown", key);
         document.removeEventListener("world:mode", mode);
         watch();
         armSleep();
-        clearTimeout(cursor);
+        /* The cursor is the document's, which outlives the page: a page that goes while settled gives it back. */
+        hideCursor(false);
       };
     },
-    toggle,
-    leave,
+    toggle: () => toggle(),
+    leave: (press) => leave(press?.detail === 0),
     pressSleep() {
       if (!state.riding || !options) return;
       const now = Date.now(), units = sleepAfterPress(sleepLeft(state.sleepEndsAt, options.unitMs, now));
