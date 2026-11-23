@@ -33,11 +33,16 @@ describe("the ride's name", () => {
   });
 
   it("has taken the place of both the names it replaces, in the code, the styles, the shoot, the README and CLAUDE.md", () => {
-    const old = /lean.?back|walk with the bears/i;
+    // In prose the old names are held loosely, in any case and with any join. In the code they are held as the code wrote them, a
+    // label or an identifier: a figure of the crowd may still lean back over its feet (crowd.js).
+    const prose = /lean.?back|walk with the bears/i, code = /Lean back|[Ll]ean[-_]?[Bb]ack|LEAN_?BACK|[Ww]alk with the bears/;
     // The shoot's own scripts, not what is installed beside them.
     const shoot = readdirSync(join(ROOT, ".github/screenshots")).filter((file) => file.endsWith(".mjs")).map((file) => join(".github/screenshots", file));
     expect(shoot).toContain(".github/screenshots/shoot.mjs");
-    expect([...SOURCE, ...shoot, "README.md", "CLAUDE.md"].filter((file) => old.test(text(file)))).toEqual([]);
+    expect([...SOURCE, ...shoot].filter((file) => code.test(text(file)))).toEqual([]);
+    expect(["README.md", "CLAUDE.md"].filter((file) => prose.test(text(file)))).toEqual([]);
+    // What the looser hold would catch in the code is the crowd's posture alone.
+    expect([...SOURCE, ...shoot].filter((file) => prose.test(text(file)))).toEqual(["public/world/crowd.js"]);
   });
 
   it("is on the one button the page has for it, as its label, its tooltip and its text, with the paw; the button is not pressed until the visitor rides", () => {
