@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
+import { buildAvatar, keepOutBox } from "../../../public/world/avatar.js";
 import { hull, outside, standClear } from "../../../public/world/collide.js";
 import { FIRST_EYE, height } from "../../../public/world/ground.js";
 import { makeBuilders, mergeLandmarks, mergeStill, mesh, songKey, STONE_KINDS, stoneKind, titleHash } from "../../../public/world/landmarks.js";
@@ -2844,7 +2845,25 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
   // The shows that have a road song today, by date. Their stops are held to the strict bars of the test below; a map that
   // comes after them is held, as every map is, to what any place on the path is held to. So a new map cannot fail the test by
   // where it happens to put a road song, and a named show that is gone from the folder, or has lost its road song, fails it.
+  // The strict bars read these shows' songs as their maps have them now: were the Maps job to analyse one of these dates
+  // again and its road song to move along the path, they could fail with no code changed, and the place to look is that map.
   const ROAD_SHOWS = ["1966-02-25", "1970-11-06", "1971-11-17", "1971-12-01", "1971-12-09", "1973-03-30", "1980-05-15", "1986-07-04", "1990-12-09", "1991-09-12", "1992-03-24", "1993-12-10", "1994-09-27", "1995-03-22"];
+  // A show's stops for its road songs, each where it lies along the path: each of its songs that the road's rule takes, with
+  // every start of set 2 a page can give the show (sets.ts): none, or a track that leaves three in each set.
+  const roadStops = ({ show, tracks }: (typeof shows)[number]) => tracks.flatMap((track, i) => {
+    if (ruleOf(track.title) !== ruleOf(ROAD)) return [];
+    const starts: (number | null)[] = [null];
+    for (let start = 3; start <= tracks.length - 3; start++) starts.push(start);
+    return starts.map((set2Start) => ({ u: layout(tracks, set2Start, path)[i], which: `${show}, song ${i}, "${track.title}", set 2 from ${set2Start ?? "nowhere"}` }));
+  });
+  // The stops of the shows named: each has its map, and a road song in it. 16 songs in the 14 shows, and 280 stops.
+  const namedStops = () => ROAD_SHOWS.flatMap((date) => {
+    const named = shows.find(({ show }) => show === date);
+    if (!named) throw new Error(`no map of ${date}, a show named for its road song`);
+    const stops = roadStops(named);
+    if (!stops.length) expect.fail(`${date}: no song of its map is the road's`);
+    return stops;
+  });
 
   // This test stands the trestle at every quarter metre of the path, 3,151 stands, and looks for each of its 567 lengths at
   // each (a phone's 539): it has 20 s, not the usual 5.
@@ -2862,42 +2881,37 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
       const rails = of(road, HANDRAIL).sort((p, q) => q.high - p.high).slice(0, 2).map((rail) => cut.lengths.filter((length) => length.piece === road.pieces.indexOf(rail)));
       const clear = (stand: Stand) => Math.min(...rails.map((rail) => rail.filter((length) => length.at.every(([x, y, z]) => y - groundAt(stand, x, z) >= CLEAR)).length / rail.length));
       expect(rails.map((rail) => rail.length), where).toEqual([72, 72]);
+      // Whether a ridge of the hill parts a group that shows from the rest: the group holds a stretch of a handrail's top
+      // rail, and the next length of that rail, along the bridge, does not show. So the hidden length lies between what the
+      // group holds of the rail and the rest of it, and a group that holds no top rail is not let by.
+      const ridged = (group: Length[], stand: Stand) => rails.some((rail) => rail.some((length, k) => group.includes(length) && [rail[k - 1], rail[k + 1]].some((next) => next !== undefined && !shown(next, stand))));
       // What holds at any place on the path, and so at any stop a map can give a road song, today's maps or a later one's.
       // Each rail stands clear along ON_PATH of its length. And what shows of the trestle is one thing, with two things let
       // by. Where a ridge of the hill hides a length of a handrail's top rail, the hill is between the trestle's two ends, as
-      // it would be between the ends of anything level and 18 m long that is no taller. And where the ground dips between two
-      // posts, a stretch of the deck's planking may show by itself, under the rails that stand over it. A sweep of the path
-      // at every 2 cm, 39,384 stands, finds a parted trestle at 411 of them, in eight stretches, and each is one of the two
-      // (410 under a ridge, and a metre of the deck by itself at one); a sweep at every 7 mm finds no other kind. Gives the
+      // it would be between the ends of anything level and 18 m long that is no taller: the stretch of that rail that shows
+      // beyond the ridge is let by, with what is joined to it (`ridged`). And where the ground dips between two posts, a
+      // stretch of the deck's planking may show by itself, under the rails that stand over it. A sweep of the path at every
+      // 2 cm, 39,384 stands, finds a parted trestle at 411 of them, in eight stretches, and each is one of the two (410
+      // beyond a ridge, and a metre of the deck by itself at one); a sweep at every 7 mm finds no other kind. Gives the
       // rails' least share and the groups that show.
       const anywhere = (stand: Stand, which: string) => {
         const groups = showing(cut, stand), least = clear(stand);
         if (least < ON_PATH) expect.fail(`${which}: a handrail stands clear of the ground along ${least} of its length`);
-        const loose = groups.slice(1).filter((group) => group.some((length) => length.piece !== deck));
-        if (!groups.length || (loose.length && !rails.some((rail) => rail.some((length) => !shown(length, stand))))) expect.fail(`${which}: ${groups.length ? told(loose[0]) : "nothing"} shows apart from the rest, and no ridge hides a handrail`);
+        const loose = groups.slice(1).filter((group) => group.some((length) => length.piece !== deck) && !ridged(group, stand));
+        if (!groups.length || loose.length) expect.fail(`${which}: ${groups.length ? told(loose[0]) : "nothing"} shows apart from the rest, and no ridge hides the handrail it holds`);
         return { least, groups };
       };
-      // A show's stops: each of its songs that the road's rule takes, with every start of set 2 a page can give the show
-      // (sets.ts): none, or a track that leaves three in each set.
-      const stopsOf = ({ show, tracks }: (typeof shows)[number]) => tracks.flatMap((track, i) => {
-        if (ruleOf(track.title) !== ruleOf(ROAD)) return [];
-        const starts: (number | null)[] = [null];
-        for (let start = 3; start <= tracks.length - 3; start++) starts.push(start);
-        return starts.map((set2Start) => ({ stand: standAt(layout(tracks, set2Start, path)[i], road.outline), which: `${where}, ${show}, song ${i}, "${track.title}", set 2 from ${set2Start ?? "nowhere"}` }));
-      });
-      // Each show named has its map, and a road song in it: 16 songs in the 14 shows, and 280 stops.
-      for (const date of ROAD_SHOWS) {
-        const named = shows.find(({ show }) => show === date);
-        if (!named) throw new Error(`no map of ${date}, a show named for its road song`);
-        if (!stopsOf(named).length) expect.fail(`${date}: no song of its map is the road's`);
-      }
       // Every map of the folder is held, at each of its stops, to what holds anywhere on the path: a stop stands between
       // two of the quarter metres swept below, not on one. The shows named are held to the strict bars besides: at each of
       // their stops what shows of the trestle is one thing, with nothing let by, and each rail stands clear along AT_STOPS
-      // of its length.
-      for (const one of shows) for (const { stand, which } of stopsOf(one)) {
-        const { least, groups } = anywhere(stand, which);
-        if (!ROAD_SHOWS.includes(one.show)) continue;
+      // of its length. One thing is not an unbroken rail. At one of those stops (1971-12-09, song 20, with set 2 from track
+      // 16) a rail goes under the hill for a length, the ground 4 cm over its top, and comes out again: its two stretches
+      // are joined through their posts and the deck, so the trestle is one thing there, measured and let by. On the path's
+      // quarter metres a rail does so at 40 stands: the 33 where the trestle is parted, and 7 where it is one thing.
+      const strict = new Set(namedStops().map(({ which }) => which));
+      for (const one of shows) for (const stop of roadStops(one)) {
+        const which = `${where}, ${stop.which}`, { least, groups } = anywhere(standAt(stop.u, road.outline), which);
+        if (!strict.has(stop.which)) continue;
         if (groups.length !== 1) expect.fail(`${which}: ${told(groups[groups.length - 1])} shows apart from the rest`);
         if (least < AT_STOPS) expect.fail(`${which}: a handrail stands clear of the ground along ${least} of its length`);
       }
@@ -2914,6 +2928,110 @@ describe("the road sign, the trestle, the kite, the lantern pier and the bandsta
       expect(least, where).toBeCloseTo(0.431, 2);
       expect(parted, where).toHaveLength(33);
       expect(parted.every((d) => (d >= 453.25 && d <= 455) || (d >= 556.75 && d <= 560.5) || (d >= 569.25 && d <= 571.25)), where).toBe(true);
+    }
+  });
+
+  it("gives the walk's camera each landmark's whole box, but the trestle's only up to its deck, and none of the five's higher than its plain shape's", () => {
+    // What reads a landmark's height is the box the walk's camera keeps out of (avatar.js keepOutBox). A part added over a
+    // landmark's old top raises that box, and a camera whose bear's head is inside a box takes no notice of it and snaps as
+    // the head leaves (issue #178): a taller box is more places for that. So a landmark may say how high the camera keeps
+    // out of it, and the trestle does: up to its deck, since its handrails are open. No other landmark says so, of every
+    // row of the builders' table and sixteen standing stones of each kind: each of those has the box of all its parts.
+    for (const phone of [false, true]) {
+      const { table, standingStone } = builders(phone), where = phone ? " on a phone" : "";
+      const boxed = (name: string, build: (g: unknown) => void, roads: boolean) => {
+        const g = new THREE.Group();
+        build(g);
+        const whole = bounds(g), kept = keepOutBox(g);
+        expect([kept.min.x, kept.min.y, kept.min.z, kept.max.x, kept.max.z], name + where).toEqual([whole.min.x, whole.min.y, whole.min.z, whole.max.x, whole.max.z]);
+        if (!roads) { expect(g.userData.keepOutTop, name + where).toBeUndefined(); expect(kept.max.y, name + where).toBe(whole.max.y); return; }
+        // The trestle's: its deck's top, 1.2 m under its rails' tops.
+        expect([g.userData.keepOutTop, kept.max.y, whole.max.y], name + where).toEqual([0.495, 0.495, expect.closeTo(1.695, 5)]);
+      };
+      for (const [rule, build] of table) boxed((rule as { source?: string }).source ?? rule.test.name, build, rule.test(ROAD));
+      for (let n = 0; n < 128; n++) boxed(`A Song No Show Has Played ${n}`, (g) => standingStone(g, `A Song No Show Has Played ${n}`), false);
+      // And the camera's box of each of the five stands no higher than its plain shape did, whatever stands over that.
+      for (const title of FIVE) expect(keepOutBox(landmark(title, phone).g).max.y, title + where).toBeLessThanOrEqual(plain(title, phone).top - OVER[title] + 1e-9);
+    }
+  });
+
+  // A landmark stood at a place of the path: turned to the path there and on its own ground.
+  const stood = <G extends { position: { set(x: number, y: number, z: number): void }; rotation: { y: number }; updateMatrixWorld(force: boolean): void }>(g: G, stand: Stand) => {
+    g.position.set(stand.x, stand.own, stand.z);
+    g.rotation.y = Math.atan2(stand.sin, stand.cos);
+    g.updateMatrixWorld(true);
+    return g;
+  };
+  // The largest move of the walk's camera in one frame as the visitor walks past a landmark that stands alone, with the
+  // camera's own code (avatar.js boom, as the page calls it each frame; no crowd and no trees). The visitor walks at the
+  // walk's 12 m/s, 60 frames a second, on lines laid in the frame of `frame`: along it, from 24 m before its middle to 24 m
+  // past it and back, on five lines from 4.5 m to its left to 4.5 m to its right; and across it, both ways, on five lines
+  // from 8 m before its middle to 8 m past it. The view is tilted up by `tilt` rad.
+  const WALKS = { along: [-4.5, -3, 0, 3, 4.5], across: [-8, -4, 0, 4, 8], pace: 12 / 60 };
+  const largestMove = (g: unknown, frame: Stand, phone: boolean, tilt = 0) => {
+    const avatar = buildAvatar(new THREE.Scene(), [g], { phone, reduced: false }), camera = new THREE.PerspectiveCamera(phone ? 75 : 60, phone ? 0.46 : 1.6, 0.5, 900), was = new THREE.Vector3();
+    const at = ([x, z]: number[]) => [frame.x + x * frame.cos + z * frame.sin, frame.z - x * frame.sin + z * frame.cos];
+    let most = 0;
+    const walk = (from: number[], to: number[]) => {
+      const [ax, az] = at(from), [bx, bz] = at(to), steps = Math.round(Math.hypot(bx - ax, bz - az) / WALKS.pace), walker = { x: ax, z: az, heading: Math.atan2(ax - bx, az - bz), pitch: tilt };
+      for (let f = 0; f <= steps; f++) {
+        walker.x = ax + ((bx - ax) * f) / steps; walker.z = az + ((bz - az) * f) / steps;
+        avatar.boom(camera, walker, f ? 1 / 60 : 0, f === 0);
+        if (f) most = Math.max(most, camera.position.distanceTo(was));
+        was.copy(camera.position);
+      }
+    };
+    for (const way of [1, -1]) {
+      for (const x of WALKS.along) walk([x, -24 * way], [x, 24 * way]);
+      for (const z of WALKS.across) walk([-12 * way, z], [12 * way, z]);
+    }
+    return most;
+  };
+
+  // This test walks the camera past the road at every stop of the shows named, 202 places, five times over on each tier,
+  // 7 million frames: it has 30 s, not the usual 5.
+  it("leaves the walk's camera at the road as it was without the handrails, and where main's camera does not jump, moving no more in a frame than main's", { timeout: 30000 }, () => {
+    // Main's camera is the camera past the plain slab, stood where the trestle stands. Where it moves CALM m or less in
+    // every frame, the camera past the trestle moves no more than MARGIN over main's largest move: measured, not a
+    // millimetre over it at any of those places, 117 of the 202 on a desktop and 114 on a phone. At the others main's own
+    // camera jumps as the bear's head leaves the slab's box (issue #178: 1.5 to 15 m in a frame on a desktop, 1.1 to 25 m on
+    // a phone). The trestle's jumps there too, by up to 3 m more (4.4 m on a phone) for its bents' depth, or by less, and
+    // that is not held here. What is held at every place, with the view level and with it tilted up TILT rad, where the
+    // camera hangs as low as the rails: the camera moves as it does past the trestle with its handrails taken off, to a
+    // micron.
+    const CALM = 1, MARGIN = 0.01, TILT = 0.6;
+    for (const phone of [false, true]) {
+      const road = built(ROAD, phone), where = phone ? "on a phone" : "on a desktop";
+      // The trestle as it is built; the same with its handrails taken off, its rails' and their posts' corners left out;
+      // and main's slab. Each is stood where the trestle stands, so that only what the camera keeps out of differs.
+      const real = landmark(ROAD, phone).g as { position: { set(x: number, y: number, z: number): void }; rotation: { y: number }; updateMatrixWorld(force: boolean): void };
+      const rails = new Set([...of(road, HANDRAIL), ...of(road, POST).filter((piece) => piece.low > 0)].flatMap((piece) => piece.corners));
+      const bare = new THREE.Group(), slab = new THREE.Group(), flat: number[] = [];
+      for (let i = 0; i < road.position.count; i++) if (!rails.has(i)) flat.push(road.position.getX(i), road.position.getY(i), road.position.getZ(i));
+      bare.add(new THREE.Mesh(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(flat, 3)), new THREE.MeshBasicMaterial()));
+      for (const [geo, x, y, z] of PLAIN[ROAD](phone)) slab.add(mesh(geo, new THREE.MeshBasicMaterial(), x, y, z));
+      expect(rails.size, where).toBe(36 * (4 + (phone ? 14 : 18)));
+      const moves = (u: number) => {
+        const stand = standAt(u, road.outline);
+        stood(real, stand); stood(bare, stand); stood(slab, stand);
+        return { head: largestMove(real, stand, phone), without: largestMove(bare, stand, phone), main: largestMove(slab, stand, phone), tilted: [largestMove(real, stand, phone, TILT), largestMove(bare, stand, phone, TILT)] };
+      };
+      // First where the review found it: 1971-12-09, song 20, with set 2 from track 16, where the ground falls 6 m beside the
+      // trestle. Main's camera moves 0.31 m in a frame at the most there (0.39 m on a phone), and so does this one. With the
+      // box taken from the whole trestle, rails and all, it moved 9.9 m in one frame, and 19.1 m on a phone.
+      const found = moves(layout(tracksOf("1971-12-09"), 16, path)[20]);
+      expect(found.main, where).toBeCloseTo(phone ? 0.385 : 0.309, 2);
+      expect(found.head, `${where}, 1971-12-09, song 20, with set 2 from track 16`).toBeCloseTo(found.main, 2);
+      // Then every stop of the shows named, each place on the path once.
+      const seen = new Set<number>();
+      for (const { u, which } of namedStops()) {
+        if (seen.has(u)) continue;
+        seen.add(u);
+        const { head, without, main, tilted } = moves(u);
+        if (Math.abs(head - without) > 1e-6 || Math.abs(tilted[0] - tilted[1]) > 1e-6) expect.fail(`${where}, ${which}: the camera's largest move in a frame is ${head} m, and ${without} m with the handrails taken off; with the view tilted up, ${tilted[0]} m and ${tilted[1]} m`);
+        if (main <= CALM && head > main + MARGIN) expect.fail(`${where}, ${which}: the camera's largest move in a frame is ${head} m, and main's is ${main} m`);
+      }
+      expect(seen.size, where).toBeGreaterThan(150);
     }
   });
 

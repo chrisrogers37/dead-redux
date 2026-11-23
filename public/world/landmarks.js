@@ -1102,7 +1102,9 @@ export function makeBuilders(phone) {
      seven. A landmark stands level and this one is 18 m long, so on most ground the hill takes some of the deck: the rails
      are what stands clear of it, two lines with the path between them, and the trestle reads as one bridge that runs into
      the hill. They make it 1.2 m taller than the slab, which nothing else of these five is than its plain shape; seen from
-     above they stand inside the deck's own edge, and the whole inside the slab's outline.
+     above they stand inside the deck's own edge, and the whole inside the slab's outline. The walk's camera keeps out of the
+     trestle only up to its deck, as it kept out of the slab (`userData.keepOutTop`, below): the rails are open, and the
+     camera does at the trestle what it would without them.
      Under the deck are two stringers and the bents: a cap under the stringers on two posts that spread as they go down, a
      cross of braces between them on the walker's side, twice over, and a girt across at each cross's foot on the far side; a
      phone has three bents, with no girts, where a desktop has five. On level ground nothing of a bent shows but its cap;
@@ -1111,11 +1113,11 @@ export function makeBuilders(phone) {
      outline stands clear of the bears' line, as a landmark is stood (collide.js standClear), and its test holds each
      (landmarks.test.ts). The ground under a corner of a bent's post's foot lies 6.95 m under the landmark's own ground at the
      lowest: so the posts go TRESTLE_SUNK down, and their feet are 0.45 m in the ground there. Each handrail's top stands half
-     a metre or more over the ground along 43 % of its length at the least, and along 56 % at the least at the stops the
-     maps' shows give a road song. And what shows of the trestle is one thing, each part that shows touching another that
-     does, at every one of those stops; on the path it is so but in three stretches beside the caves' mouths, 33 of the
-     3,151 stands, where a ridge of the hill stands over the rails' tops and an end of the trestle shows beyond it. The test
-     says how each is measured. */
+     a metre or more over the ground along 43 % of its length at the least, and along 56 % at the least at the stops of the
+     shows that had a road song when this was written, which the test names by date. And what shows of the trestle is one
+     thing, each part that shows touching another that does, at every one of those stops; on the path it is so but in three
+     stretches beside the caves' mouths, 33 of the 3,151 stands, where a ridge of the hill hides a handrail and an end of
+     the trestle shows beyond it. The test says how each is measured. */
   /* The deck and what carries it, from the deck down: each layer's top and how tall it is. */
   const DECK = { planks: [0.495, 0.205], stringer: [0.29, 0.22], cap: [0.07, 0.26] };
   /* The deck: how long and how broad. The handrails: how far out each stands; how high over the deck its top rail's top and
@@ -1124,6 +1126,11 @@ export function makeBuilders(phone) {
   const SPAN = { long: 17.9, wide: 3.6 };
   const RAIL = { out: 1.72, top: 1.2, mid: 0.62, section: [0.14, 0.1], bar: 0.08, post: 0.12, foot: 0.12, head: 0.06, ends: 8.85 };
   function trestle(g) {
+    /* The walk's camera keeps out of the trestle up to its deck, as it kept out of the slab: the handrails are open, and no part
+       of the box the boom meets (avatar.js keepOutBox). With the rails in that box it stood 1.2 m taller, the bear's head
+       stood inside it at more places beside a slope, where the camera takes no notice of a box, and the camera snapped as
+       the head left it: 9.9 m in one frame at one show's stop, where it moves 0.3 m now (landmarks.test.ts). */
+    g.userData.keepOutTop = DECK.planks[0];
     const timber = tone(TIMBER, true), dark = tone(DARK_TIMBER, true), post = tone(POST, true), pale = tone(HANDRAIL, true);
     const { long } = SPAN, rail = 1.15, square = 0.3, middle = ([top, tall]) => top - tall / 2;
     for (const x of [-rail, rail]) put(g, new THREE.BoxGeometry(square, DECK.stringer[1], long), timber, x, middle(DECK.stringer), 0);

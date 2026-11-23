@@ -26,6 +26,16 @@ export const eyeRoom = (camera) => {
   return camera.near * Math.hypot(1, t, t * camera.aspect) + 0.1;
 };
 
+/* The box the walk's camera keeps out of for a landmark: the box of all its parts, or, where its builder gives one (landmarks.js),
+   that box cut down to `userData.keepOutTop` m over the landmark's own ground. What such a landmark has higher is open, as a
+   handrail is: it is no part of what the boom meets, so the camera does at that landmark what it would without it. */
+const origin = new THREE.Vector3();
+export function keepOutBox(landmark) {
+  const box = new THREE.Box3().setFromObject(landmark), top = landmark.userData.keepOutTop;
+  if (top !== undefined) box.max.y = Math.min(box.max.y, origin.setFromMatrixPosition(landmark.matrixWorld).y + top);
+  return box;
+}
+
 export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], over = () => {}, ahead = (point, way) => { way[6] = 0; way[7] = 0; }, slide = () => {}, ceiling = () => Infinity }) {
   const bear = buildBear(scene, 0xeceae4), { g, legs, color } = bear;
   g.rotation.order = "YXZ";
@@ -56,9 +66,9 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
 
   /* The boom: R behind the head and 0.35 rad above it, the walker's pitch lowering or raising it, looking 6 m past the head. */
   const R = boomLength(phone);
-  /* Each landmark stands for its box; a column (collide.js) for a solid that a walk keeps out of but whose box would reach past it, as
-     the stage's does, turned on its shelf. */
-  const boxes = landmarks.map((l) => new THREE.Box3().setFromObject(l));
+  /* Each landmark stands for its box (keepOutBox); a column (collide.js) for a solid that a walk keeps out of but whose box would
+     reach past it, as the stage's does, turned on its shelf. */
+  const boxes = landmarks.map(keepOutBox);
   const pivot = new THREE.Vector3(), cam = new THREE.Vector3(), look = new THREE.Vector3(), want = new THREE.Vector3();
   const dir = new THREE.Vector3();
   /* How much of the boom a landmark leaves the camera: drawn in at once, let out at the ease. How far a landmark too near the head to
