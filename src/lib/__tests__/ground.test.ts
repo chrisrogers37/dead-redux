@@ -20,8 +20,8 @@ import { RING, SHORE } from "../../../public/world/island.js";
 import { seats } from "../../../public/world/seats.js";
 import { PANEL } from "../../../public/world/stage.js";
 
-// The longest walk to the platform's edge that the desktop-stage recording's 25-s hold covers with seconds to spare
-// (.github/screenshots/shoot.mjs): at most 0.6 m a frame, and CI draws this view about once every 0.5 s.
+// The longest walk to the platform's edge that the desktop-stage recording's hold has time for (.github/screenshots/recordings.mjs):
+// at most 0.6 m a frame, and the hold lasts until the bear is at the edge, 80 s at the longest, which is 41 frames at 2 s each.
 const WALK = 24.5;
 // Half the desktop frame's width, in degrees: a 60-degree field (public/world/quality.js) at the shots' 1440 x 900.
 const HALF_WIDTH = (Math.atan(1.6 * Math.tan(Math.PI / 6)) * 180) / Math.PI;
