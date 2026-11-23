@@ -7,6 +7,7 @@ import {
 } from "../../../public/world/crowd.js";
 import { FACING, height, STAGE, STAGE_COLUMN, TEST_POSES } from "../../../public/world/ground.js";
 import { buildPath, buildWalkLine } from "../../../public/world/path.js";
+import { budgetFor } from "../../../public/world/quality.js";
 import { keepOuts, PERSON } from "../../../public/world/seats.js";
 
 // buildCrowd builds the crowd here from the world's own modules and three, on the world's path and the bears' line 7 m to its left as
@@ -367,6 +368,16 @@ describe("the figure, as figureGeometry builds it", () => {
     const lean = figureGeometry(true);
     expect([geo.index, lean.index]).toEqual([null, null]);
     expect([n / 3, lean.getAttribute("position").count / 3]).toEqual([1117, 729]);
+    // A tier's whole crowd, at the most figures its budget seats (quality.js), stays under its cap: 400,000 triangles on a desktop,
+    // 185,000 on a TV and 110,000 on a phone, whose crowd was 66,000 before its figures differed.
+    // budgetFor reads the window's pixel ratio for a desktop's.
+    vi.stubGlobal("window", { devicePixelRatio: 1 });
+    const whole = Object.fromEntries(["desktop", "tv", "phone"].map((tier) => [tier, (budgetFor(tier) as { crowd: number }).crowd * (tier === "desktop" ? n / 3 : 729)]));
+    vi.unstubAllGlobals();
+    expect(whole).toEqual({ desktop: 390950, tv: 182250, phone: 109350 });
+    expect(whole.desktop).toBeLessThanOrEqual(400000);
+    expect(whole.tv).toBeLessThanOrEqual(185000);
+    expect(whole.phone).toBeLessThanOrEqual(110000);
     // And those are the figures the crowds are built of: a desktop's whole, a phone's plain.
     expect([crowd.mesh.geometry.getAttribute("position").count / 3, phone.mesh.geometry.getAttribute("position").count / 3]).toEqual([1117, 729]);
     expect(n / 3).toBeLessThanOrEqual(1150);
