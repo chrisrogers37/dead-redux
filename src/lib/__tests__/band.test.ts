@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
 import { buildBand, HALF_OVER, HALF_UNDER, SCALE } from "../../../public/world/band.js";
+import { beatStep } from "../../../public/world/beat.js";
 import { PERSON } from "../../../public/world/seats.js";
 import { FLOOR, FLOOR_R, FLOOR_SIDES, PANEL } from "../../../public/world/stage.js";
 
@@ -29,6 +30,7 @@ vi.mock("three", async (original) => {
 type Vec = { x: number; y: number; z: number };
 type Bone = { of: number; name: string; pads: [number, number]; span: [number, number] | null; at: number };
 type Joint = { bone: number; end: 0 | 1; of: number; on?: boolean; at?: unknown; to?: number };
+type Part = { of: string; by: number | null; from: number; count: number };
 type Band = ReturnType<typeof buildBand>;
 
 // A band of the test's own, in its own group, and what plays it: `play` runs frames of 1/60 s at a tempo, as main.js's frame does,
@@ -88,6 +90,8 @@ function held(band: Band, joint: Joint) {
   return at.applyMatrix4(p.g.matrix);
 }
 const gap = (a: Vec, b: Vec) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+// A point of the stage in a player's own frame and their own metres, where +x is their left and +z the way they face.
+const own = (band: Band, of: number, at: Vec) => new THREE.Vector3(at.x, at.y, at.z).applyMatrix4(band.players[of].g.matrix.clone().invert());
 const boneNamed = (band: Band, of: number, name: string): number => band.bones.findIndex((bone: Bone) => bone.of === of && bone.name === name);
 
 // How many times a series turns back: rises after falling or falls after rising, by more than `slack` each way. The slack is 5 mm, a
@@ -263,6 +267,71 @@ describe("the band, as it is built", () => {
       }
     });
   });
+
+  it("hangs every limb from its own side: a left arm from the left shoulder with its elbow out to the left, a left leg from the left hip, and the right the same", () => {
+    const seen: string[] = [];
+    band.bones.forEach((bone: Bone, k: number) => {
+      if (!/^(left|right) (upper arm|forearm|thigh)$/.test(bone.name)) return;
+      const from = own(band, bone.of, ends(band, k).a).x;
+      // An upper arm and a thigh begin at the body. A forearm begins at the elbow, which stands out past its shoulder.
+      const out = bone.name.endsWith("forearm") ? from - own(band, bone.of, ends(band, boneNamed(band, bone.of, bone.name.replace("forearm", "upper arm"))).a).x : from;
+      expect([bone.of, bone.name, (bone.name.startsWith("left") ? out : -out) > 0.05]).toEqual([bone.of, bone.name, true]);
+      seen.push(bone.name.replace(/^\w+ /, ""));
+    });
+    // The keys and the drummers reach with both arms, and all but the drummers stand on legs that move.
+    expect(seen.sort()).toEqual([...Array(6).fill("forearm"), ...Array(8).fill("thigh"), ...Array(6).fill("upper arm")]);
+    // A drummer's legs stand still: a thigh and a shin for the left, then for the right, the top of each on its side.
+    const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
+    band.players.forEach((p: { plays: string }, k: number) => {
+      if (p.plays !== "drums") return;
+      const legs: Part[] = band.still.userData.parts.filter((part: Part) => part.of === "drums leg" && part.by === k);
+      expect(legs).toHaveLength(4);
+      legs.forEach((part, i) => {
+        let top = { x: 0, y: -Infinity, z: 0 };
+        for (let j = part.from; j < part.from + part.count; j++) { const corner = own(band, k, at.fromBufferAttribute(still, j)); if (corner.y > top.y) top = corner; }
+        expect([k, i, (i < 2 ? top.x : -top.x) > 0.05]).toEqual([k, i, true]);
+      });
+    });
+  });
+
+  it("stands each microphone before its player's mouth: 3 to 10 cm in front of the face at its height, as the body rests, upright or leaning", () => {
+    stage.updateMatrixWorld(true);
+    const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
+    const gaps = band.players.flatMap((p: { plays: string; body: { matrixWorld: unknown; geometry: { getAttribute(name: string): { count: number } } } }, k: number) => {
+      // The microphone's head: the highest corner of the player's stand.
+      const top = new THREE.Vector3(0, -Infinity, 0);
+      for (const part of band.still.userData.parts as Part[]) if (part.of === "microphone" && part.by === k) for (let i = part.from; i < part.from + part.count; i++) if (still.getY(i) > top.y) top.fromBufferAttribute(still, i);
+      if (top.y < 0) return [];
+      const mic = own(band, k, top), body = p.body.geometry.getAttribute("position");
+      // The face's front at that height: the body's corners within 4 cm of it up and down and 6 cm to either side, in the player's metres.
+      let face = -Infinity;
+      for (let i = 0; i < body.count; i++) {
+        const corner = own(band, k, at.fromBufferAttribute(body, i).applyMatrix4(p.body.matrixWorld));
+        if (Math.abs(corner.y - mic.y) < 0.04 && Math.abs(corner.x - mic.x) < 0.06) face = Math.max(face, corner.z);
+      }
+      return [{ plays: p.plays, before: mic.z - face }];
+    });
+    expect(gaps.map(({ plays }: { plays: string }) => plays)).toEqual(["bass", "guitar", "guitar", "keys"]);
+    for (const { plays, before } of gaps) expect([plays, before > 0.03 && before < 0.1]).toEqual([plays, true]);
+  });
+
+  it("stands a kit's poles nearly upright: a piece over half a metre tall and thin one way is under 30 cm across the other, in the drummer's metres", () => {
+    const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
+    band.players.forEach((p: { plays: string }, k: number) => {
+      if (p.plays !== "drums") return;
+      const poles: number[] = [];
+      for (const part of band.still.userData.parts as Part[]) {
+        if (part.of !== "kit" || part.by !== k) continue;
+        const box = new THREE.Box3();
+        for (let i = part.from; i < part.from + part.count; i++) box.expandByPoint(own(band, k, at.fromBufferAttribute(still, i)));
+        const across = [box.max.x - box.min.x, box.max.z - box.min.z];
+        if (box.max.y - box.min.y > 0.5 && Math.min(...across) < 0.4) poles.push(Math.max(...across));
+      }
+      // The snare's stand and the three cymbals'.
+      expect(poles).toHaveLength(4);
+      expect(Math.max(...poles)).toBeLessThan(0.3);
+    });
+  });
 });
 
 describe("the band's joints, through eight counts of playing", () => {
@@ -335,6 +404,50 @@ describe("the band's playing", () => {
     expect(after(first[0], second)).toBeCloseTo(1, 1);
   });
 
+  it("lifts the keys' hands in turn: each is on the keys while the other is at its top, and the two are never both over halfway up", () => {
+    const { band, play } = stand();
+    const keys = band.players.findIndex((p: { plays: string }) => p.plays === "keys");
+    const left = boneNamed(band, keys, "left hand"), right = boneNamed(band, keys, "right hand");
+    const rest = { left: ends(band, left).b.y, right: ends(band, right).b.y };
+    play(2, 96);
+    const lift: { left: number; right: number }[] = [];
+    play(10, 96, true, () => lift.push({ left: ends(band, left).b.y - rest.left, right: ends(band, right).b.y - rest.right }));
+    const top = { left: Math.max(...lift.map((f) => f.left)), right: Math.max(...lift.map((f) => f.right)) };
+    expect(Math.min(top.left, top.right)).toBeGreaterThan(0.05);
+    expect(lift.some((f) => f.left > 0.9 * top.left && f.right < 0.001)).toBe(true);
+    expect(lift.some((f) => f.right > 0.9 * top.right && f.left < 0.001)).toBe(true);
+    expect(lift.filter((f) => f.left > 0.5 * top.left && f.right > 0.5 * top.right)).toEqual([]);
+  });
+
+  it("rocks each drummer about their seat: what sits on the stool moves under a third as far as the top of the head, which moves 3 cm or more", () => {
+    const { band, stage, play } = stand();
+    stage.updateMatrixWorld(true);
+    const at = new THREE.Vector3();
+    const drummers = band.players.flatMap((p: { plays: string; body: { matrixWorld: unknown; geometry: { getAttribute(name: string): { count: number; getY(i: number): number } } } }) => {
+      if (p.plays !== "drums") return [];
+      const corner = p.body.geometry.getAttribute("position");
+      let seat = 0, crown = 0;
+      for (let i = 0; i < corner.count; i++) {
+        if (corner.getY(i) < corner.getY(seat)) seat = i;
+        if (corner.getY(i) > corner.getY(crown)) crown = i;
+      }
+      const where = (i: number) => at.fromBufferAttribute(corner, i).applyMatrix4(p.body.matrixWorld).clone();
+      return [{ where, seat, crown, rest: { seat: where(seat), crown: where(crown) }, moved: { seat: 0, crown: 0 } }];
+    });
+    expect(drummers).toHaveLength(2);
+    play(12, 96, true, () => {
+      stage.updateMatrixWorld(true);
+      for (const d of drummers) {
+        d.moved.seat = Math.max(d.moved.seat, gap(d.where(d.seat), d.rest.seat));
+        d.moved.crown = Math.max(d.moved.crown, gap(d.where(d.crown), d.rest.crown));
+      }
+    });
+    for (const { moved } of drummers) {
+      expect(moved.crown).toBeGreaterThan(0.03);
+      expect(moved.seat).toBeLessThan(moved.crown / 3);
+    }
+  });
+
   it("plays in half time when the beat is fast: a foot taps on each beat up to 105 a minute, on every second one from 135, and never oftener than HALF_OVER a second", () => {
     expect([HALF_OVER, HALF_UNDER]).toEqual([1.75, 1.5]);
     for (const [bpm, pace] of [[80, 1], [96, 1], [104, 1], [108, 0.5], [134, 0.5], [156, 0.5], [159, 0.5]]) {
@@ -369,6 +482,36 @@ describe("the band's playing", () => {
     expect(tapsIn(20, 96)).toBeCloseTo(0.8, 1);
     play(4, 84);
     expect(tapsIn(20, 84)).toBeCloseTo(1.4, 1);
+  });
+
+  it("is not thrown into half time by a pull on the beat: at 92 a minute the hardest pull an onset gives leaves a foot tapping every beat", () => {
+    const { band } = stand();
+    const foot = band.bones.findIndex((bone: Bone) => bone.name === "tapping foot"), down = ends(band, foot).b.y;
+    // The figures' beat as main.js steps it (beat.js), with the pull still to take up.
+    let beat = { beats: 0, pull: 0, locks: 0 }, time = 0;
+    const frames = (count: number, each: () => void = () => {}) => {
+      for (let frame = 0; frame < count; frame++) {
+        beat = beatStep(beat, 1 / 60, 92, null);
+        time += 1 / 60;
+        band.move(1 / 60, time, beat.beats, true);
+        each();
+      }
+    };
+    frames(360);
+    // An onset just under a quarter of a beat off pulls the beat by half of that (beat.js LOCK and PULL), over a fifth of a second:
+    // for a frame the beat runs 0.6 a second faster, past HALF_OVER.
+    beat = { ...beat, pull: 0.124 };
+    const before = beat.beats;
+    frames(1);
+    expect((beat.beats - before) * 60).toBeGreaterThan(HALF_OVER + 0.3);
+    frames(119);
+    let taps = 0, up = false;
+    frames(1200, () => {
+      const y = ends(band, foot).b.y - down;
+      if (y > 0.02) up = true;
+      else if (up && y < 0.002) { taps += 1; up = false; }
+    });
+    expect(taps / 20).toBeCloseTo(92 / 60, 1);
   });
 
   it("jumps nowhere as the tempo changes or the show stops: no bone's end moves faster then than the fastest of a steady song, by a quarter", () => {

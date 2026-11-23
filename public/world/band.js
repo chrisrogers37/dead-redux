@@ -1,4 +1,3 @@
-/* eslint-disable */
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
@@ -30,6 +29,42 @@ export const SCALE = 1.77;
    strumming over its instrument, one way on a count and back on the next; or against the floor: a foot tapping the count. The
    heads stay at their microphones, and nothing moves on the half count. */
 export const HALF_OVER = 1.75, HALF_UNDER = 1.5;
+
+/* The counts in which a move comes and goes once, each set by a count of flashes (scripts/flash; the bar is 6 swings a second at a
+   block). What shows against the panel takes SLOW counts: a sway once in two counted 8 where an arm passed a trunk, a stroke once in
+   two counted 7 to 9 on a phone, and once in four both count 5 at the most. A strum takes STRUM, one way a count: down and up inside
+   each count, riding the sway, it counted 6. Only a foot keeps the count itself, against the floor. */
+const SLOW = 4, STRUM = 2;
+/* A move that comes and goes once in `per` counts, `counts` into it: 1 on its count and -1 halfway to the next. */
+const swing = (counts, per) => Math.cos((2 * Math.PI * counts) / per);
+/* The seconds over which the band takes up playing or leaves off, as the capsules did. */
+const EASE = 0.8;
+/* The seconds over which the beat's speed is smoothed before it is read for half time: longer than the 0.2 s over which an onset
+   pulls the beat (beat.js PULL_S). The hardest pull, an eighth of a beat, adds 0.6 beats a second for a frame, and under 0.14 to
+   the speed read here. */
+const RATE_SMOOTH = 0.5;
+/* The seconds over which the count comes back onto the beat after half time begins or ends: it is half a count off at the most,
+   and closes that at a quarter of a count a second and slower, so no one jumps. */
+const RETUNE = 2;
+/* Standing idle: a breath lifts a body BREATH every 4 s, standing, and SEATED_BREATH on a stool; and a standing player shifts their
+   weight SHIFT to either side, each in their own time. In a player's own metres: a centimetre on the stage, under a pixel from the
+   hill. */
+const BREATH = 0.006, SEATED_BREATH = 0.005, SHIFT = 0.006;
+const breathe = (level, time, amp) => (1 - level) * amp * Math.sin((Math.PI * time) / 2);
+/* A drummer's stroke through its SLOW counts, from the stick's fall: it lies where it fell for `rest` of them, climbs to its top at
+   `top`, and falls, faster, to land on its count. With the climb and the fall this far apart a drummer's arm counted 4 on a phone
+   from the back of the crowd, and 5 from the still's pose. `climb` and `fall` are the spans between, written out: 0.7 - 0.15 is not
+   0.55 to a float. */
+const STROKE = { rest: 0.15, top: 0.7, climb: 0.55, fall: 0.3 };
+const stroke = (turn) => {
+  const f = turn - Math.floor(turn);
+  if (f < STROKE.rest) return 0;
+  if (f < STROKE.top) { const r = (f - STROKE.rest) / STROKE.climb; return r * r * (3 - 2 * r); }
+  const d = (f - STROKE.top) / STROKE.fall;
+  return 1 - d * d;
+};
+/* How far a stroke tips a stick back, in rad, over the kit's black. */
+const RAISE = 0.6;
 
 /* How far a standing player's trunk leans for each metre their hips sway, in rad, against the sway: so the mouth, 0.68 over the
    hips, stays where it is, at the microphone, and the hips and the instrument sway under it. */
@@ -85,6 +120,9 @@ function lay(m, a, b, wide, thick, pads, ref) {
 /* A limb that never moves, as a part: the same bar, laid once. */
 const laid = new THREE.Matrix4();
 const limb = (a, b, wide, thick = wide, pads = [0, 0], ref = X) => LIMB.clone().applyMatrix4(lay(laid, a, b, wide, thick, pads, ref));
+/* A trouser cuff round an ankle, `hem` in radius at its foot and `tall`, and a shoe from heel to toe. */
+const cuff = (ankle, hem = 0.084, tall = 0.14) => new THREE.CylinderGeometry(0.062, hem, tall, 8).translate(ankle.x, 0.125, ankle.z);
+const shoe = (heel, toe) => limb(heel, toe, 0.105, 0.08);
 
 /* The elbow of an arm from a shoulder (`from`) to a wrist (`to`), `upper` and `fore` long, bent toward `pole`, written to `elbow`. A
    wrist past the arm's reach, or nearer the shoulder than a folded arm brings it, is taken as at the nearest place the arm reaches. */
@@ -97,10 +135,12 @@ function elbowOf(elbow, from, to, upper, fore, pole) {
   return elbow.copy(from).addScaledVector(line, near).addScaledVector(bent, Math.sqrt(Math.max(0, upper * upper - near * near)));
 }
 
-/* A trunk and a head, facing +z, its hips `h` up: 0.92 standing and 0.6 seated. `broad` widens it. The hair is an outline and no
-   more: "short", "long" past the shoulders, a "bob" to the jaw, "curls", a "cap" with a peak, a "knot" on the crown. Returns the
-   parts, the hip joints and the shoulders (left first: +x is the player's left), and the mouth. */
-function trunk(h, broad, hair) {
+/* A posture: how high the hips are, and how far over them the waist is, about which the body turns. */
+const STANDING = { hips: 0.92, waist: 0.01 }, SEATED = { hips: 0.6, waist: 0.02 };
+/* A trunk and a head in a posture, facing +z. `broad` widens it. The hair is an outline and no more: "short", "long" past the
+   shoulders, a "bob" to the jaw, "curls", a "cap" with a peak, a "knot" on the crown. Returns the parts, the `pivot` at the waist,
+   the `hip` and the `shoulder` of a side (1 the player's left, +x, and -1 their right), and the mouth. */
+function trunk({ hips: h, waist }, broad, hair) {
   const head = V(0, h + 0.735, 0.005);
   const parts = [
     new THREE.CylinderGeometry(0.17, 0.18, 0.2, 8).scale(broad, 1, 0.72).translate(0, h + 0.02, 0),
@@ -121,7 +161,7 @@ function trunk(h, broad, hair) {
   if (hair === "curls") for (const a of [-0.5, 0.2, 0.9, 1.57, 2.25, 2.95, 3.65]) parts.push(ball(lift(0.094 * Math.cos(a), 0.02 + 0.094 * Math.sin(a), -0.012), 0.064, 1, 1, 1, 0));
   if (hair === "curls") parts.push(ball(lift(0, 0.03, -0.075), 0.09, 1, 1, 1, 0));
   if (hair === "cap") parts.push(new THREE.CylinderGeometry(0.096, 0.106, 0.08, 8).translate(head.x, head.y + 0.094, head.z), box(0.16, 0.014, 0.115, head.x, head.y + 0.062, head.z + 0.15));
-  return { parts, hips: [V(0.09 * broad, h - 0.02, 0), V(-0.09 * broad, h - 0.02, 0)], shoulders: [V(0.205 * broad, h + 0.455, 0), V(-0.205 * broad, h + 0.455, 0)], mouth: V(0, h + 0.685, 0.105) };
+  return { parts, pivot: V(0, h + waist, 0), hip: (side) => V(side * 0.09 * broad, h - 0.02, 0), shoulder: (side) => V(side * 0.205 * broad, h + 0.455, 0), mouth: V(0, h + 0.685, 0.105) };
 }
 
 /* A guitar or a bass, held: flat in its own frame, x along the strings from the body's end toward the head and y across them, with the
@@ -247,21 +287,27 @@ export function buildBand(stage, floor) {
   }
   /* The legs, the cuffs and the shoes of a player who stands with their ankles `stance` to either side: a shoe that stays down is a
      still part, and one that `taps` hinges at its heel, where a turn lifts its toe. */
-  function stand(p, hips, stance, toes, back, taps) {
+  function stand(p, t, stance, toes, back, taps) {
     let tap = null;
     for (const s of [1, -1]) {
       const ankle = V(s * stance, 0.1, back), heel = V(s * stance, 0.04, back - 0.075), toe = V(heel.x + s * 0.27 * Math.sin(toes), 0.04, heel.z + 0.27 * Math.cos(toes));
-      leg(p, s > 0 ? "left" : "right", hips[s > 0 ? 0 : 1], ankle);
-      keep(p, `${p.plays} cuff`, [new THREE.CylinderGeometry(0.062, 0.084, 0.14, 8).translate(ankle.x, 0.125, ankle.z)]);
+      leg(p, s > 0 ? "left" : "right", t.hip(s), ankle);
+      keep(p, `${p.plays} cuff`, [cuff(ankle)]);
       if (taps && s > 0) tap = hinge(p, false, heel, BACK, [toe.clone().sub(heel)], [bone(p, "tapping foot", 0.105, 0.08)]);
-      else keep(p, `${p.plays} shoe`, [limb(heel, toe, 0.105, 0.08)]);
+      else keep(p, `${p.plays} shoe`, [shoe(heel, toe)]);
     }
     return tap;
+  }
+  /* A player's microphone on its stand, the microphone before the mouth where the body has it at rest: where it was drawn, for one
+     who stands upright, and leaned with the body for one who leans. */
+  function voice(p, t, mic) {
+    const at = V(0, t.mouth.y - 0.005, 0.17);
+    keep(p, "microphone", microphone(p.lean ? leaned(p, at) : at, mic.foot, mic.boom));
   }
 
   /* The players' moves, each a share of `level` (0 standing, 1 playing), on the band's count less the player's own lag, a whole
      number of counts, so no two sway together and all keep the count. `slow` runs from 1 on a count to -1 two counts on and back:
-     what follows it comes and goes once in four counts. */
+     what follows it comes and goes once in SLOW counts. */
 
   /* A guitar or a bass: standing, legs apart, the instrument across the body with its neck risen to the player's left, the left hand
      on the neck and the right over the strings. The hips sway to one side and, two counts on, to the other, the instrument with
@@ -270,26 +316,26 @@ export function buildBand(stage, floor) {
      count and back on the next, black over the instrument's black from the front. The left foot taps, down on the count. */
   function strummer(plays, spot, facing, { size, broad, hair, stance, toes, hold, fret, sway, strum, tap, lag, mic }) {
     const p = player(plays, spot, facing, size);
-    const t = trunk(0.92, broad, hair), a = axe(hold);
-    const [left, right] = t.shoulders;
+    const t = trunk(STANDING, broad, hair), a = axe(hold);
+    const left = t.shoulder(1), right = t.shoulder(-1);
     const hand = a.on(fret, -0.01, -0.035), elbow = elbowOf(V(), left, hand, 0.29, 0.27, V(0.75, -1, -0.2));
     /* The strumming arm: its wrist over the strings behind the hand's reach, its fingers at them. */
     const wrist = a.on(hold.strum - 0.05, 0.075, 0.06), fingers = a.on(hold.strum + 0.005, 0.01, 0.05);
     const tucked = elbowOf(V(), right, wrist, 0.29, 0.26, V(-0.55, -0.5, -0.65));
     embody(p, [...t.parts, ...a.parts, bar(left, elbow, 0.058, 0.049), ball(elbow, 0.051, 1, 1, 1, 0), bar(elbow, hand, 0.049, 0.038), ball(hand, 0.052, 1, 0.85, 1, 0),
-      bar(right, tucked, 0.06, 0.053), ball(tucked, 0.055, 1, 1, 1, 0)], V(0, 0.93, 0));
+      bar(right, tucked, 0.06, 0.053), ball(tucked, 0.055, 1, 1, 1, 0)], t.pivot);
     const face = a.on(0, 0, 1).sub(a.on(0, 0)).normalize();
     const strumming = hinge(p, true, ofBody(p, tucked), face, [wrist.clone().sub(tucked), fingers.clone().sub(wrist)],
       [bone(p, "strumming forearm", 0.1, 0.1, [0.03, 0.01]), bone(p, "strumming hand", 0.08, 0.05, [0.02, 0.012], face)]);
-    const foot = stand(p, t.hips, stance, toes, 0, true);
-    if (mic) keep(p, "microphone", microphone(V(0, t.mouth.y - 0.005, 0.17), mic.foot, mic.boom));
+    const foot = stand(p, t, stance, toes, 0, true);
+    voice(p, t, mic);
     const { body, pivot } = p;
     p.pose = (count, level, time) => {
-      const slow = Math.cos((Math.PI * (count - lag)) / 2), stroke = Math.cos(Math.PI * (count - lag)), beat = Math.cos(2 * Math.PI * (count - lag));
-      const shift = level * sway * slow + (1 - level) * 0.006 * Math.sin(time * (0.7 + 0.13 * p.at));
-      body.position.set(pivot.x + shift, pivot.y + (1 - level) * 0.006 * Math.sin((Math.PI * time) / 2), pivot.z);
+      const slow = swing(count - lag, SLOW), across = swing(count - lag, STRUM), beat = swing(count - lag, 1);
+      const shift = level * sway * slow + (1 - level) * SHIFT * Math.sin(time * (0.7 + 0.13 * p.at));
+      body.position.set(pivot.x + shift, pivot.y + breathe(level, time, BREATH), pivot.z);
       body.rotation.set(level * 0.02 * slow, 0, LEAN * shift);
-      strumming.turn = -level * strum * stroke;
+      strumming.turn = -level * strum * across;
       foot.turn = (level * tap * (1 - beat)) / 2;
     };
     return p;
@@ -299,8 +345,8 @@ export function buildBand(stage, floor) {
      down once in four counts, and the shoulders dip toward the keys with the left while the hands stay where they play. */
   function keys(spot, facing, { size, broad, hair, stance, lag, mic }) {
     const p = player("keys", spot, facing, size);
-    const t = trunk(0.92, broad, hair);
-    embody(p, t.parts, V(0, 0.93, 0), 0.1);
+    const t = trunk(STANDING, broad, hair);
+    embody(p, t.parts, t.pivot, 0.1);
     const lower = { y: 0.9, z: 0.46 }, upper = { y: 1.1, z: 0.64 };
     const rig = [box(1.32, 0.09, 0.31, 0, lower.y, lower.z), new THREE.BoxGeometry(1.06, 0.08, 0.27).rotateX(0.22).translate(0.04, upper.y, upper.z)];
     for (const s of [1, -1]) {
@@ -308,20 +354,24 @@ export function buildBand(stage, floor) {
         box(0.05, 0.03, 0.34, s * 0.44, 0.85, lower.z), bar(V(s * 0.4, 0.85, lower.z + 0.1), V(s * 0.4, upper.y - 0.03, upper.z + 0.02), 0.018, 0.018, 4));
     }
     keep(p, "keyboard", rig);
-    /* The hands: the left on the lower keyboard and the right on the upper, each a wrist behind its fingertips. */
-    const hands = [[1, "left", V(0.24, lower.y + 0.075, lower.z - 0.03)], [-1, "right", V(-0.2, upper.y + 0.085, upper.z - 0.05)]].map(([s, name, tip], k) => {
-      const wrist = tip.clone().add(V(s * 0.012, 0.035, -0.08));
-      return { wrist, fingers: tip.clone().sub(wrist), arm: arm(p, name, t.shoulders[k], 0.29, 0.26, V(s * 0.9, -1, -0.9), [bone(p, `${name} hand`, 0.085, 0.045, [0.02, 0.012])]) };
+    /* The hands: the left on the lower keyboard and the right on the upper, each a wrist behind its fingertips. `lead` is the hand's
+       turn in the SLOW counts: 1 is down on the count and up two counts on, and -1 the other way about. */
+    const hands = [
+      { side: 1, name: "left", tip: V(0.24, lower.y + 0.075, lower.z - 0.03), lead: 1 },
+      { side: -1, name: "right", tip: V(-0.2, upper.y + 0.085, upper.z - 0.05), lead: -1 },
+    ].map(({ side, name, tip, lead }) => {
+      const wrist = tip.clone().add(V(side * 0.012, 0.035, -0.08));
+      return { wrist, fingers: tip.clone().sub(wrist), lead, arm: arm(p, name, t.shoulder(side), 0.29, 0.26, V(side * 0.9, -1, -0.9), [bone(p, `${name} hand`, 0.085, 0.045, [0.02, 0.012])]) };
     });
-    stand(p, t.hips, stance, 0.18, -0.02, false);
-    if (mic) keep(p, "microphone", microphone(leaned(p, V(0, t.mouth.y - 0.005, 0.17)), mic.foot, mic.boom));
+    stand(p, t, stance, 0.18, -0.02, false);
+    voice(p, t, mic);
     const { body, pivot, lean } = p;
     p.pose = (count, level, time) => {
-      const slow = Math.cos((Math.PI * (count - lag)) / 2);
-      body.position.set(pivot.x, pivot.y + (1 - level) * 0.006 * Math.sin((Math.PI * time) / 2), pivot.z);
+      const slow = swing(count - lag, SLOW);
+      body.position.set(pivot.x, pivot.y + breathe(level, time, BREATH), pivot.z);
       body.rotation.set(lean + level * 0.015 * slow, 0, -level * 0.01 * slow);
-      for (let k = 0; k < 2; k++) {
-        const { wrist, fingers, arm: a } = hands[k], rise = (level * (k === 0 ? 1 - slow : 1 + slow)) / 2;
+      for (let k = 0; k < hands.length; k++) {
+        const { wrist, fingers, lead, arm: a } = hands[k], rise = (level * (1 - lead * slow)) / 2;
         a.to.copy(wrist);
         a.to.y += 0.06 * rise;
         a.to.z -= 0.02 * rise;
@@ -338,54 +388,45 @@ export function buildBand(stage, floor) {
      down while the other is at its top. The trunk rocks once in four counts, and the hands stay where they play. */
   function drummer(spot, facing, { size, broad, hair, lag, toms, tom, ride, crash, hat }) {
     const p = player("drums", spot, facing, size);
-    const t = trunk(0.6, broad, hair);
-    embody(p, t.parts, V(0, 0.62, 0), 0.07);
+    const t = trunk(SEATED, broad, hair);
+    embody(p, t.parts, t.pivot, 0.07);
     const kit = [
       drum(V(0, 0.29, 0.88), 0.28, 0.28, 0.42, 16, Math.PI / 2), bar(V(0.2, 0.22, 1.02), V(0.34, 0.016, 1.12), 0.012, 0.012, 4), bar(V(-0.2, 0.22, 1.02), V(-0.34, 0.016, 1.12), 0.012, 0.012, 4),
       drum(V(0.05, 0.6, 0.4), 0.18, 0.18, 0.14, 12), bar(V(0.05, 0.53, 0.4), V(0.05, 0.02, 0.4), 0.014, 0.014, 5),
       drum(V(-0.45, 0.42, 0.3), 0.2, 0.2, 0.36, 12), bar(V(-0.63, 0.3, 0.3), V(-0.67, 0.016, 0.3), 0.011, 0.011, 4), bar(V(-0.35, 0.3, 0.46), V(-0.33, 0.016, 0.5), 0.011, 0.011, 4),
       drum(V(0, 0.5, -0.02), 0.17, 0.17, 0.07, 10), bar(V(0, 0.47, -0.02), V(0, 0.2, -0.02), 0.022, 0.022, 5),
-      ...cymbal(V(hat[0], hat[1], hat[2]), 0.18, 0, 0, [hat[0], hat[2]]), drum(V(hat[0], hat[1] - 0.045, hat[2]), 0.18, 0.03, 0.035, 12),
-      ...cymbal(V(ride[0], ride[1], ride[2]), 0.26, -0.3, -0.12, [ride[0] + 0.14, ride[2] + 0.2]),
-      ...cymbal(V(crash[0], crash[1], crash[2]), 0.22, 0.28, 0.1, [crash[0] + 0.06, crash[2] + 0.1]),
+      ...cymbal(hat, 0.18, 0, 0, [hat.x, hat.z]), drum(V(hat.x, hat.y - 0.045, hat.z), 0.18, 0.03, 0.035, 12),
+      ...cymbal(ride, 0.26, -0.3, -0.12, [ride.x + 0.14, ride.z + 0.2]),
+      ...cymbal(crash, 0.22, 0.28, 0.1, [crash.x + 0.06, crash.z + 0.1]),
     ];
     for (const a of [0.5, 2.6, 4.7]) kit.push(bar(V(0, 0.22, -0.02), V(0.24 * Math.cos(a), 0.018, -0.02 + 0.24 * Math.sin(a)), 0.014, 0.014, 4));
-    for (const [x, r] of toms) kit.push(drum(V(x, 0.83, 0.74), r, r, 0.2, 12, -0.42), bar(V(x * 0.6, 0.72, 0.8), V(0, 0.56, 0.84), 0.014, 0.014, 4));
+    for (const { x, r } of toms) kit.push(drum(V(x, 0.83, 0.74), r, r, 0.2, 12, -0.42), bar(V(x * 0.6, 0.72, 0.8), V(0, 0.56, 0.84), 0.014, 0.014, 4));
     keep(p, "kit", kit);
     /* The legs, which stay on the pedals. */
     for (const s of [1, -1]) {
       const knee = V(s * 0.22, 0.6, 0.38), ankle = V(s * 0.25, 0.12, 0.5);
-      keep(p, "drums leg", [limb(t.hips[s > 0 ? 0 : 1], knee, 0.19, 0.19, [0.02, 0.04]), limb(knee, ankle, 0.14, 0.14, [0.04, 0])]);
-      keep(p, "drums cuff", [new THREE.CylinderGeometry(0.062, 0.08, 0.13, 8).translate(ankle.x, 0.125, ankle.z)]);
-      keep(p, "drums shoe", [limb(V(ankle.x, 0.04, ankle.z - 0.07), V(ankle.x + s * 0.02, 0.04, ankle.z + 0.2), 0.105, 0.08)]);
+      keep(p, `${p.plays} leg`, [limb(t.hip(s), knee, 0.19, 0.19, [0.02, 0.04]), limb(knee, ankle, 0.14, 0.14, [0.04, 0])]);
+      keep(p, `${p.plays} cuff`, [cuff(ankle, 0.08, 0.13)]);
+      keep(p, `${p.plays} shoe`, [shoe(V(ankle.x, 0.04, ankle.z - 0.07), V(ankle.x + s * 0.02, 0.04, ankle.z + 0.2))]);
     }
     /* The arms. Each stick's tip rests where it falls, the left on the snare and the right on the tom at `tom`, its hand a stick's
-       hold behind. A stroke tips the stick back `raise` rad, over the kit's black, and lifts the hand by `lift`, a little: the
-       elbows stand beside the cymbals, and an arm that swept past one would flicker the gap between them. */
+       hold behind, and falls `delay` counts after the drummer's own count. A stroke tips the stick back RAISE rad, over the kit's
+       black, and lifts the hand a little, out to its `side`: the elbows stand beside the cymbals, and an arm that swept past one
+       would flicker the gap between them. */
     const sticks = [
-      { s: 1, name: "left", tip: V(0.07, 0.69, 0.36), grip: V(0.25, 0.79, 0.13), pole: V(1, -0.2, -0.45), lift: V(0.005, 0.035, -0.01), raise: 0.6 },
-      { s: -1, name: "right", tip: V(tom[0], tom[1], tom[2]), grip: V(tom[0] - 0.07, tom[1] - 0.03, tom[2] - 0.31), pole: V(-1, -0.2, -0.45), lift: V(-0.005, 0.035, -0.01), raise: 0.6 },
-    ].map(({ s, name, tip, grip, pole, lift, raise }) => ({ grip, aim: tip.clone().sub(grip), lift, raise,
-      arm: arm(p, name, t.shoulders[s > 0 ? 0 : 1], 0.29, 0.25, pole, [bone(p, `${name} stick`, 0.03, 0.03, [0.09, 0]), bone(p, `${name} hand`, 0.085, 0.07, [0, 0], X, [-0.14, 0.14])]) }));
+      { side: 1, name: "left", tip: V(0.07, 0.69, 0.36), grip: V(0.25, 0.79, 0.13), delay: SLOW / 2 },
+      { side: -1, name: "right", tip: tom.clone(), grip: V(tom.x - 0.07, tom.y - 0.03, tom.z - 0.31), delay: 0 },
+    ].map(({ side, name, tip, grip, delay }) => ({ grip, aim: tip.clone().sub(grip), delay, lift: V(side * 0.005, 0.035, -0.01),
+      arm: arm(p, name, t.shoulder(side), 0.29, 0.25, V(side, -0.2, -0.45), [bone(p, `${name} stick`, 0.03, 0.03, [0.09, 0]), bone(p, `${name} hand`, 0.085, 0.07, [0, 0], X, [-0.14, 0.14])]) }));
     const { body, pivot, lean } = p;
-    /* A stroke through `turn` of its four counts, from the stick's fall (0): it lies where it fell, rises slowly from 0.15 to its top
-       at 0.7, and falls, faster, to land on its count. The rise and the fall are a second apart or more at any point the arm
-       passes, which keeps an arm a pixel wide from flickering there. */
-    const stroke = (turn) => {
-      const f = turn - Math.floor(turn);
-      if (f < 0.15) return 0;
-      if (f < 0.7) { const r = (f - 0.15) / 0.55; return r * r * (3 - 2 * r); }
-      const d = (f - 0.7) / 0.3;
-      return 1 - d * d;
-    };
     p.pose = (count, level, time) => {
-      const c = count - lag, slow = Math.cos((Math.PI * c) / 2);
-      body.position.set(pivot.x, pivot.y + (1 - level) * 0.005 * Math.sin((Math.PI * time) / 2), pivot.z);
+      const c = count - lag, slow = swing(c, SLOW);
+      body.position.set(pivot.x, pivot.y + breathe(level, time, SEATED_BREATH), pivot.z);
       body.rotation.set(lean + level * 0.03 * slow, 0, level * 0.03 * slow);
-      for (let k = 0; k < 2; k++) {
-        const { grip, aim, lift, raise, arm: a } = sticks[k], up = level * stroke((c - (k === 0 ? 2 : 0)) / 4);
+      for (let k = 0; k < sticks.length; k++) {
+        const { grip, aim, delay, lift, arm: a } = sticks[k], up = level * stroke((c - delay) / SLOW);
         a.to.copy(grip).addScaledVector(lift, up);
-        a.carry.copy(aim).applyAxisAngle(BACK, raise * up);
+        a.carry.copy(aim).applyAxisAngle(BACK, RAISE * up);
       }
     };
     return p;
@@ -399,8 +440,8 @@ export function buildBand(stage, floor) {
     hold: { ...BASS, at: V(-0.1, 0.9, 0.18), rise: 0.76, yaw: 0.2, big: 1.08 }, mic: { foot: [0.03, 0.38], boom: false } });
   strummer("guitar", [-3.5, 1.5], 0.1, { size: 1.035, broad: 0.98, hair: "short", stance: 0.18, toes: 0.22, fret: 0.76, sway: -0.04, strum: 0.15, tap: 0.13, lag: 0,
     hold: { ...TWO_HORNS, at: V(-0.13, 0.99, 0.18), rise: 0.5, yaw: 0.22, big: 1.1 }, mic: { foot: [0.02, 0.4], boom: false } });
-  drummer([-1.25, -2.5], 0.06, { size: 0.99, broad: 1.04, hair: "knot", lag: 0, toms: [[0.17, 0.15], [-0.18, 0.165]], tom: [-0.19, 0.93, 0.58], hat: [0.5, 0.88, 0.3], ride: [-0.6, 1.12, 0.46], crash: [0.36, 1.3, 0.7] });
-  drummer([1.3, -2.5], -0.06, { size: 1.02, broad: 1.0, hair: "bob", lag: 1, toms: [[0.0, 0.165]], tom: [-0.06, 0.93, 0.58], hat: [0.5, 0.9, 0.32], ride: [-0.52, 1.04, 0.44], crash: [0.42, 1.22, 0.66] });
+  drummer([-1.25, -2.5], 0.06, { size: 0.99, broad: 1.04, hair: "knot", lag: 0, toms: [{ x: 0.17, r: 0.15 }, { x: -0.18, r: 0.165 }], tom: V(-0.19, 0.93, 0.58), hat: V(0.5, 0.88, 0.3), ride: V(-0.6, 1.12, 0.46), crash: V(0.36, 1.3, 0.7) });
+  drummer([1.3, -2.5], -0.06, { size: 1.02, broad: 1.0, hair: "bob", lag: 1, toms: [{ x: 0.0, r: 0.165 }], tom: V(-0.06, 0.93, 0.58), hat: V(0.5, 0.9, 0.32), ride: V(-0.52, 1.04, 0.44), crash: V(0.42, 1.22, 0.66) });
   strummer("guitar", [3.35, 1.4], -0.12, { size: 0.955, broad: 0.93, hair: "long", stance: 0.16, toes: 0.25, fret: 0.68, sway: 0.045, strum: 0.13, tap: 0.11, lag: 2,
     hold: { ...ONE_CUT, at: V(-0.12, 1.02, 0.18), rise: 0.38, yaw: 0.3, big: 1.1 }, mic: { foot: [0.3, 0.47], boom: true } });
   keys([6.35, -1.2], -1.1, { size: 1.0, broad: 1.02, hair: "cap", stance: 0.17, lag: 3, mic: { foot: [0.82, 0.3], boom: true } });
@@ -428,12 +469,13 @@ export function buildBand(stage, floor) {
   stage.add(limbs);
 
   /* Lays every bone where the players' poses put it: each leg from its hip, each arm from its shoulder to its wrist with what the hand
-     holds, each hinge's bones from its pivot; then each bone's matrix, from the player's frame into the stage's. */
+     holds, each hinge's bones from its pivot; then each bone's matrix, from the player's frame into the stage's. A point of a body
+     turns by the body's own quaternion, which three keeps to the rotation a pose set: one a player, not one a joint. */
   const m = new THREE.Matrix4(), end = V(), swung = V();
   function place() {
     for (let k = 0; k < legs.length; k++) {
       const { p, thigh, shin, hip, ankle } = legs[k];
-      thigh.a.copy(hip).applyEuler(p.body.rotation).add(p.body.position);
+      thigh.a.copy(hip).applyQuaternion(p.body.quaternion).add(p.body.position);
       thigh.b.addVectors(thigh.a, ankle).multiplyScalar(0.5);
       thigh.b.z += 0.03;
       shin.a.copy(thigh.b);
@@ -441,7 +483,7 @@ export function buildBand(stage, floor) {
     }
     for (let k = 0; k < arms.length; k++) {
       const { p, shoulder, upper, fore, pole, to, carry, held, bones: [top, low] } = arms[k];
-      top.a.copy(shoulder).applyEuler(p.body.rotation).add(p.body.position);
+      top.a.copy(shoulder).applyQuaternion(p.body.quaternion).add(p.body.position);
       low.a.copy(elbowOf(top.b, top.a, to, upper, fore, pole));
       /* The wrist: the forearm's length from the elbow toward where it is wanted, which is there unless it is out of reach. */
       low.b.subVectors(to, low.a).setLength(fore).add(low.a);
@@ -459,7 +501,7 @@ export function buildBand(stage, floor) {
         const b = held[i];
         b.a.copy(end);
         b.b.copy(end.add(swung.copy(rests[i]).applyAxisAngle(axis, turn)));
-        if (on) { b.a.applyEuler(p.body.rotation).add(p.body.position); b.b.applyEuler(p.body.rotation).add(p.body.position); }
+        if (on) { b.a.applyQuaternion(p.body.quaternion).add(p.body.position); b.b.applyQuaternion(p.body.quaternion).add(p.body.position); }
       }
     }
     for (let k = 0; k < bones.length; k++) {
@@ -469,24 +511,25 @@ export function buildBand(stage, floor) {
     limbs.instanceMatrix.needsUpdate = true;
   }
 
-  /* The band's count: the figures' beat, or half of it while that is fast (HALF_OVER), eased onto the beat again over two seconds
-     after a change, so no one jumps. `rate` is the beat's own speed, in beats a second, smoothed over half a second. */
+  /* The band's count: the figures' beat, or half of it while that is fast (HALF_OVER), eased onto the beat again over RETUNE seconds
+     after a change, so no one jumps. `rate` is the beat's own speed, in beats a second, smoothed over RATE_SMOOTH. */
   let level = 0, count = 0, last = null, rate = 0, half = false;
   /* Plays the band for a frame `dt` s long: `beats` is the figures' phase in beats, which the caller keeps (beat.js), and `time` the
      world's time in seconds. While the show plays they play, on their count; otherwise they stand, breathing on a 4-s cycle and
-     shifting their weight. Each change eases over 0.8 s. Under reduced motion nothing calls this, so they stand as they were built:
-     at rest, their hands on their instruments. Nothing here makes anything: a frame's work is arithmetic on what the build made. */
+     shifting their weight. Each change eases over EASE seconds. Under reduced motion nothing calls this, so they stand as they were
+     built: at rest, their hands on their instruments. Nothing here makes anything: a frame's work is arithmetic on what the build
+     made. */
   function move(dt, time, beats, playing) {
-    level = Math.max(0, Math.min(1, level + (playing ? dt : -dt) / 0.8));
+    level = Math.max(0, Math.min(1, level + (playing ? dt : -dt) / EASE));
     const step = last === null ? 0 : Math.max(0, Math.min(1, beats - last));
     last = beats;
-    if (dt > 0) rate += (step / dt - rate) * Math.min(1, dt / 0.5);
+    if (dt > 0) rate += (step / dt - rate) * Math.min(1, dt / RATE_SMOOTH);
     if (rate > HALF_OVER) half = true;
     else if (rate < HALF_UNDER) half = false;
     const pace = half ? 0.5 : 1;
     count += step * pace;
     const off = count - beats * pace;
-    count -= (off - Math.round(off / pace) * pace) * Math.min(1, dt / 2);
+    count -= (off - Math.round(off / pace) * pace) * Math.min(1, dt / RETUNE);
     for (let k = 0; k < players.length; k++) players[k].pose(count, level, time);
     place();
   }
