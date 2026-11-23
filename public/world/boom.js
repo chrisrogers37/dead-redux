@@ -38,9 +38,12 @@ function enters(o, d, b) {
   return tmin >= 0 ? tmin : tmax;
 }
 
+/* The camera never comes nearer the head than this, in m, whatever stands in the boom's way. */
+export const LEAST = 2.5;
+
 /* One frame of the boom against the landmarks. `dir` is the unit direction from the head (`from`) toward the eased camera, `len` the
    boom's length, `lift` the rise carried from the last frame and `k` the ease (1 lands at once). The camera comes 0.5 m in front of a
-   landmark between it and the head, but never nearer the head than 2.5 m. A landmark that starts within 3 m of the head leaves no room
+   landmark between it and the head, but never nearer the head than LEAST. A landmark that starts within 3 m of the head leaves no room
    for that, so the boom rises instead, 0.05 rad at a time, until the line from the head meets no landmark within 3 m: it passes over a
    short one, and meets a tall one high enough up its face to come in front of it. It rises at once and comes back down at the ease.
    Straight up always clears, since every box and column stands on the ground and so none reaches over a head outside it. Turns `dir`
@@ -53,5 +56,5 @@ export function rise(from, dir, len, boxes, columns, lift, k) {
   lift = need > lift ? need : lift + (need - lift) * k;
   aim(Math.max(el, Math.min(Math.PI / 2, el + lift)));
   const s = nearest(from, dir, boxes, columns);
-  return { lift, room: s < len ? Math.min(1, Math.max(2.5, s - 0.5) / (len || 1)) : 1 };
+  return { lift, room: s < len ? Math.min(1, Math.max(LEAST, s - 0.5) / (len || 1)) : 1 };
 }

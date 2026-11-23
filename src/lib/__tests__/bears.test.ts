@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
-import { buildBear, buildBears, drawLegs, furMaterial, stride } from "../../../public/world/bears.js";
+import { buildBear, buildBears, drawLegs, furMaterial, NOSE, SNOUT, stride } from "../../../public/world/bears.js";
 import { BODY_REACH } from "../../../public/world/collide.js";
 import { readFileSync } from "fs";
 
@@ -34,10 +34,19 @@ describe("buildBear", () => {
       // collide.js: a bear's flank stands within 1.5 m of its centre and its snout's tip 2.4 m ahead of it, both inside BODY_REACH.
       expect(most(([x]) => Math.abs(x))).toBeLessThanOrEqual(1.5);
       expect(most(([, , z]) => z)).toBeLessThanOrEqual(2.4);
+      // The furthest of a bear from its centre is its nose's tip, SNOUT m ahead of it, whatever its limbs do: what stops a bear is
+      // reckoned from there (trees.js).
+      expect(most(([, , z]) => z)).toBeCloseTo(SNOUT, 6);
+      expect(most(([x, , z]) => Math.hypot(x, z))).toBeCloseTo(SNOUT, 6);
       expect(most(([x, , z]) => Math.hypot(x, z))).toBeLessThan(BODY_REACH);
       // crowd.js's BEAR: the visitor's bear reaches 1.98 m from its middle, which stands 0.4 m ahead of its centre.
       expect(most(([x, , z]) => Math.hypot(x, z - 0.4))).toBeLessThanOrEqual(1.98);
     }
+  });
+
+  it("says where its nose is: SNOUT is the nose's own place and size", () => {
+    expect(NOSE).toEqual({ up: 3.5, ahead: 2.16, r: 0.2 });
+    expect(SNOUT).toBeCloseTo(2.36, 12);
   });
 
   it("keeps a paw on the ground through the stride: the bear comes down as its legs swing out, and neither floats nor sinks", () => {
