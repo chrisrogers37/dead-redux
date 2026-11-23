@@ -5,11 +5,16 @@ import { height, STAGE, STAGE_COLUMN, TEST_POSES } from "./ground.js";
 import { keepOuts, parting, PERSON, seats } from "./seats.js";
 
 /* The crowd on the hill: a few hundred people, no two of them alike, faceless and dark like the band's silhouettes, on the slope in
-   front of the stage (seats.js). One instanced mesh on a Lambert material, so the crowd keeps the island's light and fog and costs one
-   draw call. Its one geometry holds a body and everything anyone wears or carries; each figure's own numbers say which of those it
-   wears, how its body is built, what colours it is in and how it moves, and the vertex shader folds the rest away, shapes the body and
-   moves it, from a few uniforms that `pose` sets each frame. It steps aside for the visitor from one instanced attribute that `part`
-   updates (seats.js's parting). Nothing is printed on anyone, and no figure is anyone's likeness. */
+   front of the stage (seats.js). One merged mesh on a Lambert material, so the crowd keeps the island's light and fog and costs one
+   draw call. One figure's geometry holds a body and everything anyone wears or carries; each figure's own numbers say which of those
+   it wears, how its body is built, what colours it is in and how it moves. The mesh holds each figure's body and the parts it wears,
+   and nothing it does not, each corner carrying its figure's numbers; the vertex shader shapes the body and moves it, from a few
+   uniforms that `pose` sets each frame. It steps aside for the visitor from two attributes that `part` updates, at the corners of
+   the figures that moved (seats.js's parting). Nothing is printed on anyone, and no figure is anyone's likeness.
+   Why one mesh and not instances of one figure: a frame's cost goes with the triangles sent to be drawn. An instance draws the whole
+   geometry, so every figure sent every part, 1,117 triangles to show 513 of them, the rest folded away by the shader; and the
+   shoot's renderer pays some 4 microseconds for each instance of a mesh besides, so a mesh for each kind of part cost more than it
+   saved (counted, crowd alone, in that renderer). The price is memory: each corner repeats its figure's numbers, 168 bytes a corner. */
 
 /* One figure in its own units, standing on y = 0 and facing +z, TALL to the top of its head: two legs LEG tall on their feet HIP_X
    either side, hips, a torso that widens to its shoulders, a neck, a head, and two arms at its sides ending in hands, hanging from
@@ -19,7 +24,7 @@ export const LEG = 0.86, SHOULDER_X = 0.285, SHOULDER_Y = 1.44, TALL = 1.8076;
 const HEAD_Y = 1.655, NECK_Y = 1.56, HIP_X = 0.095, ELBOW = 0.27, HAND_Y = SHOULDER_Y - 0.565, STAND_Z = 0.22;
 
 /* What a figure may wear or carry, each a part of the one geometry with a bit of its own. A figure's `parts` (aWear.x) is the sum of
-   the bits it wears, and the vertex shader folds every other part to a point inside its head. A plain figure, a phone's and a TV's
+   the bits it wears, and buildCrowd puts those parts in the mesh for it and no others. A plain figure, a phone's and a TV's
    (main.js), is built without the parts PLAIN_LEAVES_OUT names (figureGeometry's `add` passes them by), and with fewer sides to the
    round ones. */
 export const PART = {
@@ -31,7 +36,7 @@ export const PLAIN_LEAVES_OUT = ["WREATH", "TAIL2", "BEARD", "ROLL", "HOOP", "DR
 /* How a part hangs on the figure (aMark.x): with its body, on a leg or a foot, on an arm, round the legs as a skirt does, on its head,
    or standing on the ground beside it. */
 const RIG = { BODY: 0, LEG: 1, FOOT: 2, ARM_L: 3, ARM_R: 4, SKIRT: 5, HEAD: 6, GROUND: 7 };
-/* Whose colour a face takes (aMark.z): its top's (the instance's own colour), or one of the four tones the figure carries (aTone): its
+/* Whose colour a face takes (aMark.z): its top's (the figure's own colour, at each corner), or one of the four tones the figure carries (aTone): its
    legs', its hair's, its own dark and its things'. A shin is bare under shorts, a forearm under short sleeves, a skirt is a long
    shirt's tail on some, and a scalp is bare on the bald. */
 const TINT = { TOP: 0, LEGS: 1, HAIR: 2, SELF: 3, THING: 4, SHIN: 5, FOREARM: 6, SKIRT: 7, SCALP: 8, SHOE: 9 };
@@ -125,7 +130,7 @@ export function figureGeometry(plain = false) {
   /* The hips, closed above and below: the torso's foot is narrower than their top, and a seated figure shows their underside. The
      torso has a ring at its middle, so a belly can round it. */
   add(new THREE.CylinderGeometry(0.165, 0.17, 0.17, 8).scale(1, 1, 0.74).translate(0, 0.93, 0), RIG.BODY, 0, TINT.LEGS);
-  add(new THREE.CylinderGeometry(0.25, 0.158, 0.46, 8, 2).scale(1, 1, 0.68).translate(0, 1.24, 0), RIG.BODY, 0, TINT.TOP);
+  add(new THREE.CylinderGeometry(0.25, 0.158, 0.46, 8, 2, true).scale(1, 1, 0.68).translate(0, 1.24, 0), RIG.BODY, 0, TINT.TOP);
   add(new THREE.CylinderGeometry(0.075, 0.25, 0.075, 8, 1, true).scale(1, 1, 0.68).translate(0, 1.5075, 0), RIG.BODY, 0, TINT.TOP);
   add(new THREE.CylinderGeometry(0.055, 0.062, 0.1, 6, 1, true).translate(0, 1.57, 0), RIG.BODY, 0, TINT.SELF);
 
@@ -190,9 +195,22 @@ export function figureGeometry(plain = false) {
     add(rope([[side * 0.1, 1.8, -0.1], [side * 0.2, 2.03, -0.08]], [0.03, 0.024], 3), RIG.BODY, PART.RIDER, TINT.THING);
   }
   /* The corners and their marks are all a figure's geometry holds. The material shades each face flat, from the face itself, so it
-     reads no normal to light one, and none is kept: an instanced mesh's own attributes and the crowd's leave one slot of the sixteen
-     a WebGL program is sure of (crowd.test.ts counts them). */
+     reads no normal to light one, and none is kept. */
   return mergeGeometries(parts);
+}
+
+/* The faces of a figure's geometry that are one part's (`bit`, 0 for the body), with their corners shared: a corner that several
+   faces meet at with one mark is kept once, and worked out once a frame and not once for each face. `position` and `mark` are the
+   corners, three and four numbers each, and `index` three corners to a face. */
+export function pieces(figure, bit) {
+  const position = figure.getAttribute("position"), mark = figure.getAttribute("aMark"), at = [], marks = [], index = [], seen = new Map();
+  for (let k = 0; k < position.count; k++) {
+    if (mark.getY(k - (k % 3)) !== bit) continue;
+    const corner = [position.getX(k), position.getY(k), position.getZ(k), mark.getX(k), mark.getY(k), mark.getZ(k), mark.getW(k)], key = corner.join();
+    if (!seen.has(key)) { seen.set(key, at.length / 3); at.push(corner[0], corner[1], corner[2]); marks.push(corner[3], corner[4], corner[5], corner[6]); }
+    index.push(seen.get(key));
+  }
+  return { position: new Float32Array(at), mark: new Float32Array(marks), index };
 }
 
 /* A leg is two bones of the same length, the thigh and the shin, from the hip down to the knee and on to the foot. The knee stands
@@ -262,7 +280,7 @@ export function partingOptions(scale) {
 
 /* ---------- who stands where ---------- */
 
-/* The colours, all deep: a figure's top (the instance's colour), its legs, its hair, its own dark, which its face and hands are, as
+/* The colours, all deep: a figure's top (its corners' colour), its legs, its hair, its own dark, which its face and hands are, as
    the band's silhouettes are, and the things it wears and carries. No channel of any is brighter than MOST of full light, which is
    also all a tone can hold (tone). */
 export const MOST = 0.08;
@@ -274,7 +292,7 @@ export const COLOURS = {
   thing: [0x38190d, 0x0f232c, 0x2c260e, 0x230f29, 0x0d2619, 0x350f14, 0x191b36, 0x2c1f15, 0x212121, 0x362c19],
 };
 const SHOE = 0.006;
-/* A colour as one number an instance can carry: each channel's light as 0 to 127 on a square-root scale up to MOST, the red in the
+/* A colour as one number a figure can carry: each channel's light as 0 to 127 on a square-root scale up to MOST, the red in the
    ones, the green in the 128s and the blue in the 16384s. */
 const shade = new THREE.Color();
 export function tone(hex) {
@@ -435,7 +453,7 @@ export function people(placed) {
   return out;
 }
 
-/* What a figure wears, as the numbers its instance carries: the sum of its parts' bits, and its style (STYLE). WEARS says which parts
+/* What a figure wears, as the numbers it carries: the sum of its parts' bits, and its style (STYLE). WEARS says which parts
    each choice of a person's wears, and CUTS how a choice cuts the figure (CUT); a beard and hands on the hips are a person's own. */
 const WEARS = {
   head: { hat: ["BRIM", "CROWN"], topper: ["BRIM", "CROWN"], floppy: ["BRIM", "CROWN"], cap: ["CROWN", "BILL"], band: ["BAND"], bandana: ["BAND", "KNOT"], wreath: ["WREATH"] },
@@ -509,13 +527,15 @@ attribute vec4 aBody;
 attribute vec4 aWear;
 attribute vec4 aCut;
 attribute vec4 aTone;
+attribute vec3 aPlace;
+attribute vec4 aSize;
 uniform float uBeat;
 uniform float uDance;
 uniform float uRise;
 uniform float uSit;`;
 /* In the figure's own units, after begin_vertex. It is written with plain numbers alone, one to a name, so that the unit tests can
    read it as it stands and stand every figure through every pose (crowd.test.ts).
-   A part the figure does not wear folds to a point inside its head. Then the figure's own shape: what its head wears (aCut), its
+   First the figure's own shape: what its head wears (aCut), its
    belly, its shoulders (aBody), its legs' length and thickness, a skirt's hem. Then the pose, as far as the figure dances where it
    stands (aPart.w: still 1, at its seat 0): its arms, each turned at the shoulder and bent at the elbow, the ring at the elbow cut on
    the mitre; its head's nod; the rise and the sit. The hips come down to the beat and, sitting, to SEAT, and the rest of the figure
@@ -526,10 +546,7 @@ uniform float uSit;`;
    (seats.js). Last its stoop, its lean, which leaves its feet flat on the ground, and its turn. */
 const DANCE = `
 float rig = aMark.x, bit = aMark.y, parts = aWear.x;
-bool worn = bit < 0.5 || mod(floor(parts / bit), 2.0) > 0.5;
-if (!worn) {
-  transformed.x = 0.0; transformed.y = ${f(HEAD_Y)}; transformed.z = 0.0;
-} else {
+{
   float x = transformed.x, y = transformed.y, z = transformed.z;
   float kind = mod(aWear.y, ${n(STYLE.ARMS)}), arms = mod(floor(aWear.y / ${n(STYLE.ARMS)}), ${n(STYLE.CUT / STYLE.ARMS)}), cuts = floor(aWear.y / ${n(STYLE.CUT)});
   bool bells = ${has("cuts", CUT.BELLS)}, afro = ${has("cuts", CUT.AFRO)}, shawl = ${has("cuts", CUT.SHAWL)}, akimbo = ${has("cuts", CUT.AKIMBO)};
@@ -694,14 +711,11 @@ if (!worn) {
   else y = max(y, -fall * z / ${f(FOOT[0])} - 0.4 * (1.0 - sit));
   transformed.x = x; transformed.y = y; transformed.z = z;
 }`;
-/* After color_vertex, where the colour is the instance's own, its top's: a face that is not its top's takes one of the figure's four
-   tones (aTone, each as tone() packs it), or a shoe's near black. A part the figure does not wear is folded away (DANCE), over half
-   of a desktop figure's corners, so its colour is not worked out: `shown` is DANCE's `worn`, said again here because this runs first
-   and each of the two is read on its own by the unit tests. */
+/* After color_vertex, where the colour is the corner's own, its figure's top's: a face that is not its top's takes one of the
+   figure's four tones (aTone, each as tone() packs it), or a shoe's near black. */
 const TONE = `
 float tint = aMark.z;
-bool shown = aMark.y < 0.5 || mod(floor(aWear.x / aMark.y), 2.0) > 0.5;
-if (shown && !(${is("tint", TINT.TOP)})) {
+if (!(${is("tint", TINT.TOP)})) {
   float cutting = floor(aWear.y / ${n(STYLE.CUT)});
   bool shorts = ${has("cutting", CUT.SHORTS)}, bare = ${has("cutting", CUT.BARE)}, tunic = ${has("cutting", CUT.TUNIC)}, bald = ${has("cutting", CUT.BALD)};
   float tone = ${is("tint", TINT.LEGS)} ? aTone.x : ${is("tint", TINT.HAIR)} ? aTone.y : ${is("tint", TINT.SELF)} ? aTone.z : ${is("tint", TINT.THING)} ? aTone.w
@@ -714,19 +728,21 @@ if (shown && !(${is("tint", TINT.TOP)})) {
     vColor.r = ${f(SHOE)}; vColor.g = ${f(SHOE)}; vColor.b = ${f(SHOE)};
   }
 }`;
-/* project_vertex for the crowd, which is instanced and never batched: the figure's place on the hill, then where the parting has
-   stepped it (aPart.xyz), in metres. */
+/* project_vertex for the crowd: the figure's place on the hill, as broad and as tall as it is (aSize.xy), turned (its turn's cosine
+   and sine, aSize.zw) and stood at its seat (aPlace), and stepped where the parting has stepped it (aPart.xyz), in metres. Its
+   first two lines are plain numbers too, and the unit tests run them against the figure's own matrix. */
 const PROJECT = `
-vec4 mvPosition = instanceMatrix * vec4(transformed, 1.0);
-mvPosition.xyz += aPart.xyz;
-mvPosition = modelViewMatrix * mvPosition;
+float wide = transformed.x * aSize.x, deep = transformed.z * aSize.x;
+float putX = aPlace.x + aSize.z * wide + aSize.w * deep + aPart.x, putY = aPlace.y + aSize.y * transformed.y + aPart.y, putZ = aPlace.z - aSize.w * wide + aSize.z * deep + aPart.z;
+vec4 mvPosition = modelViewMatrix * vec4(putX, putY, putZ, 1.0);
 gl_Position = projectionMatrix * mvPosition;`;
 
 /* Builds the crowd: at most `count` figures on the first seats, kept clear of the path, the bears' line and a circle round each
    landmark's bounds. It reads those bounds, so it runs before the landmarks merge (landmarks.js) empties them. Each figure faces the
    stage, turned a little, and is its own person (people): the standard figure stands PERSON tall, a child a little over half that and
    the tallest 8 % more, each as broad as its build and what it wears let it be inside the reaches above. `plain` builds plain figures,
-   as a phone and a TV draw. `count` is how many it seated. */
+   as a phone and a TV draw. `count` is how many it seated; `each` holds every figure's own numbers, a figure to a row, `figure` the
+   geometry of one whole figure, and `corners` and `faces` where each figure's corners and faces begin in the mesh. */
 export function buildCrowd(scene, { count, path, line, landmarks, plain = false }) {
   /* A point every 2 m along `length` metres of the path or the line. */
   const along = (length, at) => Array.from({ length: Math.ceil(length / 2) }, (_, i) => { const p = at(i * 2); return [p.x, p.z]; });
@@ -741,10 +757,10 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false 
   };
   const placed = seats(around).slice(0, count);
   const n = placed.length;
-  const geo = figureGeometry(plain);
+  const figure = figureGeometry(plain);
   const scale = PERSON / TALL, big = scale * 1.08;
   const uniforms = { uBeat: { value: 0 }, uDance: { value: 0 }, uRise: { value: 0 }, uSit: { value: 0 } };
-  const mat = new THREE.MeshLambertMaterial({ flatShading: true });
+  const mat = new THREE.MeshLambertMaterial({ flatShading: true, vertexColors: true });
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
@@ -753,8 +769,15 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false 
       .replace("#include <begin_vertex>", `#include <begin_vertex>${DANCE}`)
       .replace("#include <project_vertex>", PROJECT);
   };
-  const mesh = new THREE.InstancedMesh(geo, mat, n);
-  const fig = new Float32Array(4 * n), body = new Float32Array(4 * n), wear = new Float32Array(4 * n), cut = new Float32Array(4 * n), tones = new Float32Array(4 * n);
+  /* The parting (partingOptions), each figure keeping clear of what the seats keep clear of, and its hands of the stage's solids
+     (STAGE_COLUMN). */
+  const opts = partingOptions(scale);
+  const parts = parting(placed, { ...opts, keeps: [...keepOuts(around), [STAGE[0], STAGE[1], STAGE_COLUMN.r + opts.wide]] });
+  /* Each figure's own numbers, a figure to a row: where it stands (as a matrix), its top's colour, and what the shader reads of it;
+     and the parting's own two rows, where it has stepped each figure and how far it lets its arms rise. */
+  const each = { count: n, matrix: new Float32Array(16 * n), colour: new Float32Array(3 * n), aFig: new Float32Array(4 * n), aBody: new Float32Array(4 * n),
+    aWear: new Float32Array(4 * n), aCut: new Float32Array(4 * n), aTone: new Float32Array(4 * n), aPlace: new Float32Array(3 * n), aSize: new Float32Array(4 * n),
+    offset: parts.offset, rising: parts.rising, ball: new Float32Array(4 * n) };
   const near = Math.min(...placed.map((p) => p.r)), far = Math.max(...placed.map((p) => p.r));
   const dummy = new THREE.Object3D(), color = new THREE.Color();
   const who = people(placed);
@@ -770,31 +793,89 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false 
     const broad = Math.min(one.slim, (HANG * big - 0.003) / (tall * out), (FEET * big - 0.003) / (tall * feet));
     dummy.scale.set(tall * broad, tall, tall * broad);
     dummy.updateMatrix();
-    mesh.setMatrixAt(i, dummy.matrix);
-    mesh.setColorAt(i, color.setHex(COLOURS.top[one.colour.top]));
+    dummy.matrix.toArray(each.matrix, 16 * i);
+    color.setHex(COLOURS.top[one.colour.top]).toArray(each.colour, 3 * i);
     /* How far the ground falls from the seat to where a seated figure's feet rest, ahead of it the way it faces, in its own units. */
     const reach = FOOT[0] * tall * broad, turn = dummy.rotation.y;
     const drop = (height(p.x, p.z) - height(p.x + Math.sin(turn) * reach, p.z + Math.cos(turn) * reach)) / tall;
-    fig.set([p.sit ? 1 : 0, (i * 0.618034) % 1, far > near ? (p.r - near) / (far - near) : 0, drop], 4 * i);
-    body.set([one.girth, one.wide, one.leg, one.big], 4 * i);
-    wear.set([worn.parts, worn.style, one.stoop, one.size], 4 * i);
-    cut.set([one.hairLength, one.hem, one.crown, one.brim], 4 * i);
-    tones.set([tone(COLOURS.legs[one.colour.legs]), tone(COLOURS.hair[one.colour.hair]), tone(COLOURS.self[one.colour.self]), tone(COLOURS.thing[one.colour.thing])], 4 * i);
+    each.aFig.set([p.sit ? 1 : 0, (i * 0.618034) % 1, far > near ? (p.r - near) / (far - near) : 0, drop], 4 * i);
+    each.aBody.set([one.girth, one.wide, one.leg, one.big], 4 * i);
+    each.aWear.set([worn.parts, worn.style, one.stoop, one.size], 4 * i);
+    each.aCut.set([one.hairLength, one.hem, one.crown, one.brim], 4 * i);
+    each.aTone.set([tone(COLOURS.legs[one.colour.legs]), tone(COLOURS.hair[one.colour.hair]), tone(COLOURS.self[one.colour.self]), tone(COLOURS.thing[one.colour.thing])], 4 * i);
+    /* The same place as the shader takes it: where it stands, and its breadth, its height and its turn's cosine and sine. */
+    each.aPlace.set([dummy.position.x, dummy.position.y, dummy.position.z], 3 * i);
+    each.aSize.set([tall * broad, tall, Math.cos(turn), Math.sin(turn)], 4 * i);
   });
-  for (const [name, array] of [["aFig", fig], ["aBody", body], ["aWear", wear], ["aCut", cut], ["aTone", tones]]) geo.setAttribute(name, new THREE.InstancedBufferAttribute(array, 4));
-  /* The parting (partingOptions), each figure keeping clear of what the seats keep clear of, and its hands of the stage's solids
-     (STAGE_COLUMN). */
-  const opts = partingOptions(scale);
-  const parts = parting(placed, { ...opts, keeps: [...keepOuts(around), [STAGE[0], STAGE[1], STAGE_COLUMN.r + opts.wide]] });
-  const aPart = new THREE.InstancedBufferAttribute(parts.offset, 4).setUsage(THREE.DynamicDrawUsage);
-  const aRise = new THREE.InstancedBufferAttribute(parts.rising, 1).setUsage(THREE.DynamicDrawUsage);
-  geo.setAttribute("aPart", aPart);
-  geo.setAttribute("aRise", aRise);
-  mesh.computeBoundingSphere();
-  /* The culling sphere takes in the figures' arms past their standing bounds and, as `part` moves them, the farthest of them from
-     its seat. */
-  const rest = mesh.boundingSphere.radius + PAST * big;
-  mesh.boundingSphere.radius = rest;
+
+  /* The mesh: every figure's body and the parts it wears, and nothing it does not, one figure after another in the seats' order.
+     Each corner carries its figure's numbers beside its own place and mark. */
+  const kit = new Map([0, ...Object.values(PART)].map((bit) => [bit, pieces(figure, bit)]).filter(([, piece]) => piece.index.length > 0));
+  /* What a figure wears goes before its body, so a renderer that tests depth before it shades a pixel passes by what of the body
+     its clothes cover. */
+  const wornBy = (i) => [...[...kit.keys()].filter((bit) => bit !== 0 && Math.floor(each.aWear[4 * i] / bit) % 2 === 1), 0];
+  const corners = new Uint32Array(n + 1), faces = new Uint32Array(n + 1);
+  for (let i = 0; i < n; i++) {
+    corners[i + 1] = corners[i]; faces[i + 1] = faces[i];
+    for (const bit of wornBy(i)) { corners[i + 1] += kit.get(bit).position.length / 3; faces[i + 1] += kit.get(bit).index.length; }
+  }
+  const all = corners[n], rows = { position: 3, aMark: 4, color: 3, aPlace: 3, aSize: 4, aFig: 4, aBody: 4, aWear: 4, aCut: 4, aTone: 4, aPart: 4, aRise: 1 };
+  const held = Object.fromEntries(Object.entries(rows).map(([name, size]) => [name, new Float32Array(size * all)]));
+  const index = all > 65535 ? new Uint32Array(faces[n]) : new Uint16Array(faces[n]);
+  for (let i = 0; i < n; i++) {
+    let v = corners[i], f = faces[i];
+    for (const bit of wornBy(i)) {
+      const piece = kit.get(bit);
+      held.position.set(piece.position, 3 * v);
+      held.aMark.set(piece.mark, 4 * v);
+      for (let k = 0; k < piece.index.length; k++) index[f + k] = v + piece.index[k];
+      v += piece.position.length / 3; f += piece.index.length;
+    }
+    for (let k = corners[i]; k < corners[i + 1]; k++) {
+      held.color.set(each.colour.subarray(3 * i, 3 * i + 3), 3 * k);
+      held.aPlace.set(each.aPlace.subarray(3 * i, 3 * i + 3), 3 * k);
+      for (const name of ["aSize", "aFig", "aBody", "aWear", "aCut", "aTone"]) held[name].set(each[name].subarray(4 * i, 4 * i + 4), 4 * k);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  for (const [name, size] of Object.entries(rows)) geo.setAttribute(name, new THREE.BufferAttribute(held[name], size));
+  geo.setIndex(new THREE.BufferAttribute(index, 1));
+  const aPart = geo.getAttribute("aPart").setUsage(THREE.DynamicDrawUsage), aRise = geo.getAttribute("aRise").setUsage(THREE.DynamicDrawUsage);
+  /* What the parting has moved goes to the corners of the figures it moved, and to no others. */
+  const last = new Float32Array(5 * n).fill(NaN);
+  const follow = (whole) => {
+    let moved = false;
+    for (let i = 0; i < n; i++) {
+      const o = parts.offset, x = o[4 * i], y = o[4 * i + 1], z = o[4 * i + 2], w = o[4 * i + 3], r = parts.rising[i];
+      if (last[5 * i] === x && last[5 * i + 1] === y && last[5 * i + 2] === z && last[5 * i + 3] === w && last[5 * i + 4] === r) continue;
+      last[5 * i] = x; last[5 * i + 1] = y; last[5 * i + 2] = z; last[5 * i + 3] = w; last[5 * i + 4] = r;
+      for (let k = corners[i]; k < corners[i + 1]; k++) { held.aPart[4 * k] = x; held.aPart[4 * k + 1] = y; held.aPart[4 * k + 2] = z; held.aPart[4 * k + 3] = w; held.aRise[k] = r; }
+      if (!whole) { aPart.addUpdateRange(4 * corners[i], 4 * (corners[i + 1] - corners[i])); aRise.addUpdateRange(corners[i], corners[i + 1] - corners[i]); }
+      moved = true;
+    }
+    if (!moved) return;
+    /* Ranges wait for the next frame that draws the crowd; past a crowd's worth of them the whole of each goes up instead. */
+    if (aPart.updateRanges.length > n) { aPart.clearUpdateRanges(); aRise.clearUpdateRanges(); }
+    aPart.needsUpdate = true;
+    aRise.needsUpdate = true;
+  };
+  follow(true);
+  const mesh = new THREE.Mesh(geo, mat);
+  /* Each figure's own sphere (its middle and its radius, `each.ball`): the whole figure's, whatever it wears, where it stands, with
+     its arms past their standing bounds. And the mesh's, round them all, which grows as `part` moves the farthest of them from its
+     seat. */
+  figure.computeBoundingSphere();
+  const balls = each.ball, ball = new THREE.Sphere(), place = new THREE.Matrix4(), round = new THREE.Box3();
+  for (let i = 0; i < n; i++) {
+    ball.copy(figure.boundingSphere).applyMatrix4(place.fromArray(each.matrix, 16 * i));
+    balls.set([ball.center.x, ball.center.y, ball.center.z, ball.radius + PAST * big], 4 * i);
+    round.expandByPoint(ball.center);
+  }
+  geo.boundingSphere = new THREE.Sphere();
+  round.getCenter(geo.boundingSphere.center);
+  let rest = 0;
+  for (let i = 0; i < n; i++) rest = Math.max(rest, geo.boundingSphere.center.distanceTo(ball.center.set(balls[4 * i], balls[4 * i + 1], balls[4 * i + 2])) + balls[4 * i + 3]);
+  geo.boundingSphere.radius = rest;
   scene.add(mesh);
 
   /* Poses the crowd for a frame: `beats` is the figures' phase (beat.js); `dance` how far they dance, 0 for standing still; `rise` how
@@ -808,13 +889,38 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false 
   }
 
   /* Moves the figures round the visitor for a frame `dt` s long, the visitor's bear standing with its feet and head at `feet` and `head`
-     (avatar.js), at once under reduced motion; the attributes go up only in a frame where a figure moved or eased its arms. */
+     (avatar.js), at once under reduced motion; the two attributes go up only in a frame where a figure moved or eased its arms, and
+     only at that figure's corners. */
   function part(dt, feet, head, reduced) {
     if (!parts.step(dt, feet, head, reduced)) return;
-    aPart.needsUpdate = true;
-    aRise.needsUpdate = true;
-    mesh.boundingSphere.radius = rest + parts.farthest[0];
+    follow(false);
+    geo.boundingSphere.radius = rest + parts.farthest[0];
   }
 
-  return { mesh, count: n, pose, part, over: parts.over, ahead: parts.ahead, hold: parts.hold, get parted() { return parts.parted; } };
+  /* Draws the first `some` figures, which the seats' order makes the front of the crowd; `shown` is how many are drawn. */
+  let shown = n;
+  function show(some) {
+    shown = Math.max(0, Math.min(n, some));
+    geo.setDrawRange(0, faces[shown]);
+  }
+
+  /* Leaves the crowd out of a frame that shows none of it. three culls a mesh by one sphere round all of it, which a camera that
+     looks past the crowd, or over it, is often inside or facing; here each figure drawn has its own sphere, moved as the parting
+     has moved it, and the mesh is sent to be drawn only when `camera` sees one of them. */
+  const frustum = new THREE.Frustum(), view = new THREE.Matrix4();
+  function cull(camera) {
+    camera.updateMatrixWorld();
+    frustum.setFromProjectionMatrix(view.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), camera.coordinateSystem, camera.reversedDepth);
+    let seen = false;
+    for (let i = 0; i < shown && !seen; i++) {
+      ball.center.set(balls[4 * i] + parts.offset[4 * i], balls[4 * i + 1] + parts.offset[4 * i + 1], balls[4 * i + 2] + parts.offset[4 * i + 2]);
+      ball.radius = balls[4 * i + 3];
+      seen = frustum.intersectsSphere(ball);
+    }
+    mesh.visible = seen;
+    return seen;
+  }
+
+  return { mesh, each, figure, corners, faces, count: n, get shown() { return shown; }, pose, part, show, cull, over: parts.over, ahead: parts.ahead, hold: parts.hold,
+    get parted() { return parts.parted; } };
 }

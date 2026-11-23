@@ -18,7 +18,7 @@ import { keepOuts, PERSON } from "../../../public/world/seats.js";
 
 type Around = { path: number[][]; line: number[][]; landmarks: number[][] };
 type Seat = { x: number; z: number; r: number; sit: boolean };
-const kept = vi.hoisted(() => ({ around: [] as Around[], options: [] as Record<string, unknown>[], placed: [] as Seat[][] }));
+const kept = vi.hoisted(() => ({ around: [] as Around[], options: [] as Record<string, unknown>[], placed: [] as Seat[][], idle: false }));
 
 vi.mock("../../../public/world/seats.js", async (original) => {
   const seats = await original<{
@@ -34,7 +34,9 @@ vi.mock("../../../public/world/seats.js", async (original) => {
     parting: (placed: Seat[], options: Record<string, unknown>) => {
       kept.options.push(options);
       kept.placed.push(placed);
-      return seats.parting(placed, options);
+      // While `idle` is set, a parting that says each step that something changed, and changes nothing.
+      const made = seats.parting(placed, options) as object;
+      return kept.idle ? Object.assign(Object.create(made), { step: () => true }) : made;
     },
   };
 });
@@ -68,11 +70,11 @@ const placedOf = new Map([crowd, phone, hills[1], hills[2]].map((c, k) => [c, ke
 // main.js places them, and the crowd among them as a desktop draws it and as a phone does. The fixed day's second set opens at track
 // 7; the maps do not say where another show's does, so it is taken to open partway, as trees.test.ts takes it.
 const MAPS = new URL("../../../public/maps/", import.meta.url), FIXED = "1986-07-04";
-function crowdOf(date: string, small = false): typeof crowd {
+function crowdOf(date: string, small = false, count = small ? 150 : 350): typeof crowd {
   const map = JSON.parse(readFileSync(new URL(`${date}.json`, MAPS), "utf8")) as { tracks: { title: string; playingDuration: number }[] };
   const tracks = map.tracks.map((t) => ({ title: t.title, duration: t.playingDuration }));
   const raised = placeLandmarks(new THREE.Scene(), path, tracks, true, makeBuilders(small), layout(tracks, date === FIXED ? 7 : Math.floor(tracks.length * 0.45), path), line);
-  return buildCrowd(new THREE.Scene(), { count: small ? 150 : 350, path, line, landmarks: raised, plain: small });
+  return buildCrowd(new THREE.Scene(), { count, path, line, landmarks: raised, plain: small });
 }
 const SHOWS = [FIXED, "1970-08-30", "1990-12-09"].map((date) => ({ date, desktop: crowdOf(date), phone: crowdOf(date, true) }));
 const peopleOf = (c: typeof crowd) => people(placedOf.get(c)!);
@@ -82,7 +84,7 @@ const peopleOf = (c: typeof crowd) => people(placedOf.get(c)!);
 const matrix = new THREE.Matrix4(), at = new THREE.Vector3(), size = new THREE.Vector3();
 const seats: [number, number][] = [], scales: number[] = [];
 for (let i = 0; i < crowd.count; i++) {
-  crowd.mesh.getMatrixAt(i, matrix);
+  matrix.fromArray(crowd.each.matrix, 16 * i);
   at.setFromMatrixPosition(matrix);
   seats.push([at.x, at.z]);
   scales.push(size.setFromMatrixScale(matrix).y);
@@ -90,7 +92,7 @@ for (let i = 0; i < crowd.count; i++) {
 const scale = PERSON / TALL, BIG = scale * 1.08;
 const own: Record<string, number> = partingOptions(scale);
 // Where the parting has stepped each figure from its seat, [dx, dy, dz, stillness] each.
-const offset: Float32Array = crowd.mesh.geometry.getAttribute("aPart").array;
+const offset: Float32Array = crowd.each.offset;
 
 // Walks the visitor `frames` frames from `[x, z]` along `[wx, wz]`, a unit vector, at 12 m/s: 0.2 m a frame of 1/60 s, held as main.js
 // holds the walker (the crowd's hold before the step, its part after it), their bear's head 0.8 m ahead of its feet (avatar.js). After
@@ -138,7 +140,7 @@ const asJs = (glsl: string) =>
   new Function(...Object.keys(GLSL), `return function (${READS.join(", ")}) {${glsl.replace(/\b(?:float|bool)\s+/g, "let ")}\n};`)(...Object.values(GLSL)) as (...reads: unknown[]) => void;
 const runDance = asJs(dance), runTones = asJs(tones);
 
-// A vertex of the figure, with its marks; a figure, with the numbers its instance carries and its scale across and up, in metres a
+// A vertex of the figure, with its marks; a figure, with the numbers its corners carry and its scale across and up, in metres a
 // unit; and a pose: the phase in beats, how far the crowd dances, the build-up and the sit as main.js gives them, how still the
 // parting holds the figure (aPart.w) and how far it lets its arms rise (aRise).
 type Vertex = { x: number; y: number; z: number; mark: Vec };
@@ -155,14 +157,14 @@ function verticesOf(geo: { getAttribute(name: string): { count: number; getX(i: 
   }
   return [...seen.values()];
 }
+// A figure's row of four in one of the crowd's own arrays (`each`), a figure to a row.
+const row = (array: Float32Array, i: number): Vec => ({ x: array[4 * i], y: array[4 * i + 1], z: array[4 * i + 2], w: array[4 * i + 3] });
 function figuresOf(c: typeof crowd): Figure[] {
-  const geo = c.mesh.geometry, color = new THREE.Color();
+  const e = c.each;
   return Array.from({ length: c.count }, (_, i) => {
-    c.mesh.getMatrixAt(i, matrix);
-    size.setFromMatrixScale(matrix);
-    c.mesh.getColorAt(i, color);
-    return { i, across: size.x, up: size.y, fig: vec(geo.getAttribute("aFig"), i), body: vec(geo.getAttribute("aBody"), i), wear: vec(geo.getAttribute("aWear"), i),
-      cut: vec(geo.getAttribute("aCut"), i), tone: vec(geo.getAttribute("aTone"), i), top: { r: color.r, g: color.g, b: color.b } };
+    size.setFromMatrixScale(matrix.fromArray(e.matrix, 16 * i));
+    return { i, across: size.x, up: size.y, fig: row(e.aFig, i), body: row(e.aBody, i), wear: row(e.aWear, i), cut: row(e.aCut, i), tone: row(e.aTone, i),
+      top: { r: e.colour[3 * i], g: e.colour[3 * i + 1], b: e.colour[3 * i + 2] } };
   });
 }
 const wears = (f: Figure, v: Vertex) => v.mark.y === 0 || Math.floor(f.wear.x / v.mark.y) % 2 === 1;
@@ -186,7 +188,7 @@ function beatsOf(f: Figure) {
   for (const k of [0, 2, 4, 6]) beats.push(k - 8 * f.fig.y);
   return beats.map((b) => ((b % CYCLE) + CYCLE) % CYCLE);
 }
-const rich = verticesOf(crowd.mesh.geometry), plain = verticesOf(phone.mesh.geometry);
+const rich = verticesOf(crowd.figure), plain = verticesOf(phone.figure);
 const figures = figuresOf(crowd), phones = figuresOf(phone);
 const moveOf = (f: Figure) => MOVES[f.wear.y % 8];
 // Relative luminance of a linear colour.
@@ -257,39 +259,186 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect(inside.map(([name, d]) => `${name}: ${(-d).toFixed(3)} m inside`)).toEqual([]);
   });
 
-  it("is one mesh in one draw call: one instanced mesh of one geometry in one piece, on one material, with a seat for each figure", () => {
+  it("is one mesh in one draw call, of one geometry in one piece on one material, that holds each figure's body and the parts it wears and nothing it does not", () => {
     // A second mesh, a second material or a group in the geometry would each be a draw call more a frame (CLAUDE.md, draw calls).
     expect(scene.children).toEqual([crowd.mesh]);
-    expect(crowd.mesh.isInstancedMesh).toBe(true);
+    expect([crowd.mesh.isMesh, crowd.mesh.isInstancedMesh ?? false]).toEqual([true, false]);
     expect(crowd.mesh.children).toEqual([]);
     expect(Array.isArray(crowd.mesh.material)).toBe(false);
     expect(crowd.mesh.geometry.groups).toEqual([]);
-    expect(crowd.mesh.geometry.index).toBeNull();
-    expect(crowd.mesh.count).toBe(crowd.count);
     expect(crowd.count).toBe(placedOf.get(crowd)!.length);
     expect(phone.count).toBe(150);
+    // A frame's cost goes with the triangles sent to be drawn, so the mesh holds no part that its figure does not wear: an instance
+    // of the whole figure sent 1,117 triangles to show 513 of them. Figure by figure, on a desktop and on a phone: its corners are
+    // those of its body and of each part it wears, each once, and every one of them carries the figure's own numbers; its faces are
+    // those parts' faces, every one and no other, between its own corners; and what it wears is drawn before its body, so that a
+    // renderer that tests depth first shades nothing of the body that its clothes cover.
+    const key = (x: number, y: number, z: number, m: Vec) => [x, y, z, m.x, m.y, m.z, m.w].join();
+    for (const [c, list] of [[crowd, figures], [phone, phones]] as const) {
+      const geo = c.mesh.geometry, e = c.each, position = geo.getAttribute("position"), mark = geo.getAttribute("aMark"), index = geo.index;
+      const own = c.figure.getAttribute("position"), marks = c.figure.getAttribute("aMark"), facesOf = new Map<number, string[]>();
+      for (let t = 0; t < own.count; t += 3) {
+        const face = [0, 1, 2].map((k) => key(own.getX(t + k), own.getY(t + k), own.getZ(t + k), vec(marks, t + k))).join("|");
+        facesOf.set(marks.getY(t), [...(facesOf.get(marks.getY(t)) ?? []), face]);
+      }
+      expect([c.corners.length, c.faces.length, c.corners[0], c.faces[0]]).toEqual([c.count + 1, c.count + 1, 0, 0]);
+      expect([position.count, index.count]).toEqual([c.corners[c.count], c.faces[c.count]]);
+      const wrong = { corners: 0, numbers: 0, faces: 0, outside: 0, order: 0 };
+      const rows: [string, Float32Array, number][] = [["aFig", e.aFig, 4], ["aBody", e.aBody, 4], ["aWear", e.aWear, 4], ["aCut", e.aCut, 4], ["aTone", e.aTone, 4], ["aSize", e.aSize, 4],
+        ["aPlace", e.aPlace, 3], ["color", e.colour, 3], ["aPart", e.offset, 4], ["aRise", e.rising, 1]];
+      for (const f of list) {
+        const from = c.corners[f.i], to = c.corners[f.i + 1], seen = new Set<string>();
+        for (let k = from; k < to; k++) {
+          seen.add(key(position.getX(k), position.getY(k), position.getZ(k), vec(mark, k)));
+          for (const [name, array, size] of rows) for (let q = 0; q < size; q++) if (geo.getAttribute(name).array[size * k + q] !== array[size * f.i + q]) wrong.numbers += 1;
+        }
+        if (seen.size !== to - from) wrong.corners += 1;
+        const worn = [...facesOf.keys()].filter((bit) => bit === 0 || Math.floor(f.wear.x / bit) % 2 === 1), drawn: string[] = [];
+        let body = -1, last = -1;
+        for (let t = c.faces[f.i]; t < c.faces[f.i + 1]; t += 3) {
+          const ks = [0, 1, 2].map((q) => index.getX(t + q) as number);
+          if (!ks.every((k) => k >= from && k < to)) wrong.outside += 1;
+          drawn.push(ks.map((k) => key(position.getX(k), position.getY(k), position.getZ(k), vec(mark, k))).join("|"));
+          if (mark.getY(ks[0]) === 0) { if (body < 0) body = t; } else last = t;
+        }
+        if (drawn.sort().join(" ") !== worn.flatMap((bit) => facesOf.get(bit)!).sort().join(" ")) wrong.faces += 1;
+        if (body < 0 || last > body) wrong.order += 1;
+      }
+      expect(wrong).toEqual({ corners: 0, numbers: 0, faces: 0, outside: 0, order: 0 });
+      // So the mesh is the triangles its figures wear, and far fewer corners than three to a triangle.
+      const wornFaces = list.reduce((sum, f) => sum + [...facesOf.keys()].filter((bit) => bit === 0 || Math.floor(f.wear.x / bit) % 2 === 1).reduce((n, bit) => n + facesOf.get(bit)!.length, 0), 0);
+      expect(index.count / 3).toBe(wornFaces);
+      expect(position.count).toBeLessThan(0.8 * (index.count / 3));
+    }
   });
 
-  it("needs 15 of the 16 vertex attribute slots a WebGL program is sure of, so the next attribute anyone gives the crowd is the last", () => {
+  it("stands each corner where its figure's matrix would, turned, sized and set at its seat, and stepped where the parting has stepped the figure", () => {
+    // The mesh is not instanced, so no matrix places a figure: each corner carries its figure's seat, its breadth and height and its
+    // turn, and the shader's own two lines put it there. They are run here against the matrix buildCrowd made of the same numbers.
+    const placing = compiled.vertexShader.slice(compiled.vertexShader.indexOf("float wide ="), compiled.vertexShader.indexOf("vec4 mvPosition"));
+    expect(placing.split(";").length).toBe(3);
+    expect(compiled.vertexShader).toContain("vec4 mvPosition = modelViewMatrix * vec4(putX, putY, putZ, 1.0);");
+    expect(compiled.vertexShader).not.toContain("#include <project_vertex>");
+    const place = new Function("transformed", "aSize", "aPlace", "aPart", `${placing.replace(/\bfloat\s+/g, "let ")}\nreturn [putX, putY, putZ];`) as (...reads: unknown[]) => number[];
+    const e = crowd.each, want = new THREE.Vector3();
+    let off = 0, looked = 0;
+    for (const f of figures.filter((_, k) => k % 4 === 0)) for (const v of rich.filter((_, k) => k % 7 === 0)) for (const stepped of [{ x: 0, y: 0, z: 0, w: 0 }, { x: 0.7, y: -0.1, z: -0.4, w: 1 }]) {
+      const got = place(v, row(e.aSize, f.i), { x: e.aPlace[3 * f.i], y: e.aPlace[3 * f.i + 1], z: e.aPlace[3 * f.i + 2] }, stepped);
+      want.set(v.x, v.y, v.z).applyMatrix4(matrix.fromArray(e.matrix, 16 * f.i));
+      off = Math.max(off, Math.abs(got[0] - want.x - stepped.x), Math.abs(got[1] - want.y - stepped.y), Math.abs(got[2] - want.z - stepped.z));
+      looked += 1;
+    }
+    expect(looked).toBeGreaterThan(10000);
+    // To a hundredth of a millimetre: the numbers are single floats of places some tens of metres from the island's middle.
+    expect(off).toBeLessThan(1e-5);
+  });
+
+  it("draws the front of the crowd when asked for fewer figures, and is left out of a frame that has none of its figures in view", () => {
+    // The seats run front first, so the first figures are the front rows: the quality ladder's half crowd (main.js) is the
+    // mesh's first faces, up to the last of the figure that ends the half.
+    const geo = crowd.mesh.geometry, half = Math.ceil(crowd.count / 2);
+    expect([crowd.shown, geo.drawRange.start, geo.drawRange.count]).toEqual([crowd.count, 0, Infinity]);
+    crowd.show(half);
+    expect([crowd.shown, geo.drawRange.start, geo.drawRange.count]).toEqual([half, 0, crowd.faces[half]]);
+    expect(crowd.faces[half]).toBeGreaterThan(0.4 * crowd.faces[crowd.count]);
+    expect(crowd.faces[half]).toBeLessThan(0.6 * crowd.faces[crowd.count]);
+    // three culls a mesh by one sphere round all of it, which is about the crowd's own breadth across: a camera at its edge that
+    // looks away from it, or one over it that looks up, has that sphere in view and no figure. Each figure has its own sphere here.
+    const camera = new THREE.PerspectiveCamera(55, 1.6, 0.3, 600), middle = new THREE.Vector3();
+    for (const [x, z] of seats) middle.add(at.set(x, height(x, z), z));
+    middle.divideScalar(seats.length);
+    const look = (from: number[], to: number[]) => { camera.position.set(from[0], from[1], from[2]); camera.lookAt(to[0], to[1], to[2]); return crowd.cull(camera) as boolean; };
+    const out = Math.max(...seats.map(([x, z]) => (x - STAGE[0]) * ux + (z - STAGE[1]) * uz)) + 12;
+    const sphere = geo.boundingSphere, behind = [STAGE[0] + out * ux, height(STAGE[0] + out * ux, STAGE[1] + out * uz) + 6, STAGE[1] + out * uz];
+    expect(sphere.radius).toBeGreaterThan(15);
+    expect(look(behind, [STAGE[0], 0, STAGE[1]])).toBe(true);
+    expect(crowd.mesh.visible).toBe(true);
+    // From the same place, turned round: the sphere round all the crowd is still within the view's sides or behind it, no figure is.
+    expect(look(behind, [STAGE[0] + 200 * ux, 0, STAGE[1] + 200 * uz])).toBe(false);
+    expect(crowd.mesh.visible).toBe(false);
+    // From 12 m over the crowd's own middle looking straight up: inside that sphere, and no figure in view.
+    expect(look([middle.x, middle.y + 12, middle.z], [middle.x + 0.01, middle.y + 60, middle.z])).toBe(false);
+    const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    expect(frustum.intersectsSphere(sphere)).toBe(true);
+    // A figure's own sphere holds every corner it wears through every pose, with room: at the dance's most, its arms up at the
+    // build-up's peak, and seated. And the mesh's sphere, which three culls it by, holds every figure's, and grows by as far as
+    // the parting has stepped the farthest figure from its seat.
+    const ball: Float32Array = crowd.each.ball, where = new THREE.Vector3();
+    let out2 = -Infinity, loose = -Infinity, looked = 0;
+    for (const f of figures.filter((_, k) => k % 3 === 0)) {
+      matrix.fromArray(crowd.each.matrix, 16 * f.i);
+      for (const v of rich.filter((v) => wears(f, v))) for (const pose of [{ beat: 0.5, dance: 1.6 }, { beat: 2.2, dance: 1.6, rise: 1 }, { beat: 1.1, dance: 1.6, sit: 1 }]) {
+        const p = put(f, v, pose);
+        where.set(p.x, p.y, p.z).applyMatrix4(matrix);
+        out2 = Math.max(out2, Math.hypot(where.x - ball[4 * f.i], where.y - ball[4 * f.i + 1], where.z - ball[4 * f.i + 2]) - ball[4 * f.i + 3]);
+        looked += 1;
+      }
+      loose = Math.max(loose, Math.hypot(ball[4 * f.i] - sphere.center.x, ball[4 * f.i + 1] - sphere.center.y, ball[4 * f.i + 2] - sphere.center.z) + ball[4 * f.i + 3] - sphere.radius);
+    }
+    expect(looked).toBeGreaterThan(70000);
+    // The nearest any corner comes to its figure's sphere is 0.19 m inside it: a hand, up at the build-up's peak.
+    expect(out2).toBeLessThan(-0.1);
+    expect(out2).toBeGreaterThan(-0.5);
+    expect(loose).toBeLessThanOrEqual(1e-9);
+    // As it is built, before any step of the parting: a crowd nothing has walked through. Its sphere holds every figure's, and is
+    // no larger than the farthest of them needs.
+    const fresh = hills[2], round = fresh.mesh.geometry.boundingSphere, balls: Float32Array = fresh.each.ball;
+    const reach = Array.from({ length: fresh.count }, (_, i) => Math.hypot(balls[4 * i] - round.center.x, balls[4 * i + 1] - round.center.y, balls[4 * i + 2] - round.center.z) + balls[4 * i + 3]);
+    expect(fresh.count).toBeGreaterThan(200);
+    expect(round.radius).toBeCloseTo(Math.max(...reach), 9);
+    expect(round.radius).toBeGreaterThan(15);
+    const farthest = () => Math.max(...figures.map((f) => Math.hypot(offset[4 * f.i], offset[4 * f.i + 1], offset[4 * f.i + 2])));
+    const atRest = sphere.radius - farthest();
+    walk([seats[0][0] + 3, seats[0][1]], [-1, 0], 20, () => {});
+    expect(farthest()).toBeGreaterThan(1);
+    expect(sphere.radius).toBeCloseTo(atRest + farthest(), 5);
+    const walked = farthest();
+    crowd.part(0, { x: 0, z: 0 }, { x: 0.8, z: 0 }, true);
+    expect(farthest()).not.toBe(walked);
+    expect(sphere.radius).toBeCloseTo(atRest + farthest(), 5);
+    // Only the figures that are drawn count, each where the parting has stepped it. With the first figure alone drawn: a camera
+    // 3 m behind it sees it, and turned round sees nothing that is drawn, though the rest of the crowd stands there.
+    const [x0, z0] = seats[0], y0 = height(x0, z0) + 1.2, near = [x0 + 3 * ux, y0, z0 + 3 * uz], away = [x0 + 60 * ux, y0, z0 + 60 * uz];
+    crowd.show(1);
+    expect([look(near, [x0, y0, z0]), look(near, away)]).toEqual([true, false]);
+    // Stepped 40 m to the side, it is seen there and not at its seat.
+    const stepped = [x0 + 40 * nx, y0, z0 + 40 * nz], was = [offset[0], offset[1], offset[2]];
+    offset[0] += 40 * nx; offset[2] += 40 * nz;
+    expect([look(near, [x0, y0, z0]), look([stepped[0] + 3 * ux, y0, stepped[2] + 3 * uz], stepped)]).toEqual([false, true]);
+    [offset[0], offset[1], offset[2]] = was;
+    crowd.show(0);
+    expect([crowd.shown, look(behind, [STAGE[0], 0, STAGE[1]])]).toEqual([0, false]);
+    crowd.show(crowd.count + 50);
+    expect([crowd.shown, geo.drawRange.count, look(near, away)]).toEqual([crowd.count, crowd.faces[crowd.count], true]);
+    crowd.cull(camera);
+  });
+
+  it("needs 13 of the 16 vertex attribute slots a WebGL program is sure of, and holds 168 bytes to a corner", () => {
     // WebGL promises a program 16 attribute slots and no more, and a program that asks for a 17th does not link: the crowd would not
     // draw at all on a device that gives only what is promised. What the crowd's own shader declares, a slot each:
     const declared = [...compiled.vertexShader.split("#include <common>")[1].split("#include <")[0].matchAll(/attribute (float|vec[234]|mat[234]) (\w+);/g)]
       .map(([, type, name]) => ({ name, slots: type.startsWith("mat") ? Number(type[3]) : 1 }));
-    expect(declared.map((d) => d.name).sort()).toEqual(["aBody", "aCut", "aFig", "aMark", "aPart", "aRise", "aTone", "aWear"]);
-    // And three's own for an instanced mesh with a colour to each instance: a corner's place, its normal, the instance's matrix, four
-    // slots, and its colour. three's Lambert vertex shader reads `normal` whatever the shading (beginnormal_vertex), so the linked
-    // program keeps its slot though the flat-shaded crowd lights no face by it and its geometry carries none: Chromium's linked
-    // program lists it, on a desktop and on a phone.
+    expect(declared.map((d) => d.name).sort()).toEqual(["aBody", "aCut", "aFig", "aMark", "aPart", "aPlace", "aRise", "aSize", "aTone", "aWear"]);
+    // And three's own for a mesh with a colour to each corner: a corner's place, its normal and its colour. three's Lambert vertex
+    // shader reads `normal` whatever the shading (beginnormal_vertex), so a linked program may keep its slot though the flat-shaded
+    // crowd lights no face by it and its geometry carries none.
     expect(compiled.vertexShader).toContain("#include <beginnormal_vertex>");
     expect(THREE.ShaderChunk.beginnormal_vertex).toContain("vec3( normal )");
-    expect(crowd.mesh.instanceMatrix.itemSize).toBe(16);
-    expect(crowd.mesh.instanceColor.itemSize).toBe(3);
-    const threes = { position: 1, normal: 1, instanceMatrix: 4, instanceColor: 1 };
+    const threes = { position: 1, normal: 1, color: 1 };
     const slots = declared.reduce((sum, d) => sum + d.slots, 0) + Object.values(threes).reduce((sum, n) => sum + n, 0);
-    expect(slots).toBe(15);
+    expect(slots).toBe(13);
     expect(slots).toBeLessThanOrEqual(16);
-    // The geometry holds what the shader declares and each corner's place, and nothing else: no normal, no texture coordinates.
-    for (const c of [crowd, phone]) expect(Object.keys(c.mesh.geometry.attributes).sort()).toEqual([...declared.map((d) => d.name), "position"].sort());
+    // The geometry holds what the shader declares, each corner's place and its colour, and nothing else: no normal, no texture
+    // coordinates. Every corner repeats its figure's numbers, which is what one mesh of what is worn costs: 42 numbers, 168 bytes.
+    for (const c of [crowd, phone]) {
+      const attributes = c.mesh.geometry.attributes as Record<string, { itemSize: number; array: Float32Array; isInstancedBufferAttribute?: boolean }>;
+      expect(Object.keys(attributes).sort()).toEqual([...declared.map((d) => d.name), "position", "color"].sort());
+      expect(Object.values(attributes).every((a) => a.array instanceof Float32Array && !a.isInstancedBufferAttribute)).toBe(true);
+      expect(Object.values(attributes).reduce((sum, a) => sum + 4 * a.itemSize, 0)).toBe(168);
+    }
+    // A phone's 150 figures fit a two-byte index, which a desktop's 292 do not.
+    expect([phone.mesh.geometry.index.array.constructor.name, crowd.mesh.geometry.index.array.constructor.name]).toEqual(["Uint16Array", "Uint32Array"]);
+    expect(phone.mesh.geometry.getAttribute("position").count).toBeLessThanOrEqual(65535);
     expect(Object.keys(figureGeometry().attributes).sort()).toEqual(["aMark", "position"]);
   });
 
@@ -300,7 +449,8 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect(material.isMeshLambertMaterial).toBe(true);
     expect([material.transparent, material.opacity, material.depthWrite, material.depthTest, material.blending]).toEqual([false, 1, true, true, THREE.NormalBlending]);
     expect([material.emissive.getHex(), material.map, material.emissiveMap, material.lightMap, material.envMap, material.alphaMap]).toEqual([0, null, null, null, null, null]);
-    expect([material.fog, material.flatShading, material.vertexColors, material.side]).toEqual([true, true, false, THREE.FrontSide]);
+    // A corner's colour is its figure's top's, which the shader replaces on every face that is not the top's (below).
+    expect([material.fog, material.flatShading, material.vertexColors, material.side]).toEqual([true, true, true, THREE.FrontSide]);
     // main.js sets the mesh's render order, after the rig's (main.test.ts); buildCrowd leaves it alone.
     expect(crowd.mesh.renderOrder).toBe(0);
     expect(compiled.fragmentShader).toBe(THREE.ShaderLib.lambert.fragmentShader);
@@ -310,30 +460,63 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect([...new Set(written.filter((name) => !names.has(name)))].sort()).toEqual(["transformed", "vColor"]);
   });
 
-  it("draws a frame from four numbers, and sends the parting's two attributes up only in a frame where a figure moved: nothing is made anew", () => {
-    const geo = crowd.mesh.geometry, held = ["aFig", "aBody", "aWear", "aCut", "aTone", "aMark", "position", "aPart", "aRise"];
-    const before = held.map((name) => geo.getAttribute(name)), arrays = before.map((a) => a.array), versions = () => held.map((name) => geo.getAttribute(name).version);
-    const uniforms = { ...compiled.uniforms }, matrices = crowd.mesh.instanceMatrix.version;
-    // The visitor stands far from the crowd: 60 frames of dancing move no figure.
+  it("draws a frame from four numbers, and sends up the parting's two attributes only in a frame where a figure moved, and only at that figure's corners", () => {
+    const geo = crowd.mesh.geometry, fixed = ["aFig", "aBody", "aWear", "aCut", "aTone", "aMark", "position", "aPlace", "aSize", "color"], held = [...fixed, "aPart", "aRise"];
+    const before = held.map((name) => geo.getAttribute(name)), arrays = before.map((a) => a.array), versions = () => [...held.map((name) => geo.getAttribute(name).version), geo.index.version];
+    const uniforms = { ...compiled.uniforms }, aPart = geo.getAttribute("aPart"), aRise = geo.getAttribute("aRise");
+    // The visitor stands far from the crowd: 60 frames of dancing move no figure, and nothing at all goes up.
     const far = { x: 0, z: 0 }, was = versions();
     crowd.part(0, far, { x: 0.8, z: 0 }, false);
     const settled = versions();
     for (let f = 0; f < 60; f++) { crowd.pose(f / 30, 1.2, 0.4, 0); crowd.part(1 / 60, far, { x: 0.8, z: 0 }, false); }
     expect(versions()).toEqual(settled);
-    expect(settled.slice(0, 7)).toEqual(was.slice(0, 7));
-    expect(held.map((name) => geo.getAttribute(name))).toEqual(before);
-    expect(held.map((name) => geo.getAttribute(name).array)).toEqual(arrays);
-    expect(crowd.mesh.instanceMatrix.version).toBe(matrices);
+    expect([...settled.slice(0, fixed.length), settled[held.length]]).toEqual([...was.slice(0, fixed.length), was[held.length]]);
+    // The same attributes on the same arrays, each the very one it was.
+    expect(held.map((name, k) => geo.getAttribute(name) === before[k] && geo.getAttribute(name).array === arrays[k])).toEqual(held.map(() => true));
     for (const name of ["uBeat", "uDance", "uRise", "uSit"]) expect(compiled.uniforms[name]).toBe(uniforms[name]);
     // The phase is kept to CYCLE beats, and the rest are passed as they come.
     crowd.pose(3 * CYCLE + 2.5, 1.2, 0.4, 0.7);
     expect(["uBeat", "uDance", "uRise", "uSit"].map((name) => compiled.uniforms[name].value)).toEqual([2.5, 1.2, 0.4, 0.7]);
-    // Among the crowd a figure steps aside, and only the parting's two go up.
-    const [x, z] = seats[0], stepped = versions();
-    crowd.part(1 / 60, { x: x + 1, z }, { x: x + 1.8, z }, false);
-    const after = versions();
-    expect(after.slice(0, 7)).toEqual(stepped.slice(0, 7));
-    expect(after[7]).toBeGreaterThan(stepped[7]);
+    // Among the crowd figures step aside, and only the parting's two go up: at the corners of the figures that moved or eased their
+    // arms in that frame, and at no other corner of the hundred thousand. A renderer takes the ranges and forgets them; so here.
+    const [x, z] = seats[0], rising: Float32Array = crowd.each.rising;
+    let frames = 0;
+    for (let f = 0; f < 12; f++) {
+      aPart.clearUpdateRanges(); aRise.clearUpdateRanges();
+      const stepped = versions(), had = [offset.slice(), rising.slice()];
+      crowd.part(1 / 60, { x: x + 2.5 - 0.2 * f, z }, { x: x + 3.3 - 0.2 * f, z }, false);
+      const after = versions(), movedNow = figures.filter((g) => [0, 1, 2, 3].some((q) => offset[4 * g.i + q] !== had[0][4 * g.i + q]) || rising[g.i] !== had[1][g.i]).map((g) => g.i);
+      expect(movedNow.length).toBeLessThan(crowd.count / 4);
+      expect([...after.slice(0, fixed.length), after[held.length]]).toEqual([...stepped.slice(0, fixed.length), stepped[held.length]]);
+      expect([after[fixed.length] > stepped[fixed.length], after[fixed.length + 1] > stepped[fixed.length + 1]]).toEqual([movedNow.length > 0, movedNow.length > 0]);
+      const sent = (attribute: { updateRanges: { start: number; count: number }[] }, size: number) => attribute.updateRanges.map((r) => [r.start / size, r.count / size]).sort((a, b) => a[0] - b[0]);
+      const want = movedNow.map((i) => [crowd.corners[i], crowd.corners[i + 1] - crowd.corners[i]]);
+      expect(sent(aPart, 4)).toEqual(want);
+      expect(sent(aRise, 1)).toEqual(want);
+      if (movedNow.length > 0) frames += 1;
+    }
+    expect(frames).toBeGreaterThan(6);
+    // And every corner of every figure holds its figure's step, moved or not.
+    let stale = 0;
+    for (const g of figures) for (let k = crowd.corners[g.i]; k < crowd.corners[g.i + 1]; k++) {
+      if ([0, 1, 2, 3].some((q) => aPart.array[4 * k + q] !== offset[4 * g.i + q]) || aRise.array[k] !== rising[g.i]) stale += 1;
+    }
+    expect(stale).toBe(0);
+    // Ranges that no frame takes, as when the crowd is not in view, do not pile up: past a crowd's worth of them, the next frame
+    // that moves a figure sends the whole of each up instead, which is what no ranges means.
+    for (let k = 0; k <= crowd.count; k++) { aPart.addUpdateRange(0, 4); aRise.addUpdateRange(0, 1); }
+    const piled = versions()[fixed.length];
+    for (let f = 0; f < 30 && versions()[fixed.length] === piled; f++) crowd.part(1 / 60, { x: x + (f % 2 ? 1.5 : -1.5), z }, { x: x + (f % 2 ? 2.3 : -0.7), z }, false);
+    expect(versions()[fixed.length]).toBeGreaterThan(piled);
+    expect([aPart.updateRanges.length, aRise.updateRanges.length]).toEqual([0, 0]);
+    // And a step that says something changed while no figure's own numbers did sends nothing up: with no ranges, the whole of each
+    // attribute would go.
+    kept.idle = true;
+    const idle = buildCrowd(new THREE.Scene(), { count: 40, path, line, landmarks: [] });
+    kept.idle = false;
+    const own = ["aPart", "aRise"].map((name) => idle.mesh.geometry.getAttribute(name)), made = own.map((a) => a.version);
+    for (let f = 0; f < 3; f++) idle.part(1 / 60, far, { x: 0.8, z: 0 }, false);
+    expect(own.map((a) => [a.version, a.updateRanges.length])).toEqual(made.map((v) => [v, 0]));
     crowd.part(0, far, { x: 0.8, z: 0 }, true);
   });
 });
@@ -400,32 +583,33 @@ describe("the figure, as figureGeometry builds it", () => {
     expect(bits.reduce((sum, b) => sum + b, 0)).toBeLessThan(2 ** 24);
   });
 
-  it("is 1,117 triangles on a desktop and 729 on a phone, whose figure leaves out seven parts and keeps the rest", () => {
-    // The figure's triangles are drawn for every figure of the crowd, worn or folded away, so the whole crowd's are these times the
-    // tier's figures: 390,950 at a desktop's 350, 182,250 at a TV's 250 and 109,350 at a phone's 150.
+  it("is 1,101 triangles on a desktop and 713 on a phone, whose figure leaves out seven parts and keeps the rest, and a crowd draws of them only what its figures wear", () => {
     const lean = figureGeometry(true);
     expect([geo.index, lean.index]).toEqual([null, null]);
-    expect([n / 3, lean.getAttribute("position").count / 3]).toEqual([1117, 729]);
-    // A tier's whole crowd, at the most figures its budget seats (quality.js), stays under its cap: 400,000 triangles on a desktop,
-    // 185,000 on a TV and 110,000 on a phone, whose crowd was 66,000 before its figures differed.
-    // budgetFor reads the window's pixel ratio for a desktop's.
-    vi.stubGlobal("window", { devicePixelRatio: 1 });
-    const whole = Object.fromEntries(["desktop", "tv", "phone"].map((tier) => [tier, (budgetFor(tier) as { crowd: number }).crowd * (tier === "desktop" ? n / 3 : 729)]));
-    vi.unstubAllGlobals();
-    expect(whole).toEqual({ desktop: 390950, tv: 182250, phone: 109350 });
-    expect(whole.desktop).toBeLessThanOrEqual(400000);
-    expect(whole.tv).toBeLessThanOrEqual(185000);
-    expect(whole.phone).toBeLessThanOrEqual(110000);
+    expect([n / 3, lean.getAttribute("position").count / 3]).toEqual([1101, 713]);
     // And those are the figures the crowds are built of: a desktop's whole, a phone's plain.
-    expect([crowd.mesh.geometry.getAttribute("position").count / 3, phone.mesh.geometry.getAttribute("position").count / 3]).toEqual([1117, 729]);
-    expect(n / 3).toBeLessThanOrEqual(1150);
-    expect(lean.getAttribute("position").count / 3).toBeLessThanOrEqual(750);
+    expect([crowd.figure.getAttribute("position").count / 3, phone.figure.getAttribute("position").count / 3]).toEqual([1101, 713]);
     const leanBits = new Set(Array.from({ length: lean.getAttribute("aMark").count }, (_, i) => lean.getAttribute("aMark").getY(i) as number));
     const left = Object.entries(PART).filter(([, b]) => !leanBits.has(b as number)).map(([name]) => name);
     expect(left.sort()).toEqual([...PLAIN_LEAVES_OUT].sort());
-    // The body is the same on both.
+    // The body is the same on both: 372 triangles, the torso's two lids gone, which stood inside the hips and under the shoulders.
     const bodyOf = (g: typeof geo) => Array.from({ length: g.getAttribute("position").count }, (_, i) => i).filter((i) => g.getAttribute("aMark").getY(i) === 0).length / 3;
-    expect([bodyOf(geo), bodyOf(lean)]).toEqual([388, 388]);
+    expect([bodyOf(geo), bodyOf(lean)]).toEqual([372, 372]);
+    // A frame's cost goes with the triangles sent to be drawn, and the figure every figure was before its people differed was 440
+    // of them. A crowd sends only what its figures wear: on the hills of 1986-07-04, 1970-08-30 and 1990-12-09 under 500 a figure
+    // on a desktop and under 465 on a TV and a phone, where every figure sent the whole figure's 1,117 and 729 when it was an
+    // instance of it. So a tier's whole crowd, at the figures its budget seats (quality.js), is under 175,000 triangles on a
+    // desktop, 116,250 on a TV and 69,750 on a phone, whose crowd was 66,000 before.
+    vi.stubGlobal("window", { devicePixelRatio: 1 });
+    const seated = Object.fromEntries(["desktop", "tv", "phone"].map((tier) => [tier, (budgetFor(tier) as { crowd: number }).crowd]));
+    vi.unstubAllGlobals();
+    expect(seated).toEqual({ desktop: 350, tv: 250, phone: 150 });
+    for (const { date, desktop, phone: small } of SHOWS) {
+      const each = (c: typeof crowd) => c.mesh.geometry.index.count / 3 / c.count, tv = crowdOf(date, true, seated.tv);
+      expect([date, each(desktop) < 500, each(tv) < 465, each(small) < 465]).toEqual([date, true, true, true]);
+      expect([date, each(desktop) > 440, each(small) > 372]).toEqual([date, true, true]);
+      expect([tv.count <= seated.tv, small.count <= seated.phone, desktop.count <= seated.desktop]).toEqual([true, true, true]);
+    }
   });
 
   it("has leg rings only at the foot, the knee halfway up and the hip, where the vertex shader bends it, and a skirt's rings there and at the waist", () => {
@@ -548,42 +732,33 @@ describe("the crowd's shader", () => {
     expect(worst).toBeLessThan(1e-5);
   });
 
-  it("folds every part a figure does not wear to one point inside its head, so it has no size at all, and leaves every part it wears its size", () => {
-    // A part folded to nearly a point, or folded before it was moved, would show as a speck where the figure's head is.
-    let folded = 0, specks = 0, flat = 0;
+  it("leaves every face of every part its size as it stands, and gives each part its tone", () => {
+    // Standing as built, no triangle of any part has lost its area: the three corners of each stand apart. (The shader no longer
+    // folds a part away: the mesh holds no part its figure does not wear.)
+    let flat = 0, looked = 0;
     for (const [list, c] of [[figures, crowd], [phones, phone]] as const) {
-      const position = c.mesh.geometry.getAttribute("position"), mark = c.mesh.geometry.getAttribute("aMark");
-      for (const f of list.filter((_, k) => k % 6 === 0)) for (const pose of [{ beat: 0.3, dance: 1.4 }, { beat: 5.1, dance: 1, sit: 1 }, { beat: 2.2, dance: 1.6, rise: 0.7 }]) {
-        for (let t = 0; t < position.count; t += 3) {
-          const corners = [0, 1, 2].map((k) => ({ ...put(f, { x: position.getX(t + k), y: position.getY(t + k), z: position.getZ(t + k), mark: vec(mark, t + k) }, pose) }));
-          if (wears(f, { x: 0, y: 0, z: 0, mark: vec(mark, t) })) continue;
-          folded += 1;
-          if (corners.some((p) => p.x !== 0 || p.y !== 1.655 || p.z !== 0)) specks += 1;
-        }
-      }
-      // Standing as built, no triangle of a part a figure wears has lost its area: the three corners of each stand apart.
+      const position = c.figure.getAttribute("position"), mark = c.figure.getAttribute("aMark");
       const f = list[0], pose = { beat: 0, dance: 0 };
       for (let t = 0; t < position.count; t += 3) {
         const [a, b, c2] = [0, 1, 2].map((k) => ({ ...put({ ...f, wear: { ...f.wear, x: 2 ** 22 - 1 } }, { x: position.getX(t + k), y: position.getY(t + k), z: position.getZ(t + k), mark: vec(mark, t + k) }, pose) }));
         const area = 0.5 * Math.hypot((b.y - a.y) * (c2.z - a.z) - (b.z - a.z) * (c2.y - a.y), (b.z - a.z) * (c2.x - a.x) - (b.x - a.x) * (c2.z - a.z), (b.x - a.x) * (c2.y - a.y) - (b.y - a.y) * (c2.x - a.x));
+        looked += 1;
         if (!(area > 1e-7)) flat += 1;
       }
     }
-    expect(folded).toBeGreaterThan(20000);
-    expect(specks).toBe(0);
+    expect(looked).toBeGreaterThan(1700);
     expect(flat).toBe(0);
-    // And a part that is folded away has no colour worked out for it: the shader leaves it the instance's own, where one it wears
-    // takes its tone. Over half of a desktop figure's corners are of parts it does not wear.
+    // A pack's face takes its figure's tone for things, and not its top's colour.
     const pack = { x: 0, y: PART.PACK as number, z: 4, w: 0 }, out: Rgb = { r: 0, g: 0, b: 0 };
-    let wearing2 = 0, without2 = 0;
-    for (const f of figures) {
+    let toned = 0, carriers = 0;
+    for (const f of figures.filter((g) => wears(g, { x: 0, y: 0, z: 0, mark: pack }))) {
       out.r = f.top.r; out.g = f.top.g; out.b = f.top.b;
       runTones(null, out, pack, f.fig, null, 1, f.body, f.wear, f.cut, f.tone, 0, 0, 0, 0);
-      const toned = out.r !== f.top.r || out.g !== f.top.g || out.b !== f.top.b;
-      if (wears(f, { x: 0, y: 0, z: 0, mark: pack })) { wearing2 += 1; expect(toned).toBe(true); } else { without2 += 1; expect(toned).toBe(false); }
+      carriers += 1;
+      if (out.r !== f.top.r || out.g !== f.top.g || out.b !== f.top.b) toned += 1;
     }
-    expect(wearing2).toBeGreaterThan(50);
-    expect(without2).toBeGreaterThan(50);
+    expect(carriers).toBeGreaterThan(50);
+    expect(toned).toBe(carriers);
   });
 
   it("keeps every figure inside the reaches the parting keeps for it, through every beat of its way of moving, as the build-up lifts it and as it sits", () => {
@@ -634,7 +809,7 @@ describe("the crowd's shader", () => {
     for (const { date, desktop, phone: small } of SHOWS) for (const c of [desktop, small]) {
       let off = 0, tipped = 0;
       for (let i = 0; i < c.count; i++) {
-        c.mesh.getMatrixAt(i, matrix);
+        matrix.fromArray(c.each.matrix, 16 * i);
         at.setFromMatrixPosition(matrix);
         size.setFromMatrixScale(matrix);
         off = Math.max(off, Math.abs(at.y - height(at.x, at.z)));
@@ -1119,7 +1294,7 @@ describe("the crowd's shader", () => {
     let brightest = 0, lightest = 0, looked = 0;
     const seen = new Set<string>(), out: Rgb = { r: 0, g: 0, b: 0 };
     for (const [list, c] of [[figures, crowd], [phones, phone]] as const) {
-      const mark = c.mesh.geometry.getAttribute("aMark"), marksOnce = new Map<string, Vec>();
+      const mark = c.figure.getAttribute("aMark"), marksOnce = new Map<string, Vec>();
       for (let k = 0; k < mark.count; k++) { const m = vec(mark, k); marksOnce.set(`${m.y} ${m.z}`, m); }
       for (const f of list) for (const m of marksOnce.values()) {
         if (!(m.y === 0 || Math.floor(f.wear.x / m.y) % 2 === 1)) continue;
@@ -1331,12 +1506,12 @@ describe("the crowd's people", () => {
 
 describe("the crowd's seats on the hill", () => {
   it("tells each figure how far the ground falls from its seat to where its seated feet rest, ahead of it the way it faces, in its own units", () => {
-    const fig = crowd.mesh.geometry.getAttribute("aFig");
-    expect(fig.itemSize).toBe(4);
+    const fig = new THREE.BufferAttribute(crowd.each.aFig, 4);
+    expect(crowd.mesh.geometry.getAttribute("aFig").itemSize).toBe(4);
     const turn = new THREE.Quaternion(), forward = new THREE.Vector3();
     let falls = 0;
     for (let i = 0; i < crowd.count; i++) {
-      crowd.mesh.getMatrixAt(i, matrix);
+      matrix.fromArray(crowd.each.matrix, 16 * i);
       matrix.decompose(at, turn, size);
       forward.set(0, 0, 1).applyQuaternion(turn).multiplyScalar(FOOT[0] * size.z);
       const fall = (height(at.x, at.z) - height(at.x + forward.x, at.z + forward.z)) / size.y;
