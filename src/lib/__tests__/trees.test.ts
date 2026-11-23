@@ -88,7 +88,8 @@ type World = ReturnType<typeof world>;
 const plain = (material: { onBeforeCompile: (shader: unknown) => void }) => { material.onBeforeCompile = () => {}; return material; };
 const built = (trees: Spot[], phone = false) => { const scene = new THREE.Scene(); return { scene, ...(buildTrees(scene, trees, { lit: plain, phone }) as unknown as Built) }; };
 
-// Every show as a desktop has it and as a phone has it; the fixed day's of each; and the fixed day's trees built.
+// Every show as a desktop has it and as a phone has it; the fixed day's of each; and the fixed day's trees built. Placing the 38 shows' trees on two tiers takes
+// several seconds on a busy machine, more than a hook's ten, so it has a limit of its own, as the standing stones' has.
 let DESKTOP: World[], PHONE: World[], WORLDS: World[], fixed: World, fixedPhone: World, made: ReturnType<typeof built>, phones: ReturnType<typeof built>;
 beforeAll(() => {
   DESKTOP = DATES.map((date) => world(date));
@@ -98,7 +99,7 @@ beforeAll(() => {
   fixedPhone = PHONE.find((w) => w.date === FIXED)!;
   made = built(fixed.trees);
   phones = built(fixedPhone.trees, true);
-});
+}, 120000);
 
 const eachTree = (see: (tree: Spot, w: World) => void) => { for (const w of WORLDS) for (const tree of w.trees) see(tree, w); };
 const least = (values: number[]) => values.reduce((a, b) => Math.min(a, b), Infinity);
