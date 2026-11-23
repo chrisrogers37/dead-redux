@@ -254,6 +254,9 @@ describe("the lit bands' mask", () => {
     const none = Array.from({ length: 5 }, (_, i) => ({ title: `Song ${i}`, duration: 300 }));
     expect(bandMask(straight, none, points)).toBeNull();
     expect(bandMask(straight, [], [1])).toBeNull();
+    // A day with no recording has one stand-in track (main.js), which runs into nothing: main.js asks for its mask and gets none.
+    expect(bandMask(straight, [{ title: "Set", duration: 600 }], [0, 1])).toBeNull();
+    expect(bandMask(straight, [{ title: "Set", duration: 600, segueOut: true }], [0, 1])).toBeNull();
     expect(bandMask(straight, none.map((t, i) => ({ ...t, segueOut: i === 4 })), points)).toBeNull();
   });
 

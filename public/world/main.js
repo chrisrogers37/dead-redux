@@ -157,8 +157,9 @@ function start(gl) {
   window.__hill.treesMs = Math.round((performance.now() - treeStart) * 10) / 10;
   /* The lit bands that join a song to the one it runs into, for the ground to wear: the mask its shader draws them from, of the path
      and the songs' points as the landmarks have them (path.js bandMask), a phone's 256 texels a side and any other tier's 512, and
-     their own glow, which the night dims. Null with no such song, and with no show. */
-  const mask = hasShow ? bandMask(path, tracks, landmarkU, phone ? 256 : 512) : null;
+     their own glow, which the night dims. bandMask itself answers null where no song runs into the next, and so for a day with no
+     recording, whose one stand-in track runs into nothing: no show needs telling apart here. */
+  const mask = bandMask(path, tracks, landmarkU, phone ? 256 : 512);
   const bands = mask ? { map: { value: mask }, glow: { value: BAND_GLOW } } : null;
   /* Nothing grows or lies within TRUNK_ROOM of a trunk. */
   const { caves, shade, flora, lit } = buildIsland(scene, budget.grid, phone, loop, (x, z) => placed.near(x, z, TRUNK_ROOM), bands);

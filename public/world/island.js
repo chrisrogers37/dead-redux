@@ -78,9 +78,12 @@ export function treadAt(x, z) {
   hard = Math.max(hard, 1 - ease(TREAD.aisle[0], TREAD.aisle[1], aside));
   return hard + TREAD.patchy * (Math.sin(x * 0.61 + 1.3) * Math.cos(z * 0.53 - 0.4) + Math.sin((x + z) * 0.37 + 2.1));
 }
-/* How far a point of the ground is worn to earth where the tussock grain stands at `tussocks`, 0 to 1 (a half where a pixel cannot
-   hold the grain): none off the crowd's ground, WEAR at the most. The ground's shader reckons the same (EARTH). */
-export function wearAt(x, z, tussocks = 0.5) {
+/* What the land's grain stands at where a pixel cannot hold it, the middle of its range of 0 to 1: the ground's shader sets it so
+   (grained), and what goes by the grain is even there, the grain's own shading, the worn earth's patches and a lit band's edge. */
+const GRAIN_EVEN = 0.5;
+/* How far a point of the ground is worn to earth where the tussock grain stands at `tussocks`, 0 to 1 (GRAIN_EVEN where a pixel
+   cannot hold the grain): none off the crowd's ground, WEAR at the most. The ground's shader reckons the same (EARTH). */
+export function wearAt(x, z, tussocks = GRAIN_EVEN) {
   return troddenAt(x, z) * (1 - ease(PATCH_FROM, PATCH_TO, tussocks + 0.5 - treadAt(x, z))) * WEAR;
 }
 /* The lit bands, where one song runs into the next (path.js bandMask), as the ground wears them: the island's pale stone, BAND_TONE,
@@ -89,7 +92,10 @@ export function wearAt(x, z, tussocks = 0.5) {
    to nothing by BAND_REACH m, so it has no hard edge; and its edge is no even line either, but stands BAND_FRAY m further out where
    the turf is thinnest than where a tussock stands thickest, by the ground's own tussock grain, as the worn earth's patches go by
    it. Where a pixel cannot hold that grain the edge runs even, so nothing dithers. At its furthest the edge is inside the room the
-   path keeps clear of tufts (LOOP_ROOM), so nothing grows through a band. */
+   path keeps clear of tufts (LOOP_ROOM), so nothing grows through a band.
+   The mask holds distances out to path.js's BAND_RANGE m and no further, so all of a band's look lies inside that, or the mask
+   could not say where it ends: BAND_REACH, with half of BAND_FRAY and half of BAND_BLUR (below), is under BAND_RANGE, and
+   island.test.ts holds these numbers to it. */
 export const BAND_CORE = 0.8, BAND_REACH = 1.7, BAND_FRAY = 0.5, BAND_LAY = 0.9, BAND_TONE = 0x8e8a82, BAND_AMBER = 0xe8b04b, BAND_GLOW = 0.25;
 /* A band is drawn as the mean of itself over the ground a pixel takes in, so that far off, where a pixel takes in more ground than
    a band is wide, it is a wider and fainter band holding all of its light, and never a line of pixels that comes and goes as the
@@ -97,17 +103,19 @@ export const BAND_CORE = 0.8, BAND_REACH = 1.7, BAND_FRAY = 0.5, BAND_LAY = 0.9,
    what the mask's range leaves past a band's furthest edge: so ground that the mask says is BAND_RANGE m or more from a band is not
    lit at all, whatever a pixel takes in and whatever the grain. */
 export const BAND_HELD = 0.02, BAND_BLUR = 8;
-/* How much of a band lies between its middle and `x` m to one side of it: the band's strength summed across it, in metres. */
+/* How much of a band lies between its middle and `x` m to one side of it: the band's strength summed across it, in metres. The same
+   sum is written a second time by hand, in GLSL (BANDS, bandArea): island.test.ts runs the shader's own text against this one all
+   over the island, so neither can change alone. */
 const bandArea = (x) => {
   const a = Math.abs(x), t = Math.max(0, Math.min(1, (a - BAND_CORE) / (BAND_REACH - BAND_CORE)));
   return Math.sign(x) * (Math.min(a, BAND_CORE) + (BAND_REACH - BAND_CORE) * t * (1 - t * t * (1 - 0.5 * t)));
 };
 /* How far a point of the ground is lit by a band whose middle is `away` m from it, 0 to 1, where a pixel takes in `covers` m of the
-   ground and the tussock grain stands at `tussocks`, 0 to 1 (a half where a pixel cannot hold the grain): 1 within BAND_CORE, none
-   past BAND_REACH and eased between them, as a pixel that takes in next to nothing sees it on even grain. The ground's shader
+   ground and the tussock grain stands at `tussocks`, 0 to 1 (GRAIN_EVEN where a pixel cannot hold the grain): 1 within BAND_CORE,
+   none past BAND_REACH and eased between them, as a pixel that takes in next to nothing sees it on even grain. The ground's shader
    reckons the same (BANDS). */
-export function bandAt(away, covers = 0, tussocks = 0.5) {
-  const wide = Math.max(BAND_HELD, Math.min(covers, BAND_BLUR)), mid = away + BAND_FRAY * (tussocks - 0.5);
+export function bandAt(away, covers = 0, tussocks = GRAIN_EVEN) {
+  const wide = Math.max(BAND_HELD, Math.min(covers, BAND_BLUR)), mid = away + BAND_FRAY * (tussocks - GRAIN_EVEN);
   return (bandArea(mid + 0.5 * wide) - bandArea(mid - 0.5 * wide)) / wide;
 }
 /* How far from the setlist's path anything grows, and the side of the squares its points are sorted into (no less than that). */
@@ -227,7 +235,7 @@ float bandArea(float x) {
   return sign(x) * (min(a, ${f(BAND_CORE)}) + ${f(BAND_REACH - BAND_CORE)} * t * (1.0 - t * t * (1.0 - 0.5 * t)));
 }
 float band(float away, float covers, float tussocks) {
-  float wide = max(${f(BAND_HELD)}, min(covers, ${f(BAND_BLUR)})), mid = away + ${f(BAND_FRAY)} * (tussocks - 0.5);
+  float wide = max(${f(BAND_HELD)}, min(covers, ${f(BAND_BLUR)})), mid = away + ${f(BAND_FRAY)} * (tussocks - ${GRAIN_EVEN});
   return (bandArea(mid + 0.5 * wide) - bandArea(mid - 0.5 * wide)) / wide;
 }`;
 /* Has a material that takes the stage's glow (takesPool) wear the land's grain as well, and with `tracked` the tracks' packed earth
@@ -257,8 +265,8 @@ export function grained(material, relief, tracked = false, pixel = { value: PIXE
         covers = max(covers, sqrt(max(dot(acrossGround, acrossGround), dot(downGround, downGround))));
         float coarseShown = 1.0 - smoothstep(${f(HELD_FROM)}, ${f(HELD_TO)}, covers * ${f(TUSSOCK)});
         float fineShown = (1.0 - smoothstep(${f(FINE_NEAR)}, ${f(FINE_FAR)}, length(vViewPosition))) * (1.0 - smoothstep(${f(HELD_FROM)}, ${f(HELD_TO)}, covers * ${f(BLADE)}));
-        float tussocks = 0.5, blades = 0.5;
-        if (coarseShown > 0.0) tussocks = mix(0.5, grain(vPoolAt.xz * ${f(TUSSOCK)} + 17.0), coarseShown);
+        float tussocks = ${GRAIN_EVEN}, blades = ${GRAIN_EVEN};
+        if (coarseShown > 0.0) tussocks = mix(${GRAIN_EVEN}, grain(vPoolAt.xz * ${f(TUSSOCK)} + 17.0), coarseShown);
         if (fineShown > 0.0) blades = grain(vPoolAt.xz * ${f(BLADE)} + 41.0);${tracked ? `
         /* The crowd's worn earth: where the turf is thin, which is where the tussock grain is low, and the more of the ground the
            harder it is trodden. Where a pixel cannot hold the grain, tussocks is 0.5 and the earth is as much of the ground as it
@@ -272,7 +280,7 @@ export function grained(material, relief, tracked = false, pixel = { value: PIXE
           bandLit = band(bandOff, covers, tussocks);
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${f(tone.r)}, ${f(tone.g)}, ${f(tone.b)}), ${f(BAND_LAY)} * bandLit);
         }` : ""}
-        diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - 0.5) + 0.26 * (blades - 0.5) * fineShown;`);
+        diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - ${GRAIN_EVEN}) + 0.26 * (blades - ${GRAIN_EVEN}) * fineShown;`);
     /* The bands' own glow, added to what the ground gives off, which is nothing else. */
     if (bands) shader.fragmentShader = shader.fragmentShader.replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
         totalEmissiveRadiance += vec3(${f(amber.r)}, ${f(amber.g)}, ${f(amber.b)}) * uBandGlow * bandLit;`);

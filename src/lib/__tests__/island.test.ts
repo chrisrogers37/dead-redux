@@ -11,6 +11,25 @@ import { CAVES, height, STAGE } from "../../../public/world/ground.js";
 import { fromStage, offAxis, onCrowdGround, seats, SPANS, WALKS } from "../../../public/world/seats.js";
 import { lookAt, newLook } from "../../../public/world/night.js";
 
+// A number as the shader's text has it, to four places. island.js writes its own with a helper of its own (`f`), which is not
+// imported here, on purpose: were the shader's numbers written to other places, the lines pinned below would say so.
+const n = (v: number) => v.toFixed(4);
+// GLSL's smoothstep. island.js eases with one of its own (`ease`), which is not imported here either, on purpose: the tests that
+// hold the island's numbers to this one are a check of that one.
+const smoothstep = (a: number, b: number, x: number) => { const t = Math.min(Math.max((x - a) / (b - a), 0), 1); return t * t * (3 - 2 * t); };
+// The ground's shader text as JavaScript, so that it runs here as it stands and no number of the shader's is written a second
+// time in a test: a GLSL float is a number, a function of floats and vec2s a function, and a uniform is what the test hands in.
+const glslToJs = (text: string) => text.replace(/^uniform [^\n]*\n/gm, "")
+  .replace(/\bfloat (\w+)\(([^)]*)\)\s*\{/g, (_: string, name: string, args: string) => `function ${name}(${args.replace(/\b(float|vec2) /g, "")}) {`)
+  .replace(/\bfloat /g, "let ");
+// The GLSL built-ins the ground's functions use: Math's own, a vec2 as a pair and a vec3 as a triple, and mix as a float's.
+const BUILT_INS = `const { abs, min, max, sin, cos, sqrt, sign } = Math, atan = Math.atan2;
+  const clamp = (v, a, b) => min(max(v, a), b), mix = (a, b, t) => a + (b - a) * t, vec2 = (x, y) => ({ x, y }), vec3 = (x, y, z) => ({ x, y, z });`;
+// Runs GLSL text and then `body`, JavaScript that returns what the test asks of it. `given` holds what the text reads that is
+// not its own, by name: a uniform, a sampler's reading.
+const runGlsl = <T>(glsl: string, body: string, given: Record<string, unknown> = {}): T =>
+  new Function("smoothstep", ...Object.keys(given), `${BUILT_INS}\n${glslToJs(glsl)}\n${body}`)(smoothstep, ...Object.values(given)) as T;
+
 describe("takesPool", () => {
   it("adds the stage's glow to three's Lambert shader as the pinned version writes it: its place from the vertex shader, its light in the fragment shader", () => {
     const { vertexShader, fragmentShader } = THREE.ShaderLib.lambert;
@@ -57,6 +76,9 @@ describe("grained", () => {
       expect(shader.fragmentShader).toContain("float coarseShown = 1.0 - smoothstep(0.2500, 0.6000, covers * 0.9000);");
       expect(shader.fragmentShader).toContain("* (1.0 - smoothstep(0.2500, 0.6000, covers * 5.3000));");
       expect(shader.fragmentShader).toContain("if (coarseShown > 0.0) tussocks = mix(0.5, grain(vPoolAt.xz * 0.9000 + 17.0), coarseShown);");
+      // A grain a pixel cannot hold stands at a half, the even grain, which shades nothing; the worn earth's patches and a lit
+      // band's edge, which go by the tussock grain, are even there too.
+      expect(shader.fragmentShader).toContain("float tussocks = 0.5, blades = 0.5;");
       expect(shader.fragmentShader).toContain("reflectedLight.directDiffuse += uPool");
     }
     // The relief leans the normal by the grain's own change from pixel to pixel, and takes no more of the grain to do it.
@@ -164,7 +186,7 @@ describe("the tracks", () => {
   it("are reckoned in the shader as tracksAt reckons them: the whole of its GLSL is as written here, and the same sums in JS agree with tracksAt all over the island", () => {
     const shader = { uniforms: {} as Record<string, unknown>, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
     grained(takesPool(new THREE.MeshLambertMaterial(), { value: new THREE.Color() }), false, true).onBeforeCompile(shader);
-    const n = (v: number) => v.toFixed(4), v2 = ([x, z]: number[]) => `vec2(${n(x)}, ${n(z)})`, squash = (text: string) => text.replace(/\s+/g, " ");
+    const v2 = ([x, z]: number[]) => `vec2(${n(x)}, ${n(z)})`, squash = (text: string) => text.replace(/\s+/g, " ");
     // The shader's two functions, whole. A change to either fails here, and is then made to the sums below as well.
     expect(squash(shader.fragmentShader)).toContain(squash(`
       float fromLine(vec2 p, vec2 a, vec2 b) { vec2 ab = b - a; return distance(p, a + clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0) * ab); }
@@ -175,7 +197,6 @@ describe("the tracks", () => {
       }`));
     // The same, line for line, with the numbers as the shader's text rounds them.
     const r = (v: number) => Number(n(v)), clamp = (v: number, a: number, b: number) => Math.min(Math.max(v, a), b);
-    const smoothstep = (a: number, b: number, x: number) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
     const fromLine = (px: number, pz: number, [ax, az]: number[], [bx, bz]: number[]) => {
       const abx = r(bx) - r(ax), abz = r(bz) - r(az), t = clamp(((px - r(ax)) * abx + (pz - r(az)) * abz) / Math.max(abx * abx + abz * abz, 1e-6), 0, 1);
       return Math.hypot(px - r(ax) - t * abx, pz - r(az) - t * abz);
@@ -206,7 +227,6 @@ describe("the tracks", () => {
 
 describe("the crowd's worn earth", () => {
   const at = fromStage as (far: number, off: number) => [number, number];
-  const n = (v: number) => v.toFixed(4);
   const land = (tracked = true) => {
     const shader = { uniforms: {} as Record<string, unknown>, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
     grained(takesPool(new THREE.MeshLambertMaterial(), { value: new THREE.Color() }), false, tracked).onBeforeCompile(shader);
@@ -231,19 +251,12 @@ describe("the crowd's worn earth", () => {
 
   it("is reckoned in the shader as wearAt reckons it: the shader's own text, run as it stands, agrees with it all over the island, whatever the grain", () => {
     const fragment = land();
-    // The shader's three functions, from its text, made to run here: a GLSL float is a number and its vec2 a pair, and its functions
-    // are Math's own. So no number of the shader's is written a second time here, and a change to either side that the other does
-    // not follow fails.
+    // The shader's three functions, from its text, made to run here (runGlsl). So no number of the shader's is written a second
+    // time here, and a change to either side that the other does not follow fails.
     const from = fragment.indexOf("float trodden("), to = fragment.indexOf("\n}", fragment.indexOf("float worn(")) + 2;
     expect(from).toBeGreaterThan(-1);
     expect(to).toBeGreaterThan(from);
-    const source = fragment.slice(from, to)
-      .replace(/\bfloat (\w+)\(([^)]*)\)\s*\{/g, (_: string, name: string, args: string) => `function ${name}(${args.replace(/\b(float|vec2) /g, "")}) {`)
-      .replace(/\bfloat /g, "let ");
-    const worn = new Function(`const { abs, min, max, sin, cos, sqrt } = Math, atan = Math.atan2;
-      const smoothstep = (a, b, x) => { const t = min(max((x - a) / (b - a), 0), 1); return t * t * (3 - 2 * t); }, mix = (a, b, t) => a + (b - a) * t;
-      ${source}
-      return (x, z, tussocks) => worn({ x, y: z }, tussocks);`)() as (x: number, z: number, tussocks: number) => number;
+    const worn = runGlsl<(x: number, z: number, tussocks: number) => number>(fragment.slice(from, to), "return (x, z, tussocks) => worn({ x, y: z }, tussocks);");
     let inside = 0, feather = 0, apart = 0;
     for (const [x, z] of points) {
       for (const tussocks of [0, 0.5, 1]) apart = Math.max(apart, Math.abs(worn(x, z, tussocks) - wearAt(x, z, tussocks)));
@@ -406,6 +419,12 @@ describe("the crowd's worn earth", () => {
     expect(mean(rings[0][0], last[1], 0.25, 0.6, 0)).toBeGreaterThan(0.95 * WEAR);
     expect(mean(rings[0][0], rings[0][1], 0.25, 0.6, 1)).toBeLessThan(0.05 * WEAR);
     expect(wearAt(...at((rings[1][0] + rings[1][1]) / 2, 0), 1)).toBeGreaterThan(0.5 * WEAR);
+    // Left unsaid, the grain is the even one, a half, as a pixel that cannot hold it has it: among the sitters, where the grain
+    // tells turf from earth, that is neither the hollows' wear nor the tussocks'.
+    const among = at((last[0] + last[1]) / 2, 0.5);
+    expect(wearAt(...among)).toBe(wearAt(...among, 0.5));
+    expect(wearAt(...among, 0)).toBeGreaterThan(wearAt(...among, 0.5));
+    expect(wearAt(...among, 0.5)).toBeGreaterThan(wearAt(...among, 1));
     // Never more than WEAR, never less than none, and none where the ground is not the crowd's, whatever the grain.
     let least = Infinity, most = -Infinity;
     const offTheGround: number[][] = [];
@@ -424,7 +443,6 @@ describe("the crowd's worn earth", () => {
 });
 
 describe("the lit bands", () => {
-  const n = (v: number) => v.toFixed(4);
   type Mask = { image: { data: Uint8Array; width: number; height: number } };
   type Bands = { map: { value: Mask }; glow: { value: number } };
   // The island's own path, and a show of twelve songs of which the fourth, the fifth and the tenth run into the next: bands down
@@ -440,13 +458,12 @@ describe("the lit bands", () => {
     grained(takesPool(new THREE.MeshLambertMaterial(), { value: new THREE.Color() }), false, true, undefined, bands as never).onBeforeCompile(shader);
     return shader;
   };
-  const ease = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
   // The shader's own text for the bands, from the mask's uniform to the end of its last function.
   const text = (fragment: string) => fragment.slice(fragment.indexOf("uniform highp sampler2D uBands;"), fragment.indexOf("\n}", fragment.indexOf("float band(")) + 2);
 
   it("are whole within BAND_CORE m of their middle and gone by BAND_REACH, eased between, with an edge that stands further out where the turf is thin", () => {
     // As a pixel that takes in next to nothing sees it, on even grain: the eased step itself.
-    for (let away = 0; away <= BAND_RANGE; away += 0.013) expect(Math.abs(bandAt(away) - (1 - ease(BAND_CORE, BAND_REACH, away))), `${away.toFixed(3)} m from the middle`).toBeLessThan(1e-3);
+    for (let away = 0; away <= BAND_RANGE; away += 0.013) expect(Math.abs(bandAt(away) - (1 - smoothstep(BAND_CORE, BAND_REACH, away))), `${away.toFixed(3)} m from the middle`).toBeLessThan(1e-3);
     expect(bandAt(0)).toBeCloseTo(1, 12);
     expect(bandAt(BAND_CORE - BAND_HELD)).toBeCloseTo(1, 12);
     expect(bandAt((BAND_CORE + BAND_REACH) / 2)).toBeCloseTo(0.5, 6);
@@ -488,38 +505,46 @@ describe("the lit bands", () => {
       expect(bandAt(away, 1000)).toBe(bandAt(away, BAND_BLUR));
       expect(bandAt(away, Infinity)).toBe(bandAt(away, BAND_BLUR));
     }
-    // The mask reads BAND_RANGE m wherever no band lies within that: such ground is not lit, by exactly nothing, whatever a pixel
-    // takes in and whatever the grain. A blur as wide as twice the range would light the whole island a little.
+  });
+
+  it("reach no further from their middle than the mask measures: the reach, half the fray and half of what a far pixel takes in all lie inside the mask's range", () => {
+    // path.js's mask holds distances out to BAND_RANGE m, and reads that for all the ground beyond. A look that reached past it
+    // would be cut off where the mask stops saying how far the band is; and a pixel reckoned to take in more than the range leaves
+    // would light the whole island a little.
+    const furthest = BAND_REACH + BAND_FRAY / 2;
+    expect(furthest).toBeLessThan(BAND_RANGE);
+    expect(furthest + BAND_BLUR / 2).toBeLessThan(BAND_RANGE);
+    expect(BAND_HELD).toBeLessThan(BAND_BLUR);
+    // Said by what is drawn: ground the mask reads as BAND_RANGE m off is lit by exactly nothing, whatever a pixel takes in and
+    // whatever the grain; and a band does reach its furthest edge, where the turf is thinnest, and no further.
     for (const covers of [0, 0.5, 3, BAND_BLUR, 1000]) for (const tussocks of [0, 0.5, 1]) expect(bandAt(BAND_RANGE, covers, tussocks), `a pixel that takes in ${covers} m, grain ${tussocks}`).toBe(0);
-    expect(BAND_RANGE - BAND_FRAY / 2 - BAND_BLUR / 2).toBeGreaterThan(BAND_REACH);
+    expect(bandAt(furthest - 0.05, 0, 0)).toBeGreaterThan(0);
+    expect(bandAt(furthest + BAND_HELD, 0, 0)).toBe(0);
   });
 
   it.each([512, 256])("are reckoned in the shader as bandAway and bandAt reckon them: the shader's own text, run as it stands on a mask %i texels a side, agrees with them all over the island", { timeout: 20000 }, (size) => {
     const bands = bandsOf(size), mask = bands.map.value, { fragmentShader: fragment } = land(bands);
-    // The shader's three functions, from its text, made to run here, as the worn earth's are: a GLSL float is a number, its vec2 a
-    // pair and its functions Math's own. texture2D is the GPU's linear filter over the mask's own bytes, the edge's texel past the
-    // edge, written here from what a filter is and not from bandAway.
-    const source = text(fragment).replace(/^uniform [^\n]*\n/gm, "")
-      .replace(/\bfloat (\w+)\(([^)]*)\)\s*\{/g, (_: string, name: string, args: string) => `function ${name}(${args.replace(/\b(float|vec2) /g, "")}) {`)
-      .replace(/\bfloat /g, "let ");
-    expect(source).toContain("function bandAway(p) {");
-    expect(source).toContain("function band(away, covers, tussocks) {");
+    // The shader's three functions, from its text, made to run here as the worn earth's are (runGlsl). texture2D is the GPU's
+    // linear filter over the mask's own bytes, the edge's texel past the edge, written here from what a filter is and not from
+    // bandAway.
+    expect(glslToJs(text(fragment))).toContain("function bandAway(p) {");
+    expect(glslToJs(text(fragment))).toContain("function band(away, covers, tussocks) {");
     const texture2D = ({ image: { data, width } }: Mask, { x, y }: { x: number; y: number }) => {
       const s = x * width - 0.5, t = y * width - 0.5, i = Math.floor(s), j = Math.floor(t), a = s - i, b = t - j, hold = (k: number) => Math.min(Math.max(k, 0), width - 1);
       const byte = (ix: number, iy: number) => data[hold(iy) * width + hold(ix)] / 255;
       return { r: (1 - b) * ((1 - a) * byte(i, j) + a * byte(i + 1, j)) + b * ((1 - a) * byte(i, j + 1) + a * byte(i + 1, j + 1)) };
     };
     // And the shader's own lines for a pixel, from where it reads the mask to where it has laid the band: ground the mask reads as
-    // off the bands is passed over, and the rest is lit as bandAt has it. The colour it lays is not reckoned here.
+    // off the bands is passed over, and the rest is lit as bandAt has it. The colour it lays is not reckoned here: a float's mix
+    // stands in for a vec3's.
     const from = fragment.indexOf("float bandLit = 0.0, bandOff = bandAway(vPoolAt.xz);"), to = fragment.indexOf("\n        }", from) + 10;
     expect(from).toBeGreaterThan(-1);
     expect(to).toBeGreaterThan(from);
-    const pixel = fragment.slice(from, to).replace(/\bfloat /g, "let ");
+    const pixel = fragment.slice(from, to);
     expect(pixel).toContain("bandLit = band(bandOff, covers, tussocks);");
-    const run = new Function("uBands", "texture2D", `const { abs, min, max, sign } = Math, clamp = (v, a, b) => min(max(v, a), b), vec2 = (x, y) => ({ x, y });
-      const vec3 = () => null, mix = () => null, diffuseColor = { rgb: null };
-      ${source}
-      return { away: (x, z) => bandAway({ x, y: z }), lit: (x, z, covers, tussocks) => { const vPoolAt = { xz: { x, y: z } }; ${pixel} return bandLit; } };`)(mask, texture2D) as { away: (x: number, z: number) => number; lit: (x: number, z: number, covers: number, tussocks: number) => number };
+    const run = runGlsl<{ away: (x: number, z: number) => number; lit: (x: number, z: number, covers: number, tussocks: number) => number }>(text(fragment),
+      `return { away: (x, z) => bandAway({ x, y: z }), lit: (x, z, covers, tussocks) => { const vPoolAt = { xz: { x, y: z } }, diffuseColor = { rgb: 0 }; ${glslToJs(pixel)} return bandLit; } };`,
+      { uBands: mask, texture2D });
     // All over the island, every 1.3 m; along each band, across it every quarter of a metre out to the mask's range; and past the
     // island's edge, where the mask reads its own edge.
     const points: number[][] = [];

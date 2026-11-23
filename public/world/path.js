@@ -190,7 +190,10 @@ export function placeLandmarks(scene, { at, tangentAt }, tracks, hasShow, { BUIL
    band's centre line, one less for every BAND_RANGE / 255 m from it (2.4 cm), and 0 from BAND_RANGE m on, which is all the ground
    off the bands. The mask holds the distance and not the band's own soft edge: a distance read between four texels is still the
    distance, so the shader draws the edge as smooth from a phone's mask as from a desktop's, however near the eye, and widens it by
-   what a pixel takes in of the ground, however far. A band's centre line is the path's own, in steps of BAND_STEP m or so. */
+   what a pixel takes in of the ground, however far. A band's centre line is the path's own, in steps of BAND_STEP m or so.
+   What island.js draws of a band lies inside BAND_RANGE m of its middle, since the mask says nothing of the ground past that: the
+   band's reach, with half its fray and half of what a far pixel is reckoned to take in (island.js; island.test.ts holds its
+   numbers to this range). */
 export const BAND_SIDE = 260, BAND_RANGE = 6, BAND_STEP = 2;
 
 /* The mask of a show's lit bands, `size` texels a side, as a texture for the ground's shader: row by row from the island's north edge

@@ -1637,9 +1637,11 @@ describe("main.js's frames through the night", () => {
       expect(fake.world.masksAsked).toHaveLength(1);
       expect(fake.world.bands).toBeNull();
       plain.run(0.5);
-      // A day with no recording has no songs to join: the stand-in track never reaches the path's mask.
-      const empty = await startWorld({ recording: false, mask: MASK });
-      expect(fake.world.masksAsked).toHaveLength(0);
+      // A day with no recording has one stand-in track, and main.js asks the path all the same: it is the path that finds no song
+      // running into the next and answers null (path.test.ts), as its stand-in does here.
+      const empty = await startWorld({ recording: false, mask: null });
+      expect(fake.world.masksAsked).toHaveLength(1);
+      expect(fake.world.masksAsked[0].tracks.map((t) => [t.title, Boolean(t.segueOut)])).toEqual([["Set", false]]);
       expect(fake.world.bands).toBeNull();
       empty.run(0.5);
     });
