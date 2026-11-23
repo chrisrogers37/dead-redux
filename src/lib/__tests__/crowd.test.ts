@@ -460,6 +460,85 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect([...new Set(written.filter((name) => !names.has(name)))].sort()).toEqual(["transformed", "vColor"]);
   });
 
+  it("tests, for each figure, a sphere that holds every corner it wears however it moves, and draws the crowd for a camera that has only a figure's edge in view", () => {
+    // `cull` leaves the crowd out of a frame when no figure's sphere is in the camera's view. A sphere too small, or round the wrong
+    // middle, would still pass a camera that looks at the crowd, and figures would come in late at a frame's edge.
+    // First the spheres themselves (`each.ball`): the fixed day's crowd, a desktop's and a phone's, every figure moving each of the
+    // seven ways in turn at the dance's most, standing, seated, rising and at a build-up's peak, 28 poses a figure, every corner
+    // it wears, in the world.
+    const states: Omit<Pose, "beat">[] = [{ dance: 1.6 }, { dance: 1.6, sit: 1 }, { dance: 1.6, rise: 0.5 }, { dance: 1.6, rise: 1 }];
+    let least = Infinity, looked = 0;
+    for (const [c, vertices] of [[SHOWS[0].desktop, rich], [SHOWS[0].phone, plain]] as const) {
+      const ball: Float32Array = c.each.ball, placed: Float32Array = c.each.matrix;
+      for (const own of figuresOf(c)) {
+        const worn = vertices.filter((v) => wears(own, v)), m = 16 * own.i, b = 4 * own.i;
+        let far = 0;
+        (MOVES as string[]).forEach((_, k) => states.forEach((state, q) => {
+          const f = { ...own, wear: { ...own.wear, y: own.wear.y - (own.wear.y % 8) + k } }, pose = { ...state, beat: (0.37 + 1.13 * k + 2.9 * q) % CYCLE };
+          for (const v of worn) {
+            const p = put(f, v, pose);
+            const x = placed[m] * p.x + placed[m + 4] * p.y + placed[m + 8] * p.z + placed[m + 12] - ball[b];
+            const y = placed[m + 1] * p.x + placed[m + 5] * p.y + placed[m + 9] * p.z + placed[m + 13] - ball[b + 1];
+            const z = placed[m + 2] * p.x + placed[m + 6] * p.y + placed[m + 10] * p.z + placed[m + 14] - ball[b + 2];
+            far = Math.max(far, x * x + y * y + z * z);
+          }
+          looked += worn.length;
+        }));
+        least = Math.min(least, ball[b + 3] - Math.sqrt(far));
+      }
+    }
+    expect(looked).toBeGreaterThan(4e6);
+    // The nearest any of those four million posed corners comes to its figure's sphere is 0.22 m inside it.
+    expect(least).toBeGreaterThan(0.2);
+    expect(least).toBeLessThan(0.3);
+    // Then that `cull` tests those spheres and no others. One figure at a time, the rest stepped ten kilometres off (`cull` counts a
+    // figure where the parting has stepped it): a view a centimetre across and deep is in the figure's sphere 3 cm inside its
+    // edge, up, down and to each side, and out of it 3 cm outside.
+    const c = SHOWS[0].desktop, list = figuresOf(c), ball: Float32Array = c.each.ball, step: Float32Array = c.each.offset, rested = step.slice();
+    const alone = (j: number) => { for (const f of list) step[4 * f.i] = rested[4 * f.i] + (f.i === j ? 0 : 1e4); };
+    const camera = new THREE.PerspectiveCamera(0.2, 1, 2.995, 3.005);
+    const sees = (x: number, y: number, z: number) => { camera.position.set(x, y, z + 3); camera.lookAt(x, y, z); return c.cull(camera) as boolean; };
+    const P = PART as Record<string, number>, carries = (f: Figure, bit: number) => Math.floor(f.wear.x / bit) % 2 === 1;
+    const flagged = list.find((f) => carries(f, P.POLE))!, taper = list.find((f) => carries(f, P.STAND))!, child = list.find((f) => f.up < 0.7 * scale)!, sitter = list.find((f) => f.fig.x === 1)!;
+    const some = [...new Set([list[0], list.at(-1)!, flagged, taper, child, sitter, ...list.filter((_, k) => k % 37 === 5)].map((f) => f.i))];
+    expect(some.length).toBeGreaterThanOrEqual(12);
+    const wrong: string[] = [];
+    for (const j of some) {
+      alone(j);
+      const [x, y, z, r] = [ball[4 * j] + step[4 * j], ball[4 * j + 1] + step[4 * j + 1], ball[4 * j + 2] + step[4 * j + 2], ball[4 * j + 3]];
+      for (const [ux, uy, uz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+        if (!sees(x + ux * (r - 0.03), y + uy * (r - 0.03), z + uz * (r - 0.03))) wrong.push(`figure ${j}: not seen 3 cm inside its sphere, ${[ux, uy, uz]}`);
+        if (sees(x + ux * (r + 0.03), y + uy * (r + 0.03), z + uz * (r + 0.03))) wrong.push(`figure ${j}: seen 3 cm outside its sphere, ${[ux, uy, uz]}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+    // And a camera as a visitor has it, that takes in only the edge of one figure, draws the crowd: one that looks level past the
+    // one who holds a flag, with the top 5 cm of the flag at the foot of its view and nothing else of the figure in it; and one with
+    // the soles of the figure's shoes at the top of its view. Half a sphere would miss the shoes, and a sphere round the feet the flag.
+    alone(flagged.i);
+    const where = new THREE.Vector3(), corners = rich.filter((v) => wears(flagged, v)).map((v) => {
+      const p = put(flagged, v, { beat: 0, dance: 0 });
+      return where.set(p.x, p.y, p.z).applyMatrix4(matrix.fromArray(c.each.matrix, 16 * flagged.i)).clone();
+    });
+    const top = corners.reduce((a, b2) => (b2.y > a.y ? b2 : a)), sole = corners.reduce((a, b2) => (b2.y < a.y ? b2 : a));
+    const lens = new THREE.PerspectiveCamera(30, 1.6, 0.3, 600), frustum = new THREE.Frustum(), half = Math.tan((15 * Math.PI) / 180);
+    const middle = new THREE.Vector3(ball[4 * flagged.i], ball[4 * flagged.i + 1], ball[4 * flagged.i + 2]);
+    for (const [edge, lift] of [[top, 4 * half - 0.05], [sole, 0.05 - 4 * half]] as const) {
+      lens.position.set(edge.x - 4, edge.y + lift, edge.z);
+      lens.lookAt(edge.x, edge.y + lift, edge.z);
+      const drawn = c.cull(lens) as boolean;
+      frustum.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(lens.projectionMatrix, lens.matrixWorldInverse));
+      const inView = corners.filter((p) => frustum.containsPoint(p));
+      expect(inView.length).toBeGreaterThan(0);
+      expect(Math.max(...inView.map((p) => Math.abs(p.y - edge.y)))).toBeLessThan(0.12);
+      expect(frustum.containsPoint(middle)).toBe(false);
+      expect(drawn).toBe(true);
+    }
+    expect(top.y - sole.y).toBeGreaterThan(1.9);
+    step.set(rested);
+    c.cull(lens);
+  });
+
   it("draws a frame from four numbers, and sends up the parting's two attributes only in a frame where a figure moved, and only at that figure's corners", () => {
     const geo = crowd.mesh.geometry, fixed = ["aFig", "aBody", "aWear", "aCut", "aTone", "aMark", "position", "aPlace", "aSize", "color"], held = [...fixed, "aPart", "aRise"];
     const before = held.map((name) => geo.getAttribute(name)), arrays = before.map((a) => a.array), versions = () => [...held.map((name) => geo.getAttribute(name).version), geo.index.version];
