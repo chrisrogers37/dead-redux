@@ -5,7 +5,8 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
    outline against the light panel behind. From the crowd's left: a guitar, a bass, two drummers side by side, a second guitar, and
    keys; with the stage's furniture, which is theirs: microphones on stands and wedge monitors at the lip.
 
-   It costs eight draw calls on every tier. Each player's trunk, head and instrument are one mesh, which sways as one; every limb that
+   It costs eight draw calls on every tier. Each player's trunk and instrument are one mesh, which sways as one, a drummer's head
+   with it; the head of each of the four who sing stands still, among the still parts; every limb that
    moves on its own (legs, a strumming arm, a tapping foot, the keys' arms, the drummers' arms and sticks) is an instance of one
    tapered bar in one instanced mesh, laid each frame between two joints; and everything that stands still (the kits, the keyboards,
    the stands, the shoes that stay down) is one merged mesh. One unlit material draws all of it.
@@ -31,7 +32,7 @@ export const SCALE = 1.77;
    shows against the panel comes and goes once in four counts: a sway of the hips, a stick's stroke, a hand at the keys, each by no
    more than a hand's breadth, a pixel from the back of the crowd on a phone. What is quicker moves black over black: a hand
    strumming over its instrument, one way on a count and back on the next; or against the floor: a foot tapping the count. The
-   heads stay at their microphones, and nothing moves on the half count.
+   heads of the four who sing stand still at their microphones, and nothing moves on the half count.
 
    And the outlines are closed. Nothing here is antialiased, so a pocket of the panel's light a pixel or two wide inside a player's
    outline is lit or black as a whole pixel, and an edge that rests on that pixel's centre flips it from one frame to the next: a
@@ -166,23 +167,26 @@ function trunk({ hips: h, waist }, broad, hair, skirt = 0) {
     new THREE.CylinderGeometry(0.2, 0.15, 0.34, 8).scale(broad, 1, 0.62).translate(0, h + 0.28, 0),
     new THREE.CapsuleGeometry(0.07, 0.41 * broad, 2, 8).rotateZ(Math.PI / 2).scale(1, 1, 0.9).translate(0, h + 0.455, 0),
     new THREE.CylinderGeometry(0.07, 0.2, 0.09, 8).scale(broad, 1, 0.62).translate(0, h + 0.495, 0),
-    new THREE.CylinderGeometry(0.05, 0.058, 0.1, 6).translate(0, h + 0.585, 0),
-    new THREE.CylinderGeometry(0.094, 0.115, 0.15, 8).scale(1, 1, 0.5).translate(0, h + 0.6, -0.035),
+  ];
+  /* The head, with its neck, its collar and its hair: its own list, since one who sings keeps theirs still (see buildBand). */
+  const top = [
+    new THREE.CylinderGeometry(0.05, 0.058, 0.17, 6).translate(0, h + 0.55, 0),
+    new THREE.CylinderGeometry(0.094, 0.115, 0.19, 8).scale(1, 1, 0.5).translate(0, h + 0.58, -0.035),
     ball(head, 0.112, 0.88, 1.12, 1),
   ];
   const lift = (x, y, z) => V(head.x + x, head.y + y, head.z + z);
   /* Hair that falls: a dome over the crown, and a skirt from it down to `to` below the head's middle, `wide` at its hem. */
   const fall = (to, wide) => [ball(lift(0, 0.012, -0.014), 0.124, 1, 1, 0.96),
     new THREE.CylinderGeometry(0.123, wide, to + 0.01, 8).scale(1, 1, 0.66).translate(head.x, head.y + 0.005 - to / 2, head.z - 0.055)];
-  if (hair === "short" || hair === "knot") parts.push(ball(lift(0, 0.024, -0.018), 0.113, 0.93, 1, 1.02));
-  if (hair === "knot") parts.push(ball(lift(0, 0.15, -0.045), 0.052));
-  if (hair === "long") parts.push(...fall(0.33, 0.152));
-  if (hair === "bob") parts.push(...fall(0.215, 0.15));
-  if (hair === "tail") parts.push(ball(lift(0, 0.024, -0.018), 0.113, 0.93, 1, 1.02), ball(lift(0, -0.01, -0.125), 0.05), bar(lift(0, -0.02, -0.13), lift(0, -0.2, -0.115), 0.036, 0.02));
-  if (hair === "cap") parts.push(new THREE.CylinderGeometry(0.096, 0.106, 0.08, 8).translate(head.x, head.y + 0.094, head.z), box(0.16, 0.014, 0.115, head.x, head.y + 0.062, head.z + 0.15));
+  if (hair === "short" || hair === "knot") top.push(ball(lift(0, 0.024, -0.018), 0.113, 0.93, 1, 1.02));
+  if (hair === "knot") top.push(ball(lift(0, 0.15, -0.045), 0.052));
+  if (hair === "long") top.push(...fall(0.33, 0.152));
+  if (hair === "bob") top.push(...fall(0.215, 0.15));
+  if (hair === "tail") top.push(ball(lift(0, 0.024, -0.018), 0.113, 0.93, 1, 1.02), ball(lift(0, -0.01, -0.125), 0.05), bar(lift(0, -0.02, -0.13), lift(0, -0.2, -0.115), 0.036, 0.02));
+  if (hair === "cap") top.push(new THREE.CylinderGeometry(0.096, 0.106, 0.08, 8).translate(head.x, head.y + 0.094, head.z), box(0.16, 0.014, 0.115, head.x, head.y + 0.062, head.z + 0.15));
   /* A skirt or a coat's skirts, `skirt` long from the hips: it hides the legs, which move under it, and closes the gap between them. */
   if (skirt) parts.push(new THREE.CylinderGeometry(0.175, 0.175 + 0.156 * skirt, skirt, 10).scale(broad, 1, 0.8).translate(0, h + 0.02 - skirt / 2, 0));
-  return { parts, pivot: V(0, h + waist, 0), hip: (side) => V(side * 0.09 * broad, h - 0.02, 0), shoulder: (side) => V(side * 0.205 * broad, h + 0.455, 0), mouth: V(0, h + 0.685, 0.105) };
+  return { parts, head: top, pivot: V(0, h + waist, 0), hip: (side) => V(side * 0.09 * broad, h - 0.02, 0), shoulder: (side) => V(side * 0.205 * broad, h + 0.455, 0), mouth: V(0, h + 0.685, 0.105) };
 }
 
 /* A guitar or a bass, held: flat in its own frame, x along the strings from the body's end toward the head and y across them, with the
@@ -319,6 +323,10 @@ export function buildBand(stage, floor) {
     }
     return tap;
   }
+  /* The head of one who sings, which stands still at its microphone, leaned as the body is at rest, while the trunk sways under
+     it: a head that moved with its trunk about the mouth crept a hair's breadth a frame, and a crown that creeps over a pixel's
+     middle flips it several times as it passes (a cap's top counted 8 swings in a second on a phone). The collar hides the join. */
+  const keepHead = (p, t) => keep(p, "head", t.head.map((part) => (p.lean ? part.translate(-p.pivot.x, -p.pivot.y, -p.pivot.z).rotateX(p.lean).translate(p.pivot.x, p.pivot.y, p.pivot.z) : part)));
   /* A player's microphone on its stand, the microphone at the mouth where the body has it at rest: where it was drawn, for one who
      stands upright, and leaned with the body for one who leans. The stand's foot is `reach` from there toward the crowd, the way
      the stage faces, so from the crowd's side of the stage the stand and its arm rise in front of the singer and not beside them. */
@@ -354,6 +362,7 @@ export function buildBand(stage, floor) {
     const strumming = hinge(p, true, ofBody(p, tucked), face, [wrist.clone().sub(tucked), fingers.clone().sub(wrist)],
       [bone(p, "strumming forearm", 0.1, 0.1, [0.03, 0.01]), bone(p, "strumming hand", 0.08, 0.05, [0.02, 0.012], face)]);
     const foot = stand(p, t, stance, toes, 0, true);
+    keepHead(p, t);
     voice(p, t, mic);
     const { body, pivot } = p;
     p.pose = (count, level, time) => {
@@ -394,6 +403,7 @@ export function buildBand(stage, floor) {
       return { wrist, fingers: tip.clone().sub(wrist), lead, arm: arm(p, name, t.shoulder(side), 0.29, 0.26, V(-0.45 * side, -1, -0.7), [bone(p, `${name} hand`, 0.085, 0.045, [0.02, 0.012])]) };
     });
     stand(p, t, stance, 0.18, -0.02, false);
+    keepHead(p, t);
     voice(p, t, mic);
     const { body, pivot, lean } = p;
     p.pose = (count, level, time) => {
@@ -425,7 +435,7 @@ export function buildBand(stage, floor) {
     p.lag = lag;
     p.look = { size, broad, hair, skirt: 0 };
     const t = trunk(SEATED, broad, hair);
-    embody(p, t.parts, t.pivot, 0.07);
+    embody(p, [...t.parts, ...t.head], t.pivot, 0.07);
     const kit = [
       drum(V(0, 0.29, 0.88), 0.28, 0.28, 0.42, 16, Math.PI / 2),
       drum(V(0.05, 0.6, 0.4), 0.18, 0.18, 0.14, 12), bar(V(0.05, 0.53, 0.4), V(0.05, 0.02, 0.4), 0.03, 0.03, 5),

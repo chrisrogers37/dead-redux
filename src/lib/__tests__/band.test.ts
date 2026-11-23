@@ -90,6 +90,12 @@ function held(band: Band, joint: Joint) {
   return at.applyMatrix4(p.g.matrix);
 }
 const gap = (a: Vec, b: Vec) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+// The corners of a singer's head, which stands still among the still parts (band.js keepHead), on the stage; none for a drummer.
+function headOf(band: Band, k: number) {
+  const still = band.still.geometry.getAttribute("position"), out: { x: number; y: number; z: number; applyMatrix4(m: unknown): Vec }[] = [];
+  for (const part of band.still.userData.parts) if (part.of === "head" && part.by === k) for (let i = part.from; i < part.from + part.count; i++) out.push(new THREE.Vector3().fromBufferAttribute(still, i));
+  return out;
+}
 // A point of the stage in a player's own frame and their own metres, where +x is their left and +z the way they face.
 const own = (band: Band, of: number, at: Vec) => new THREE.Vector3(at.x, at.y, at.z).applyMatrix4(band.players[of].g.matrix.clone().invert());
 const boneNamed = (band: Band, of: number, name: string): number => band.bones.findIndex((bone: Bone) => bone.of === of && bone.name === name);
@@ -153,7 +159,7 @@ describe("the band, as it is built", () => {
   it("stands the players as tall as the crowd: a standing head within 0.2 m of a figure's height, a seated one 0.35 to 0.65 m under it", () => {
     expect(SCALE * 1.78).toBeCloseTo(PERSON, 2);
     stage.updateMatrixWorld(true);
-    const tops = band.players.map((p: { plays: string; body: unknown }) => ({ plays: p.plays, top: new THREE.Box3().setFromObject(p.body).max.y - FLOOR }));
+    const tops = band.players.map((p: { plays: string; body: unknown }, k: number) => ({ plays: p.plays, top: Math.max(new THREE.Box3().setFromObject(p.body).max.y, ...headOf(band, k).map((corner) => corner.y)) - FLOOR }));
     for (const { plays, top } of tops) {
       if (plays === "drums") {
         expect(top).toBeGreaterThan(PERSON - 0.65);
@@ -204,8 +210,20 @@ describe("the band, as it is built", () => {
     }
     // A seated drummer's legs are the only still part that hangs: from the hips, down into the cuffs.
     const kinds = [...new Set([...lowest.keys()].map((name) => name.replace(/^(bass|guitar|keys|drums) /, "").replace(/ of .*/, "")))].sort();
-    expect(kinds).toEqual(["cuff", "keyboard", "kit", "leg", "microphone", "monitor", "shoe"]);
-    for (const [name, y] of lowest) expect([name, y - FLOOR < (name.includes("leg") ? 0.3 : name.includes("cuff") ? 0.15 : 0.03)]).toEqual([name, true]);
+    expect(kinds).toEqual(["cuff", "head", "keyboard", "kit", "leg", "microphone", "monitor", "shoe"]);
+    for (const [name, y] of lowest) if (!name.startsWith("head")) expect([name, y - FLOOR < (name.includes("leg") ? 0.3 : name.includes("cuff") ? 0.15 : 0.03)]).toEqual([name, true]);
+    // A singer's head stands still on shoulders that sway under it: its neck goes 5 cm or more into the body, as it rests.
+    stage.updateMatrixWorld(true);
+    const singers = band.players.flatMap((p: { body: unknown }, k: number) => (headOf(band, k).length ? [k] : []));
+    expect(singers).toEqual([0, 1, 4, 5]);
+    for (const k of singers) {
+      // The shoulders' top, where the neck stands: the body's highest corner within 8 cm of its middle line, in the player's own metres.
+      const body = band.players[k].body, corner = body.geometry.getAttribute("position"), spot = new THREE.Vector3();
+      let shoulders = -Infinity;
+      for (let i = 0; i < corner.count; i++) { const c = own(band, k, spot.fromBufferAttribute(corner, i).applyMatrix4(body.matrixWorld)); if (Math.hypot(c.x, c.z) < 0.08) shoulders = Math.max(shoulders, c.y); }
+      const neck = Math.min(...headOf(band, k).map((c) => own(band, k, c).y));
+      expect([k, (shoulders - neck) * band.players[k].g.scale.x > 0.05]).toEqual([k, true]);
+    }
     // And piece by piece: every piece of a stand, a kit, a keyboard or an amplifier stands on the floor or on a piece that does. Two
     // pieces hold one another where their boxes meet, within 2 cm.
     const at = new THREE.Vector3(), pieces = new Map<string, { box: { min: Vec; max: Vec; intersectsBox(other: unknown): boolean; expandByScalar(by: number): unknown }; held: boolean }[]>();
@@ -306,8 +324,10 @@ describe("the band, as it is built", () => {
       const mic = own(band, k, top), body = p.body.geometry.getAttribute("position");
       // The face's front at that height: the body's corners within 4 cm of it up and down and 6 cm to either side, in the player's metres.
       let face = -Infinity;
-      for (let i = 0; i < body.count; i++) {
-        const corner = own(band, k, at.fromBufferAttribute(body, i).applyMatrix4(p.body.matrixWorld));
+      const corners = [...headOf(band, k)];
+      for (let i = 0; i < body.count; i++) corners.push(at.fromBufferAttribute(body, i).applyMatrix4(p.body.matrixWorld).clone());
+      for (const world of corners) {
+        const corner = own(band, k, world);
         if (Math.abs(corner.y - mic.y) < 0.04 && Math.abs(corner.x - mic.x) < 0.06) face = Math.max(face, corner.z);
       }
       return [{ plays: p.plays, before: mic.z - face }];
@@ -401,24 +421,33 @@ describe("the band on the stage", () => {
 
   it("stands nothing under a jaw: between the shoulders and the chin, within the head's width, nothing of a body is further forward than the neck by more than 2 cm", () => {
     const { band } = stand();
-    for (const p of band.players as { plays: string; pivot: Vec; body: { geometry: { getAttribute(name: string): { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number } } } }[]) {
-      // A body's corners are kept upright about its pivot, at the waist: the hips are 0.92 up for one who stands and 0.6 for one who sits,
-      // the shoulders' slope ends 0.54 over them and the chin is 0.63 over them; the neck's front is 0.058 forward.
+    (band.players as { plays: string; pivot: Vec; lean: number; body: { geometry: { getAttribute(name: string): { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number } } } }[]).forEach((p, k) => {
+      // Corners are read upright about the body's pivot, at the waist: the hips are 0.92 up for one who stands and 0.6 for one who sits,
+      // the shoulders' slope ends 0.54 over them and the chin is 0.63 over them; the neck's front is 0.058 forward. A singer's head
+      // is a still part, leaned as its body rests: it is stood upright again here.
       const corner = p.body.geometry.getAttribute("position"), hips = (p.plays === "drums" ? 0.6 : 0.92) - p.pivot.y;
+      const points: number[] = [];
+      for (let i = 0; i < corner.count; i++) points.push(corner.getX(i), corner.getY(i), corner.getZ(i));
+      for (const world of headOf(band, k)) {
+        const at = own(band, k, world);
+        at.y -= p.pivot.y;
+        at.z -= p.pivot.z;
+        points.push(at.x, at.y * Math.cos(p.lean) + at.z * Math.sin(p.lean), at.z * Math.cos(p.lean) - at.y * Math.sin(p.lean));
+      }
       let forward = -Infinity, seen = 0;
       // Each face is read at its corners and at points across it: a long face, as of hair that falls, has no corner at this height.
-      for (let i = 0; i < corner.count; i += 3) {
+      for (let i = 0; i < points.length; i += 9) {
         for (let u = 0; u <= 6; u++) for (let v = 0; u + v <= 6; v++) {
           const w = [u / 6, v / 6, 1 - (u + v) / 6];
-          const x = w[0] * corner.getX(i) + w[1] * corner.getX(i + 1) + w[2] * corner.getX(i + 2), y = w[0] * corner.getY(i) + w[1] * corner.getY(i + 1) + w[2] * corner.getY(i + 2) - hips;
+          const x = w[0] * points[i] + w[1] * points[i + 3] + w[2] * points[i + 6], y = w[0] * points[i + 1] + w[1] * points[i + 4] + w[2] * points[i + 7] - hips;
           if (y < 0.55 || y > 0.62 || Math.abs(x) > 0.13) continue;
           seen += 1;
-          forward = Math.max(forward, w[0] * corner.getZ(i) + w[1] * corner.getZ(i + 1) + w[2] * corner.getZ(i + 2));
+          forward = Math.max(forward, w[0] * points[i + 2] + w[1] * points[i + 5] + w[2] * points[i + 8]);
         }
       }
       expect(seen).toBeGreaterThan(0);
       expect([p.plays, forward < 0.058 + 0.02]).toEqual([p.plays, true]);
-    }
+    });
   });
 
   it("makes every stand stout enough to fill a pixel from among the crowd: a pole, a leg or an arm of a kit, a keyboard or a microphone is 6 cm across or more", () => {
