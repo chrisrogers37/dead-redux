@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { analyse, blockLuminance, counter, LIN, lum, mostWithin, platesMask, swingsOf, THRESHOLD } from "../flash/analyse.mjs";
+import { parseJobs } from "../flash/lib.mjs";
+import windows from "../flash/windows.json";
 
 // The flash counter's arithmetic. A block's luminance is a uint16, relative luminance times 65535, so the bar's 10 % is 6553.5: a
 // change of 6554 is a swing and one of 6553 is not.
@@ -333,20 +335,34 @@ describe("blockLuminance", () => {
     expect([...out]).toEqual([0, 0, 0, 0, 65535, 0, 0, 16384]);
   });
 
+  // The swings a grid counts when the pixels of `lit` flash once, at byte 100, the grid standing `ox` px right and `oy` px down.
+  const flashed = (lit: number[][], ox: number, oy: number) => {
+    const frames = [frame([], 0), frame(lit, 100), frame([], 0)];
+    const bw = Math.floor((W - ox) / 2), bh = Math.floor((W - oy) / 2), L = new Uint16Array(frames.length * bw * bh);
+    frames.forEach((rgba, f) => blockLuminance(rgba, W, bw, bh, ox, oy, L, f * bw * bh));
+    return counted(L, frames.length, bw, bh, new Uint8Array(bw * bh)).totalSwings;
+  };
+
   it("counts a 2x2 flash that straddles the even grid's lines only on the grid moved by (1, 1)", () => {
     // Byte 100 is 12.7 % in relative luminance: a swing where a block holds all four pixels, a quarter of one where it holds one.
     expect(lum(100, 100, 100)).toBeGreaterThan(0.12);
-    const frames = [frame([], 0), frame(MIDDLE, 100), frame([], 0)];
-    const swings = (ox: number, oy: number) => {
-      const bw = Math.floor((W - ox) / 2), bh = Math.floor((W - oy) / 2), L = new Uint16Array(frames.length * bw * bh);
-      frames.forEach((rgba, f) => blockLuminance(rgba, W, bw, bh, ox, oy, L, f * bw * bh));
-      return counted(L, frames.length, bw, bh, new Uint8Array(bw * bh)).totalSwings;
-    };
-    expect(swings(0, 0)).toBe(0);
-    expect(swings(1, 1)).toBe(2);
+    expect(flashed(MIDDLE, 0, 0)).toBe(0);
+    expect(flashed(MIDDLE, 1, 1)).toBe(2);
     // Moved one way only, a block holds two of the four pixels: half of 12.7 %, no swing.
-    expect(swings(1, 0)).toBe(0);
-    expect(swings(0, 1)).toBe(0);
+    expect(flashed(MIDDLE, 1, 0)).toBe(0);
+    expect(flashed(MIDDLE, 0, 1)).toBe(0);
+  });
+
+  it("counts a 2x2 flash, wherever it lies against the grids' lines, on exactly one of the grids a job counts when its line names none", () => {
+    const grids = parseJobs("branch Q", windows["2026-10-20"].windows)[0].grids;
+    // The four ways a 2x2 square can lie: its corner on an even or an odd pixel, across and down.
+    for (const [x, y] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+      const square = [[x, y], [x + 1, y], [x, y + 1], [x + 1, y + 1]];
+      // Whole on the grid that stands where the square does, and a half or a quarter on each of the others: under 10 % there.
+      expect(grids.map(([ox, oy]) => [ox, oy, flashed(square, ox, oy)]).filter(([, , n]) => n > 0)).toEqual([[x, y, 2]]);
+    }
+    // The even grid and the one moved by (1, 1), which is what a job counted before, see neither of the squares that straddle one way.
+    for (const [ox, oy] of [[0, 0], [1, 1]]) for (const [x, y] of [[1, 0], [0, 1]]) expect(flashed([[x, y], [x + 1, y], [x, y + 1], [x + 1, y + 1]], ox, oy)).toBe(0);
   });
 });
 
