@@ -49,19 +49,20 @@ One file: `npx vitest run src/lib/__tests__/quality.test.ts`. The dev server sen
 ## Draw calls and the quality tiers
 
 - Each tier has a draw-call budget a frame: desktop 70, phone 45, TV 60 (`CALL_BUDGET` in `.github/screenshots/assets.mjs`; `scripts/__tests__/screenshot-assets.test.ts`). The shoot fails when a shot's frame goes over, or the peak of its walk across the island (`?pose=sweep`) does.
-- What repeats draws as one instanced or merged mesh: the crowd, the bears' legs, the rig's beams and the still landmarks (`crowd.js`, `bears.js`, `rig.js`, `landmarks.js`).
+- What repeats draws as one instanced or merged mesh: the crowd, the bears' legs, the rig's beams, the still landmarks, and the band's limbs and its still parts (`crowd.js`, `bears.js`, `rig.js`, `landmarks.js`, `band.js`). The band is eight draws on every tier (`band.test.ts`).
 - The tier, desktop, phone or TV, is picked once at load (`pickTier` in `public/world/quality.js`), or by `?tier=`. It sets the render scale, the ground's grid, the sky's octaves, the bears, the field of view, shadows and the crowd (`BUDGETS`).
 - When the median of a 60-frame window is over 34 ms, the world steps down one rung, and never back up: the render scale down to half, then shadows, the sky's octaves, half the crowd, the bears, the stage light, the rig (`stepDown`; `quality.test.ts`). Windows drawn while the world loads don't count.
 
 ## Figures are silhouettes, and the beams never light them
 
-- People are faceless, flat figures, never anyone's likeness (#121). The band is six flat-black, unlit silhouettes (`stage.js`); the crowd's figures are dark and faceless (`crowd.js`).
+- People are faceless, flat figures, never anyone's likeness (#121). The band is six flat-black, unlit silhouettes, drawn with one material and told apart by build and the outline of their hair (`band.js`; `band.test.ts`); the crowd's figures are dark and faceless (`crowd.js`).
 - The rig's beams are added light. They draw in three's opaque list, before the crowd (render order 1, then 2), and write no depth, so a figure in front of a beam stays dark from every camera (`draw-order.test.ts`, `rig.test.ts`, `main.test.ts`).
 
 ## Motion and flashes
 
 - Under `prefers-reduced-motion` the world holds still. It draws a frame only for an input or a change of state, or while a control is held, always at full quality (`main.js`; `main.test.ts`). The shoot takes two reduced-motion stills of the home page and two of `?pose=crowd`, and fails when a pair differs (`compare.mjs`).
 - The light show's bar is at most 6 swings of 10 % in relative luminance in any second at any 2×2-pixel block, which is 3 flashes. #128 and #140 measured the light show against it, by render, and their PR text holds the counts. No CI job counts flashes. `scripts/flash/` counts them by render, on a machine with a GPU, and a change that speeds a light's rise or fall, or adds a fast swing in brightness, is counted with it before it merges, the PR text holding the counts.
+- The band is black against the lit panel, so its motion is held to that bar, and at the hill's distance a limb is a pixel wide. What shows against the panel comes and goes once in four of the band's counts, by a hand's breadth: a sway of the hips, a stick's stroke, a hand at the keys. What is quicker moves black over black, a hand strumming over its instrument, or against the floor, a foot tapping. The heads stay at their microphones. The band's count runs at half the beat once the beat passes 105 a minute, so it is never faster than 1.75 a second (`band.js`; `band.test.ts`). A change to how the band moves is counted before it merges, as a change to a light is.
 
 ## Test hooks
 

@@ -16,6 +16,7 @@ import {
   sweepSummary,
   walkPoses,
 } from "./assets.mjs";
+import { bandPath } from "./band.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
 
 const DEVICES = {
@@ -276,6 +277,26 @@ const PAGES = [
   // every other kind of landmark, each built at one of the fixed day's songs' points. A landmark is read here at the size a
   // visitor sees it.
   ...nearPages(),
+  // The band, close: the fixed day from the front of the crowd (band.mjs), shot whole as the near stills before it are, while Fire On
+  // The Mountain plays with ?drive=map, so the light panel is lit behind the six players and each reads by an outline. K starts the
+  // show, since the play disc is on a shelf that is away. `fixed-band` is taken 8 s on, once the world's hour is the show's.
+  {
+    path: bandPath(),
+    devices: ["desktop", "phone"],
+    whole: true,
+    shots: [],
+    steps: [
+      {
+        focus: "#world",
+        press: "KeyK",
+        waitFor: "[data-state='playing'], [data-state='stalled'], [data-state='error']",
+        waitMs: PLAY_WAIT_MS,
+        player: true,
+        shot: "fixed-band-start",
+        later: { ms: 8000, shot: "fixed-band", night: true },
+      },
+    ],
+  },
   // The fixed day with the site's day faked as 2099-01-01, a day it will not reach: the chip names the new day at load and stays while
   // the show plays on (the 8-s shot's clock has moved; the url line still reads the fixed page); in lean-back it sits above the title; its
   // link loads today's page, which arrives leaned back and starts the show, or shows it paused where the browser refuses.
