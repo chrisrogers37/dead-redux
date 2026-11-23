@@ -50,12 +50,13 @@ One file: `npx vitest run src/lib/__tests__/quality.test.ts`. The dev server sen
 
 - Each tier has a draw-call budget a frame: desktop 70, phone 45, TV 60 (`CALL_BUDGET` in `.github/screenshots/assets.mjs`; `scripts/__tests__/screenshot-assets.test.ts`). The shoot fails when a shot's frame goes over, or the peak of its walk across the island (`?pose=sweep`) does.
 - What repeats draws as one instanced or merged mesh: the crowd, the bears' legs, the rig's beams and the still landmarks (`crowd.js`, `bears.js`, `rig.js`, `landmarks.js`).
-- The tier, desktop, phone or TV, is picked once at load (`pickTier` in `public/world/quality.js`), or by `?tier=`. It sets the render scale, the ground's grid, the sky's octaves, the bears, the field of view, shadows and the crowd (`BUDGETS`).
+- The tier, desktop, phone or TV, is picked once at load (`pickTier` in `public/world/quality.js`), or by `?tier=`. It sets the render scale, the ground's grid, the sky's octaves, the bears, the field of view, shadows and the crowd (`BUDGETS`). A phone's and a TV's crowd is of plainer figures, 729 triangles each to a desktop's 1,117 (`figureGeometry` in `crowd.js`; `crowd.test.ts`, `main.test.ts`).
 - When the median of a 60-frame window is over 34 ms, the world steps down one rung, and never back up: the render scale down to half, then shadows, the sky's octaves, half the crowd, the bears, the stage light, the rig (`stepDown`; `quality.test.ts`). Windows drawn while the world loads don't count.
 
 ## Figures are silhouettes, and the beams never light them
 
 - People are faceless, flat figures, never anyone's likeness (#121). The band is six flat-black, unlit silhouettes (`stage.js`); the crowd's figures are dark and faceless (`crowd.js`).
+- Every figure of the crowd is a different person, in build, clothes, hair, what it carries and how it moves, and all of them are one mesh: its one geometry holds every part there is to wear, and the vertex shader folds away what a figure does not (`crowd.js`). No two figures of a crowd share an outline; no colour of any is brighter than `MOST`; and whatever a figure wears or carries stays inside the reaches the parting keeps round it. `crowd.test.ts` holds each of these, and runs the shader's own text to do it: the shader is written in plain numbers so that it can.
 - The rig's beams are added light. They draw in three's opaque list, before the crowd (render order 1, then 2), and write no depth, so a figure in front of a beam stays dark from every camera (`draw-order.test.ts`, `rig.test.ts`, `main.test.ts`).
 
 ## Motion and flashes

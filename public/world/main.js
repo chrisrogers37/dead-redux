@@ -143,7 +143,7 @@ function start(gl) {
   const bears = buildBears(scene, budget.bears);
 
   /* ---------- the crowd ---------- */
-  const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks });
+  const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks, plain: tier !== "desktop" });
 
   /* ---------- the visitor's bear ---------- */
   const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN], over: crowd.over, ahead: crowd.ahead });

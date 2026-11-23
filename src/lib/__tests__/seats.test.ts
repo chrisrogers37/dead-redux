@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { figureGeometry, partingOptions } from "../../../public/world/crowd.js";
+import { partingOptions, TALL } from "../../../public/world/crowd.js";
 import { FACING, height, STAGE, STAGE_COLUMN } from "../../../public/world/ground.js";
 import { crowdPlan, isBetweenSongs, isDrums, isNotASong, isSpace, isTuning, onCrowdGround, parting, PERSON, seats, songsOf } from "../../../public/world/seats.js";
 
@@ -170,9 +170,7 @@ describe("parting", () => {
   // PERSON tall; and a visitor's bear facing (fx, fz). The figures' sizes come from the options: how near a figure comes to the
   // visitor's middle (reach), or with its arms hanging (hang), how high it reaches (top) and how far out (wide).
   const placed = seats(none) as Seat[], n = placed.length;
-  const figure = figureGeometry();
-  figure.computeBoundingBox();
-  const OPTS = { ...partingOptions(PERSON / figure.boundingBox.max.y), keeps: [] as number[][] };
+  const OPTS = { ...partingOptions(PERSON / TALL), keeps: [] as number[][] };
   const bear = (x: number, z: number, fx: number, fz: number) => ({ feet: { x, z }, head: { x: x + 0.8 * fx, z: z + 0.8 * fz } });
   const where = (p: { offset: Float32Array }, i: number) => [placed[i].x + p.offset[4 * i], placed[i].z + p.offset[4 * i + 2]];
 

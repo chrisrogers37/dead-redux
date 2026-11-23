@@ -84,6 +84,8 @@ const fake = vi.hoisted(() => {
     flame: { scale: new Vec(1, 1, 1) },
     stage: undefined as unknown as Stage,
     crowd: undefined as unknown as CrowdMesh,
+    // Whether main.js asked for the crowd's figures built plain, as a phone's are (crowd.js).
+    crowdPlain: undefined as unknown as boolean,
     sky: undefined as unknown as Sky,
     sun: undefined as unknown as { castShadow: boolean },
     meshes: [] as { material: unknown; position: Vec; visible: boolean }[],
@@ -293,8 +295,8 @@ const fake = vi.hoisted(() => {
     },
     crowd: {
       // As many figures as the tier asks for, which the downgrade may halve, the pose each frame gives them, and its parting.
-      buildCrowd: (_scene: Scene, { count }: { count: number }) => ({
-        mesh: (world.crowd = { count }),
+      buildCrowd: (_scene: Scene, { count, plain }: { count: number; plain: boolean }) => ({
+        mesh: (world.crowd = ((world.crowdPlain = plain), { count })),
         count,
         pose: (beats: number, dance: number, rise: number, sit: number) => {
           world.posed = { beats, dance, rise, sit };
@@ -592,6 +594,17 @@ describe("main.js's frames", () => {
     for (let k = 0; k < 1500 && hill().crowd.drawn === made; k++) page.run(0.05, { ms: 50 });
     expect(hill().crowd.drawn).toBe(Math.ceil(made / 2));
     expect(page.shown()).toHaveLength(fake.world.bears.length);
+  });
+
+  it("builds the crowd's figures whole on a desktop and plain on a phone and a TV, whose crowds are drawn with fewer triangles a figure", async () => {
+    // A desktop's figure has every part there is to wear; a plain one leaves seven out and rounds the rest with fewer sides (crowd.js).
+    // A tier that got the wrong one would draw half as many triangles again for its crowd, or lose the parts its screen can show.
+    await startWorld();
+    expect([hill().tier, fake.world.crowdPlain]).toEqual(["desktop", false]);
+    await startWorld({ search: "?tier=phone" });
+    expect([hill().tier, fake.world.crowdPlain]).toEqual(["phone", true]);
+    await startWorld({ search: "?tier=tv" });
+    expect([hill().tier, fake.world.crowdPlain]).toEqual(["tv", true]);
   });
 
   it("draws a handful of the land's tufts for the draw-call sweep, whose frames are counted and never looked at, and all of them otherwise", async () => {
