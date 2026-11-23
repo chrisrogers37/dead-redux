@@ -1,7 +1,6 @@
 import { appendFile, mkdir, mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { chromium } from "playwright";
 import { TEST_POSES } from "../../public/world/ground.js";
 import { logText } from "../../scripts/job-text.mjs";
 import {
@@ -19,6 +18,7 @@ import {
 } from "./assets.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
 import { cursorFailure, FOCUS_STOPS, movePointer, pressFailure, pressWorld, RIDE_RECORDINGS, rideIdle, ridePages, stillInLook } from "./ride.mjs";
+import { planFailures, planFiles, shardPlan, writtenSince } from "./shards.mjs";
 
 const DEVICES = {
   desktop: { viewport: { width: 1440, height: 900 } },
@@ -794,6 +794,15 @@ const logPage = async (page, file) => {
   console.log(logText(`next ${file} ${next}`));
 };
 
+// The part of the shoot this process does: the whole of it, or the part SHARD names (shards.mjs), as each of the workflow's jobs does.
+// A name that is no shard's stops the script here, before it asks for a site.
+const plan = shardPlan(process.env.SHARD, { devices: Object.keys(DEVICES), byName: BY_NAME, pages: PAGES, recordings: RECORDINGS, assets: ASSETS });
+// SHOOT_PLAN=1 prints that part as the files it saves and stops, with no site and no browser: the shards' test reads it.
+if (process.env.SHOOT_PLAN) {
+  console.log(JSON.stringify({ shard: process.env.SHARD ?? null, ...planFiles(plan) }, null, 2));
+  process.exit(0);
+}
+
 const site = new URL(process.env.SITE_URL);
 if (site.protocol !== "https:") {
   throw new Error(`SITE_URL must be an https URL, got ${process.env.SITE_URL}`);
@@ -815,12 +824,17 @@ if (process.env.GITHUB_OUTPUT) {
 
 const outDir = process.env.OUT_DIR;
 await mkdir(outDir, { recursive: true });
+// When this run began, to the second below: a file in the folder that is older is not this run's.
+const began = Math.floor(Date.now() / 1000) * 1000;
 
-// The runner has no GPU, so WebGL runs in software; the no-WebGL devices get a browser with it off.
+// The browser's package is loaded here and not at the top, so that SHOOT_PLAN works where it is not installed, as in the unit tests.
+const { chromium } = await import("playwright");
+// The runner has no GPU, so WebGL runs in software; the no-WebGL devices get a browser with it off, where the plan has a page for one.
 const browser = await chromium.launch({ args: ["--enable-unsafe-swiftshader"] });
-const noWebGL = await chromium.launch({ args: ["--disable-webgl", "--disable-webgl2", "--disable-3d-apis"] });
+const noWebGL = plan.pages.some(([device]) => NO_WEBGL.has(device)) ? await chromium.launch({ args: ["--disable-webgl", "--disable-webgl2", "--disable-3d-apis"] }) : null;
 try {
-  for (const [device, options] of Object.entries(DEVICES)) {
+  for (const [device, pages] of plan.pages) {
+    const options = DEVICES[device];
     const context = await (NO_WEBGL.has(device) ? noWebGL : browser).newContext(options);
     await watchPolicies(context, device);
     const page = await context.newPage();
@@ -832,9 +846,6 @@ try {
       height: options.viewport.height * MAX_SCREENS,
     };
 
-    // The pages this device shoots. The TV device is for a ride left alone, so it shoots the home page and only the other pages that
-    // name it. A page may name the devices that shoot it; a device without WebGL, and the phone on its side, shoot only the pages that do.
-    const pages = PAGES.filter(({ path, devices }) => (device !== "tv" || path === "/" || devices?.includes("tv")) && (devices ? devices.includes(device) : !BY_NAME.has(device)));
     for (const [k, { path, shots, steps, end, ready, sweep, failAudio, status, served, whole, ownIdle }] of pages.entries()) {
       // A page with a step that needs the ride in one of its looks loads with this device's wait, unless it keeps the page's own.
       const url = pageUrl(path, device, steps?.some((step) => step.ride) && !ownIdle ? rideIdle(device) : null);
@@ -891,8 +902,9 @@ try {
         // A step may be for the devices with a touch screen alone, or for those without one.
         if (step.touch !== undefined && step.touch !== Boolean(options.hasTouch)) continue;
         const selector = step.click ?? step.tap ?? step.focus;
-        // A control missing from the page is logged and skipped, and fails the run only for a required step; a step that only presses a
-        // key has none to miss.
+        // A control missing from the page is logged and the step skipped; a step that only presses a key has none to miss. A required
+        // step says so in a failure of its own; any step's untaken still fails the run at its end, when what was saved is held to
+        // the plan (planFailures).
         if (selector && (await page.locator(selector).count()) === 0) {
           if (step.required) failures.push(`${device}-${step.shot}.png: ${selector} absent`);
           console.log(`${step.shot}: ${selector} absent`);
@@ -1038,7 +1050,7 @@ try {
     await context.close();
   }
 
-  recording: for (const { device, name, path = "/", click, required, waitFor, settled, keys, stick, recordMs = RECORD_MS } of RECORDINGS) {
+  recording: for (const { device, name, path = "/", click, required, waitFor, settled, keys, stick, recordMs = RECORD_MS } of plan.recordings) {
     const options = DEVICES[device];
     // Frames arrive at the viewport's CSS size, whatever the device scale factor.
     const context = await browser.newContext({
@@ -1054,7 +1066,8 @@ try {
     const file = `${device}-${name}.webm`;
     await open(page, url);
     if (click) {
-      // A control missing from the page is logged and skipped, and fails the run only for a required recording.
+      // A control missing from the page is logged and the recording skipped. A required recording says so in a failure of its own;
+      // the run then fails at its end, for a recording the plan names and nothing saved (planFailures).
       // Scripts may draw the control after load, so it gets time to appear.
       const found = await page.waitForSelector(click, { timeout: 15_000 }).then(
         () => true,
@@ -1149,10 +1162,13 @@ try {
     );
   }
 
-  failures.push(...(await saveAssets(site, ASSETS, outDir)));
+  failures.push(...(await saveAssets(site, plan.assets, outDir)));
+  // What this run saved, against what its plan names (shards.mjs). A still or a recording the plan names and the run did not save
+  // fails it: a step skipped because its control is absent logs a line above and takes no still. So does a file the plan does not name.
+  failures.push(...planFailures(planFiles(plan), await writtenSince(outDir, began)));
   for (const failure of failures) console.log(`failure ${failure}`);
   if (failures.length > 0) throw new Error(`${failures.length} failure(s); each has its own "failure" line above`);
 } finally {
   await browser.close();
-  await noWebGL.close();
+  await noWebGL?.close();
 }
