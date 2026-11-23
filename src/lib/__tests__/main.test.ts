@@ -123,6 +123,11 @@ const fake = vi.hoisted(() => {
     // the camera it handed each.
     drew: [] as string[],
     drewFrom: [] as unknown[],
+    // What main.js asked the canvas for when it made its context, and what it told the renderer; and what a test puts over the tier's
+    // budget (quality.js), so that main.js is seen to read the budget's word.
+    context: undefined as unknown as { kind: string; options: Record<string, unknown> },
+    renderer: undefined as unknown as Record<string, unknown>,
+    budget: {} as Record<string, unknown>,
     sky: undefined as unknown as Sky,
     sun: undefined as unknown as { castShadow: boolean },
     meshes: [] as { material: unknown; position: Vec; visible: boolean }[],
@@ -203,6 +208,9 @@ const fake = vi.hoisted(() => {
   const PATH = { at: () => new Vec(), tangentAt: () => new Vec(1, 0, 0) };
   const three = {
     WebGLRenderer: class {
+      constructor(options: Record<string, unknown>) {
+        world.renderer = options;
+      }
       shadowMap = (world.shadowMap = { enabled: false, autoUpdate: true, needsUpdate: false });
       setPixelRatio() {}
       setSize() {}
@@ -435,6 +443,10 @@ vi.mock("../../../public/world/sky.js", () => fake.modules.sky);
 vi.mock("../../../public/world/stage.js", () => fake.modules.stage);
 vi.mock("../../../public/world/crowd.js", () => fake.modules.crowd);
 // audio.js runs as it is, but for the time of the last onset, which the analyser never hears here.
+vi.mock("../../../public/world/quality.js", async (original) => {
+  const real = await original<typeof import("../../../public/world/quality.js")>();
+  return { ...real, budgetFor: (tier: string) => ({ ...real.budgetFor(tier), ...fake.world.budget }) };
+});
 vi.mock("../../../public/world/audio.js", async (original) => ({ ...(await original<object>()), onsetAt: () => fake.world.onset }));
 
 const stage = { x: STAGE[0], z: STAGE[1] };
@@ -568,7 +580,12 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
       getElementById: (id: string) => byId[id] ?? null,
       querySelector: (selector: string) => found[selector] ?? null,
       querySelectorAll: () => [],
-      createElement: () => ({ getContext: () => ({}) }),
+      createElement: () => ({
+        getContext: (kind: string, options: Record<string, unknown>) => {
+          fake.world.context = { kind, options };
+          return {};
+        },
+      }),
     }),
   );
   vi.stubGlobal("window", Object.assign(new EventTarget(), { matchMedia: media, devicePixelRatio: 1 }));
@@ -740,6 +757,25 @@ describe("main.js's frames", () => {
     expect(drew.length % 2).toBe(0);
     expect(new Set(drewFrom).size).toBe(1);
     expect(drewFrom[0]).toBeTruthy();
+  });
+
+  it("asks for smoothed edges when it makes the canvas's context, as the tier's budget says, and tells the renderer the same", async () => {
+    // Multisampling belongs to the context from its making (quality.js): asked of the renderer alone, or later, it does nothing.
+    for (const tier of ["desktop", "phone", "tv"]) {
+      await startWorld({ search: `?tier=${tier}` });
+      expect(fake.world.context).toEqual({ kind: "webgl2", options: { antialias: true, powerPreference: "low-power", alpha: false } });
+      expect(fake.world.renderer.antialias).toBe(true);
+      expect(fake.world.renderer.context).toBeTruthy();
+    }
+    // It is the budget's word and no constant: a tier whose budget says no gets a context without.
+    fake.world.budget = { antialias: false };
+    try {
+      await startWorld({ search: "?tier=phone" });
+      expect(fake.world.context.options.antialias).toBe(false);
+      expect(fake.world.renderer.antialias).toBe(false);
+    } finally {
+      fake.world.budget = {};
+    }
   });
 
   it("builds the crowd's figures whole on a desktop and plain on a phone and a TV, whose crowds are drawn with fewer triangles a figure", async () => {
