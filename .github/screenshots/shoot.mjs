@@ -17,7 +17,7 @@ import {
   walkPoses,
 } from "./assets.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
-import { planFiles, shardPlan } from "./shards.mjs";
+import { planFailures, planFiles, shardPlan, writtenSince } from "./shards.mjs";
 
 const DEVICES = {
   desktop: { viewport: { width: 1440, height: 900 } },
@@ -849,12 +849,14 @@ if (process.env.GITHUB_OUTPUT) {
 
 const outDir = process.env.OUT_DIR;
 await mkdir(outDir, { recursive: true });
+// When this run began, to the second below: a file in the folder that is older is not this run's.
+const began = Math.floor(Date.now() / 1000) * 1000;
 
 // The browser's package is loaded here and not at the top, so that SHOOT_PLAN works where it is not installed, as in the unit tests.
 const { chromium } = await import("playwright");
-// The runner has no GPU, so WebGL runs in software; the no-WebGL devices get a browser with it off.
+// The runner has no GPU, so WebGL runs in software; the no-WebGL devices get a browser with it off, where the plan has a page for one.
 const browser = await chromium.launch({ args: ["--enable-unsafe-swiftshader"] });
-const noWebGL = await chromium.launch({ args: ["--disable-webgl", "--disable-webgl2", "--disable-3d-apis"] });
+const noWebGL = plan.pages.some(([device]) => NO_WEBGL.has(device)) ? await chromium.launch({ args: ["--disable-webgl", "--disable-webgl2", "--disable-3d-apis"] }) : null;
 try {
   for (const [device, pages] of plan.pages) {
     const options = DEVICES[device];
@@ -1150,9 +1152,12 @@ try {
   }
 
   failures.push(...(await saveAssets(site, plan.assets, outDir)));
+  // What this run saved, against what its plan names (shards.mjs). A still or a recording the plan names and the run did not save
+  // fails it: a step skipped because its control is absent logs a line above and takes no still. So does a file the plan does not name.
+  failures.push(...planFailures(planFiles(plan), await writtenSince(outDir, began)));
   for (const failure of failures) console.log(`failure ${failure}`);
   if (failures.length > 0) throw new Error(`${failures.length} failure(s); each has its own "failure" line above`);
 } finally {
   await browser.close();
-  await noWebGL.close();
+  await noWebGL?.close();
 }

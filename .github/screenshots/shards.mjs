@@ -26,6 +26,8 @@
 // the next play step without ?at= resumes from. One cut among them would hold while archive.org streams: before the sleep timer's
 // page, the show's end having forgotten the place two pages before it. It is not made, since `rest` is the longest shard either way
 // and evening the desktop's parts would not shorten a run.
+import { readdir, stat } from "fs/promises";
+import { join } from "path";
 import { assetFile } from "./assets.mjs";
 
 /** The shards' names, which the workflow's matrix lists and SHARD takes. */
@@ -46,6 +48,10 @@ const NEAR_STEP = new Set(["near", "title", "shot"]);
  * Whether a page only looks: it is loaded and shot, and no step of it gives the page any input (a near step gives none). A page that
  * names anything else acts, and so does one that names something this list has not heard of: a page that clicks, presses, drags or
  * plays, one whose audio fails (`failAudio`), and one that checks what an earlier page left in the HTML (`served`).
+ *
+ * That default covers only what this list does not know. A new page made of fields it does know, shots and near steps, is shot apart
+ * from the pages that act, in a browser where no show has played and no shelf has moved: one that must see what a play step or any
+ * other page left has to act itself, or it will be shot without it and nothing here will say so.
  */
 export function onlyLooks(page) {
   return Object.keys(page).every((key) => LOOKING.has(key)) && (page.steps ?? []).every((step) => Object.keys(step).every((key) => NEAR_STEP.has(key)));
@@ -100,3 +106,33 @@ export const planFiles = ({ pages, recordings, assets }) => ({
   recordings: recordings.map(({ device, name }) => `${device}-${name}.webm`),
   assets: assets.map(assetFile),
 });
+
+/**
+ * The names of the files in a folder that were written at or after `since` (ms since the epoch): what a run that began then saved
+ * there. A folder used before can hold an earlier run's files, and the MP4s and the diffs made from them; those are older.
+ */
+export async function writtenSince(dir, since) {
+  const written = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (entry.isFile() && (await stat(join(dir, entry.name))).mtimeMs >= since) written.push(entry.name);
+  }
+  return written;
+}
+
+/**
+ * Why the files a run saved are not its plan's, each a failure's line, or none: a still or a recording the plan names that the run
+ * did not save, as when a step is skipped because its control is absent, and a file it saved that the plan does not name, those by
+ * name. A generated image may be missing: one the site answers with a 404 is skipped, not failed (assetAction, assets.mjs).
+ *
+ * @param files - The plan as planFiles gives it.
+ * @param written - The names of the files the run saved.
+ */
+export function planFailures({ pages, recordings, assets }, written) {
+  const saved = new Set(written);
+  const named = new Set([...pages.flatMap(({ stills }) => stills), ...recordings, ...assets]);
+  return [
+    ...pages.flatMap(({ device, path, stills }) => stills.filter((file) => !saved.has(file)).map((file) => `${file}: the plan names this still, of ${device} ${path}, and it was not saved`)),
+    ...recordings.filter((file) => !saved.has(file)).map((file) => `${file}: the plan names this recording, and it was not saved`),
+    ...[...written].sort().filter((file) => !named.has(file)).map((file) => `${file}: saved, and the plan does not name it`),
+  ];
+}

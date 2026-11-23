@@ -1,8 +1,10 @@
 import { spawnSync } from "child_process";
 import { readFileSync } from "fs";
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "fs/promises";
+import { tmpdir } from "os";
 import { join } from "path";
-import { describe, expect, it } from "vitest";
-import { devicePages, onlyLooks, pageShard, planFiles, shardPlan, SHARDS, SPLIT_DEVICE, stillFiles } from "../../.github/screenshots/shards.mjs";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { devicePages, onlyLooks, pageShard, planFailures, planFiles, shardPlan, SHARDS, SPLIT_DEVICE, stillFiles, writtenSince } from "../../.github/screenshots/shards.mjs";
 
 const ROOT = join(__dirname, "../..");
 const [ACTS, LOOKS, REST] = SHARDS as string[];
@@ -162,6 +164,68 @@ describe("planFiles", () => {
   });
 });
 
+describe("planFailures", () => {
+  // The small shoot's files on a desktop and a TV, and a run that saved every one of them.
+  const files = planFiles(shardPlan(undefined, { ...lists, devices: ["desktop", "tv"] }));
+  const all: string[] = [...files.pages.flatMap((page: { stills: string[] }) => page.stills), ...files.recordings, ...files.assets];
+  const without = (...gone: string[]) => all.filter((file) => !gone.includes(file));
+
+  it("passes a run that saved its plan's files and no other", () => {
+    expect(all).toHaveLength(20);
+    expect(planFailures(files, all)).toEqual([]);
+  });
+
+  it("fails a run for each still its plan names that it did not save, and says whose page it is", () => {
+    // A step whose control is absent logs a line and is skipped: without this the run passes with the still untaken.
+    expect(planFailures(files, without("desktop-fixed-reach-snout.png", "tv-archive-end.png"))).toEqual([
+      "desktop-fixed-reach-snout.png: the plan names this still, of desktop /2026-10-20?pose=snout, and it was not saved",
+      "tv-archive-end.png: the plan names this still, of tv /archive, and it was not saved",
+    ]);
+  });
+
+  it("fails a run for each recording its plan names that it did not save", () => {
+    expect(planFailures(files, without("tv-leanback.webm"))).toEqual(["tv-leanback.webm: the plan names this recording, and it was not saved"]);
+  });
+
+  it("passes a run without a generated image: the site may answer one with a 404, which the shoot skips", () => {
+    expect(planFailures(files, without("asset-icon.png", "asset-2026-03-01-opengraph-image.png"))).toEqual([]);
+  });
+
+  it("fails a run for each file it saved that its plan does not name", () => {
+    // A shard that shot another's page, or a step whose still the plan's names leave out.
+    expect(planFailures(files, ["phone-home-1.png", ...all, "desktop-fixed-ride.png"])).toEqual([
+      "desktop-fixed-ride.png: saved, and the plan does not name it",
+      "phone-home-1.png: saved, and the plan does not name it",
+    ]);
+    expect(planFailures(planFiles(shardPlan(LOOKS, lists)), all).length).toBeGreaterThan(0);
+  });
+});
+
+describe("writtenSince", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "shards-"));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("names the files written at or after a moment, and neither an older file nor a folder", async () => {
+    // A folder used before holds an earlier run's stills, and the MP4s and diffs made from them: none is this run's, and an old
+    // still must not stand in for one this run did not take.
+    const since = Date.UTC(2026, 10, 23, 12, 0, 0);
+    const at = (ms: number) => new Date(since + ms);
+    for (const [name, ms] of [["tv-home-2.png", 5000], ["desktop-home-1.png", 0], ["desktop-home.mp4", -1000], ["phone-home-1.png", -60_000]] as [string, number][]) {
+      await writeFile(join(dir, name), "x");
+      await utimes(join(dir, name), at(ms), at(ms));
+    }
+    await mkdir(join(dir, "videos"));
+    await utimes(join(dir, "videos"), at(5000), at(5000));
+    expect((await writtenSince(dir, since)).sort()).toEqual(["desktop-home-1.png", "tv-home-2.png"]);
+    expect((await writtenSince(dir, 0)).sort()).toEqual(["desktop-home-1.png", "desktop-home.mp4", "phone-home-1.png", "tv-home-2.png"]);
+  });
+});
+
 // What SHOOT_PLAN=1 prints: the part of the shoot a process does, as the files it saves.
 type Files = { shard: string | null; pages: { device: string; path: string; stills: string[] }[]; recordings: string[]; assets: string[] };
 
@@ -259,6 +323,11 @@ describe("the shoot's shards, by the script's own lists", () => {
   it("keeps each desktop page that depends on an earlier one in that page's shard, after it, with the same pages that act between them", () => {
     const whole = planOf(), acts = planOf(ACTS), looks = planOf(LOOKS);
     for (const [still, earlier, why] of NEEDS) {
+      // A still that was renamed, or that the shoot no longer takes, is not a failure of the split: the list above is out of date.
+      for (const name of [still, earlier]) {
+        const fix = `${name} is no still of the shoot now. If it was renamed, give NEEDS, in this test, its new name and keep the pair: ${why}. If the shoot no longer takes it, name another still of the same page, or drop the pair if the dependency is gone.`;
+        expect(pageTaking(whole, name), fix).toBeGreaterThanOrEqual(0);
+      }
       const [after, before] = [pageTaking(acts, still), pageTaking(acts, earlier)];
       expect(before, `${earlier}: ${why}`).toBeGreaterThanOrEqual(0);
       expect(after, `${still}: ${why}`).toBeGreaterThan(before);
@@ -298,6 +367,28 @@ describe("the shoot's shards, by the script's own lists", () => {
     expect(script).toContain("of plan.recordings) {");
     expect(script).toContain("saveAssets(site, plan.assets, outDir)");
     expect(script).not.toMatch(/of Object\.entries\(DEVICES\)|of RECORDINGS\b|PAGES\.filter|saveAssets\(site, ASSETS/);
+  });
+
+  it("fails a run whose saved files are not its plan's, by the files written since it began", () => {
+    // The check is the script's last word before it prints its failures: left out, or made before the images are saved, a shard that
+    // lost a still to a skipped step would pass.
+    const script = readFileSync(join(ROOT, ".github/screenshots/shoot.mjs"), "utf8");
+    const began = script.indexOf("const began = Math.floor(Date.now() / 1000) * 1000;");
+    const check = script.indexOf("failures.push(...planFailures(planFiles(plan), await writtenSince(outDir, began)));");
+    expect(began).toBeGreaterThan(0);
+    // It began before any browser was launched, so before any file was saved.
+    expect(script.indexOf("chromium.launch(")).toBeGreaterThan(began);
+    expect(check).toBeGreaterThan(script.indexOf("saveAssets(site, plan.assets, outDir)"));
+    expect(script.indexOf("for (const failure of failures) console.log(`failure ${failure}`);")).toBeGreaterThan(check);
+  });
+
+  it("launches the browser without WebGL only where its plan has a page for one, and closes it only if it did", () => {
+    const script = readFileSync(join(ROOT, ".github/screenshots/shoot.mjs"), "utf8");
+    expect(script).toContain("const noWebGL = plan.pages.some(([device]) => NO_WEBGL.has(device)) ? await chromium.launch({");
+    expect(script).toContain("await noWebGL?.close();");
+    // And the two desktop shards have none, while the rest has both.
+    const webglOff = (shard: string) => planOf(shard).pages.filter((page) => page.device.endsWith("-nowebgl")).length;
+    expect([webglOff(ACTS), webglOff(LOOKS), webglOff(REST)]).toEqual([0, 0, 2]);
   });
 
   it("loads the browser's package only once it has a site to shoot, so its plan prints where the package is not installed", () => {
@@ -380,6 +471,27 @@ describe("the Screenshots workflow's shards", () => {
     const install = stepWith(/name: Check the install$/m);
     expect(SHARDS).toContain(shardOf(install));
     expect(install).toMatch(/^\s*if: matrix\.shard == '[^']*' && \(success\(\) \|\| steps\.compare\.outcome == 'failure'\)$/m);
+  });
+
+  it("gives each step that another reads by its id that id", () => {
+    // The upload after a failed shoot and the artifact's name read steps.shoot, and the install check and the upload read
+    // steps.compare and steps.install: a step without its id reads as empty there, and nothing fails.
+    expect(stepWith(/run: node shoot\.mjs$/m)).toMatch(/^\s*id: shoot$/m);
+    expect(stepWith(/name: Compare the reduced-motion stills$/m)).toMatch(/^\s*id: compare$/m);
+    expect(stepWith(/name: Check the install$/m)).toMatch(/^\s*id: install$/m);
+    const read = [...new Set([...workflow.matchAll(/\bsteps\.([\w-]+)\./g)].map((match) => match[1]))].sort();
+    expect(read).toEqual(["compare", "install", "shoot"]);
+    const ids = steps.flatMap((step) => [...step.matchAll(/^\s*id: (\S+)$/gm)].map((match) => match[1])).sort();
+    expect(ids).toEqual(read);
+  });
+
+  it("shoots into the folder it converts in, compares in and uploads", () => {
+    // Each step names the folder itself: one that named another would convert, compare or upload nothing of the shoot's.
+    const folder = "${{ runner.temp }}/screenshots";
+    expect(/^\s*OUT_DIR: (.*)$/m.exec(stepWith(/run: node shoot\.mjs$/m))?.[1]).toBe(folder);
+    expect(/^\s*working-directory: (.*)$/m.exec(stepWith(/name: Convert recordings to MP4$/m))?.[1]).toBe(folder);
+    expect(/^\s*OUT_DIR: (.*)$/m.exec(stepWith(/name: Compare the reduced-motion stills$/m))?.[1]).toBe(folder);
+    expect(/^\s*path: (.*)$/m.exec(stepWith(/uses: actions\/upload-artifact@/))?.[1]).toBe(folder);
   });
 
   it("uploads each shard's files as an artifact of its own, after a failed shoot, compare or install check too", () => {
