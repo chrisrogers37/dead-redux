@@ -138,18 +138,20 @@ function start(gl) {
   /* ---------- the trees and the island ---------- */
   /* Where the trees stand (trees.js): clear of the path, the bears' line, each landmark's outline, read before the landmarks merge,
      and the ways of this tier's cameras, with each number of bears it can show, its own and each the downgrade leaves (quality.js):
-     among them the view of each landmark from the path (path.js nearStand) and from where the bears stand as its song begins. */
+     among them the view of each landmark from the path (path.js nearStand) and from where the bears stand as its song begins,
+     with nothing behind it, and the sight of every landmark in the frame of a camera the visitor rides. */
   const treeStart = performance.now();
   const bearCounts = [];
   for (let q = quality; q; q = stepDown(q)) if (!bearCounts.includes(q.bears)) bearCounts.push(q.bears);
+  const marks = landmarks.map((g, k) => {
+    const s = nearStand(path, landmarkU, landmarks, k);
+    return { x: g.position.x, z: g.position.z, rot: g.rotation.y, poly: outline(g, moving), d: line.dOf(landmarkU[k]), stand: s ? { x: s.x, z: s.z } : null };
+  });
   const placed = placeTrees({
     count: TARGET[tier], loop,
     line: Array.from({ length: Math.ceil(line.length) }, (_, d) => { const p = line.at(d); return [p.x, p.z]; }),
-    landmarks: landmarks.map((g) => ({ x: g.position.x, z: g.position.z, rot: g.rotation.y, poly: outline(g, moving) })),
-    ...cameraWays({
-      line, height, phone, bears: bearCounts,
-      stands: landmarks.flatMap((g, k) => { const s = nearStand(path, landmarkU, landmarks, k); return s ? [{ x: s.x, z: s.z, to: [g.position.x, g.position.z], d: line.dOf(landmarkU[k]) }] : []; }),
-    }),
+    landmarks: marks,
+    ...cameraWays({ line, height, phone, bears: bearCounts, marks }),
   });
   /* How long the trees took to place, the cameras' ways among it; the stats report it beside the landmarks'. */
   window.__hill.treesMs = Math.round((performance.now() - treeStart) * 10) / 10;
@@ -167,10 +169,9 @@ function start(gl) {
   const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks });
 
   /* ---------- the visitor's bear ---------- */
-  /* What the walk's camera keeps out of besides the landmarks: the stage's column, and after it the trunks and crowns of the trees
-     near the visitor, which each frame of a walk puts there (trees.js). */
-  const columns = [STAGE_COLUMN];
-  const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns, over: crowd.over, ahead: crowd.ahead });
+  /* The walk's camera keeps out of the landmarks and the stage's column, climbs over the crowd, and among the trees slides round a
+     trunk and dips under a crown (trees.js). */
+  const avatar = buildAvatar(scene, landmarks, { phone, reduced, columns: [STAGE_COLUMN], over: crowd.over, ahead: crowd.ahead, slide: trees.slide, ceiling: trees.ceiling });
   /* Every bear's legs, the visitor's too, as one mesh (bears.js). */
   drawLegs(scene, [...bears, avatar]);
   /* The landmarks' still parts become one mesh across the path, once the camera's keep-out boxes and the crowd's are read from them. */
@@ -691,12 +692,7 @@ function start(gl) {
       avatar.step(walker.x, walker.z, walker.heading, dt);
       crowd.part(dt, avatar.feet, avatar.head, reduced);
       spot.stand();
-      if (third) {
-        /* The boom keeps out of the trees near the visitor: the same columns each time, after the stage's. */
-        columns.length = 1;
-        trees.columns(walker.x, walker.z, columns);
-        aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));
-      }
+      if (third) aim(lookTarget.copy(avatar.boom(camera, walker, dt, cut)));
       else {
         placeWalker();
         /* The eye bobs with the walk's pace: fully for a key, less for a gentle push on the stick. */

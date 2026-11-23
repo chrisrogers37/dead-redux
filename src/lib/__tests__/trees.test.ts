@@ -2,11 +2,14 @@ import { readdirSync, readFileSync } from "fs";
 import { beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
+import { GROVE_POSES } from "../../../.github/screenshots/assets.mjs";
 import { AS_TITLES } from "../../../.github/screenshots/near.mjs";
-import { boomLength, buildAvatar, HEAD, TOP } from "../../../public/world/avatar.js";
-import { BODY_REACH, CLEAR, enterColumn, outside } from "../../../public/world/collide.js";
-import { STONE_REACH } from "../../../public/world/flora.js";
-import { BOUND, CAVES, height, STAGE, STAGE_COLUMN, STAGE_REACH, TEST_POSES, TRAILHEAD } from "../../../public/world/ground.js";
+import { boomLength, buildAvatar, eyeRoom, HEAD, TOP } from "../../../public/world/avatar.js";
+import { SNOUT } from "../../../public/world/bears.js";
+import { LEAST } from "../../../public/world/boom.js";
+import { BODY_REACH, outside } from "../../../public/world/collide.js";
+import { chance, STONE_REACH } from "../../../public/world/flora.js";
+import { BOUND, CAVES, FIRST_EYE, height, STAGE, STAGE_COLUMN, STAGE_REACH, TEST_POSES, TRAILHEAD } from "../../../public/world/ground.js";
 import { buildIsland as worldIsland, FEATHER, offTracks, RING, takesPool as worldPool } from "../../../public/world/island.js";
 import { makeBuilders } from "../../../public/world/landmarks.js";
 import { BEAR_GAP, confine, walkLimits as worldLimits } from "../../../public/world/modes.js";
@@ -14,9 +17,9 @@ import { buildPath, buildWalkLine, layout, nearStand, outline, placeLandmarks } 
 import { CRANE, DESCENT_FROM, postPose } from "../../../public/world/pose.js";
 import { onCrowdGround } from "../../../public/world/seats.js";
 import {
-  BASE_FRAC, broadGeometry, broadLobes, buildTrees, cameraWays, CAVE_ROOM, CROWD_ROOM, CROWN_BASE, CROWN_R, CROWN_R_MAX, CROWN_REACH, EYE_ROOM, GLOW_SHARE, grove,
-  GROVES, LANDMARK_ROOM, LEAN, LINE_ROOM, LOBE_ROUGH, MIN_APART, NEAR, NY_MIN, PATH_ROOM, pineGeometry, placeTrees, RING_ROOM, RULES, SIGHT_HALF, SQUARE, STAGE_ROOM, SUNK,
-  TALL, TARGET, TRACK_ROOM, TREE_REACH, TRUNK_FOOT, TRUNK_R_MAX, TRUNK_ROOM, UNDER, VIEW_HALF,
+  BASE_FRAC, BESIDE, broadGeometry, broadLobes, buildTrees, cameraWays, CAVE_ROOM, CELL, CLOSE, CROWD_ROOM, CROWN_BASE, CROWN_R, CROWN_R_MAX, CROWN_REACH, EDGE_NEAR,
+  EYE_ROOM, FOOT_SHADE, FOOT_TOP, FRAME, GLOW_SHARE, grove, GROVES, LANDMARK_ROOM, LEAN, LINE_ROOM, LOBE_ROUGH, MIN_APART, NY_MIN, PASS, PATH_ROOM, pineGeometry, placeTrees, RIDE_FAR,
+  RIDE_STEP, RING_ROOM, RULES, SIGHT_HALF, SPOILS, SQUARE, STAGE_ROOM, SUNK, TALL, TARGET, TRACK_ROOM, TREE_REACH, TRIES, TRUNK_FOOT, TRUNK_R_MAX, TRUNK_ROOM, UNDER, VIEW_HALF,
 } from "../../../public/world/trees.js";
 
 // The trees are placed here as main.js places them: on the island's own path and bears' line, round a show's landmarks, clear of the
@@ -24,14 +27,14 @@ import {
 // desktop's) and once as a phone has it, whose landmarks have fewer faces and whose cameras stand elsewhere. The trees are placed once
 // for each, before the tests, and every test reads those.
 
-type Spot = { x: number; y: number; z: number; tall: number; wide: number; turn: number; lean: number[]; kind: string; tint: number; reach: number; base: number; top: number };
-type View = { from: number[]; to: number[]; half: number };
-type Mark = { x: number; z: number; rot: number; poly: number[][] };
-type Column = { x: number; z: number; r: number; top: number; base?: number };
+type Spot = { x: number; y: number; z: number; tall: number; wide: number; turn: number; lean: number[]; kind: string; tint: number; spoils: number; reach: number; base: number; top: number };
+type View = { from: number[]; to: number[]; half: number; spread?: number; cost?: number };
+type Mark = { x: number; z: number; rot: number; poly: number[][]; d: number; stand: { x: number; z: number } | null };
+type Point = { x: number; y: number; z: number };
 type Stand = { x: number; z: number; to: number[]; d: number };
-type Ask = { count: number; loop: number[][]; line: number[][]; landmarks: Mark[]; eyes: number[][]; views: View[]; groves?: (x: number, z: number) => { thick: number; pines: number } };
+type Ask = { count: number; loop: number[][]; line: number[][]; landmarks: { x: number; z: number; rot: number; poly: number[][] }[]; eyes: number[][]; views: View[]; groves?: (x: number, z: number) => number };
 // The trees' own functions, with the shapes of what they take and give, which the world's plain modules do not spell out.
-const waysOf = cameraWays as unknown as (ask: { line: unknown; height: unknown; stands: Stand[]; phone: boolean; bears: number[] }) => { eyes: number[][]; views: View[] };
+const waysOf = cameraWays as unknown as (ask: { line: unknown; height: unknown; marks: Mark[]; phone: boolean; bears: number[] }) => { eyes: number[][]; views: View[] };
 const placed = placeTrees as unknown as (ask: Ask) => { spots: Spot[]; near(x: number, z: number, r: number): boolean };
 const rules = RULES as unknown as Record<string, (x: number, z: number, ctx: unknown) => boolean>;
 const walkLimits = worldLimits as unknown as (bears: { x: number; z: number }[], trees: (x: number, z: number, r: number) => { x: number; z: number }[], treeReach: number) => ReturnType<typeof worldLimits>;
@@ -39,7 +42,10 @@ type Lit = { onBeforeCompile(shader: unknown): void };
 const takesPool = worldPool as unknown as (material: unknown, uPool: unknown, stands?: unknown) => Lit;
 type Flock = { count: number; getMatrixAt(i: number, m: unknown): void; geometry: { getAttribute(name: string): Corners } };
 const buildIsland = worldIsland as unknown as (scene: unknown, grid: number, phone: boolean, loop: number[][], trunks?: (x: number, z: number) => boolean) => { flora: { tufts: Flock; stones: Flock }; lit(material: unknown, stands?: unknown): Lit };
-type Built = { count: number; meshes: Mesh[]; columns(x: number, z: number, into: Column[]): Column[]; trunks(x: number, z: number, r: number): Column[] };
+type Built = {
+  count: number; meshes: Mesh[]; trunks(x: number, z: number, r: number): { x: number; z: number }[];
+  slide(p: Point, room: number, toward?: { x: number; z: number } | null): void; ceiling(x: number, y: number, z: number, room: number): number;
+};
 type Corners = { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number };
 type Mesh = {
   isInstancedMesh: boolean; count: number; castShadow: boolean; frustumCulled: boolean; getMatrixAt(i: number, m: unknown): void;
@@ -66,12 +72,16 @@ function world(date: string, phone = false, as: [number, string][] = []) {
   const landmarkU = layout(tracks, date === FIXED ? 7 : Math.floor(tracks.length * 0.45), path);
   const builders = makeBuilders(phone), titles = new Map(as);
   const landmarks = placeLandmarks(new THREE.Scene(), path, tracks.map((t, k) => ({ ...t, title: titles.get(k) ?? t.title })), true, builders, landmarkU, line) as { position: { x: number; y: number; z: number }; rotation: { y: number } }[];
-  const marks: Mark[] = landmarks.map((g) => ({ x: g.position.x, z: g.position.z, rot: g.rotation.y, poly: outline(g, builders.moving) }));
-  const stands: Stand[] = landmarks.flatMap((g, k) => { const s = nearStand(path, landmarkU, landmarks, k); return s ? [{ x: s.x, z: s.z, to: [g.position.x, g.position.z], d: line.dOf(landmarkU[k]) }] : []; });
-  const ways = waysOf({ line, height, stands, phone, bears: bearsOf(phone) });
+  const marks: Mark[] = landmarks.map((g, k) => {
+    const s = nearStand(path, landmarkU, landmarks, k);
+    return { x: g.position.x, z: g.position.z, rot: g.rotation.y, poly: outline(g, builders.moving), d: line.dOf(landmarkU[k]), stand: s ? { x: s.x, z: s.z } : null };
+  });
+  // Each stand with its landmark's place and where the bears stand as its song begins.
+  const stands: Stand[] = marks.flatMap((m) => (m.stand ? [{ x: m.stand.x, z: m.stand.z, to: [m.x, m.z], d: m.d }] : []));
+  const ways = waysOf({ line, height, marks, phone, bears: bearsOf(phone) });
   const ask: Ask = { count: phone ? TARGET.phone : TARGET.desktop, loop, line: linePoints, landmarks: marks, ...ways };
   const { spots, near } = placed(ask);
-  return { date, phone, marks, stands, ways, ask, trees: spots, near };
+  return { date, phone, landmarks, marks, stands, ways, ask, trees: spots, near };
 }
 type World = ReturnType<typeof world>;
 // A stand-in for the light the ground takes, and the trees built with it.
@@ -119,13 +129,63 @@ function corners(mesh: Mesh, trees: Spot[], see: (x: number, y: number, z: numbe
   }
 }
 const byKind = (trees: Spot[]) => ["pine", "broad"].map((kind) => trees.filter((t) => t.kind === kind));
+// Each tree's triangles where its instance stands them, nine numbers a triangle; with `trunk`, only those that lie wholly under its
+// crown's base, which are its trunk's, a pine's stubs among them.
+function shapes(meshes: Mesh[], trees: Spot[], trunk = false) {
+  const out = new Map<Spot, number[]>(), matrix = new THREE.Matrix4(), v = new THREE.Vector3();
+  byKind(trees).filter((mine) => mine.length > 0).forEach((mine, k) => {
+    const position = meshes[k].geometry.getAttribute("position");
+    mine.forEach((tree, i) => {
+      meshes[k].getMatrixAt(i, matrix);
+      const tris: number[] = [];
+      for (let t = 0; t < position.count; t += 3) {
+        const nine: number[] = [];
+        for (let c = t; c < t + 3; c++) { v.fromBufferAttribute(position, c).applyMatrix4(matrix); nine.push(v.x, v.y, v.z); }
+        if (!trunk || Math.max(nine[1], nine[4], nine[7]) < tree.base) tris.push(...nine);
+      }
+      out.set(tree, tris);
+    });
+  });
+  return out;
+}
+// How often the line from a point along `way` crosses the triangles.
+function crossings(tris: number[], x: number, y: number, z: number, [dx, dy, dz]: number[]) {
+  let hits = 0;
+  for (let o = 0; o < tris.length; o += 9) {
+    const ax = tris[o], ay = tris[o + 1], az = tris[o + 2], e1x = tris[o + 3] - ax, e1y = tris[o + 4] - ay, e1z = tris[o + 5] - az, e2x = tris[o + 6] - ax, e2y = tris[o + 7] - ay, e2z = tris[o + 8] - az;
+    const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x, det = e1x * px + e1y * py + e1z * pz;
+    if (Math.abs(det) < 1e-12) continue;
+    const tx = x - ax, ty = y - ay, tz = z - az, u = (tx * px + ty * py + tz * pz) / det;
+    if (u < 0 || u > 1) continue;
+    const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x, w = (dx * qx + dy * qy + dz * qz) / det;
+    if (w < 0 || u + w > 1) continue;
+    if ((e2x * qx + e2y * qy + e2z * qz) / det > 0) hits += 1;
+  }
+  return hits;
+}
+// Whether a point is inside a tree, by its triangles: a nearly level line from it crosses the tree's skin an odd number of times, along
+// each of three ways. A trunk and a bough are tubes open at their ends, which a level line from inside never leaves by; a line from
+// outside that leaves by an open end crosses once, but not along all three ways.
+const LEVEL = [[1, 0.0003, 0.0007], [-0.5, 0.0005, 0.866], [-0.5, -0.0004, -0.866]];
+const within = (tris: number[], x: number, y: number, z: number) => LEVEL.every((way) => crossings(tris, x, y, z, way) % 2 === 1);
+// How far a point stands from the nearest of the triangles: from each one's nearest point, which is a corner's, an edge's or its face's.
+function farFrom(tris: number[], x: number, y: number, z: number) {
+  const p = new THREE.Vector3(x, y, z), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), at = new THREE.Vector3(), triangle = new THREE.Triangle(a, b, c);
+  let nearest = Infinity;
+  for (let o = 0; o < tris.length; o += 9) {
+    a.set(tris[o], tris[o + 1], tris[o + 2]); b.set(tris[o + 3], tris[o + 4], tris[o + 5]); c.set(tris[o + 6], tris[o + 7], tris[o + 8]);
+    nearest = Math.min(nearest, triangle.closestPointToPoint(p, at).distanceTo(p));
+  }
+  return nearest;
+}
 
 describe("where the trees stand", () => {
   it("draws each tier its own number of trees on every show, the same ones on every visit, a TV's the first of a desktop's, and a phone's by its own cameras", () => {
     // A show whose landmarks left less room than the tier's count would draw fewer: none does.
     for (const w of DESKTOP) expect(w.trees, w.date).toHaveLength(TARGET.desktop);
     for (const w of PHONE) expect(w.trees, w.date).toHaveLength(TARGET.phone);
-    expect(TARGET).toEqual({ desktop: 100, tv: 75, phone: 45 });
+    // A desktop draws as many as a TV: the island has no room for more that stand out of its cameras' way (the cameras' ways, below).
+    expect(TARGET).toEqual({ desktop: 75, tv: 75, phone: 45 });
     for (const w of [fixed, DESKTOP[5], PHONE[20]]) {
       expect(placed(w.ask).spots).toEqual(w.trees);
       // With the same cameras' ways, fewer are the first of more: a TV's 75 of a desktop's 100.
@@ -136,18 +196,25 @@ describe("where the trees stand", () => {
     expect(fixedPhone.ways.views.length).toBeLessThan(fixed.ways.views.length);
   });
 
-  it("stands them in groves with meadows between: most of them in a grove's thick middle, and some of each kind", () => {
+  it("grows pine woods and broad-crowned groves: a tree's kind is by the grove it stands in, and a tree outside every grove is a pine", () => {
+    // The share of pines at a place is its grove's, the one it is deepest in; outside every grove, all.
+    for (const [x, z, , share] of GROVES) expect(grove(x, z)).toBe(share);
+    expect(grove(0, -60)).toBe(1);
+    expect(grove(-46 + 22.9, 84)).toBe(0.85);
+    expect(grove(-46 + 23.1, 84)).toBe(1);
+    // Where two groves meet, the one a place is deeper in, by each grove's own width: 25.3 m into the pine wood round (-82, 38),
+    // 26 m across its half, and 13 m into the broad grove round (-44, 42), 14 m across its half, is the grove's.
+    expect(grove(-57, 42)).toBe(0.2);
+    expect(grove(-61, 42)).toBe(0.8);
     for (const w of WORLDS) {
-      const thick = w.trees.filter((t) => grove(t.x, t.z).thick === 1).length, lone = w.trees.filter((t) => grove(t.x, t.z).thick === 0).length;
-      expect(thick, w.date).toBeGreaterThan(w.trees.length / 2);
-      expect(lone, w.date).toBeLessThan(w.trees.length / 5);
-      const pines = w.trees.filter((t) => t.kind === "pine").length;
-      expect(pines, w.date).toBeGreaterThan(w.trees.length * 0.25);
-      expect(pines, w.date).toBeLessThan(w.trees.length * 0.75);
+      const outside = w.trees.filter((t) => GROVES.every(([x, z, r]) => Math.hypot(t.x - x, t.z - z) >= r));
+      expect(outside.every((t) => t.kind === "pine"), w.date).toBe(true);
+      for (const kind of ["pine", "broad"]) expect(w.trees.some((t) => t.kind === kind), w.date).toBe(true);
     }
-    // A tree alone, outside every grove, is broad-crowned; and every grove has trees in it.
-    expect(grove(0, -60)).toEqual({ thick: 0, pines: 0 });
-    for (const [x, z, r] of GROVES) expect(fixed.trees.some((t) => Math.hypot(t.x - x, t.z - z) < r), `the grove at ${x}, ${z}`).toBe(true);
+    // Over the shows, a pine wood's trees are mostly pines and a broad grove's mostly broad-crowned.
+    const count = (share: (s: number) => boolean, kind: string) => DESKTOP.reduce((sum, w) => sum + w.trees.filter((t) => GROVES.some(([x, z, r]) => Math.hypot(t.x - x, t.z - z) < r) && share(grove(t.x, t.z)) && t.kind === kind).length, 0);
+    expect(count((s) => s >= 0.8, "pine")).toBeGreaterThan(4 * count((s) => s >= 0.8, "broad"));
+    expect(count((s) => s <= 0.3, "broad")).toBeGreaterThan(2.5 * count((s) => s <= 0.3, "pine"));
   });
 
   it("keeps PATH_ROOM from the setlist's path, so the widest crown stands 4 m back from it", () => {
@@ -172,8 +239,8 @@ describe("where the trees stand", () => {
       }
     });
     expect(nearest).toBeGreaterThanOrEqual(LANDMARK_ROOM);
-    // And no further than it need: on some show a tree stands within 2 m of that.
-    expect(nearest).toBeLessThan(LANDMARK_ROOM + 2);
+    // And no further than it need: on some show a tree stands within 4 m of that.
+    expect(nearest).toBeLessThan(LANDMARK_ROOM + 4);
     expect(LANDMARK_ROOM).toBeGreaterThan(CROWN_R_MAX);
   });
 
@@ -212,10 +279,33 @@ describe("where the trees stand", () => {
       for (let i = 0; i < w.trees.length; i++) for (let j = 0; j < i; j++) nearest = Math.min(nearest, Math.hypot(w.trees[i].x - w.trees[j].x, w.trees[i].z - w.trees[j].z));
     }
     expect(nearest).toBeGreaterThanOrEqual(MIN_APART);
-    // A grove is thick: some two stand within a third of a metre of that.
-    expect(nearest).toBeLessThan(MIN_APART + 0.35);
-    // Two trunks' reaches never meet: a walker has over half a metre between them.
-    expect(MIN_APART).toBeGreaterThan(2 * TREE_REACH + 0.5);
+    // A grove is thick: some two stand within a tenth of a metre of that.
+    expect(nearest).toBeLessThan(MIN_APART + 0.1);
+    // Two trunks' reaches never meet: the walker's own point has PASS m between them, half a metre, and a bear walking through,
+    // 1.5 m to either flank (collide.js), has over a metre of air between each flank and the widest trunk.
+    expect(MIN_APART).toBe(2 * TREE_REACH + PASS);
+    expect(PASS).toBe(0.5);
+    expect(MIN_APART / 2 - 1.5 - TRUNK_R_MAX).toBeGreaterThan(1);
+  });
+
+  it("tries a square's other places when a neighbour's tree stands too near its first: every tree at one of its square's TRIES places, a square growing one at the most, some at a later place", () => {
+    for (const w of [fixed, fixedPhone, DESKTOP[11], PHONE[2]]) {
+      const squares = new Set<string>(), tries = [0, 0, 0];
+      for (const t of w.trees) {
+        const a = Math.floor(t.x / CELL), b = Math.floor(t.z / CELL);
+        const nth = Array.from({ length: TRIES }, (_, k) => k).filter((k) => t.x === (a + 0.1 + 0.8 * chance(a, b, 20 * k + 1)) * CELL && t.z === (b + 0.1 + 0.8 * chance(a, b, 20 * k + 2)) * CELL);
+        expect(nth, `${w.date}: the tree at ${t.x}, ${t.z}`).toHaveLength(1);
+        tries[nth[0]] += 1;
+        squares.add(`${a},${b}`);
+      }
+      expect(squares.size, w.date).toBe(w.trees.length);
+      // Most stand at their square's first place, tried before any second.
+      expect(tries[0], w.date).toBeGreaterThan(w.trees.length * 0.6);
+      if (!w.phone) expect(tries[1] + tries[2], w.date).toBeGreaterThan(0);
+    }
+    expect(TRIES).toBe(3);
+    // A square is narrower than two trees stand apart, so one place in each would leave room unused.
+    expect(CELL).toBeLessThan(MIN_APART);
   });
 
   it("hands back whether a tree's foot stands near a place, as it placed them", () => {
@@ -295,6 +385,30 @@ describe("the cameras' ways", () => {
   const eyesAt = (d: number, phone: boolean) => bearsOf(phone).map((count) => ({ count, ...postPose({ third: true, phone, bearD: d, count, gap: BEAR_GAP, line, height, keepInView: () => 0 }, 0, 0).pos }));
   const has = (views: View[], from: number[], to: number[], half: number) => views.some((v) => v.from[0] === from[0] && v.from[1] === from[1] && v.to[0] === to[0] && v.to[1] === to[1] && v.half === half);
   const xz = (p: { x: number; z: number }) => [p.x, p.z];
+  // The views no tree stands in that are as wide at one end as the other: all there were before a view could widen or cost.
+  const plain = (views: View[]) => views.filter((v) => !v.cost && !v.spread);
+  // Whether a place lies in a view, reckoned here apart from trees.js: within its half-width of its line, which grows by `spread`
+  // for each metre from `from`.
+  const lies = ({ from, to, half, spread = 0 }: View, x: number, z: number) => {
+    const dx = to[0] - from[0], dz = to[1] - from[1], long = Math.hypot(dx, dz), along = Math.max(0, Math.min(long, ((x - from[0]) * dx + (z - from[1]) * dz) / (long || 1)));
+    return Math.hypot(x - from[0] - (dx / (long || 1)) * along, z - from[1] - (dz / (long || 1)) * along) < half + spread * along;
+  };
+  // A landmark as an eye at `from` sees it: how far off, the way to it, and how wide to either side of that sight by its outline.
+  const seen = (mark: Mark, from: number[]) => {
+    const dx = mark.x - from[0], dz = mark.z - from[1], far = Math.hypot(dx, dz), c = Math.cos(mark.rot), sn = Math.sin(mark.rot);
+    const wide = Math.max(...mark.poly.map(([px, pz]) => Math.abs(((px * c + pz * sn) * dz - (pz * c - px * sn) * dx) / far)));
+    return { far, wide, ux: dx / far, uz: dz / far };
+  };
+  // The two cameras a visitor rides, the lead bear `d` m along the line with `count` bears: where each stands and where it looks.
+  const rides = (d: number, count: number, phone: boolean) => {
+    const pos = postPose({ third: true, phone, bearD: d, count, gap: BEAR_GAP, line, height, keepInView: () => 0 }, 0, 0).pos, crane = d - count * BEAR_GAP - CRANE.back;
+    return [{ from: [pos.x, pos.z], to: xz(line.at(d)) }, { from: xz(line.at(crane)), to: xz(line.at(crane + CRANE.ahead)) }];
+  };
+  // Whether a landmark is in the frame of a camera at `from` looking to `to`, within RIDE_FAR m of it.
+  const framed = (mark: Mark, from: number[], to: number[], phone: boolean) => {
+    const { far, wide, ux, uz } = seen(mark, from), lx = to[0] - from[0], lz = to[1] - from[1];
+    return far <= RIDE_FAR && Math.acos(Math.max(-1, Math.min(1, (ux * lx + uz * lz) / Math.hypot(lx, lz)))) - Math.atan2(wide, far) <= FRAME(phone);
+  };
 
   it("lists a tier's own cameras and no other's: the camera that walks with the bears every 2 m of their line, for each number of bears the tier can show, with its sight of every bear", () => {
     const steps = Math.ceil(line.length / 2);
@@ -306,7 +420,7 @@ describe("the cameras' ways", () => {
         expect(eyes.some(([x, z, y]) => x === eye.x && z === eye.z && y === eye.y)).toBe(true);
         // From it to the lead bear, each bear behind it, and the visitor's, BEAR_GAP m apart.
         for (let k = 0; k <= eye.count; k++) expect(has(views, [eye.x, eye.z], xz(line.at(40 - k * BEAR_GAP)), SIGHT_HALF)).toBe(true);
-        expect(views.filter((v) => v.from[0] === eye.x && v.from[1] === eye.z)).toHaveLength(eye.count + 1);
+        expect(plain(views).filter((v) => v.from[0] === eye.x && v.from[1] === eye.z)).toHaveLength(eye.count + 1);
       }
       // No eye of the other tier's camera, which stands elsewhere.
       const other = eyesAt(40, !phone)[0];
@@ -314,7 +428,7 @@ describe("the cameras' ways", () => {
       // Lean-back's crane, 40 m along: to the visitor's bear CRANE.back m on, to each bear a gap further, and to where it looks.
       const crane = xz(line.at(40)), sees = new Set([...Array.from({ length: counts[0] + 1 }, (_, k) => CRANE.back + k * BEAR_GAP), CRANE.ahead]);
       for (const on of sees) expect(has(views, crane, xz(line.at(40 + on)), SIGHT_HALF)).toBe(true);
-      expect(views.filter((v) => v.from[0] === crane[0] && v.from[1] === crane[1] && v.half === SIGHT_HALF)).toHaveLength(sees.size);
+      expect(plain(views).filter((v) => v.from[0] === crane[0] && v.from[1] === crane[1] && v.half === SIGHT_HALF)).toHaveLength(sees.size);
       // The stage from where the walk's camera hangs behind each test pose: its boom's length and 2 m more.
       for (const pose of Object.values(TEST_POSES) as { x: number; z: number; heading: number }[]) {
         const back = boomLength(phone) + 2;
@@ -328,9 +442,10 @@ describe("the cameras' ways", () => {
         expect(views.some((v) => v.half === VIEW_HALF && Math.hypot(v.from[0] - (stand.x - (dx / far) * boom), v.from[1] - (stand.z - (dz / far) * boom)) < 1e-9 && Math.hypot(v.to[0] - (stand.to[0] + (dx / far) * 10), v.to[1] - (stand.to[1] + (dz / far) * 10)) < 1e-9)).toBe(true);
       }
       expect(views.filter((v) => v.half === VIEW_HALF)).toHaveLength(Object.keys(TEST_POSES).length + 1 + w.stands.length);
-      // And two sights of each landmark as its song begins, from the camera and from the crane: nothing else is listed.
+      // And two sights of each landmark as its song begins, from the camera and from the crane: no other view is a plain one, of one
+      // width from end to end and with no cost.
       const sights = counts.reduce((sum, count) => sum + count + 1, 0);
-      expect(views).toHaveLength(steps * (sights + sees.size) + Object.keys(TEST_POSES).length + 1 + 3 * w.stands.length);
+      expect(plain(views)).toHaveLength(steps * (sights + sees.size) + Object.keys(TEST_POSES).length + 1 + w.stands.length + 2 * w.marks.length);
     }
     expect([boomLength(false), boomLength(true)]).toEqual([11, 20]);
     expect(CRANE).toEqual({ back: 14, sway: 2, ahead: 28 });
@@ -353,17 +468,21 @@ describe("the cameras' ways", () => {
     expect(EYE_ROOM).toBeGreaterThan(CROWN_R_MAX + 1);
   });
 
-  it("keeps every view clear to its half-width: the camera's sight of each bear, the stage from the test poses, the trailhead from the summit", () => {
+  it("keeps every view that has no cost clear to its half-width: the camera's sight of each bear, the stage from the test poses, the trailhead from the summit", () => {
     // How far the nearest tree stands outside a sight's half-width, and a view's, over every show, a tier's views against its own trees.
-    let sight = Infinity, wide = Infinity;
+    let sight = Infinity, wide = Infinity, cones = 0;
     for (const w of WORLDS) {
       for (const view of w.ways.views) {
-        const { from, to, half } = view, x0 = Math.min(from[0], to[0]) - half - 3, x1 = Math.max(from[0], to[0]) + half + 3, z0 = Math.min(from[1], to[1]) - half - 3, z1 = Math.max(from[1], to[1]) + half + 3;
+        if (view.cost) continue;
+        const { from, to, half, spread = 0 } = view, most = half + spread * Math.hypot(to[0] - from[0], to[1] - from[1]);
+        const x0 = Math.min(from[0], to[0]) - most - 3, x1 = Math.max(from[0], to[0]) + most + 3, z0 = Math.min(from[1], to[1]) - most - 3, z1 = Math.max(from[1], to[1]) + most + 3;
+        if (spread) cones += 1;
         for (const t of w.trees) {
           // Only a tree within 3 m of the view's box can stand within 3 m of its edge.
           if (t.x < x0 || t.x > x1 || t.z < z0 || t.z > z1) continue;
-          const room = fromSegment(t.x, t.z, from, to) - half;
-          if (half === SIGHT_HALF) sight = Math.min(sight, room); else wide = Math.min(wide, room);
+          if (spread) expect(lies(view, t.x, t.z), w.date).toBe(false);
+          else if (half === SIGHT_HALF) sight = Math.min(sight, fromSegment(t.x, t.z, from, to) - half);
+          else wide = Math.min(wide, fromSegment(t.x, t.z, from, to) - half);
         }
       }
     }
@@ -372,8 +491,192 @@ describe("the cameras' ways", () => {
     // Each is a rule that bites: on some show a tree stands within three metres of a sight's edge, and of a view's.
     expect(sight).toBeLessThan(3);
     expect(wide).toBeLessThan(3);
+    expect(cones).toBeGreaterThan(WORLDS.length * 10);
     expect(SIGHT_HALF).toBe(CROWN_R_MAX);
     expect(VIEW_HALF).toBe(CROWN_R_MAX + 4);
+  });
+
+  it("keeps the opening clear on every show and tier: no tree behind the first song's landmark on to the ring, none across the sight of any landmark in the frame, and none in either ridden camera's frame within twice EDGE_NEAR", () => {
+    // From the two cameras a visitor rides, with each number of bears the tier can show: the first song's landmark is the first a
+    // visitor sees, the beam on it, and it stands against the sky and the sea.
+    let behind = Infinity, across = Infinity, edge = Infinity, sights = 0;
+    for (const w of WORLDS) {
+      const first = w.marks[0];
+      for (const count of bearsOf(w.phone)) rides(first.d, count, w.phone).forEach(({ from, to }, which) => {
+        const subject = seen(first, from), look = Math.hypot(to[0] - from[0], to[1] - from[1]), lx = (to[0] - from[0]) / look, lz = (to[1] - from[1]) / look;
+        const others = w.marks.filter((mark) => framed(mark, from, to, w.phone)).map((mark) => seen(mark, from));
+        sights += others.length;
+        for (const t of w.trees) {
+          const dx = t.x - from[0], dz = t.z - from[1];
+          // Behind it: how far a tree's crown stands outside the landmark's width and BESIDE m, as they widen with the distance.
+          const along = dx * subject.ux + dz * subject.uz, off = Math.abs(dx * subject.uz - dz * subject.ux);
+          if (along > subject.far) behind = Math.min(behind, off - t.reach - ((subject.wide + BESIDE) * along) / subject.far);
+          // Across a sight: between the camera and a landmark in its frame, outside the landmark's width as it narrows to the eye.
+          for (const mark of others) {
+            const on = dx * mark.ux + dz * mark.uz;
+            if (on > 0 && on < mark.far) across = Math.min(across, Math.abs(dx * mark.uz - dz * mark.ux) - t.reach - (mark.wide * on) / mark.far);
+          }
+          // The camera's own frame, near it: outside the frame's spread for twice EDGE_NEAR m on from the camera.
+          const ahead = dx * lx + dz * lz;
+          if (which >= 0 && ahead > 0 && ahead < 2 * EDGE_NEAR) edge = Math.min(edge, Math.abs(dx * lz - dz * lx) - t.reach - Math.tan(FRAME(w.phone)) * ahead);
+        }
+      });
+    }
+    expect([behind, across, edge].map((v) => Math.min(v, 0))).toEqual([0, 0, 0]);
+    expect(behind).toBeGreaterThanOrEqual(0);
+    // Each bites: on some show a tree's crown stands within 3 m of where it may not.
+    expect(behind).toBeLessThan(3);
+    expect(across).toBeLessThan(3);
+    expect(edge).toBeLessThan(10);
+    // Some eight landmarks are in the opening's frame, on a show and a tier and a number of bears.
+    expect(sights).toBeGreaterThan(WORLDS.length * 8);
+    // A tree nearer than EDGE_NEAR cannot fit a frame 60 degrees high from 9 or 10 m up: it is cut off from foot to crown.
+    expect([BESIDE, RIDE_FAR, EDGE_NEAR, FRAME(false), FRAME(true)]).toEqual([2, 100, 16, 0.8, 0.42]);
+    expect(EDGE_NEAR).toBeGreaterThan(9 / Math.tan(Math.PI / 6));
+  });
+
+  it("gives the views it cannot keep clear a cost: a ridden camera's own frame near it costs most, then across a landmark's sight from one as a song begins, then close behind a view's subject, and far behind or between two songs least", () => {
+    for (const w of [fixed, fixedPhone]) {
+      const { views } = w.ways, own = bearsOf(w.phone)[0], costly = views.filter((v) => v.cost);
+      const one = (from: number[], to: number[], cost: number) => costly.filter((v) => v.cost === cost && Math.hypot(v.from[0] - from[0], v.from[1] - from[1]) < 1e-9 && Math.hypot(v.to[0] - to[0], v.to[1] - to[1]) < 1e-9);
+      expect(new Set(costly.map((v) => v.cost))).toEqual(new Set([1, 2, 3, 4]));
+      expect(SPOILS).toBe(4);
+      // A ridden camera's frame for EDGE_NEAR m on from it, as wide as the frame spreads and a crown's reach.
+      const near = (from: number[], to: number[]) => {
+        const far = Math.hypot(to[0] - from[0], to[1] - from[1]);
+        return one(from, [from[0] + ((to[0] - from[0]) / far) * EDGE_NEAR, from[1] + ((to[1] - from[1]) / far) * EDGE_NEAR], 4).map((v) => [v.half, v.spread]);
+      };
+      w.marks.forEach((mark, k) => {
+        // Behind it from its stand: CLOSE m at 2, then on to the ring at 1, as wide as the landmark and BESIDE m at its distance, a
+        // crown's reach more, and widening as the sight does.
+        if (mark.stand) {
+          const from = [mark.stand.x, mark.stand.z], { far, wide, ux, uz } = seen(mark, from);
+          const near = one([mark.x, mark.z], [mark.x + ux * CLOSE, mark.z + uz * CLOSE], 2);
+          expect(near).toHaveLength(1);
+          expect(near[0].half).toBeCloseTo(wide + BESIDE + CROWN_R_MAX, 9);
+          expect(near[0].spread).toBeCloseTo((wide + BESIDE) / far, 9);
+          // It runs on past the ring, the island's width from the landmark, so all of it inside the ring is taken in.
+          const on = one([mark.x + ux * CLOSE, mark.z + uz * CLOSE], [mark.x + ux * 2 * RING, mark.z + uz * 2 * RING], 1);
+          expect(on).toHaveLength(1);
+          expect(on[0].half).toBeCloseTo(wide + BESIDE + CROWN_R_MAX + ((wide + BESIDE) / far) * CLOSE, 9);
+          expect(on[0].spread).toBeCloseTo((wide + BESIDE) / far, 9);
+        }
+        // As its song begins, from the ridden cameras with the tier's own number of bears: every landmark in the frame at 3, but the
+        // opening's, which no tree stands across at all.
+        for (const { from, to } of rides(mark.d, own, w.phone)) {
+          if (k > 0) expect(near(from, to)).toEqual([[CROWN_R_MAX, Math.tan(FRAME(w.phone))]]);
+          else expect(near(from, to)).toEqual([]);
+        }
+        for (const { from, to } of rides(mark.d, own, w.phone)) for (const other of w.marks) {
+          if (!framed(other, from, to, w.phone)) continue;
+          const sights = views.filter((v) => Math.hypot(v.from[0] - from[0], v.from[1] - from[1]) < 1e-9 && v.to[0] === other.x && v.to[1] === other.z && v.half === CROWN_R_MAX && v.spread !== undefined);
+          expect(sights.some((v) => (k === 0 ? !v.cost : v.cost === 3) && Math.abs(v.spread! - seen(other, from).wide / seen(other, from).far) < 1e-9), `${w.date} song ${k}`).toBe(true);
+        }
+      });
+      // Between two songs' starts, the bears every RIDE_STEP m: each landmark's sight at 1, and the camera's own near frame at 4.
+      const between = 16 * RIDE_STEP;
+      expect(w.marks.some((mark) => Math.abs(mark.d - between) < 1e-9)).toBe(false);
+      for (const { from, to } of rides(between, own, w.phone)) {
+        const inFrame = w.marks.filter((mark) => framed(mark, from, to, w.phone));
+        expect(inFrame.length).toBeGreaterThan(0);
+        for (const mark of inFrame) expect(one(from, [mark.x, mark.z], 1)).toHaveLength(1);
+        expect(near(from, to)).toEqual([[CROWN_R_MAX, Math.tan(FRAME(w.phone))]]);
+      }
+    }
+    expect([CLOSE, RIDE_STEP]).toEqual([60, 8]);
+  });
+
+  it("fills the places that spoil no view first, and one that spoils a view only when no cheaper place is left: each tree says the worst cost of the views it stands in, and no tier's trees could have spoiled less", () => {
+    for (const w of [fixed, fixedPhone, DESKTOP[3], PHONE[3], DESKTOP[20], PHONE[31]]) {
+      // What each tree spoils is the highest cost among the views its foot lies in.
+      const costly = w.ways.views.filter((v) => v.cost);
+      for (const t of w.trees) expect(t.spoils, `${w.date}: the tree at ${t.x}, ${t.z}`).toBe(Math.max(0, ...costly.filter((v) => lies(v, t.x, t.z)).map((v) => v.cost!)));
+      // In the order they were placed, the cheapest first.
+      for (let k = 1; k < w.trees.length; k++) expect(w.trees[k].spoils).toBeGreaterThanOrEqual(w.trees[k - 1].spoils);
+      // With no limit to their number, the trees are every place the rules leave: the tier's are the first of them, and none left
+      // out costs less than the dearest the tier took.
+      const every = placed({ ...w.ask, count: 5000 }).spots, dearest = w.trees[w.trees.length - 1].spoils;
+      expect(every.slice(0, w.trees.length)).toEqual(w.trees);
+      for (const left of every.slice(w.trees.length)) expect(left.spoils).toBeGreaterThanOrEqual(dearest);
+      expect(every.length).toBeGreaterThan(w.trees.length * 1.1);
+    }
+    // On the fixed day a phone's 45 stand close behind no subject and across no sight as a song begins; of a desktop's 75 none
+    // stands in a ridden camera's near frame, and a handful across a landmark's sight as a song begins, the island having no
+    // better place for them.
+    expect(fixedPhone.trees.filter((t) => t.spoils >= 2)).toHaveLength(0);
+    expect(fixed.trees.filter((t) => t.spoils === 4)).toHaveLength(0);
+    const dear = fixed.trees.filter((t) => t.spoils === 3).length;
+    expect(dear).toBeGreaterThan(0);
+    expect(dear).toBeLessThan(6);
+    // Over every show a phone's never do either; a desktop's stand in a near frame on one show in 38, two trees, and across a
+    // sight as a song begins seldom: fewer than one tree in twelve. With a hundred to a desktop, one in six would stand in a
+    // near frame, which is why it draws 75.
+    expect(PHONE.every((w) => w.trees.every((t) => t.spoils < 3))).toBe(true);
+    expect(DESKTOP.filter((w) => w.trees.some((t) => t.spoils === 4))).toHaveLength(1);
+    expect(DESKTOP.reduce((sum, w) => sum + w.trees.filter((t) => t.spoils === 4).length, 0)).toBeLessThanOrEqual(2);
+    expect(DESKTOP.reduce((sum, w) => sum + w.trees.filter((t) => t.spoils === 3).length, 0)).toBeLessThan((DESKTOP.length * TARGET.desktop) / 12);
+    for (const w of DESKTOP) expect(placed({ ...w.ask, count: 100 }).spots.filter((t) => t.spoils === 4).length, w.date).toBeGreaterThan(10);
+  });
+
+  it("shows the landmarks as a review of the frames looks for them: with every tree and every landmark boxed in the frame, no tree's box lies over the first landmark's from the opening's camera, nor over any landmark's in front of it; and from each landmark's stand none lies over it in front, and one behind it only where the island had no clear place", () => {
+    // A box's place in a camera's frame: the least and most its eight corners reach across and up it, or null if one is behind
+    // the camera.
+    const v = new THREE.Vector3();
+    const boxed = (camera: unknown, [x0, y0, z0]: number[], [x1, y1, z1]: number[]) => {
+      const at = [Infinity, -Infinity, Infinity, -Infinity];
+      for (const x of [x0, x1]) for (const y of [y0, y1]) for (const z of [z0, z1]) {
+        v.set(x, y, z).project(camera);
+        if (v.z > 1) return null;
+        at[0] = Math.min(at[0], v.x); at[1] = Math.max(at[1], v.x); at[2] = Math.min(at[2], v.y); at[3] = Math.max(at[3], v.y);
+      }
+      return at;
+    };
+    const inFrame = (a: number[] | null) => a !== null && a[0] < 1 && a[1] > -1 && a[2] < 1 && a[3] > -1;
+    const over = (a: number[] | null, b: number[] | null) => a !== null && b !== null && a[0] < b[1] && b[0] < a[1] && a[2] < b[3] && b[2] < a[3];
+    const tree = (camera: unknown, t: Spot) => boxed(camera, [t.x - t.reach, t.y, t.z - t.reach], [t.x + t.reach, t.top, t.z + t.reach]);
+    let stands = 0, behind = 0;
+    for (const phone of [false, true]) for (const w of [phone ? fixedPhone : fixed, world(FIXED, phone, AS_TITLES as [number, string][])]) {
+      const camera = new THREE.PerspectiveCamera(phone ? 75 : 60, phone ? 390 / 844 : 1440 / 900, 0.5, 900), at = `${phone ? "phone" : "desktop"}${w === fixed || w === fixedPhone ? "" : ", the other kinds"}`;
+      const boxes = w.landmarks.map((g) => new THREE.Box3().setFromObject(g) as { min: Point; max: Point });
+      const mark = (k: number) => boxed(camera, [boxes[k].min.x, boxes[k].min.y, boxes[k].min.z], [boxes[k].max.x, boxes[k].max.y, boxes[k].max.z]);
+      // The opening's settled camera: the one that walks with the bears, the lead bear at the first song's landmark.
+      const { pos, look } = postPose({ third: true, phone, bearD: w.marks[0].d, count: bearsOf(phone)[0], gap: BEAR_GAP, line, height, keepInView: () => 0 }, 0, 0);
+      camera.position.set(pos.x, pos.y, pos.z);
+      camera.lookAt(look.x, look.y, look.z);
+      camera.updateMatrixWorld(true);
+      const first = mark(0);
+      expect(inFrame(first), at).toBe(true);
+      for (const t of w.trees) expect(over(tree(camera, t), first), `${at}: the tree at ${t.x.toFixed(0)}, ${t.z.toFixed(0)} over the first landmark at the opening`).toBe(false);
+      w.marks.forEach((m, k) => {
+        const far = Math.hypot(m.x - pos.x, m.z - pos.z), box = mark(k);
+        if (!inFrame(box) || far > RIDE_FAR) return;
+        // Nearer than the landmark, by more than its own reach: in front of it.
+        for (const t of w.trees) if (Math.hypot(t.x - pos.x, t.z - pos.z) + t.reach < far) expect(over(tree(camera, t), box), `${at}: the tree at ${t.x.toFixed(0)}, ${t.z.toFixed(0)} before landmark ${k} at the opening`).toBe(false);
+      });
+      // Each landmark from its stand, as its near still is shot: from the visitor's own eye, looking at it.
+      w.marks.forEach((m, k) => {
+        if (!m.stand) return;
+        const y = height(m.stand.x, m.stand.z) + FIRST_EYE, far = Math.hypot(m.x - m.stand.x, m.z - m.stand.z);
+        camera.position.set(m.stand.x, y, m.stand.z);
+        camera.lookAt(m.x, height(m.x, m.z) + 4, m.z);
+        camera.updateMatrixWorld(true);
+        const box = mark(k);
+        stands += 1;
+        const on = w.trees.filter((t) => over(tree(camera, t), box));
+        for (const t of on) {
+          // None in front of it or beside it; a tree behind it stands in a view that costs, taken for want of a clear place.
+          expect(Math.hypot(t.x - m.stand.x, t.z - m.stand.z), `${at}: the tree at ${t.x.toFixed(0)}, ${t.z.toFixed(0)} by landmark ${k}`).toBeGreaterThan(far + 10);
+          expect(t.spoils, `${at}: the tree at ${t.x.toFixed(0)}, ${t.z.toFixed(0)} behind landmark ${k}`).toBeGreaterThanOrEqual(1);
+        }
+        if (on.length > 0) behind += 1;
+      });
+    }
+    // Every landmark of the fixed day and of the other kinds, on each tier.
+    // Every landmark of the fixed day, with its own kinds and with the others, on each tier.
+    expect(stands).toBe(4 * fixed.stands.length);
+    // The island cannot clear behind them all: on fewer than half of those stills a tree's box lies over the landmark's, behind it.
+    expect(behind).toBeGreaterThan(0);
+    expect(behind).toBeLessThan(stands / 2);
   });
 
   it("stands no tree in the view of a landmark from the path: not within its crown's reach and 4 m of the line of sight, from a boom's length behind the visitor to 10 m past the landmark", () => {
@@ -407,7 +710,8 @@ describe("the cameras' ways", () => {
     let room = Infinity, sights = 0;
     for (const w of WORLDS) {
       const count = bearsOf(w.phone)[0];
-      for (const stand of w.stands) {
+      for (const mark of w.marks) {
+        const stand = { to: [mark.x, mark.z], d: mark.d };
         const eye = postPose({ third: true, phone: w.phone, bearD: stand.d, count, gap: BEAR_GAP, line, height, keepInView: () => 0 }, 0, 0).pos, crane = line.at(stand.d - count * BEAR_GAP - CRANE.back);
         for (const from of [[eye.x, eye.z], [crane.x, crane.z]]) {
           const dx = stand.to[0] - from[0], dz = stand.to[1] - from[1], far = Math.hypot(dx, dz), past = [stand.to[0] + (dx / far) * 24, stand.to[1] + (dz / far) * 24];
@@ -452,7 +756,7 @@ describe("the cameras' ways", () => {
 
   it("finds the eyes whose descent could be low over a place however far off they stand: with one eye far out and trees wherever they may grow, none stands under its descent, and some stand just clear of it", () => {
     // One eye 100 m east of the middle, 12 m up, and nothing else on the island; a tree in every square that the land allows.
-    const eye = [100, 0, 12], { spots } = placed({ count: 2000, loop: [], line: [], landmarks: [], eyes: [eye], views: [], groves: () => ({ thick: 1, pines: 0 }) });
+    const eye = [100, 0, 12], { spots } = placed({ count: 2000, loop: [], line: [], landmarks: [], eyes: [eye], views: [], groves: () => 0 });
     expect(spots.length).toBeGreaterThan(300);
     // How far each tree's foot stands from the stretch of the descent that is as low as the tallest tree its place could grow.
     let nearest = Infinity, longest = 0;
@@ -490,26 +794,27 @@ describe("a walk among the trees", () => {
       expect(Math.hypot(t.x, t.z) + TREE_REACH, w.date).toBeLessThan(BOUND - 1);
     });
     for (const w of WORLDS) expect(leastFrom(fine, w.trees), w.date).toBeGreaterThan(BODY_REACH + TREE_REACH + 1);
-    expect(MIN_APART - 2 * TREE_REACH).toBeGreaterThan(0.5);
+    expect(MIN_APART - 2 * TREE_REACH).toBeCloseTo(PASS, 12);
   });
 
   it("leaves the ground a walk can stand on in one piece, on the fixed day's show and on three more", () => {
     for (const w of [fixed, fixedPhone, DESKTOP[0], DESKTOP[17], PHONE[37]]) {
-      // Every half metre of the island a walker may stand on, and those reached from the trailhead by steps of half a metre.
-      const n = Math.ceil(BOUND * 2), at = (i: number) => (i - n) / 2, side = 2 * n + 1;
+      // Every quarter metre of the island a walker may stand on, and those reached from the trailhead by steps of a quarter metre:
+      // finer than PASS, the least a walker has between two trunks' reaches.
+      const n = Math.ceil(BOUND * 4), at = (i: number) => (i - n) / 4, side = 2 * n + 1;
       const free = new Uint8Array(side * side).fill(1);
       for (let i = 0; i < side; i++) for (let j = 0; j < side; j++) {
         const x = at(i), z = at(j);
         if (Math.hypot(x, z) > BOUND || Math.hypot(x - STAGE_COLUMN.x, z - STAGE_COLUMN.z) < STAGE_REACH) free[i * side + j] = 0;
       }
-      // Each tree takes the half metres within its reach.
+      // Each tree takes the quarter metres within its reach.
       for (const t of w.trees) {
-        for (let i = Math.floor((t.x - TREE_REACH) * 2) + n; i <= Math.ceil((t.x + TREE_REACH) * 2) + n; i++) for (let j = Math.floor((t.z - TREE_REACH) * 2) + n; j <= Math.ceil((t.z + TREE_REACH) * 2) + n; j++) {
+        for (let i = Math.floor((t.x - TREE_REACH) * 4) + n; i <= Math.ceil((t.x + TREE_REACH) * 4) + n; i++) for (let j = Math.floor((t.z - TREE_REACH) * 4) + n; j <= Math.ceil((t.z + TREE_REACH) * 4) + n; j++) {
           if (Math.hypot(at(i) - t.x, at(j) - t.z) < TREE_REACH) free[i * side + j] = 0;
         }
       }
       const open = free.reduce((sum, f) => sum + f, 0);
-      const start = (Math.round(TRAILHEAD[0] * 2) + n) * side + Math.round(TRAILHEAD[1] * 2) + n, queue = [start];
+      const start = (Math.round(TRAILHEAD[0] * 4) + n) * side + Math.round(TRAILHEAD[1] * 4) + n, queue = [start];
       expect(free[start]).toBe(1);
       free[start] = 2;
       let reached = 1;
@@ -518,8 +823,8 @@ describe("a walk among the trees", () => {
         for (const next of [k - 1, k + 1, k - side, k + side]) if (free[next] === 1) { free[next] = 2; reached += 1; queue.push(next); }
       }
       expect(reached, w.date).toBe(open);
-      // The trees do take ground: some 90 half metres each.
-      expect(open).toBeLessThan(Math.PI * BOUND * BOUND * 4 - w.trees.length * 80);
+      // The trees do take ground: some 587 quarter metres each.
+      expect(open).toBeLessThan(Math.PI * BOUND * BOUND * 16 - w.trees.length * 570);
     }
   });
 
@@ -569,7 +874,7 @@ describe("the trees' shapes", () => {
 
   it("are a few hundred triangles on a desktop and fewer on a phone, with a normal and a colour to every corner and no more, so nothing can move one", () => {
     const triangles = (phone: boolean) => Object.fromEntries(shapes.map(([kind, geometry]) => [kind, geometry(phone).getAttribute("position").count / 3]));
-    expect(triangles(false)).toEqual({ pine: 145, broad: 320 });
+    expect(triangles(false)).toEqual({ pine: 169, broad: 344 });
     expect(triangles(true)).toEqual({ pine: 72, broad: 124 });
     for (const [, geometry] of shapes) {
       const geo = geometry(false);
@@ -578,6 +883,34 @@ describe("the trees' shapes", () => {
       const normal = geo.getAttribute("normal");
       for (let i = 0; i < normal.count; i++) expect(Math.hypot(normal.getX(i), normal.getY(i), normal.getZ(i))).toBeCloseTo(1, 5);
     }
+  });
+
+  it("stand each trunk on a foot: as wide as the sunk foot to FOOT_TOP, which is within a third of a metre of the ground on any tree, drawing in to the trunk over the next metre or so, and a shade darker than the bark over it", () => {
+    for (const [kind, geometry] of shapes) {
+      const [widest, trunk] = kind === "pine" ? [0.19, 0.135] : [TRUNK_FOOT, 0.14];
+      // A ring's half-width and how bright its corners are, by its height.
+      const ring = (phone: boolean, y: number) => {
+        const geo = geometry(phone), position = geo.getAttribute("position"), colour = geo.getAttribute("color"), at: number[] = [], bright: number[] = [];
+        for (let i = 0; i < position.count; i++) if (Math.abs(position.getY(i) - y) < 1e-6) { at.push(Math.hypot(position.getX(i), position.getZ(i))); bright.push(colour.getX(i) + colour.getY(i) + colour.getZ(i)); }
+        return { r: at.length ? Math.max(...at) : NaN, bright: bright.reduce((a, b) => a + b, 0) / bright.length, most: Math.max(...bright), corners: at.length };
+      };
+      // A desktop's: the sunk foot, as wide again at FOOT_TOP, a third of the way in by 0.13 and the trunk's own width at 0.165.
+      expect([0, FOOT_TOP, 0.13, 0.165].map((y) => ring(false, y).r)).toEqual([widest, widest, (widest + 2 * trunk) / 3, trunk].map((r) => expect.closeTo(r, 6)));
+      // Dark to FOOT_TOP, by FOOT_SHADE, every corner of it, and bark over it.
+      expect(ring(false, FOOT_TOP).most).toBeLessThan(0.55 * ring(false, 0.165).bright);
+      expect(ring(false, 0).most).toBeLessThan(0.45 * ring(false, 0.165).bright);
+      // A phone's pine has the foot without the bend in its flare; its broad-crowned tree, whose triangles are all spent, a foot that
+      // only tapers, dark at the ground.
+      expect(ring(true, 0.13).corners).toBe(0);
+      expect(ring(true, FOOT_TOP).corners > 0).toBe(kind === "pine");
+      expect(ring(true, 0).most).toBeLessThan(0.45 * ring(true, 0.165).bright);
+      expect(ring(true, 0.165).r).toBeCloseTo(trunk, 6);
+    }
+    // The ground stands SUNK of a tree's whole height up it: FOOT_TOP is no more than 0.36 m over it, on the tallest, or under it,
+    // on the shortest; and the flare has drawn in within 1.3 m over that.
+    for (const tall of TALL) expect(Math.abs(FOOT_TOP * (tall + SUNK) - SUNK)).toBeLessThan(0.37);
+    expect((0.165 - FOOT_TOP) * (TALL[1] + SUNK)).toBeLessThan(1.3);
+    expect(FOOT_SHADE).toBeCloseTo(0.72, 9);
   });
 
   it("stand from 0 at the sunk foot to 1 at the crown's top, the crown no lower than BASE_FRAC and no wider than CROWN_REACH, the trunk no wider than TRUNK_FOOT", () => {
@@ -728,8 +1061,8 @@ describe("the trees as they are built", () => {
     const drawn = (meshes: Mesh[]) => meshes.map((mesh) => mesh.geometry.getAttribute("position").count / 3);
     expect(drawn(made.meshes)).toEqual([desktop.pine, desktop.broad]);
     expect(drawn(phones.meshes)).toEqual([phone.pine, phone.broad]);
-    expect(most.desktop).toBeLessThan(24_500);
-    expect(most.tv).toBeLessThan(18_500);
+    expect(most.desktop).toBeLessThan(25_500);
+    expect(most.tv).toBeLessThan(20_500);
   });
 
   it("sink every foot SUNK m under the ground and stand every tree to its own height over it", () => {
@@ -816,9 +1149,10 @@ describe("the trees as they are built", () => {
     expect(TRUNK_R_MAX - widest).toBeLessThan(0.33);
     // The widest crown's trunk at its foot, and what the most lean carries it over by a bear's height.
     expect(TRUNK_R_MAX).toBeCloseTo(CROWN_R[1] * TRUNK_FOOT + LEAN * (SUNK + TOP), 12);
-    // A bear's half-width and a quarter metre outside it.
-    expect(TREE_REACH).toBe(TRUNK_R_MAX + CLEAR);
-    expect(TREE_REACH).toBeCloseTo(2.808, 9);
+    // A bear's furthest point, its nose's tip, outside it.
+    expect(TREE_REACH).toBe(SNOUT + TRUNK_R_MAX);
+    expect(SNOUT).toBeCloseTo(2.36, 9);
+    expect(TREE_REACH).toBeCloseTo(3.418, 9);
   });
 
   it("stand still: one material for both meshes, with no time in it and nothing that moves a corner, which takes the stage's glow no more strongly than level ground at a tree's foot does, and a share of that", () => {
@@ -833,8 +1167,8 @@ describe("the trees as they are built", () => {
     expect(meshes[0].material.vertexColors).toBe(true);
     expect(GLOW_SHARE).toBeLessThan(0.5);
     expect(GLOW_SHARE).toBeGreaterThan(0);
-    // The built trees give the world their count and the two look-ups, and nothing to hand a time to.
-    expect(Object.keys(rest).sort()).toEqual(["columns", "count", "trunks"]);
+    // The built trees give the world their count and what a walk and its camera keep clear of, and nothing to hand a time to.
+    expect(Object.keys(rest).sort()).toEqual(["ceiling", "count", "slide", "trunks"]);
     const plainShader = { vertex: THREE.ShaderLib.lambert.vertexShader as string, fragment: THREE.ShaderLib.lambert.fragmentShader as string };
     const shader = { uniforms: {} as Record<string, unknown>, vertexShader: plainShader.vertex, fragmentShader: plainShader.fragment };
     meshes[0].material.onBeforeCompile(shader);
@@ -863,38 +1197,15 @@ describe("the trees as they are built", () => {
     expect(ground.fragmentShader).toContain("float poolLit = max(dot(normal, normalize((viewMatrix * vec4(poolTo, 0.0)).xyz)), 0.0);\n        reflectedLight.directDiffuse += uPool * diffuseColor.rgb * poolLit");
   });
 
-  it("hand the walk's camera a column for each trunk and one for each crown near the visitor, the same ones every time, and none from past the squares round it", () => {
-    const tree = fixed.trees[0], into: Column[] = [STAGE_COLUMN];
-    expect(made.columns(tree.x, tree.z, into)).toBe(into);
-    expect(into[0]).toBe(STAGE_COLUMN);
-    const first = into.slice(1), again = made.columns(tree.x, tree.z, []);
-    // The same objects, so a frame makes nothing.
-    expect(again).toHaveLength(first.length);
-    again.forEach((column, k) => expect(column).toBe(first[k]));
-    // Every tree within SQUARE m is among them, trunk and crown; and none further than two squares' diagonal.
-    const near = fixed.trees.filter((t) => Math.hypot(t.x - tree.x, t.z - tree.z) <= SQUARE);
-    expect(near.length).toBeGreaterThan(5);
-    for (const t of near) expect(first.filter((c) => c.x === t.x && c.z === t.z).map((c) => c.base)).toEqual([undefined, t.base]);
-    for (const c of first) expect(Math.hypot(c.x - tree.x, c.z - tree.z)).toBeLessThanOrEqual(2 * Math.SQRT2 * SQUARE);
-    expect(first.length).toBeLessThan(2 * fixed.trees.length);
-    // The boom is longest on a phone and trails a run by a few metres more, and a crown reaches CROWN_R_MAX past its tree.
-    expect(SQUARE).toBeGreaterThanOrEqual(boomLength(true) + 4 + CROWN_R_MAX);
-    // Far out at sea there is nothing.
-    expect(made.columns(400, 400, [])).toEqual([]);
-  });
-
-  it("hand the walk the trunks near a place and no crowns, in one array that is the same every time, and every trunk within the reach asked", () => {
-    const all = (x: number, z: number) => made.columns(x, z, []).filter((c) => c.base === undefined);
+  it("hand the walk the trunks near a place, in one array that is the same every time, and every trunk within the reach asked", () => {
     let fewest = Infinity, most = 0;
     for (const tree of fixed.trees) {
       const x = tree.x + 1.3, z = tree.z - 0.9, near = made.trunks(x, z, TREE_REACH);
-      // The trunks' own columns, the ones the camera is handed, each once; and this tree's among them.
       expect(new Set(near).size).toBe(near.length);
-      for (const column of near) expect(all(x, z)).toContain(column);
       expect(near.some((c) => c.x === tree.x && c.z === tree.z)).toBe(true);
-      expect(near.every((c) => c.base === undefined)).toBe(true);
-      // Every tree whose foot is within the reach is there.
+      // Every tree whose foot is within the reach is there, and none from past the squares the reach comes to.
       for (const t of fixed.trees) if (Math.hypot(t.x - x, t.z - z) < TREE_REACH) expect(near.some((c) => c.x === t.x && c.z === t.z)).toBe(true);
+      for (const c of near) expect(Math.hypot(c.x - x, c.z - z)).toBeLessThanOrEqual(TREE_REACH + Math.SQRT2 * SQUARE);
       fewest = Math.min(fewest, near.length);
       most = Math.max(most, near.length);
       // The same array, emptied and filled again.
@@ -908,93 +1219,336 @@ describe("the trees as they are built", () => {
     expect(made.trunks(0, 0, 2 * BOUND)).toHaveLength(fixed.trees.length);
   });
 
-  it("stand every trunk inside its column, NEAR m of air round it, and every crown inside its own, and no walker inside either", () => {
-    const held = new Map<Spot, { trunk: Column; crown: Column }>();
-    for (const tree of fixed.trees) {
-      const mine = made.columns(tree.x, tree.z, []).filter((c) => c.x === tree.x && c.z === tree.z);
-      held.set(tree, { trunk: mine.find((c) => c.base === undefined)!, crown: mine.find((c) => c.base !== undefined)! });
+  it("stop a walk where no part of the visitor's bear is in a trunk: stood TREE_REACH from each tree of the fixed day and facing it, from 32 ways round it, on a desktop and a phone, every corner of the bear is outside the bark", { timeout: 20000 }, () => {
+    const v = new THREE.Vector3();
+    for (const [w, own] of [[fixed, made], [fixedPhone, phones]] as const) {
+      const avatar = buildAvatar(new THREE.Scene(), [], { phone: w.phone, reduced: true }) as unknown as { g: { updateMatrixWorld(force: boolean): void; traverse(see: (o: BearPart) => void): void }; step(x: number, z: number, heading: number, dt: number): void };
+      type BearPart = { isMesh?: boolean; matrixWorld: unknown; geometry: { attributes: { position: Corners } } };
+      const trunks = shapes(own.meshes, w.trees, true);
+      let inside = 0, least = Infinity, corners = 0;
+      for (const tree of w.trees) for (let k = 0; k < 32; k++) {
+        const a = (k * Math.PI) / 16, x = tree.x + TREE_REACH * Math.cos(a), z = tree.z + TREE_REACH * Math.sin(a), bark = trunks.get(tree)!;
+        // The walk's own limits leave it there, at the very edge of the trunk's reach; it faces the trunk (a heading of 0 faces -z).
+        avatar.step(x, z, Math.atan2(x - tree.x, z - tree.z), 1 / 60);
+        avatar.g.updateMatrixWorld(true);
+        avatar.g.traverse((part) => {
+          if (!part.isMesh) return;
+          const position = part.geometry.attributes.position;
+          for (let i = 0; i < position.count; i++) {
+            v.fromBufferAttribute(position, i).applyMatrix4(part.matrixWorld);
+            corners += 1;
+            // Only a corner within 1.7 m of the foot's middle can be near the bark: the widest trunk and its lean, and half a metre.
+            if (Math.hypot(v.x - tree.x, v.z - tree.z) > TRUNK_R_MAX + 0.65) continue;
+            if (within(bark, v.x, v.y, v.z)) inside += 1;
+            least = Math.min(least, farFrom(bark, v.x, v.y, v.z));
+          }
+        });
+      }
+      expect(inside, w.phone ? "phone" : "desktop").toBe(0);
+      // The nose's tip comes nearest: a third of a metre from the bark at the least, since the reach allows for the widest trunk's
+      // foot and a nose meets a trunk higher, where it is slimmer; and under a metre at the trunk it comes nearest.
+      expect(least).toBeGreaterThan(0.3);
+      expect(least).toBeLessThan(0.9);
+      expect(corners).toBeGreaterThan(w.trees.length * 32 * 2000);
     }
-    const of = (tree: Spot) => held.get(tree)!;
-    // The least room a corner leaves under its trunk's column's top; under the crown's base, inside the trunk's column with NEAR m
-    // of air; and from the base up, inside the crown's.
-    let under = Infinity, trunkRoom = Infinity, crownRoom = Infinity;
-    byKind(fixed.trees).forEach((mine, k) => corners(made.meshes[k], mine, (x, y, z, tree) => {
-      const { trunk, crown } = of(tree), out = Math.hypot(x - tree.x, z - tree.z);
-      under = Math.min(under, trunk.top - y);
-      if (y < crown.base!) trunkRoom = Math.min(trunkRoom, trunk.r - NEAR - out);
-      else crownRoom = Math.min(crownRoom, crown.r - out);
-    }));
-    expect(under).toBeGreaterThanOrEqual(0);
-    expect(trunkRoom).toBeGreaterThanOrEqual(0);
-    expect(crownRoom).toBeGreaterThanOrEqual(0);
-    for (const tree of fixed.trees) {
-      const { trunk, crown } = of(tree);
-      expect(crown).toEqual({ x: tree.x, z: tree.z, r: tree.reach, base: tree.base, top: tree.top });
-      // A walker stands TREE_REACH off at the nearest, outside the trunk's column.
-      expect(trunk.r).toBeLessThan(TREE_REACH - 0.5);
+  });
+});
+
+describe("the walk's camera among the trees", () => {
+  // What a camera's near plane needs on a desktop's frame (avatar.js eyeRoom): 0.84 m.
+  const ROOM = 0.84;
+  // A trunk's middle at a height, where its lean has carried it, and the least a camera's point keeps from it.
+  const middle = (tree: Spot, y: number) => ({ x: tree.x + tree.lean[0] * (y - tree.y + SUNK), z: tree.z + tree.lean[1] * (y - tree.y + SUNK), r: tree.wide * TRUNK_FOOT + ROOM });
+
+  it("slides a camera level out of a trunk: to its room outside the trunk's widest at the camera's own height, straight out from the trunk's middle there, and leaves one outside it alone", () => {
+    for (const [w, own] of [[fixed, made], [fixedPhone, phones]] as const) for (const tree of w.trees) {
+      // Just over the ground, at a bear's head and at the highest a camera may hang under the crown; and one over that, which is slid
+      // as at that height, since under the crown is where it will hang.
+      for (const [up, as] of [[1.2, 1.2], [HEAD, HEAD], [tree.base - tree.y - ROOM, tree.base - tree.y - ROOM], [tree.base - tree.y + 5, tree.base - tree.y - ROOM]]) for (let k = 0; k < 4; k++) {
+        const y = tree.y + up, { x: cx, z: cz, r } = middle(tree, tree.y + as), a = (k * Math.PI) / 2 + 0.2;
+        const p = { x: cx + 0.4 * r * Math.cos(a), y, z: cz + 0.4 * r * Math.sin(a) };
+        own.slide(p, ROOM);
+        expect(Math.hypot(p.x - cx, p.z - cz)).toBeCloseTo(r, 9);
+        expect([(p.x - cx) / r, (p.z - cz) / r]).toEqual([expect.closeTo(Math.cos(a), 9), expect.closeTo(Math.sin(a), 9)]);
+        expect(p.y).toBe(y);
+        const out = { x: cx + (r + 0.01) * Math.cos(a), y, z: cz + (r + 0.01) * Math.sin(a) }, was = { ...out };
+        own.slide(out, ROOM);
+        expect(out).toEqual(was);
+      }
+    }
+    // A lean carries a trunk's middle half a metre by its crown's base: the keep-out goes with it.
+    const most = Math.max(...fixed.trees.map((t) => Math.hypot(t.lean[0], t.lean[1]) * (t.base - t.y + SUNK)));
+    expect(most).toBeGreaterThan(0.4);
+    // Right on a trunk's middle there is no line out: it steps out all the same.
+    const tree = fixed.trees[0], { x: cx, z: cz, r } = middle(tree, tree.y + 3), on = { x: cx, y: tree.y + 3, z: cz };
+    made.slide(on, ROOM);
+    expect(Math.hypot(on.x - cx, on.z - cz)).toBeCloseTo(r, 9);
+  });
+
+  it("leaves a slid camera its room from every part of the trunk as it is drawn, at any height under the crown, from any side", () => {
+    for (const [w, own] of [[fixed, made], [fixedPhone, phones]] as const) {
+      const trunks = shapes(own.meshes, w.trees, true);
+      let least = Infinity;
+      for (const tree of w.trees) for (let k = 0; k < 8; k++) for (const up of [1.2, 3, 5, tree.base - tree.y - ROOM]) {
+        // From a hand's width off the trunk's middle, inside the bark.
+        const a = (k * Math.PI) / 4, y = tree.y + up, { x: cx, z: cz } = middle(tree, y), p = { x: cx + 0.1 * Math.cos(a), y, z: cz + 0.1 * Math.sin(a) };
+        own.slide(p, ROOM);
+        least = Math.min(least, farFrom(trunks.get(tree)!, p.x, p.y, p.z));
+      }
+      // The keep-out is reckoned from a trunk's widest, at its foot: higher up the bark is further off. Never nearer than the room.
+      expect(least).toBeGreaterThanOrEqual(ROOM - 0.005);
+      expect(least).toBeLessThan(ROOM + 0.35);
     }
   });
 
-  it("never hangs the walk's camera in a crown or a trunk, on a desktop or a phone, walking and running through the groves, and brings it back out to its length", () => {
-    for (const phone of [false, true]) {
-      const trees = phone ? fixedPhone.trees : fixed.trees, { columns, trunks } = phone ? phones : made;
-      const hold: Column[] = [STAGE_COLUMN], avatar = buildAvatar(new THREE.Scene(), [], { phone, reduced: false, columns: hold as never[] });
-      const camera = new THREE.PerspectiveCamera(phone ? 75 : 60, 1, 0.5, 900), limits = walkLimits([], trunks, TREE_REACH);
-      let cut = 0, frames = 0, nearest = Infinity, furthest = 0, closest = Infinity;
+  it("takes a camera round a trunk that stands square in its way, by as far as the trunk stopped it and on the side it is going; and only puts out one that is going no further than the trunk", () => {
+    const tree = fixed.trees[3], y = tree.y + 3, { x: cx, z: cz, r } = middle(tree, y);
+    for (const side of [1, -1]) {
+      // Going on to a place 10 m past the trunk and a little to one side, it has stepped 0.3 m into the keep-out, dead on the middle.
+      const p = { x: cx - r + 0.3, y, z: cz };
+      made.slide(p, ROOM, { x: cx + 10, z: cz + 0.5 * side });
+      expect(Math.hypot(p.x - cx, p.z - cz)).toBeCloseTo(r, 9);
+      // Put out to the keep-out's edge, and round it by 0.3 m toward that side.
+      expect(Math.atan2((p.z - cz) * side, cx - p.x)).toBeCloseTo(0.3 / r, 9);
+    }
+    // Dead on, with its place straight through the middle: it goes round all the same, one way, so nothing holds it behind the trunk.
+    const dead = { x: cx - r + 0.3, y, z: cz };
+    made.slide(dead, ROOM, { x: cx + 10, z: cz });
+    expect(Math.abs(Math.atan2(dead.z - cz, cx - dead.x))).toBeCloseTo(0.3 / r, 9);
+    // Its place is inside the keep-out, the trunk standing where it would hang: it is put straight out, and a second time moves it
+    // nowhere, so it comes to rest there.
+    const held = { x: cx - r + 0.3, y, z: cz + 0.2 };
+    made.slide(held, ROOM, { x: cx + 0.5, z: cz + 0.3 });
+    expect(Math.atan2(held.z - cz, held.x - cx)).toBeCloseTo(Math.atan2(0.2, -r + 0.3), 9);
+    const rest = { ...held };
+    made.slide(held, ROOM, { x: cx + 0.5, z: cz + 0.3 });
+    expect(held.x).toBeCloseTo(rest.x, 12);
+    expect(held.z).toBeCloseTo(rest.z, 12);
+  });
+
+  it("brings an easing camera round a trunk its place passes straight through: never inside the keep-out, past it within a second and a half, and never further in a frame than half a metre, which is under three times what it would move with no trunk there", () => {
+    const tree = fixed.trees[3], y = tree.y + 3, { x: cx, z: cz, r } = middle(tree, y), k = 1 - Math.exp(-1 / 60 / 0.2);
+    for (const pace of [0.2, 0.32]) for (const off of [0, 1e-7, 0.4]) {
+      // Its place runs along x through the trunk's middle, or a hair or 0.4 m beside it, at a walk's pace and a run's; the camera
+      // eases after it as the boom does (avatar.js), from 6 m short of the trunk.
+      const want = { x: cx - 6, z: cz + off }, cam = { x: cx - 6 - pace / k, y, z: cz + off }, free = { x: cam.x };
+      let most = 0, freeMost = 0, nearest = Infinity, passed = -1;
+      for (let f = 0; f < 200 && passed < 0; f++) {
+        want.x += pace;
+        const from = { x: cam.x, z: cam.z }, freeFrom = free.x;
+        cam.x += (want.x - cam.x) * k; cam.z += (want.z - cam.z) * k;
+        free.x += (want.x - free.x) * k;
+        made.slide(cam, ROOM, want);
+        most = Math.max(most, Math.hypot(cam.x - from.x, cam.z - from.z));
+        freeMost = Math.max(freeMost, free.x - freeFrom);
+        nearest = Math.min(nearest, Math.hypot(cam.x - cx, cam.z - cz));
+        if (cam.x > cx + r) passed = f;
+      }
+      expect(nearest, `pace ${pace}, ${off} m beside`).toBeGreaterThanOrEqual(r - 1e-9);
+      // The place reaches the trunk after 30 frames at a walk; the camera is past it within 90.
+      expect(passed, `pace ${pace}, ${off} m beside`).toBeGreaterThan(0);
+      expect(passed, `pace ${pace}, ${off} m beside`).toBeLessThan(90);
+      // Going round is further than going through, so it falls behind its place and eases after it the faster.
+      expect(most, `pace ${pace}, ${off} m beside`).toBeLessThan(freeMost * 3);
+      expect(most, `pace ${pace}, ${off} m beside`).toBeLessThan(0.75);
+    }
+  });
+
+  it("gives the camera a ceiling under the crowns: its room under a crown's base beneath it, a metre higher for each metre outside the crown's circle, the lowest of the crowns near, and none where no crown is that near", () => {
+    const tree = fixed.trees[5], alone = built([tree]);
+    // One tree by itself: under it, at its rim, and out from it.
+    for (const [out, rise] of [[-tree.reach, 0], [-1, 0], [0, 0], [1, 1], [3, 3], [12.5, 12.5]]) {
+      for (let k = 0; k < 4; k++) {
+        const a = k * 1.7, x = tree.x + (tree.reach + out) * Math.cos(a), z = tree.z + (tree.reach + out) * Math.sin(a);
+        expect(alone.ceiling(x, tree.base + 40, z, ROOM)).toBeCloseTo(tree.base - ROOM + rise, 9);
+      }
+    }
+    // A crown is found from as far off as it could lower the ceiling under the camera, however high the camera: 55 m out, from 60 m
+    // over its base; and from nearer the camera's own height it is not looked for, since it could not.
+    expect(alone.ceiling(tree.x + tree.reach + 55, tree.base + 60, tree.z, ROOM)).toBeCloseTo(tree.base - ROOM + 55, 9);
+    expect(alone.ceiling(tree.x + tree.reach + 55, tree.base, tree.z, ROOM)).toBe(Infinity);
+    expect(made.ceiling(400, 30, 400, ROOM)).toBe(Infinity);
+    // Among all the fixed day's trees, on each tier: at places all over the groves and at heights from a bear's head to well over the
+    // crowns, the ceiling is the lowest any crown gives, wherever that is under the camera; elsewhere it is no lower than the camera.
+    for (const [w, own] of [[fixed, made], [fixedPhone, phones]] as const) {
+      let lowered = 0;
+      for (const t of w.trees) for (let k = 0; k < 6; k++) for (const up of [HEAD, 9, 30]) {
+        const far = [0, 2, 4.5, 7, 14, 30][k], x = t.x + far * Math.cos(k), z = t.z + far * Math.sin(k), y = height(x, z) + up;
+        const lowest = least(w.trees.map((c) => c.base - ROOM + Math.max(0, Math.hypot(x - c.x, z - c.z) - c.reach))), got = own.ceiling(x, y, z, ROOM);
+        if (lowest < y) { expect(got).toBeCloseTo(lowest, 9); lowered += 1; } else expect(got).toBeGreaterThanOrEqual(y);
+      }
+      expect(lowered).toBeGreaterThan(w.trees.length * 4);
+    }
+  });
+
+  it("keeps every crown's ceiling over what the ground asks of the camera, 1.2 m, under the crown and for 30 m round it, with room for the widest frame's near plane", () => {
+    // A frame twice as wide as a desktop's needs 1.3 m (avatar.js eyeRoom).
+    const wide = 1.3;
+    let lowest = Infinity;
+    eachTree((t, w) => {
+      if (w !== fixed && w !== fixedPhone && w !== DESKTOP[9] && w !== PHONE[25]) return;
+      for (let dx = -(t.reach + 30); dx <= t.reach + 30; dx += 1) for (let dz = -(t.reach + 30); dz <= t.reach + 30; dz += 1) {
+        const x = t.x + dx, z = t.z + dz;
+        if (Math.hypot(x, z) > BOUND) continue;
+        lowest = Math.min(lowest, t.base - wide + Math.max(0, Math.hypot(dx, dz) - t.reach) - height(x, z) - 1.2);
+      }
+    });
+    // Under a crown the ceiling is 6.5 m less that room over the highest ground there; and nowhere round one does the ground climb a
+    // metre in a metre for long enough to meet it.
+    expect(lowest).toBeGreaterThan(3);
+    expect(lowest).toBeLessThan(CROWN_BASE - wide - 1.2 + 0.1);
+  });
+
+  it("moves the walk's camera only a little at a time: on a desktop and a phone, walking, running, backing, stepping sideways and turning through every grove, it is never in a trunk or a crown or within its near plane's reach of one, never nearer the head than the boom's least, and never moves further in a frame than the same walk's does with no trees and half a metre", () => {
+    for (const [w, own] of [[fixed, made], [fixedPhone, phones]] as const) {
+      const phone = w.phone, trees = w.trees, all = shapes(own.meshes, trees);
+      // Two cameras on the one walk: the world's, among the trees, and one that no tree moves.
+      const among = buildAvatar(new THREE.Scene(), [], { phone, reduced: false, columns: [STAGE_COLUMN] as never[], slide: own.slide as never, ceiling: own.ceiling as never });
+      const bare = buildAvatar(new THREE.Scene(), [], { phone, reduced: false, columns: [STAGE_COLUMN] as never[] });
+      const camera = new THREE.PerspectiveCamera(phone ? 75 : 60, phone ? 390 / 844 : 1440 / 900, 0.5, 900), other = camera.clone();
+      const room = eyeRoom(camera), limits = walkLimits([], own.trunks, TREE_REACH);
+      const was = new THREE.Vector3(), otherWas = new THREE.Vector3(), pivot = new THREE.Vector3();
+      let frames = 0, most = 0, bareMost = 0, nearestHead = Infinity, nearestTree = Infinity, lowest = Infinity, dipped = 0, slid = 0;
       const inside: string[] = [];
-      // Through each grove's middle, four ways, at a walk and at a run.
-      for (const [gx, gz, r] of GROVES) for (let k = 0; k < 4; k++) for (const run of [1, 1.6]) {
-        const a = (k * Math.PI) / 4 + 0.3, heading = Math.atan2(Math.cos(a), Math.sin(a)), walker = { x: gx + (r + 12) * Math.cos(a), z: gz + (r + 12) * Math.sin(a), heading, pitch: k === 3 ? -0.5 : 0 };
-        const pace = (12 * run) / 60;
-        for (let f = 0; f * pace < 2 * r + 24; f++) {
-          walker.x -= Math.sin(heading) * pace; walker.z -= Math.cos(heading) * pace;
-          confine(walker, limits);
-          for (const t of trees) closest = Math.min(closest, Math.hypot(walker.x - t.x, walker.z - t.z));
-          avatar.step(walker.x, walker.z, walker.heading, 1 / 60);
-          hold.length = 1;
-          columns(walker.x, walker.z, hold);
-          avatar.boom(camera, walker, 1 / 60, f === 0);
-          const { x, y, z } = camera.position;
-          for (let c = 1; c < hold.length; c++) {
-            const { x: cx, z: cz, r: cr, top, base = -Infinity } = hold[c];
-            if (y < top && y > base && (x - cx) ** 2 + (z - cz) ** 2 < cr * cr) inside.push(`${phone ? "phone" : "desktop"} grove ${gx},${gz} way ${k} frame ${f}`);
+      // Through each grove's middle four ways: ahead at a walk looking level; ahead at a run looking down as far as a walker may;
+      // backwards at a run looking down, the camera going first; and sideways, the camera trailing beside the way. Then once round on
+      // the spot, half-way out from the grove's middle.
+      for (const [gx, gz, r] of GROVES) for (let k = 0; k < 5; k++) {
+        const a = (k * Math.PI) / 4 + 0.3, along = Math.atan2(Math.cos(a), Math.sin(a));
+        const [spd, side, run, pitch, turn, face] = [[1, 0, 1, 0, 0, 0], [1, 0, 1.6, -0.8, 0, 0], [-1, 0, 1.6, -0.8, 0, Math.PI], [0, 1, 1, 0.4, 0, Math.PI / 2], [0, 0, 1, 0, 1, 0]][k];
+        const walker = k === 4 ? { x: gx + 0.5 * r * Math.cos(a), z: gz + 0.5 * r * Math.sin(a), heading: along, pitch } : { x: gx + (r + 12) * Math.cos(a), z: gz + (r + 12) * Math.sin(a), heading: along + face, pitch };
+        const pace = (12 * run) / 60, last = k === 4 ? 240 : Math.round((2 * r + 24) / pace);
+        confine(walker, limits);
+        for (let f = 0; f < last; f++) {
+          if (f > 0) {
+            walker.heading += (turn * 1.6) / 60;
+            const fx = -Math.sin(walker.heading), fz = -Math.cos(walker.heading);
+            walker.x += (fx * spd - fz * side) * pace; walker.z += (fz * spd + fx * side) * pace;
+            confine(walker, limits);
           }
-          // The camera is never nearer the head than the boom's least, 2.5 m.
-          const reach = Math.hypot(x - walker.x, y - height(walker.x, walker.z) - HEAD, z - walker.z);
-          nearest = Math.min(nearest, reach);
-          furthest = Math.max(furthest, reach);
-          if (reach < boomLength(phone) * 0.8) cut += 1;
+          among.step(walker.x, walker.z, walker.heading, 1 / 60);
+          bare.step(walker.x, walker.z, walker.heading, 1 / 60);
+          among.boom(camera, walker, 1 / 60, f === 0);
+          bare.boom(other, walker, 1 / 60, f === 0);
+          const { x, y, z } = camera.position;
+          // The frames after a cut settle the bear's pace and the boom: they count for where the camera is, not for how it moved.
+          if (f > 1) { most = Math.max(most, camera.position.distanceTo(was)); bareMost = Math.max(bareMost, other.position.distanceTo(otherWas)); }
+          was.copy(camera.position); otherWas.copy(other.position);
+          for (const t of trees) {
+            if (Math.hypot(x - t.x, z - t.z) > t.reach + 2 || y > t.top + 2) continue;
+            const tris = all.get(t)!;
+            if (within(tris, x, y, z)) inside.push(`${phone ? "phone" : "desktop"} grove ${gx},${gz} way ${k} frame ${f}`);
+            nearestTree = Math.min(nearestTree, farFrom(tris, x, y, z));
+          }
+          nearestHead = Math.min(nearestHead, camera.position.distanceTo(pivot.set(walker.x, height(walker.x, walker.z) + HEAD, walker.z)));
+          lowest = Math.min(lowest, y - height(x, z));
+          if (other.position.y - y > 0.5) dipped += 1;
+          if (Math.hypot(other.position.x - x, other.position.z - z) > 0.5) slid += 1;
           frames += 1;
         }
       }
+      const tier = phone ? "phone" : "desktop";
       expect(inside).toEqual([]);
-      expect(nearest).toBeGreaterThanOrEqual(2.5 - 1e-6);
-      // The walker was held off every trunk, by the trunks the look-up found near it.
-      expect(closest).toBeGreaterThanOrEqual(TREE_REACH - 1e-9);
-      expect(closest).toBeLessThan(TREE_REACH + 1e-6);
-      // The trees do draw it in, and leave it at its length, the tier's own, for most of a walk through them.
-      expect(cut).toBeGreaterThan(0);
-      expect(cut / frames).toBeLessThan(0.35);
-      expect(furthest).toBeGreaterThan(boomLength(phone) - 0.5);
+      // Clear of bark and leaves by what the near plane needs: its corners' reach, with eyeRoom's hand to spare.
+      expect(nearestTree, tier).toBeGreaterThan(room - 0.1);
+      expect(room).toBeCloseTo(phone ? 0.75 : 0.84, 2);
+      expect(nearestHead, tier).toBeGreaterThanOrEqual(LEAST - 1e-6);
+      // Never under what the boom keeps over the ground at the camera.
+      expect(lowest, tier).toBeGreaterThanOrEqual(1.2 - 1e-6);
+      // No cut: the furthest it moves in a sixtieth of a second is what the same walk moves it with no trees and under half a metre
+      // more, as when it comes down under a crown while it swings round: under a metre in all, where a cut is the boom's length.
+      expect(most, tier).toBeLessThan(bareMost + 0.5);
+      expect(most, tier).toBeLessThan(1);
+      // And the trees did move it: under a crown for some of the walk, and round a trunk for some.
+      expect(dipped / frames, tier).toBeGreaterThan(0.05);
+      expect(slid, tier).toBeGreaterThan(20);
+      expect(frames).toBeGreaterThan(9000);
     }
   });
 
-  it("keeps the boom's foot 2.9 m from every crown wherever a walker may stand, so the camera has its 2.5 m and a crown never raises it", () => {
-    let nearest = Infinity;
-    eachTree((t, w) => {
-      if (w !== fixed && w !== fixedPhone && w !== DESKTOP[9] && w !== PHONE[25]) return;
-      const crown = { x: t.x, z: t.z, r: t.reach, base: t.base, top: t.top };
-      for (let dx = -(t.reach + 4); dx <= t.reach + 4; dx += 0.5) for (let dz = -(t.reach + 4); dz <= t.reach + 4; dz += 0.5) {
-        const x = t.x + dx, z = t.z + dz, out = Math.hypot(dx, dz) - t.reach, y = height(x, z) + HEAD;
-        if (Math.hypot(dx, dz) < TREE_REACH) continue;
-        // How far the foot stands from the crown: under it, to its underside; beside it, to its rim.
-        const under = t.base - y, d = out <= 0 ? under : Math.hypot(out, Math.max(0, under));
-        if (under > 0 || out > 0) nearest = Math.min(nearest, d);
-        // Straight up from under it, the line meets its underside that far on.
-        if (out < 0) expect(enterColumn({ x, y, z }, { x: 0, y: 1, z: 0 }, crown)).toBeCloseTo(under, 9);
-      }
+  it("asks the trees with what its near plane needs and the place it is easing to, and asks again where a column has drawn the camera in or raised it to where a tree stands", () => {
+    type Ask = { room: number; toward: { x: number; z: number } | null };
+    const asks: Ask[] = [], rooms: number[] = [];
+    const spy = buildAvatar(new THREE.Scene(), [], {
+      phone: false, reduced: false,
+      slide: ((_p: Point, room: number, toward: { x: number; z: number } | null) => { asks.push({ room, toward: toward && { x: toward.x, z: toward.z } }); }) as never,
+      ceiling: ((_x: number, _y: number, _z: number, room: number) => { rooms.push(room); return Infinity; }) as never,
     });
-    expect(nearest).toBeGreaterThan(2.9 - 0.05);
+    const camera = new THREE.PerspectiveCamera(60, 1.6, 0.5, 900);
+    spy.boom(camera, { x: 10, z: 20, heading: 0.7, pitch: 0.1 }, 1 / 60, true);
+    // The corners of the near plane, half a metre off, stand 0.74 m from the camera in a frame 1.6 times as wide as it is high; and
+    // a hand more.
+    expect(eyeRoom(camera)).toBeCloseTo(0.5 * Math.hypot(1, Math.tan(Math.PI / 6), 1.6 * Math.tan(Math.PI / 6)) + 0.1, 12);
+    expect(eyeRoom(camera)).toBeCloseTo(0.84, 2);
+    // Once for the place it eases to, the boom's length behind the bear, 0.25 rad up; no tree moved it, so not again.
+    expect(asks).toEqual([{ room: eyeRoom(camera), toward: { x: expect.closeTo(10 + Math.sin(0.7) * 11 * Math.cos(0.25), 9), z: expect.closeTo(20 + Math.cos(0.7) * 11 * Math.cos(0.25), 9) } }]);
+    expect(rooms).toEqual([eyeRoom(camera)]);
+
+    // A tree of the fixed day with level ground west of it, the bear 6 m east of its trunk and facing east, so the boom runs west
+    // past the trunk; and a column, as the stage's is one, whose side is 0.5 m past where the trunk's keep-out begins: it draws the
+    // camera in to its side, inside the keep-out.
+    const room = eyeRoom(camera);
+    const tree = fixed.trees.find((t) => Math.abs(height(t.x - 4, t.z) - t.y) < 0.3 && Math.abs(height(t.x + 6, t.z) - t.y) < 0.3)!;
+    const walker = { x: tree.x + 6, z: tree.z, heading: -Math.PI / 2, pitch: 0.35 };
+    for (const ours of [true, false]) {
+      const avatar = buildAvatar(new THREE.Scene(), [], {
+        phone: false, reduced: false, columns: [{ x: tree.x - 2.2, z: tree.z, r: 1.2, top: 40 }] as never[],
+        ...(ours ? { slide: made.slide as never, ceiling: made.ceiling as never } : {}),
+      });
+      avatar.step(walker.x, walker.z, walker.heading, 1 / 60);
+      avatar.boom(camera, walker, 1 / 60, true);
+      const { x, y, z } = camera.position, mid = { x: tree.x + tree.lean[0] * (y - tree.y + SUNK), z: tree.z + tree.lean[1] * (y - tree.y + SUNK) };
+      const off = Math.hypot(x - mid.x, z - mid.z);
+      // With no trees to ask it hangs half a metre short of the column, in the trunk; with them it is put out of the trunk's keep-out.
+      if (ours) expect(off).toBeGreaterThanOrEqual(tree.wide * TRUNK_FOOT + room - 1e-9);
+      else expect(off).toBeLessThan(tree.wide * TRUNK_FOOT);
+    }
+    // And a low column half a metre behind the bear, which stands under the crown: the boom rises steeply to pass over it, into
+    // the crown with no trees to ask; with them the camera stops under the crown's base.
+    const under = { x: tree.x + TREE_REACH + 0.2, z: tree.z, heading: -Math.PI / 2, pitch: 0 }, pivot = height(under.x, under.z) + HEAD;
+    for (const ours of [true, false]) {
+      const avatar = buildAvatar(new THREE.Scene(), [], {
+        phone: false, reduced: false, columns: [{ x: under.x - 1.5, z: under.z, r: 1, top: pivot + 2.2 }] as never[],
+        ...(ours ? { slide: made.slide as never, ceiling: made.ceiling as never } : {}),
+      });
+      avatar.step(under.x, under.z, under.heading, 1 / 60);
+      avatar.boom(camera, under, 1 / 60, true);
+      if (ours) expect(camera.position.y).toBeLessThan(tree.base - 0.3);
+      else expect(camera.position.y).toBeGreaterThan(tree.base + 1);
+    }
+    // A camera that another camera left a metre from the head, with a ceiling lower still: the ceiling does not bring it down,
+    // which would be nearer the head than the boom's least; and nothing raises it either.
+    const held = buildAvatar(new THREE.Scene(), [], { phone: false, reduced: false, ceiling: (() => pivot + 0.5) as never });
+    held.step(under.x, under.z, under.heading, 1 / 60);
+    held.settle(new THREE.Vector3(under.x - 1, pivot + 1, under.z), new THREE.Vector3(under.x + 6, pivot, under.z));
+    held.boom(camera, under, 1 / 60, false);
+    expect(camera.position.y).toBeGreaterThan(pivot + 1);
+    expect(camera.position.y).toBeLessThan(pivot + 1.5);
+    expect(Math.hypot(camera.position.x - under.x, camera.position.z - under.z)).toBeLessThan(LEAST - 0.5);
+  });
+
+  it("takes the shoot's two grove stills from where a walk may stand, with trees of the grove's own kind in the view from the visitor's eye, on a desktop and a phone", () => {
+    expect(Object.keys(GROVE_POSES)).toEqual(["fixed-grove-pines", "fixed-grove-broad"]);
+    for (const [shot, [x, z, heading, pitch]] of Object.entries(GROVE_POSES as Record<string, number[]>)) for (const [w, own] of [[fixed, made], [fixedPhone, phones]] as const) {
+      const at = `${shot} on a ${w.phone ? "phone" : "desktop"}`, kind = shot.endsWith("pines") ? "pine" : "broad";
+      // The walk leaves the visitor where the pose puts it: outside every trunk's reach, by a metre and more.
+      const stood = { x, z, heading };
+      confine(stood, walkLimits([], own.trunks, TREE_REACH));
+      expect(stood, at).toEqual({ x, z, heading });
+      expect(least(w.trees.map((t) => Math.hypot(t.x - x, t.z - z))), at).toBeGreaterThan(TREE_REACH + 1);
+      // The view, as the still is shot, in first person (main.js placeWalker): from FIRST_EYE m over the ground, the way the pose
+      // faces and tilts. The trees whose trunks, 4 m up, stand in the frame within 60 m.
+      const camera = new THREE.PerspectiveCamera(w.phone ? 75 : 60, w.phone ? 390 / 844 : 1440 / 900, 0.5, 900), y = height(x, z) + FIRST_EYE;
+      camera.position.set(x, y, z);
+      camera.lookAt(x - Math.sin(heading) * Math.cos(pitch), y + Math.sin(pitch), z - Math.cos(heading) * Math.cos(pitch));
+      camera.updateMatrixWorld(true);
+      const v = new THREE.Vector3();
+      const seen = w.trees.filter((t) => { v.set(t.x, t.y + 4, t.z).project(camera); return Math.abs(v.x) < 1 && Math.abs(v.y) < 1 && v.z < 1 && Math.hypot(t.x - x, t.z - z) < 60; });
+      expect(seen.length, at).toBeGreaterThanOrEqual(w.phone ? 3 : 5);
+      expect(seen.filter((t) => t.kind === kind).length, at).toBeGreaterThan(seen.length * 0.6);
+      // And one of them near enough to stand tall in the frame.
+      expect(least(seen.map((t) => Math.hypot(t.x - x, t.z - z))), at).toBeLessThan(25);
+    }
   });
 });
 

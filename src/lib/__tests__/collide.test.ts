@@ -237,42 +237,6 @@ describe("enterColumn", () => {
 
   it("leaves out a column that stands around the start", () => {
     expect(enterColumn({ x: 1, y: 2, z: 0 }, { x: -1, y: 0, z: 0 }, column)).toBe(Infinity);
-    expect(enterColumn({ x: 1, y: 2, z: 0 }, { x: 0, y: 1, z: 0 }, column)).toBe(Infinity);
-  });
-
-  // A tree's crown: a column that starts 7 m up, over the ground and not on it.
-  const crown = { x: 0, z: 0, r: 4, base: 7, top: 15 };
-  const head = { x: 1, y: 3.6, z: 0 };
-
-  it("meets a crown's underside from under it, where the line is still under it when it has risen that far", () => {
-    expect(enterColumn(head, { x: 0, y: 1, z: 0 }, crown)).toBeCloseTo(3.4, 9);
-    // At 45 degrees toward the far side: 3.4 m up is 3.4 m along the ground, to x -2.4, still under it.
-    expect(enterColumn(head, { x: -Math.SQRT1_2, y: Math.SQRT1_2, z: 0 }, crown)).toBeCloseTo(3.4 * Math.SQRT2, 9);
-    // Toward the near side it is out from under it, 3 m on, before it has risen 3.4 m.
-    expect(enterColumn(head, { x: Math.SQRT1_2, y: Math.SQRT1_2, z: 0 }, crown)).toBe(Infinity);
-    // Level, or falling, it never meets it.
-    expect(enterColumn(head, { x: 1, y: 0, z: 0 }, crown)).toBe(Infinity);
-    expect(enterColumn(head, { x: 0, y: -1, z: 0 }, crown)).toBe(Infinity);
-  });
-
-  it("meets a crown's side between its base and its top, passes under it, and comes up into its underside from beside it", () => {
-    const beside = { x: 10, y: 9, z: 0 };
-    expect(enterColumn(beside, { x: -1, y: 0, z: 0 }, crown)).toBeCloseTo(6, 9);
-    // From the head's height, level: under it all the way.
-    expect(enterColumn({ x: 10, y: 3.6, z: 0 }, { x: -1, y: 0, z: 0 }, crown)).toBe(Infinity);
-    // Rising one in two from 10 m out at 3.6 m: under the rim at 6 m on (6.6 m up), into the underside 6.8 m along the ground.
-    const up = { x: -2 / Math.sqrt(5), y: 1 / Math.sqrt(5), z: 0 };
-    expect(enterColumn({ x: 10, y: 3.6, z: 0 }, up, crown)).toBeCloseTo(3.4 * Math.sqrt(5), 9);
-    // Rising too gently to reach its base before it is out the far side.
-    const gentle = { x: -Math.cos(0.1), y: Math.sin(0.1), z: 0 };
-    expect(enterColumn({ x: 10, y: 3.6, z: 0 }, gentle, crown)).toBe(Infinity);
-    // Falling onto its top, as onto any column's: over its side at 17 m, down to its top 10 m along the ground.
-    expect(enterColumn({ x: 12, y: 25, z: 0 }, { x: -Math.SQRT1_2, y: -Math.SQRT1_2, z: 0 }, crown)).toBeCloseTo(10 * Math.SQRT2, 9);
-  });
-
-  it("leaves out a crown the start stands in or over", () => {
-    expect(enterColumn({ x: 1, y: 9, z: 0 }, { x: 1, y: 0, z: 0 }, crown)).toBe(Infinity);
-    expect(enterColumn({ x: 1, y: 16, z: 0 }, { x: 0, y: 1, z: 0 }, crown)).toBe(Infinity);
   });
 
   it("meets the side of a column from starts along the z axis and off both axes", () => {

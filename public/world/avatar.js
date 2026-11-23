@@ -2,12 +2,12 @@
 import * as THREE from "three";
 import { height } from "./ground.js";
 import { buildBear, stride } from "./bears.js";
-import { rise } from "./boom.js";
+import { LEAST, rise } from "./boom.js";
 
 /* The visitor's bear: a sixth bear in the site's ink, seen from behind and above. Its legs, bob and lean follow its speed, so it
    lopes while the five walk. The walk's camera hangs on a boom behind its head and eases after it; a landmark between them draws the
-   camera in, or raises it over one just behind the bear, and on a phone the view tilts down until the bear's feet clear the
-   now-plate. */
+   camera in, or raises it over one just behind the bear; among the trees it slides round a trunk and dips under a crown, its boom
+   as long as ever; and on a phone the view tilts down until the bear's feet clear the now-plate. */
 
 /* The five walk at 2.5 m/s, their legs at 6 rad/s; the walk is 12 m/s and the run 1.6 times that. */
 const WALK = 2.5, STRIDE = 12, RUN = 19.2;
@@ -19,7 +19,14 @@ export const HEAD = 3.6, TOP = 4.85;
 export const boomLength = (phone) => (phone ? 20 : 11);
 const UP = new THREE.Vector3(0, 1, 0);
 
-export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], over = () => {}, ahead = (point, way) => { way[6] = 0; way[7] = 0; } }) {
+/* How far the corners of a camera's near plane stand from it, and a hand more: what the camera keeps this far from, that plane cuts
+   nowhere, whichever way the camera looks. */
+export const eyeRoom = (camera) => {
+  const t = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+  return camera.near * Math.hypot(1, t, t * camera.aspect) + 0.1;
+};
+
+export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], over = () => {}, ahead = (point, way) => { way[6] = 0; way[7] = 0; }, slide = () => {}, ceiling = () => Infinity }) {
   const bear = buildBear(scene, 0xeceae4), { g, legs, color } = bear;
   g.rotation.order = "YXZ";
   /* The head, for the stats and the sound's listener; the top of the head and the ground point under the bear, which the cameras
@@ -61,6 +68,13 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
   const raise = new Float64Array(1), way = Float64Array.of(0, 0, 0, AHEAD, LOOKS, CLIMB, 0, 0);
   const hung = new THREE.Vector3(), was = new THREE.Vector3();
 
+  /* Brings the point `p` down under the crowns' ceiling there (trees.js), but never to within the boom's least of the head, which
+     stands at `pivot`: a crown hangs further than that over the head of a bear that stands under it. */
+  function under(p, room) {
+    const top = ceiling(p.x, p.y, p.z, room), near = LEAST * LEAST - (p.x - pivot.x) ** 2 - (p.z - pivot.z) ** 2;
+    if (p.y > top) p.y = near > 0 ? Math.max(top, Math.min(p.y, pivot.y + Math.sqrt(near))) : top;
+  }
+
   /* The walk's camera. Its place and its aim ease after the bear (at once under reduced motion or on a cut), keep 1.2 m above the
      ground at the camera and halfway along the boom, and keep clear of the landmarks: 0.5 m in front of one between the camera and
      the head, never nearer the head than 2.5 m, the boom rising for one that starts within 3 m of the head (boom.js). Over the crowd it
@@ -68,16 +82,23 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
      it is there before it reaches them, and comes down at CLIMB only as far as the most it will need along that way, so it holds its
      height over the crowd; and where it would stand lower than `over` asks, it rises at once.
      That is where it hangs, so the landmarks' test takes the boom's line from there, and `over` holds again where a landmark draws it
-     in along that line. Returns the aim. */
+     in along that line.
+     Among the trees (trees.js) the boom keeps its length. As it eases, the camera's place slides level round a trunk in its way
+     (`slide`) and comes down under a crown (`ceiling`), never under what the ground asks, since a crown's ceiling stands over that;
+     and the same holds again where a landmark or the crowd has moved the camera from that place. The aim is as it would be with no
+     tree there. Returns the aim. */
   function boom(camera, walker, dt, cut) {
     const k = reduced || cut ? 1 : 1 - Math.exp(-dt / 0.2);
     const fx = -Math.sin(walker.heading), fz = -Math.cos(walker.heading), e = 0.35 - walker.pitch;
     pivot.set(walker.x, height(walker.x, walker.z) + HEAD, walker.z);
     was.copy(cam);
     cam.lerp(want.set(pivot.x - fx * R * Math.cos(e), pivot.y + R * Math.sin(e), pivot.z - fz * R * Math.cos(e)), k);
+    const room = eyeRoom(camera);
+    slide(cam, room, want);
     look.lerp(want.set(pivot.x + fx * 6, pivot.y, pivot.z + fz * 6), k);
     const mx = (pivot.x + cam.x) / 2, mz = (pivot.z + cam.z) / 2;
     cam.y = Math.max(cam.y, height(cam.x, cam.z) + 1.2, 2 * (height(mx, mz) + 1.2) - pivot.y);
+    under(cam, room);
     hung.copy(cam);
     over(hung);
     const need = hung.y - cam.y;
@@ -98,6 +119,7 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     lift = r.lift;
     reach = r.room < reach ? r.room : reach + (r.room - reach) * k;
     camera.position.copy(pivot).addScaledVector(dir, len * reach);
+    if (camera.position.distanceToSquared(cam) > 1e-6) { slide(camera.position, room); under(camera.position, room); }
     over(camera.position);
     return look;
   }
