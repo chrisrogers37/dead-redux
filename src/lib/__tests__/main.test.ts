@@ -88,7 +88,7 @@ const fake = vi.hoisted(() => {
     // each time the trees were asked for the trunks near a place, the same; and every property of the built trees main.js has read.
     treeSpots: [] as Point[],
     treesAsked: [] as { count: number; loop: unknown[]; line: number[][]; landmarks: { x: number; z: number; rot: number; poly: unknown }[]; eyes: unknown; views: unknown }[],
-    waysAsked: [] as { line: unknown; height: unknown; phone: boolean; bears: number[]; stands: { x: number; z: number; to: number[]; d: number }[] }[],
+    waysAsked: [] as { line: unknown; height: unknown; phone: boolean; bears: number[]; marks: unknown[] }[],
     treesBuilt: [] as { spots: Point[]; lit: unknown; phone: boolean }[],
     made: [] as string[],
     trunks: undefined as unknown,
@@ -698,8 +698,10 @@ describe("main.js's frames", () => {
       // The bears' line, a point every metre of its 200 m, as [x, z].
       expect(asked.line).toHaveLength(200);
       expect(asked.line[37]).toEqual([LINE.at(37).x, LINE.at(37).z]);
-      // Each landmark: where it stands, how it is turned, and its outline.
-      expect(asked.landmarks).toEqual(landmarks.map((g) => ({ x: g.position.x, z: g.position.z, rot: g.rotation.y, poly: fake.OUTLINE })));
+      // Each landmark: where it stands, how it is turned and its outline; and, for the cameras' ways, how far along the line the
+      // bears stand as its song begins and where the visitor stands to see it.
+      const marks = landmarks.map((g, k) => ({ x: g.position.x, z: g.position.z, rot: g.rotation.y, poly: fake.OUTLINE, d: expect.closeTo(50 + 10 * k, 9), stand: { x: 10 + k, z: 20 + k } }));
+      expect(asked.landmarks).toEqual(marks);
       // The ways of this tier's cameras, reckoned from the line, the ground, where the visitor stands by each landmark to see it, and
       // how far along the line the bears stand as its song begins: the stand-in lays the songs out a tenth of the loop apart from its
       // middle, and the line here is 100 m to the loop. A desktop's cameras, with each number of bears its ladder shows (quality.js).
@@ -708,7 +710,8 @@ describe("main.js's frames", () => {
       expect(fake.world.waysAsked).toHaveLength(1);
       expect(fake.world.waysAsked[0].line).toBe(LINE);
       expect((fake.world.waysAsked[0].height as typeof height)(31.7, -27.5)).toBe(height(31.7, -27.5));
-      expect(fake.world.waysAsked[0].stands).toEqual(landmarks.map((g, k) => ({ x: 10 + k, z: 20 + k, to: [g.position.x, g.position.z], d: expect.closeTo(50 + 10 * k, 9) })));
+      expect(fake.world.waysAsked[0].marks).toEqual(marks);
+      expect(fake.world.waysAsked[0].marks).toBe(asked.landmarks);
       expect(fake.world.waysAsked[0].phone).toBe(false);
       expect(fake.world.waysAsked[0].bears).toEqual([5, 3, 1]);
       // The island is given the placing's own word on whether a trunk stands within TRUNK_ROOM of a place, and the trees take its
@@ -743,7 +746,7 @@ describe("main.js's frames", () => {
       // A day with no recording has no landmarks, and trees all the same.
       await startWorld({ recording: false });
       expect(fake.world.treesAsked[0].landmarks).toEqual([]);
-      expect(fake.world.waysAsked[0].stands).toEqual([]);
+      expect(fake.world.waysAsked[0].marks).toEqual([]);
       expect(fake.world.made).toEqual(["places", "island", "trees"]);
     });
 

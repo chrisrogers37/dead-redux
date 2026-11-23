@@ -138,18 +138,20 @@ function start(gl) {
   /* ---------- the trees and the island ---------- */
   /* Where the trees stand (trees.js): clear of the path, the bears' line, each landmark's outline, read before the landmarks merge,
      and the ways of this tier's cameras, with each number of bears it can show, its own and each the downgrade leaves (quality.js):
-     among them the view of each landmark from the path (path.js nearStand) and from where the bears stand as its song begins. */
+     among them the view of each landmark from the path (path.js nearStand) and from where the bears stand as its song begins,
+     with nothing behind it, and the sight of every landmark in the frame of a camera the visitor rides. */
   const treeStart = performance.now();
   const bearCounts = [];
   for (let q = quality; q; q = stepDown(q)) if (!bearCounts.includes(q.bears)) bearCounts.push(q.bears);
+  const marks = landmarks.map((g, k) => {
+    const s = nearStand(path, landmarkU, landmarks, k);
+    return { x: g.position.x, z: g.position.z, rot: g.rotation.y, poly: outline(g, moving), d: line.dOf(landmarkU[k]), stand: s ? { x: s.x, z: s.z } : null };
+  });
   const placed = placeTrees({
     count: TARGET[tier], loop,
     line: Array.from({ length: Math.ceil(line.length) }, (_, d) => { const p = line.at(d); return [p.x, p.z]; }),
-    landmarks: landmarks.map((g) => ({ x: g.position.x, z: g.position.z, rot: g.rotation.y, poly: outline(g, moving) })),
-    ...cameraWays({
-      line, height, phone, bears: bearCounts,
-      stands: landmarks.flatMap((g, k) => { const s = nearStand(path, landmarkU, landmarks, k); return s ? [{ x: s.x, z: s.z, to: [g.position.x, g.position.z], d: line.dOf(landmarkU[k]) }] : []; }),
-    }),
+    landmarks: marks,
+    ...cameraWays({ line, height, phone, bears: bearCounts, marks }),
   });
   /* How long the trees took to place, the cameras' ways among it; the stats report it beside the landmarks'. */
   window.__hill.treesMs = Math.round((performance.now() - treeStart) * 10) / 10;
