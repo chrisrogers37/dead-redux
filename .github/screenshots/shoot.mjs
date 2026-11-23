@@ -253,12 +253,15 @@ const PAGES = [
   },
   // The band, close: the fixed day from the front of the crowd (band.mjs), shot whole as the near stills are, while Fire On The
   // Mountain plays with ?drive=map, so the light panel is lit behind the six players and each reads by an outline. K starts the
-  // show, since the play disc is on a shelf that is away. `fixed-band` is taken 8 s on, once the world's hour is the show's.
-  // The page names ?at=, so it needs no place an earlier page left; and it stands here, between two pages that name theirs, so no
-  // later play step resumes from the place it leaves: the new day's still resumes in Space, where the crowd's page after this stops.
-  {
-    path: bandPath(),
-    devices: ["desktop", "phone"],
+  // show, since the play disc is on a shelf that is away. Both stills are of the show playing: `fixed-band-start` as it starts and
+  // `fixed-band` 8 s and the wait for the world's hour later, some 15 s on, so the pair shows how far the players move. A phone
+  // stands further back, where its narrower view holds all six.
+  // The page names ?at=, so it needs no place an earlier page left. On the desktop the next page that plays names its place too (the
+  // crowd's page of Space), so nothing there resumes from this one; on a phone the next play step is the new day's, which resumes in
+  // this same song, a few seconds on from where the crowd's page of it left it before this page stood here.
+  ...["desktop", "phone"].map((device) => ({
+    path: bandPath(device),
+    devices: [device],
     whole: true,
     shots: [],
     steps: [
@@ -272,7 +275,7 @@ const PAGES = [
         later: { ms: 8000, shot: "fixed-band", night: true },
       },
     ],
-  },
+  })),
   {
     path: "/2026-10-20?pose=crowd&drive=map&at=14",
     devices: ["desktop"],
