@@ -85,10 +85,11 @@ describe("the near stills", () => {
       };
       const own = stands(songs, songs.map((_, k) => k));
       for (const { k, stand } of own) expect(stand.clear, `song ${k}${phone ? " on a phone" : ""}`).toBe(true);
-      // The road's slab is 18 m long and reaches 9.2 m from its middle: the visitor stands 8 m back from that, not 14 m from the middle,
-      // where its near end would be under the frame. No other landmark here is so long, and one, Touch Of Grey's, is seen from 11 m.
+      // The road's trestle is 18 m long and reaches 9.1 m from its middle: the visitor stands 8 m back from that, not 14 m from the
+      // middle, where its near end would be under the frame. No other landmark here is so long, and one, Touch Of Grey's, is seen from
+      // 11 m.
       const far = own.filter(({ stand, to }) => gap(stand, to) > 14.001).map(({ k, stand, to }) => [FIXED_TITLES[k], Math.round(gap(stand, to) * 10) / 10]);
-      expect(far).toEqual([["Goin' Down The Road Feeling Bad ->", 17.2]]);
+      expect(far).toEqual([["Goin' Down The Road Feeling Bad ->", 17.1]]);
       expect(own.filter(({ stand, to }) => gap(stand, to) < 13.999).map(({ k }) => FIXED_TITLES[k])).toEqual(["Touch Of Grey"]);
       // Each page of landmarks built for other titles: the other kinds, and the stones.
       for (const table of [as, stoneTitles]) {
@@ -107,7 +108,7 @@ describe("the near stills", () => {
   });
 
   it("shoots the fixed day's nineteen landmarks from one page", () => {
-    expect(own.path).toBe("/2026-10-20?pose=near-0");
+    expect(own.path).toBe("/2026-10-20?pose=near-0&hold=1");
     expect(own.steps.map((s) => [s.near, s.title])).toEqual(FIXED_TITLES.map((title: string, index: number) => [index, title]));
     expect(own.steps[12]).toEqual({ near: 12, title: "Uncle John's Band ->", shot: "fixed-near-uncle-johns-band" });
   });
@@ -149,6 +150,19 @@ describe("the near stills", () => {
     const files = [own, others, stones].flatMap((page) => page.devices.flatMap((device) => page.steps.map((s) => `${device}-${s.shot}.png`)));
     expect(new Set(files).size).toBe(files.length);
     expect(files).toHaveLength(2 * (19 + 13 + 8));
+  });
+
+  it("holds the landmarks' moving parts on every near page, so a still of one is the same on every run", () => {
+    // The shoot takes a still when its frames are drawn, at no fixed moment: a ball that pulsed, a wheel that turned or a miracle
+    // that bobbed would be shot at another moment on every run, and a review that compares two runs' stills would see a change
+    // where there was none. ?hold=1 holds them as they were built (public/world/main.js).
+    const pages = nearPages() as Page[];
+    expect(pages.length).toBeGreaterThan(0);
+    for (const page of pages) expect(new URL(page.path, "https://example.test").searchParams.getAll("hold"), page.path).toEqual(["1"]);
+    // And those pages do shoot parts that move: the wheel, the miracle and the lovelight's lamp among the fixed day's own, and
+    // Not Fade Away's ball among the other kinds.
+    expect(FIXED_TITLES.filter((title: string) => /wheel|miracle|lovelight|fire/i.test(title))).toHaveLength(4);
+    expect(as.map(([, title]) => title)).toContain("Not Fade Away");
   });
 
   it("waits on every near page for the world to be ready before its first step", () => {
