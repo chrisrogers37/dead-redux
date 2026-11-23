@@ -195,9 +195,9 @@ describe("budgetFor", () => {
 
   it("gives each tier its own rung 0", () => {
     vi.stubGlobal("window", { devicePixelRatio: 1 });
-    expect(budgetFor("desktop")).toEqual({ scale: 1, grid: 80, octaves: 4, bears: 5, fov: 60, shadows: true, crowd: 350, pixelRatio: 1 });
-    expect(budgetFor("phone")).toEqual({ scale: 0.85, grid: 52, octaves: 3, bears: 3, fov: 75, shadows: false, crowd: 150, pixelRatio: 1 });
-    expect(budgetFor("tv")).toEqual({ scale: 0.8, grid: 64, octaves: 3, bears: 5, fov: 60, shadows: false, crowd: 250, pixelRatio: 1 });
+    expect(budgetFor("desktop")).toEqual({ scale: 1, grid: 80, octaves: 4, bears: 5, fov: 60, shadows: true, crowd: 350, antialias: true, pixelRatio: 1 });
+    expect(budgetFor("phone")).toEqual({ scale: 0.85, grid: 52, octaves: 3, bears: 3, fov: 75, shadows: false, crowd: 150, antialias: true, pixelRatio: 1 });
+    expect(budgetFor("tv")).toEqual({ scale: 0.8, grid: 64, octaves: 3, bears: 5, fov: 60, shadows: false, crowd: 250, antialias: true, pixelRatio: 1 });
   });
 
   it("caps the desktop's pixel ratio at 1.5, and draws a phone and a TV at 1", () => {

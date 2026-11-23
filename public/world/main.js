@@ -59,7 +59,8 @@ const night = nightPlan(hasShow ? tracks : [], set2Start, encoreStart);
 const canvas = document.createElement("canvas");
 /* If the page gave up waiting for this module, the still stays and nothing starts. */
 if (container.dataset.world !== "fallback") {
-  const gl = canvas.getContext("webgl2", { antialias: false, powerPreference: "low-power", alpha: false });
+  /* Smoothed edges are asked for here or never: the tier says whether (quality.js). */
+  const gl = canvas.getContext("webgl2", { antialias: budget.antialias, powerPreference: "low-power", alpha: false });
   if (!gl) {
     container.dataset.world = "fallback";
   } else {
@@ -69,7 +70,7 @@ if (container.dataset.world !== "fallback") {
 }
 
 function start(gl) {
-  const renderer = new THREE.WebGLRenderer({ canvas, context: gl, antialias: false, powerPreference: "low-power" });
+  const renderer = new THREE.WebGLRenderer({ canvas, context: gl, antialias: budget.antialias, powerPreference: "low-power" });
   renderer.setPixelRatio(budget.pixelRatio);
   /* What the world renders at now: the tier's rung 0, until a slow device steps it down. */
   let quality = {

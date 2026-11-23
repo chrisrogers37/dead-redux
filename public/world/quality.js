@@ -7,10 +7,14 @@
 /* Rung 0 of each tier. Only the desktop draws a shadow map, the stage's. `crowd` is the most figures that stand on the hill, front first
    (seats.js); the desktop's is more than there are seats, so it fills them all. */
 const BUDGETS = {
-  desktop: { scale: 1.0, grid: 80, octaves: 4, bears: 5, fov: 60, shadows: true, crowd: 350 },
-  phone: { scale: 0.85, grid: 52, octaves: 3, bears: 3, fov: 75, shadows: false, crowd: 150 },
-  tv: { scale: 0.8, grid: 64, octaves: 3, bears: 5, fov: 60, shadows: false, crowd: 250 },
+  desktop: { scale: 1.0, grid: 80, octaves: 4, bears: 5, fov: 60, shadows: true, crowd: 350, antialias: true },
+  phone: { scale: 0.85, grid: 52, octaves: 3, bears: 3, fov: 75, shadows: false, crowd: 150, antialias: true },
+  tv: { scale: 0.8, grid: 64, octaves: 3, bears: 5, fov: 60, shadows: false, crowd: 250, antialias: true },
 };
+/* antialias: whether the canvas asks the browser to smooth edges (multisampling). It is asked for once, when the canvas's context is
+   made, so no rung of the downgrade can take it back: a tier that cannot afford it says false here. Without it the edge of a dark
+   figure against the lit screen, lying within a rounding error of a pixel's centre, flips that pixel from frame to frame for as long
+   as it lingers there, which the light show's bar counts as flashes (CLAUDE.md). */
 /* A median frame time over this many milliseconds steps the world down a rung: slower than 30 frames a second, with a margin, so a
    display capped at 30 Hz (33.3 ms a frame) is not taken for a slow device. */
 export const SLOW_MS = 34;
