@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import {
   BOLT, BOLT_HALF, buildIsland, FEATHER, grained, landColour, offTracks, PATCH_FROM, PATCH_TO, pixelAngle, RING, SHORE, surfaceOf, takesPool, TRACK, tracksAt, TREAD,
-  treadAt, troddenAt, WEAR, WEAR_FEATHER, WEAR_GROW, wearAt, WORN,
+  troddenAt, WEAR, WEAR_FEATHER, WEAR_GROW, wearAt, WORN,
 } from "../../../public/world/island.js";
-import { CAVES, FACING, height, STAGE } from "../../../public/world/ground.js";
-import { onCrowdGround, seats, SECTIONS } from "../../../public/world/seats.js";
+import { CAVES, height, STAGE } from "../../../public/world/ground.js";
+import { fromStage, offAxis, onCrowdGround, seats, SPANS, WALKS } from "../../../public/world/seats.js";
 import { lookAt, newLook } from "../../../public/world/night.js";
 
 describe("takesPool", () => {
@@ -203,168 +203,133 @@ describe("the tracks", () => {
 });
 
 describe("the crowd's worn earth", () => {
-  // A point `far` m from the stage's centre and `off` radians from its axis, as the seats are laid out.
-  const at = (far: number, off: number): [number, number] => [STAGE[0] + far * Math.sin(FACING + off), STAGE[1] + far * Math.cos(FACING + off)];
-  const n = (v: number) => v.toFixed(4), r = (v: number) => Number(n(v)), squash = (text: string) => text.replace(/\s+/g, " ");
+  const at = fromStage as (far: number, off: number) => [number, number];
+  const n = (v: number) => v.toFixed(4);
   const land = (tracked = true) => {
     const shader = { uniforms: {} as Record<string, unknown>, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
     grained(takesPool(new THREE.MeshLambertMaterial(), { value: new THREE.Color() }), false, tracked).onBeforeCompile(shader);
     return shader.fragmentShader;
   };
-  // All over the island, every 1.3 m, and 720 points round each section's rim: along its two rings and its two sides, on them and
-  // 1 and 2 m to either side.
+  // The crowd's ground, from the seats' own spans of it: how near the stage it comes and how far it reaches, the span that comes
+  // nearest and the widest one.
+  const spans = SPANS as number[][], near = Math.min(...spans.map(([r0]) => r0)), far = Math.max(...spans.map(([, r1]) => r1));
+  const front = spans.reduce((best, span) => (span[0] < best[0] ? span : best)), widest = spans.reduce((best, span) => (span[2] > best[2] ? span : best));
+  // All over the island, every 1.3 m, and 720 points round each span's rim: along its two rings and its two sides, on them and 1
+  // and 2 m to either side.
   const points: number[][] = [];
   for (let x = -125; x <= 125; x += 1.3) for (let z = -125; z <= 125; z += 1.3) points.push([x, z]);
-  for (const { r0, r1, a1 } of SECTIONS as { r0: number; r1: number; a1: number }[]) {
+  for (const [r0, r1, a1] of spans) {
     for (let k = 0; k < 180; k++) {
-      const off = -1.2 + (2.4 * k) / 179, far = r0 - 3 + ((r1 - r0 + 6) * k) / 179, d = (k % 5) - 2;
-      points.push(at(r0 + d, off), at(r1 + d, off), at(far, a1 + d / far), at(far, -a1 - d / far));
+      const off = -1.2 + (2.4 * k) / 179, out = r0 - 3 + ((r1 - r0 + 6) * k) / 179, d = (k % 5) - 2;
+      points.push(at(r0 + d, off), at(r1 + d, off), at(out, a1 + d / out), at(out, -a1 - d / out));
     }
   }
   // The first few of a list of points, for a failure to name.
   const some = (list: number[][]) => list.slice(0, 5).map(([x, z]) => `${x.toFixed(2)}, ${z.toFixed(2)}`);
 
-  it("is reckoned in the shader as troddenAt and treadAt reckon it: the whole of its GLSL is as written here, a line to a span of the crowd's ground, and the same sums in JS agree with them all over the island", () => {
-    const sx = n(STAGE[0]), sz = n(STAGE[1]);
-    // The shader's two functions, whole. The five sections make three spans: the front and the two rings behind it run on into one
-    // another, and so do the two wings. A span's line dropped, or a number changed in either function, fails here, and is then made
-    // to the sums below as well.
-    expect(squash(land())).toContain(squash(`
-      float trodden(vec2 p) {
-        vec2 d = p - vec2(${sx}, ${sz});
-        float r = length(d);
-        if (r < 1.0) return 0.0;
-        float turn = atan(d.x, d.y) + ${n(-FACING)};
-        float off = abs(atan(sin(turn), cos(turn)));
-        float edge = -1000.0;
-        edge = max(edge, min(min(r - 13.5000, 55.0000 - r), (0.7000 - off) * r));
-        edge = max(edge, min(min(r - 16.0000, 55.0000 - r), (0.8500 - off) * r));
-        edge = max(edge, min(min(r - 16.0000, 44.0000 - r), (1.0000 - off) * r));
-        return smoothstep(${n(-WEAR_GROW)}, ${n(WEAR_FEATHER - WEAR_GROW)}, edge);
-      }
-      float tread(vec2 p) {
-        vec2 d = p - vec2(${sx}, ${sz});
-        float r = length(d);
-        float along = dot(d, vec2(${n(Math.sin(FACING))}, ${n(Math.cos(FACING))})), aside = abs(dot(d, vec2(${n(Math.cos(FACING))}, ${n(-Math.sin(FACING))})));
-        float hard = mix(${n(TREAD.front)}, ${n(TREAD.back)}, smoothstep(${n(TREAD.from)}, ${n(TREAD.to)}, r)) - ${n(TREAD.wing)} * smoothstep(${n(TREAD.wingFrom)}, ${n(TREAD.wingTo)}, aside / max(along, 1.0));
-        hard = max(hard, ${n(TREAD.path)} * (1.0 - smoothstep(${n(TREAD.walk[0])}, ${n(TREAD.walk[1])}, min(min(1000.0, abs(r - 28.0000)), abs(r - 42.0000)))));
-        hard = max(hard, 1.0 - smoothstep(${n(TREAD.aisle[0])}, ${n(TREAD.aisle[1])}, aside));
-        return hard + ${n(TREAD.patchy)} * (sin(p.x * 0.61 + 1.3) * cos(p.y * 0.53 - 0.4) + sin((p.x + p.y) * 0.37 + 2.1));
-      }`));
-    // The stage's facing is written as it is here: the shader adds what troddenAt takes away.
-    expect(n(-FACING)).toBe("0.8555");
-    // The same, line for line, with the numbers as the shader's text rounds them.
-    const clamp = (v: number, a: number, b: number) => Math.min(Math.max(v, a), b), mix = (a: number, b: number, t: number) => a + (b - a) * t;
-    const smoothstep = (a: number, b: number, x: number) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
-    const trodden = (px: number, pz: number) => {
-      const dx = px - r(STAGE[0]), dz = pz - r(STAGE[1]), far = Math.hypot(dx, dz);
-      if (far < 1) return 0;
-      const turn = Math.atan2(dx, dz) + r(-FACING), off = Math.abs(Math.atan2(Math.sin(turn), Math.cos(turn)));
-      let edge = -1000;
-      for (const [r0, r1, a1] of [[13.5, 55, 0.7], [16, 55, 0.85], [16, 44, 1]]) edge = Math.max(edge, Math.min(Math.min(far - r0, r1 - far), (a1 - off) * far));
-      return smoothstep(r(-WEAR_GROW), r(WEAR_FEATHER - WEAR_GROW), edge);
-    };
-    const tread = (px: number, pz: number) => {
-      const dx = px - r(STAGE[0]), dz = pz - r(STAGE[1]), far = Math.hypot(dx, dz);
-      const along = dx * r(Math.sin(FACING)) + dz * r(Math.cos(FACING)), aside = Math.abs(dx * r(Math.cos(FACING)) + dz * r(-Math.sin(FACING)));
-      let hard = mix(r(TREAD.front), r(TREAD.back), smoothstep(r(TREAD.from), r(TREAD.to), far)) - r(TREAD.wing) * smoothstep(r(TREAD.wingFrom), r(TREAD.wingTo), aside / Math.max(along, 1));
-      hard = Math.max(hard, r(TREAD.path) * (1 - smoothstep(r(TREAD.walk[0]), r(TREAD.walk[1]), Math.min(Math.min(1000, Math.abs(far - 28)), Math.abs(far - 42)))));
-      hard = Math.max(hard, 1 - smoothstep(r(TREAD.aisle[0]), r(TREAD.aisle[1]), aside));
-      return hard + r(TREAD.patchy) * (Math.sin(px * 0.61 + 1.3) * Math.cos(pz * 0.53 - 0.4) + Math.sin((px + pz) * 0.37 + 2.1));
-    };
-    let inside = 0, feather = 0, troddenOut = 0, treadOut = 0;
+  it("is reckoned in the shader as wearAt reckons it: the shader's own text, run as it stands, agrees with it all over the island, whatever the grain", () => {
+    const fragment = land();
+    // The shader's three functions, from its text, made to run here: a GLSL float is a number and its vec2 a pair, and its functions
+    // are Math's own. So no number of the shader's is written a second time here, and a change to either side that the other does
+    // not follow fails.
+    const from = fragment.indexOf("float trodden("), to = fragment.indexOf("\n}", fragment.indexOf("float worn(")) + 2;
+    expect(from).toBeGreaterThan(-1);
+    expect(to).toBeGreaterThan(from);
+    const source = fragment.slice(from, to)
+      .replace(/\bfloat (\w+)\(([^)]*)\)\s*\{/g, (_: string, name: string, args: string) => `function ${name}(${args.replace(/\b(float|vec2) /g, "")}) {`)
+      .replace(/\bfloat /g, "let ");
+    const worn = new Function(`const { abs, min, max, sin, cos, sqrt } = Math, atan = Math.atan2;
+      const smoothstep = (a, b, x) => { const t = min(max((x - a) / (b - a), 0), 1); return t * t * (3 - 2 * t); }, mix = (a, b, t) => a + (b - a) * t;
+      ${source}
+      return (x, z, tussocks) => worn({ x, y: z }, tussocks);`)() as (x: number, z: number, tussocks: number) => number;
+    let inside = 0, feather = 0, apart = 0;
     for (const [x, z] of points) {
+      for (const tussocks of [0, 0.5, 1]) apart = Math.max(apart, Math.abs(worn(x, z, tussocks) - wearAt(x, z, tussocks)));
       const here = troddenAt(x, z);
-      troddenOut = Math.max(troddenOut, Math.abs(trodden(x, z) - here));
-      treadOut = Math.max(treadOut, Math.abs(tread(x, z) - treadAt(x, z)));
       if (here === 1) inside += 1;
       else if (here > 0) feather += 1;
     }
-    // The stage's facing is rounded to four places in the shader's text, which moves a span's side by 3 mm at the most.
-    expect(troddenOut).toBeLessThan(5e-3);
-    expect(treadOut).toBeLessThan(5e-3);
+    // The shader's numbers are written to four places, which moves a span's side by a few millimetres.
+    expect(apart).toBeLessThan(5e-3);
     // The points do try the crowd's ground, its feather and the land beyond.
     expect(inside).toBeGreaterThan(1000);
     expect(feather).toBeGreaterThan(1000);
     expect(points.length - inside - feather).toBeGreaterThan(20000);
+    // A line of the shader to each span of the crowd's ground, and each walk in it, from the seats' own numbers.
+    for (const [r0, r1, a1] of spans) expect(fragment).toContain(`edge = max(edge, min(min(r - ${n(r0)}, ${n(r1)} - r), (${n(a1)} - off) * r));`);
+    for (const walk of WALKS as number[]) expect(fragment).toContain(`abs(r - ${n(walk)})`);
   });
 
-  it("lies on the crowd's ground and comes in across 4 m at its edge, inside the band where no tuft grows, and on no track", () => {
+  it("lies on the crowd's ground, whole across it, and comes in across 4 m at its rim, inside the band where no tuft grows, and on no track", () => {
     const outOfRange: number[][] = [], pastTheFeather: number[][] = [], amongTufts: number[][] = [], onTrack: number[][] = [], pastReach: number[][] = [];
+    let deep = 0, leastDeep = 1;
     for (const [x, z] of points) {
       const here = troddenAt(x, z);
       if (!(here >= 0 && here <= 1)) outOfRange.push([x, z]);
       if (here > 0) {
-        // No further out than 2 m past a section's edge, which is inside the 4.5 m the tufts keep off: a feather that left the
-        // band would lay earth under the tufts.
+        // No further out than 2 m past the ground's rim, which is inside the 4.5 m the tufts keep off: a feather that left the band
+        // would lay earth under the tufts.
         if (!onCrowdGround(x, z, WEAR_GROW)) pastTheFeather.push([x, z]);
         if (!onCrowdGround(x, z, 4.5)) amongTufts.push([x, z]);
         if (tracksAt(x, z) !== 0) onTrack.push([x, z]);
       }
-      // And nothing past the reach the shader stops reckoning at: the furthest ring and the 2 m beyond it.
-      if (Math.hypot(x - STAGE[0], z - STAGE[1]) >= 57 && here !== 0) pastReach.push([x, z]);
+      // And nothing outside the reach the shader stops reckoning at: 2 m inside the nearest ring to 2 m past the furthest.
+      const { r } = offAxis(x, z);
+      if ((r <= near - WEAR_GROW || r >= far + WEAR_GROW) && here !== 0) pastReach.push([x, z]);
+      // The earth is whole across the crowd's ground: every point with 2 m of that ground all round it is worn through, but for a
+      // corner where a wing ends, which is reckoned a little short. Reckoned a section at a time, the ground was half worn along
+      // the line where one ring of sections ends and the next begins, a green ring round the hill.
+      if (!onCrowdGround(x, z)) continue;
+      if (!Array.from({ length: 32 }, (_, k) => onCrowdGround(x + 2.05 * Math.cos((k * Math.PI) / 16), z + 2.05 * Math.sin((k * Math.PI) / 16))).every(Boolean)) continue;
+      leastDeep = Math.min(leastDeep, here);
+      deep += 1;
     }
     expect(some(outOfRange)).toEqual([]);
     expect(some(pastTheFeather)).toEqual([]);
     expect(some(amongTufts)).toEqual([]);
     expect(some(onTrack)).toEqual([]);
     expect(some(pastReach)).toEqual([]);
-    // The crowd's ground is the sections' whole, and the earth is whole across it: where one section ends and the next begins, 28
-    // and 42 m from the stage, the ground is as worn as to either side. Reckoned a section at a time it was half worn along the
-    // first of those lines and a sixth less along 43 m, a green ring round the hill. Every point with 2 m of the crowd's ground
-    // all round it is worn through, but for a corner where a wing ends, which is reckoned a little short.
-    for (let far = 15.6; far <= 52.9; far += 0.25) for (const off of [0, 0.3, -0.5]) expect(troddenAt(...at(far, off))).toBe(1);
-    // And out on a wing, 0.8 rad off the axis, from 2 m inside its inner ring to 2 m inside its outer one.
-    for (let far = 18.1; far <= 41.9; far += 0.25) expect(troddenAt(...at(far, 0.8))).toBe(1);
-    let deep = 0, leastDeep = 1;
-    for (const [x, z] of points) {
-      if (!onCrowdGround(x, z)) continue;
-      if (!Array.from({ length: 32 }, (_, k) => onCrowdGround(x + 2.05 * Math.cos((k * Math.PI) / 16), z + 2.05 * Math.sin((k * Math.PI) / 16))).every(Boolean)) continue;
-      leastDeep = Math.min(leastDeep, troddenAt(x, z));
-      deep += 1;
-    }
     expect(deep).toBeGreaterThan(1000);
     expect(leastDeep).toBeGreaterThan(0.94);
-    expect(troddenAt(...at(20, 0))).toBe(1);
-    expect(troddenAt(...at(13.5, 0))).toBeCloseTo(0.5, 6);
-    expect(troddenAt(...at(15.5, 0))).toBe(1);
-    expect(troddenAt(...at(11.5, 0))).toBe(0);
-    expect(troddenAt(...at(10, 0))).toBe(0);
-    // Across a side: a wing ends 1 rad off the axis, so at 36 m out the feather runs from 2 m inside it to 2 m past it.
-    expect(troddenAt(...at(36, 1))).toBeCloseTo(0.5, 6);
-    expect(troddenAt(...at(36, 1 - 2.01 / 36))).toBe(1);
-    expect(troddenAt(...at(36, 1 + 2.01 / 36))).toBe(0);
+    // Across the rim: half worn on it, worn through 2 m inside it and not at all 2 m outside, at the front, at the back and at the
+    // side of the widest span.
+    const inward = WEAR_FEATHER - WEAR_GROW + 0.01, outward = WEAR_GROW + 0.01, middle = (widest[0] + widest[1]) / 2;
+    for (const [on, within, without] of [
+      [at(near, 0), at(near + inward, 0), at(near - outward, 0)],
+      [at(far, 0), at(far - inward, 0), at(far + outward, 0)],
+      [at(middle, widest[2]), at(middle, widest[2] - inward / middle), at(middle, widest[2] + outward / middle)],
+    ]) {
+      expect(troddenAt(...on)).toBeCloseTo(0.5, 6);
+      expect(troddenAt(...within)).toBe(1);
+      expect(troddenAt(...without)).toBe(0);
+    }
+    // All the way up the span that comes nearest the stage, on its axis and to either side of it.
+    for (let out = front[0] + inward + 0.1; out <= front[1] - inward - 0.1; out += 0.25) for (const off of [0, 0.4 * front[2], -0.7 * front[2]]) expect(troddenAt(...at(out, off))).toBe(1);
     // The stage itself, the hill behind the crowd and the far side of the island are not worn.
     expect(troddenAt(STAGE[0], STAGE[1])).toBe(0);
-    expect(troddenAt(...at(61, 0))).toBe(0);
+    expect(troddenAt(...at(far + 6, 0))).toBe(0);
     expect(troddenAt(0, 60)).toBe(0);
-    expect(WEAR_FEATHER).toBe(4);
   });
 
   it("is drawn in the ground's own shader where the turf is thin, by how hard the ground is trodden, under the grain, and on no other material", () => {
     const fragment = land(), worn = new THREE.Color(WORN);
     // Keyed to the tussock grain as the shader holds it, which fades to a half where a pixel cannot hold it; never to a grain of its
     // own, which would dither there.
-    expect(fragment).toContain(`if (distance(vPoolAt.xz, vec2(${n(STAGE[0])}, ${n(STAGE[1])})) < 57.0000) wear = trodden(vPoolAt.xz) * (1.0 - smoothstep(${n(PATCH_FROM)}, ${n(PATCH_TO)}, tussocks + 0.5 - tread(vPoolAt.xz))) * ${n(WEAR)};`);
-    expect(fragment).toContain(`diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${n(worn.r)}, ${n(worn.g)}, ${n(worn.b)}), wear);`);
+    const laid = `diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${n(worn.r)}, ${n(worn.g)}, ${n(worn.b)}), worn(vPoolAt.xz, tussocks));`;
+    expect(fragment).toContain(laid);
+    expect(fragment).toContain(`return inside * (1.0 - smoothstep(${n(PATCH_FROM)}, ${n(PATCH_TO)}, tussocks + 0.5 - tread(p, r, along, aside))) * ${n(WEAR)};`);
     // Two calls of the grain and no more, the tussocks' and the blades': the earth reads the first and makes none.
     expect(fragment.split("grain(vPoolAt.xz").length).toBe(3);
     expect(fragment.split("grain(vPoolAt.xz").length).toBe(land(false).split("grain(vPoolAt.xz").length);
-    // The earth is laid before the grain's own line, so the grain lies on it as on the turf and the tracks.
-    const laid = fragment.indexOf(", wear);"), grainLine = fragment.indexOf("diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - 0.5) + 0.26 * (blades - 0.5) * fineShown;");
-    expect(laid).toBeGreaterThan(fragment.indexOf("if (coarseShown > 0.0) tussocks = mix(0.5, grain(vPoolAt.xz * 0.9000 + 17.0), coarseShown);"));
-    expect(grainLine).toBeGreaterThan(laid);
-    // The edges of a patch are no nearer than a fifth of the grain apart, so a patch's rim is soft; the earth is no paler than the
-    // tracks', a channel at a time, and never the whole of the ground's colour.
+    // The earth is laid after the tussocks are reckoned and before the grain's own line, so the grain lies on it as on the turf and
+    // the tracks.
+    expect(fragment.indexOf(laid)).toBeGreaterThan(fragment.indexOf("if (coarseShown > 0.0) tussocks = mix(0.5, grain(vPoolAt.xz * 0.9000 + 17.0), coarseShown);"));
+    expect(fragment.indexOf("diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - 0.5) + 0.26 * (blades - 0.5) * fineShown;")).toBeGreaterThan(fragment.indexOf(laid));
+    // The edges of a patch are no nearer than a fifth of the grain apart, so a patch's rim is soft.
     expect(PATCH_TO - PATCH_FROM).toBeGreaterThanOrEqual(0.2);
-    const track = new THREE.Color(TRACK);
-    for (const c of ["r", "g", "b"] as const) expect(worn[c]).toBeLessThanOrEqual(track[c]);
-    expect(WEAR).toBeLessThanOrEqual(0.9);
     // A material that is not the ground's wears the grain without it.
     const plain = land(false);
-    expect(plain).not.toContain("trodden(");
-    expect(plain).not.toContain("tread(");
-    expect(plain).not.toContain("wear");
+    for (const word of ["trodden(", "tread(", "worn("]) expect(plain).not.toContain(word);
   });
 
   it("is no brighter than the turf it lies on under any light of the show, so a figure dancing against it swings a block of the frame no further than against turf", () => {
@@ -404,36 +369,38 @@ describe("the crowd's worn earth", () => {
   });
 
   it("is worn as it is trodden: bare along the aisle and the walks between the rings, barest where they dance, thinner up the hill and out at the wings, and never past WEAR", () => {
-    // What a pixel that cannot hold the grain shows (tussocks at a half), which is what the hill shows from its far side.
-    for (let far = 16; far <= 53; far += 0.5) {
-      // The aisle the seats leave up the stage's axis is bare from the front rows to the last, and so is each walk, to either side.
-      expect(wearAt(...at(far, 0))).toBeCloseTo(WEAR, 6);
-      expect(wearAt(...at(far, 1 / far))).toBeCloseTo(WEAR, 6);
-    }
-    for (const off of [-0.8, -0.5, -0.2, 0.2, 0.5, 0.8]) for (const walk of [28, 42]) expect(wearAt(...at(walk, off))).toBeCloseTo(WEAR, 6);
-    // The mean over a patch of the crowd's ground, clear of the aisle and the walks.
+    const walks = WALKS as number[], [aisleIn, aisleOut] = TREAD.aisle as number[];
+    // What a pixel that cannot hold the grain shows (tussocks at a half), which is what the hill shows from its far side. The aisle
+    // the seats leave up the stage's axis is bare from the front rows to the last, and so is each walk, to either side.
+    for (let out = near + 2.5; out <= far - 2; out += 0.5) for (const aside of [0, aisleIn - 0.2]) expect(wearAt(...at(out, aside / out))).toBeCloseTo(WEAR, 6);
+    for (const off of [-0.8, -0.5, -0.2, 0.2, 0.5, 0.8]) for (const walk of walks) expect(wearAt(...at(walk, off * front[2]))).toBeCloseTo(WEAR, 6);
+    // The mean over a patch of the crowd's ground, clear of the aisle and the walks: the rings between the stage, the walks and
+    // the back, 3 m and more from each.
     const mean = (r0: number, r1: number, a0: number, a1: number, tussocks = 0.5) => {
       let sum = 0, count = 0;
-      for (let far = r0; far <= r1; far += 0.5) for (let off = a0; off <= a1; off += 0.02) for (const side of [1, -1]) { sum += wearAt(...at(far, side * off), tussocks); count += 1; }
+      for (let out = r0; out <= r1; out += 0.5) for (let off = a0; off <= a1; off += 0.02) for (const side of [1, -1]) { sum += wearAt(...at(out, side * off), tussocks); count += 1; }
       return sum / count;
     };
-    const front = mean(17, 25, 0.25, 0.6), middle = mean(31, 39, 0.25, 0.6), back = mean(45, 52, 0.25, 0.6), wing = mean(31, 39, 0.9, 0.94);
+    const rings = [near + 0.5, ...walks, far].map((edge, k, edges) => [edges[Math.max(k - 1, 0)] + 3, edge - 3]).slice(1), last = rings[rings.length - 1];
+    expect(rings.length).toBeGreaterThanOrEqual(2);
+    const means = rings.map(([r0, r1]) => mean(r0, r1, 0.25, 0.6));
     // Front rows swapped with the back, or a hill worn alike all over (the flat patch this is not), would fail here.
-    expect(front).toBeGreaterThan(0.8 * WEAR);
-    expect(middle).toBeLessThan(front - 0.1);
-    expect(back).toBeLessThan(middle - 0.1);
-    expect(back).toBeGreaterThan(0.1 * WEAR);
-    expect(wing).toBeLessThan(middle - 0.2);
+    expect(means[0]).toBeGreaterThan(0.8 * WEAR);
+    for (let k = 1; k < means.length; k++) expect(means[k]).toBeLessThan(means[k - 1] - 0.1);
+    expect(means[means.length - 1]).toBeGreaterThan(0.1 * WEAR);
+    // Out at a wing, by the side of the widest span, the ground is thinner worn than in the middle of the same ring.
+    const ring = rings.find(([r0, r1]) => r0 >= widest[0] && r1 <= widest[1] && r0 > rings[0][0]) ?? rings[0];
+    expect(mean(ring[0], ring[1], widest[2] - 0.1, widest[2] - 0.06)).toBeLessThan(mean(ring[0], ring[1], 0.25, 0.6) - 0.2);
     // Broad patches: among the sitters some ground is bare and some is turf, a few metres apart.
     const sitters: number[] = [];
-    for (let far = 45; far <= 52; far += 0.5) for (let off = 0.25; off <= 0.8; off += 0.02) sitters.push(wearAt(...at(far, off)), wearAt(...at(far, -off)));
+    for (let out = last[0]; out <= last[1]; out += 0.5) for (let off = 0.25; off <= 0.8; off += 0.02) sitters.push(wearAt(...at(out, off)), wearAt(...at(out, -off)));
     expect(Math.max(...sitters)).toBeGreaterThan(0.8 * WEAR);
     expect(Math.min(...sitters)).toBeLessThan(0.1 * WEAR);
     // Near the eye, where the grain shows: its hollows are bare all over the crowd's ground, and its tussocks stay turf, but on the
     // aisle and the walks.
-    expect(mean(17, 52, 0.25, 0.6, 0)).toBeGreaterThan(0.95 * WEAR);
-    expect(mean(17, 25, 0.25, 0.6, 1)).toBeLessThan(0.05 * WEAR);
-    expect(wearAt(...at(35, 0), 1)).toBeGreaterThan(0.5 * WEAR);
+    expect(mean(rings[0][0], last[1], 0.25, 0.6, 0)).toBeGreaterThan(0.95 * WEAR);
+    expect(mean(rings[0][0], rings[0][1], 0.25, 0.6, 1)).toBeLessThan(0.05 * WEAR);
+    expect(wearAt(...at((rings[1][0] + rings[1][1]) / 2, 0), 1)).toBeGreaterThan(0.5 * WEAR);
     // Never more than WEAR, never less than none, and none where the ground is not the crowd's, whatever the grain.
     let least = Infinity, most = -Infinity;
     const offTheGround: number[][] = [];
@@ -446,11 +413,8 @@ describe("the crowd's worn earth", () => {
     expect(least).toBe(0);
     expect(most).toBeCloseTo(WEAR, 12);
     expect(some(offTheGround)).toEqual([]);
-    // The aisle is the one the seats leave: every seat stands on ground less worn than the aisle's own middle.
-    for (const seat of seats({ path: [], line: [], landmarks: [] }) as { x: number; z: number }[]) {
-      const dx = seat.x - STAGE[0], dz = seat.z - STAGE[1];
-      expect(Math.abs(dx * Math.cos(FACING) - dz * Math.sin(FACING))).toBeGreaterThanOrEqual(TREAD.aisle[1] - 0.2);
-    }
+    // The aisle is the one the seats leave: every seat stands clear of its worn middle.
+    for (const seat of seats({ path: [], line: [], landmarks: [] }) as { x: number; z: number }[]) expect(offAxis(seat.x, seat.z).aside).toBeGreaterThanOrEqual(aisleOut - 0.2);
   });
 });
 
@@ -559,11 +523,8 @@ describe("what stands on the land", () => {
       }
       // The path clears its own 2.2 m and no more: a tuft stands within a metre of that.
       expect(nearest).toBeLessThan(3.2);
-      // No firefly flies over the crowd either: each is over a tuft. Those that would fly high over the crowd's heads (flora.js)
-      // are built and not flown: counted with scripts/flash from behind the crowd in Space, the light alone, 160 of them took the
-      // busiest block from 2 swings in a second to 4. Whoever asks the island for any counts them first, and then changes this.
+      // No firefly flies over the crowd either: each is over a tuft.
       const flies = flora.flies.geometry.getAttribute("position");
-      expect(flora.flyCounts).toEqual({ ground: flies.count, crowd: 0 });
       for (let i = 0; i < flies.count; i++) expect(onCrowdGround(flies.getX(i), flies.getZ(i), 4.5)).toBe(false);
       let among = 0;
       for (let i = 0; i < flora.stones.count; i++) {

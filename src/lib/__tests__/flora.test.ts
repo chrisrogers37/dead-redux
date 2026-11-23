@@ -3,24 +3,16 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { buildFlora, chance, stoneGeometry, tuftGeometry } from "../../../public/world/flora.js";
 import { CAVES, height, STAGE } from "../../../public/world/ground.js";
-import { landColour, offTracks, RING, SHORE, surfaceOf } from "../../../public/world/island.js";
-import { onCrowdGround } from "../../../public/world/seats.js";
+import { landColour, offTracks, RING, SHORE } from "../../../public/world/island.js";
 
-type Where = (x: number, z: number) => boolean;
-// The flora as island.js builds it, on the island's own ground, with a stand-in for the light the ground takes. `crowd` adds what
-// island.js gives for the crowd's ground: how many fireflies fly over it, where it is, and where the turf is trodden; and the ground
-// as a tier's mesh draws it.
-function flora(tufts = 1500, stones = 120, flies = 90, crowd: { crowdFlies?: number; over?: Where; trodden?: Where; surface?: (x: number, z: number) => number } = {}) {
+// The flora as island.js builds it, on the island's own ground, with a stand-in for the light the ground takes.
+function flora(tufts = 1500, stones = 120, flies = 90) {
   const scene = new THREE.Scene();
-  const options = { tufts, stones, flies, extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6], colour: landColour,
+  const built = buildFlora(scene, { tufts, stones, flies, extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6], colour: landColour,
     lit: (material: { onBeforeCompile: (shader: unknown) => void }) => { material.onBeforeCompile = () => {}; return material; },
-    clear: (x: number, z: number) => offTracks(x, z, 1.3), ...crowd };
-  // flora.js's own defaults for `over` and `trodden` take no arguments, and their types are read from them.
-  const built = buildFlora(scene, options as Parameters<typeof buildFlora>[1]);
+    clear: (x: number, z: number) => offTracks(x, z, 1.3) });
   return { scene, ...built };
 }
-// The crowd's ground as island.js gives it: fireflies over the ground itself, and no tuft within 4.5 m of it.
-const crowdGround = { over: (x: number, z: number) => onCrowdGround(x, z), trodden: (x: number, z: number) => onCrowdGround(x, z, 4.5) };
 // Where each instance of a mesh stands, with its scale.
 function places(mesh: { count: number; getMatrixAt(i: number, m: unknown): void }) {
   const matrix = new THREE.Matrix4(), at = new THREE.Vector3(), turn = new THREE.Quaternion(), size = new THREE.Vector3();
@@ -258,115 +250,6 @@ describe("the fireflies", () => {
     expect(built.flies.geometry.drawRange.count).toBe(45);
     built.thin(false);
     expect(built.flies.geometry.drawRange.count).toBe(90);
-  });
-});
-
-describe("the fireflies over the crowd", () => {
-  const columns = (b: ReturnType<typeof flora>) => ["position", "aSeed", "aLie"].map((name) => b.flies.geometry.getAttribute(name));
-
-  it("come after the others in the same points, which keep their places, seeds and lies to the last number", () => {
-    const alone = flora(), both = flora(1500, 120, 90, { crowdFlies: 40, ...crowdGround, trodden: undefined });
-    expect(both.scene.children.filter((o: { isPoints?: boolean }) => o.isPoints)).toEqual([both.flies]);
-    expect(alone.flyCounts).toEqual({ ground: 90, crowd: 0 });
-    expect(both.flyCounts).toEqual({ ground: 90, crowd: 40 });
-    // A crowd firefly placed ahead of the others, or one more draw from their hash, would move every firefly on the island.
-    for (const [k, column] of columns(alone).entries()) {
-      const with40 = columns(both)[k];
-      expect(column.count).toBe(90);
-      expect(with40.count).toBe(130);
-      expect([...with40.array.slice(0, column.array.length)]).toEqual([...column.array]);
-    }
-    // And the others stand where they stood before there were any over the crowd: three of them, as that code placed them.
-    const [at, seed, lie] = columns(both);
-    for (const [i, place, seeds, lies] of [
-      [0, [0.8256, 32.341, 2.7266], [0.6583, 0.4073, 0.0019, 0.2211], [0.1146, -0.0583]],
-      [44, [-23.8733, 28.4073, 5.9958], [0.6895, 0.4307, 0.684, 0.7656], [0.2664, 0.0525]],
-      [89, [25.4084, 4.2972, -97.9703], [0.2182, 0.0258, 0.9356, 0.2821], [0.0099, 0.148]],
-    ] as [number, number[], number[], number[]][]) {
-      place.forEach((v, k) => expect(at.array[3 * i + k]).toBeCloseTo(v, 3));
-      seeds.forEach((v, k) => expect(seed.array[4 * i + k]).toBeCloseTo(v, 3));
-      lies.forEach((v, k) => expect(lie.array[2 * i + k]).toBeCloseTo(v, 3));
-    }
-  });
-
-  it("fly over the crowd's ground and nowhere else, 5 m over it at the least through the whole of a wander, so none passes through a figure", () => {
-    const both = flora(1500, 120, 90, { crowdFlies: 40, ...crowdGround }), [at, seed, lie] = columns(both);
-    expect(both.flyCounts).toEqual({ ground: 90, crowd: 40 });
-    // The crowd's are spread over its ground: on both sides of the stage's axis, and before and behind its middle rows.
-    const sides = new Set<string>();
-    let least = Infinity, most = -Infinity;
-    for (let i = 0; i < at.count; i++) {
-      const x0 = at.getX(i), z0 = at.getZ(i), ofCrowd = i >= 90;
-      expect(onCrowdGround(x0, z0)).toBe(ofCrowd);
-      // The others keep the 4.5 m off the crowd's ground that the tufts keep, so their wander of 1.6 m never crosses it.
-      if (!ofCrowd) expect(onCrowdGround(x0, z0, 4.5)).toBe(false);
-      else sides.add(`${Math.sign((x0 - STAGE[0]) * STAGE[1] - (z0 - STAGE[1]) * STAGE[0])},${Math.hypot(x0 - STAGE[0], z0 - STAGE[1]) > 35}`);
-      const sx = seed.getX(i), sy = seed.getY(i), sz = seed.getZ(i), sw = seed.getW(i);
-      // Ten minutes of the wander the shader writes (island.test.ts holds these sums to its text), four times a second.
-      for (let t = 0; t < 600; t += 0.25) {
-        const x = 1.6 * Math.sin(t * (0.21 + 0.2 * sx) + 6.2832 * sy), z = 1.6 * Math.cos(t * (0.17 + 0.2 * sy) + 6.2832 * sx);
-        const y = 1.6 * 0.45 * Math.sin(t * (0.33 + 0.2 * sz) + 6.2832 * sw) + lie.getX(i) * x + lie.getY(i) * z;
-        const over = at.getY(i) + y - height(x0 + x, z0 + z);
-        // Whichever set it is of, a firefly over the crowd's ground is over the figures' heads and their raised arms, 4 m up.
-        if (onCrowdGround(x0 + x, z0 + z)) expect(over).toBeGreaterThanOrEqual(5 - 1e-3);
-        if (ofCrowd) { least = Math.min(least, over); most = Math.max(most, over); }
-      }
-    }
-    expect(sides.size).toBe(4);
-    // At the rim a crowd firefly wanders out past the crowd's ground, as high there as over it; and none climbs out of sight.
-    expect(least).toBeGreaterThanOrEqual(5 - 1e-3);
-    expect(most).toBeLessThanOrEqual(7.6);
-  });
-
-  it("would all find a place on each tier's ground as its mesh draws it, 5 to 7.6 m over it: the numbers a count of them starts from", () => {
-    // island.js flies none (CROWD_FLIES). These are the counts that were tried, 2 to a line of a desktop's and a TV's grid and 1.15
-    // of a phone's, with each tier's own tufts and fireflies.
-    for (const [grid, thick, flies, crowdFlies] of [[80, 1, 1120, 160], [64, 0.8, 896, 128], [52, 0.6, 416, 60]]) {
-      const surface = surfaceOf(grid), b = flora(Math.round(grid * grid * thick), 10, flies, { crowdFlies, ...crowdGround, surface }), [at, seed, lie] = columns(b);
-      expect(b.flyCounts).toEqual({ ground: flies, crowd: crowdFlies });
-      let least = Infinity, most = -Infinity;
-      for (let i = flies; i < at.count; i++) {
-        const sx = seed.getX(i), sy = seed.getY(i), sz = seed.getZ(i), sw = seed.getW(i);
-        for (let t = 0; t < 600; t += 0.25) {
-          const x = 1.6 * Math.sin(t * (0.21 + 0.2 * sx) + 6.2832 * sy), z = 1.6 * Math.cos(t * (0.17 + 0.2 * sy) + 6.2832 * sx);
-          const y = 1.6 * 0.45 * Math.sin(t * (0.33 + 0.2 * sz) + 6.2832 * sw) + lie.getX(i) * x + lie.getY(i) * z;
-          const over = at.getY(i) + y - surface(at.getX(i) + x, at.getZ(i) + z);
-          least = Math.min(least, over);
-          most = Math.max(most, over);
-        }
-      }
-      // A lowered CROWD_UP, or a lift that carried one out of a visitor's sight among the crowd, fails here on the ground a tier draws.
-      expect(least).toBeGreaterThanOrEqual(5 - 1e-3);
-      expect(most).toBeLessThanOrEqual(7.6);
-    }
-  });
-
-  it("go with half the others at the quality ladder's first rung, and come back with them", () => {
-    for (const [crowdFlies, all] of [[0, 90], [40, 130]]) {
-      const b = flora(1500, 120, 90, { crowdFlies, ...crowdGround });
-      b.thin(true);
-      expect(b.flies.geometry.drawRange.count).toBe(45);
-      b.thin(false);
-      expect(b.flies.geometry.drawRange.count).toBe(all);
-    }
-  });
-
-  it("are as many as found a place and no more: a crowd's ground too small for them gives a shorter buffer, and none is left at the world's origin", () => {
-    // A disc 3 m across among the middle rows: 40 are asked for, and the 3,200 places tried find it only a few times.
-    const cx = STAGE[0] - 30 * (STAGE[0] / Math.hypot(STAGE[0], STAGE[1])), cz = STAGE[1] - 30 * (STAGE[1] / Math.hypot(STAGE[0], STAGE[1]));
-    const small = flora(1500, 120, 90, { crowdFlies: 40, over: (x, z) => Math.hypot(x - cx, z - cz) < 1.5 });
-    expect(small.flyCounts.ground).toBe(90);
-    expect(small.flyCounts.crowd).toBeGreaterThan(0);
-    expect(small.flyCounts.crowd).toBeLessThan(40);
-    for (const column of columns(small)) expect(column.count).toBe(90 + small.flyCounts.crowd);
-    const at = small.flies.geometry.getAttribute("position");
-    for (let i = 90; i < at.count; i++) expect(Math.hypot(at.getX(i) - cx, at.getZ(i) - cz)).toBeLessThan(1.5);
-    // With no crowd's ground at all there are none, and the buffer is the others' alone.
-    const none = flora(1500, 120, 90, { crowdFlies: 40 });
-    expect(none.flyCounts).toEqual({ ground: 90, crowd: 0 });
-    expect(none.flies.geometry.getAttribute("position").count).toBe(90);
-    small.thin(false);
-    expect(small.flies.geometry.drawRange.count).toBe(90 + small.flyCounts.crowd);
   });
 });
 

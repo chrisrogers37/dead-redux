@@ -10,19 +10,47 @@ export const PERSON = 3.15;
 /* The crowd's sections, in rings round the stage's centre: `r0` to `r1` metres out, and `a0` to `a1` radians either side of its axis
    (from 0, one span across the axis). A section's rows stand `gap` metres apart, and its figures about as far apart along a row; the
    front stands closest. Up the hill they sit. */
-export const SECTIONS = [
+const SECTIONS = [
   { r0: 13.5, r1: 28, a0: 0, a1: 0.7, gap: 1.6 },
   { r0: 28, r1: 42, a0: 0, a1: 0.85, gap: 2.6 },
   { r0: 42, r1: 55, a0: 0, a1: 0.85, gap: 3.8, sit: true },
   { r0: 16, r1: 28, a0: 0.7, a1: 1, gap: 5.2 },
   { r0: 28, r1: 44, a0: 0.85, a1: 1, gap: 5.2 },
 ];
+/* The stage's axis as a way along the ground, [x, z]: the way the stage faces. */
+export const AXIS = [Math.sin(FACING), Math.cos(FACING)];
+/* A point `r` metres from the stage's centre and `th` radians off its axis, as [x, z]. */
+export const fromStage = (r, th) => [STAGE[0] + r * Math.sin(FACING + th), STAGE[1] + r * Math.cos(FACING + th)];
+/* Where a point lies about the stage: `r` metres from its centre, `along` metres out along its axis, `aside` metres to either side of
+   the axis, and `off` radians off it, 0 on the axis and pi behind the stage. */
+export function offAxis(x, z) {
+  const dx = x - STAGE[0], dz = z - STAGE[1], along = dx * AXIS[0] + dz * AXIS[1], aside = Math.abs(dx * AXIS[1] - dz * AXIS[0]);
+  return { r: Math.hypot(dx, dz), along, aside, off: Math.atan2(aside, along) };
+}
 /* Whether a point lies on the crowd's ground: in one of its sections, or within `room` metres of one. The land grows nothing there
    that a figure would stand or sit in (island.js). */
 export function onCrowdGround(x, z, room = 0) {
-  const dx = x - STAGE[0], dz = z - STAGE[1], r = Math.hypot(dx, dz), turn = Math.atan2(dx, dz) - FACING;
-  const off = Math.abs(Math.atan2(Math.sin(turn), Math.cos(turn)));
+  const { r, off } = offAxis(x, z);
   return SECTIONS.some(({ r0, r1, a1 }) => r >= r0 - room && r <= r1 + room && off <= a1 + room / Math.max(r, 1));
+}
+/* The crowd's ground as spans, each [r0, r1, a1]: r0 to r1 metres from the stage and a1 radians to either side of its axis. A
+   section's span runs on through every section that touches it and is as wide or wider, since the ground does: 2 m inside the crowd's
+   ground is then 2 m from its rim, and never 0 m from a line where one section ends and the next begins. */
+export const SPANS = [...new Set(SECTIONS.map(({ r0, r1, a1 }) => {
+  for (let grown = true; grown;) {
+    grown = false;
+    for (const s of SECTIONS) if (s.a1 >= a1 && s.r0 <= r1 && s.r1 >= r0 && (s.r0 < r0 || s.r1 > r1)) { r0 = Math.min(r0, s.r0); r1 = Math.max(r1, s.r1); grown = true; }
+  }
+  return `${r0},${r1},${a1}`;
+}))].map((span) => span.split(",").map(Number));
+/* The walks between the rings of sections, in metres from the stage: where one ring of the crowd ends on the stage's axis and the
+   next begins. */
+export const WALKS = SECTIONS.filter((a) => a.a0 === 0 && SECTIONS.some((b) => b.a0 === 0 && b.r0 === a.r1)).map((a) => a.r1);
+/* How far into the crowd's ground a point lies, in metres: the least of its distances from a span's two rings and its two sides, the
+   greatest over the spans (they overlap), and less than nothing outside the ground. The land is worn to earth by it (island.js). */
+export function intoCrowdGround(x, z) {
+  const { r, off } = offAxis(x, z);
+  return Math.max(...SPANS.map(([r0, r1, a1]) => Math.min(r - r0, r1 - r, (a1 - off) * r)));
 }
 /* How near the sections come to the stage's centre, and how far they reach from it. */
 const NEAR = Math.min(...SECTIONS.map((s) => s.r0)), FAR = Math.max(...SECTIONS.map((s) => s.r1));
@@ -57,7 +85,7 @@ export function seats(around) {
         const n = Math.max(1, Math.floor(((hi - lo) * row) / gap));
         for (let k = 0; k < n; k++) {
           const r = row + (rnd() - 0.5) * 0.7 * gap, th = lo + ((k + 0.5) * (hi - lo)) / n + ((rnd() - 0.5) * 0.7 * gap) / row;
-          const x = STAGE[0] + r * Math.sin(FACING + th), z = STAGE[1] + r * Math.cos(FACING + th);
+          const [x, z] = fromStage(r, th);
           const key = rnd() * (0.4 + (r - NEAR) / (FAR - NEAR));
           if (Math.abs(r * Math.sin(th)) >= KEEP.aisle && clear(x, z)) out.push({ x, z, r, sit, key });
         }

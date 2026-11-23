@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { figureGeometry, partingOptions } from "../../../public/world/crowd.js";
 import { FACING, height, STAGE, STAGE_COLUMN } from "../../../public/world/ground.js";
-import { crowdPlan, isBetweenSongs, isDrums, isNotASong, isSpace, isTuning, onCrowdGround, parting, PERSON, seats, SECTIONS, songsOf } from "../../../public/world/seats.js";
+import {
+  crowdPlan, fromStage, intoCrowdGround, isBetweenSongs, isDrums, isNotASong, isSpace, isTuning, offAxis, onCrowdGround, parting, PERSON, seats, songsOf, SPANS, WALKS,
+} from "../../../public/world/seats.js";
 
 type Seat = { x: number; z: number; r: number; sit: boolean };
 type Plan = { dance: boolean; sit: boolean };
@@ -9,7 +11,7 @@ type Point = [number, number];
 
 const none = { path: [], line: [], landmarks: [] };
 // A point `r` metres from the stage's centre and `th` radians off its axis, as the seats are laid out.
-const at = (r: number, th: number): Point => [STAGE[0] + r * Math.sin(FACING + th), STAGE[1] + r * Math.cos(FACING + th)];
+const at = fromStage as (r: number, th: number) => Point;
 const nearest = (seat: Seat, points: Point[]) => Math.min(...points.map(([x, z]) => Math.hypot(seat.x - x, seat.z - z)));
 
 describe("seats", () => {
@@ -370,8 +372,6 @@ describe("parting", () => {
 describe("the crowd's ground", () => {
   it("holds every seat, and not the stage, the hill behind the crowd or the ground to the stage's sides and back", () => {
     for (const seat of seats({ path: [], line: [], landmarks: [] }) as { x: number; z: number }[]) expect(onCrowdGround(seat.x, seat.z)).toBe(true);
-    // A point `far` m from the stage's centre and `off` radians from its axis.
-    const at = (far: number, off: number): [number, number] => [STAGE[0] + far * Math.sin(FACING + off), STAGE[1] + far * Math.cos(FACING + off)];
     expect(onCrowdGround(...at(5, 0))).toBe(false);
     expect(onCrowdGround(...at(12, 0))).toBe(false);
     expect(onCrowdGround(...at(30, 0))).toBe(true);
@@ -385,23 +385,58 @@ describe("the crowd's ground", () => {
     expect(onCrowdGround(...at(14.5, 0.9))).toBe(false);
   });
 
-  it("is five sections in rings round the stage, which the island reads to draw the worn earth on them (island.js)", () => {
-    const at = (far: number, off: number): [number, number] => [STAGE[0] + far * Math.sin(FACING + off), STAGE[1] + far * Math.cos(FACING + off)];
-    // A section dropped from the list, or the list no longer exported, would leave its ground green, or the island unable to load.
-    expect(SECTIONS).toHaveLength(5);
-    for (const { r0, r1, a0, a1 } of SECTIONS as { r0: number; r1: number; a0: number; a1: number }[]) {
-      expect(r0).toBeLessThan(r1);
-      expect(a0).toBeLessThan(a1);
-      // The middle of each, on either side of the axis, is the crowd's ground, and just past its outer ring and its side is not its own.
-      for (const side of [1, -1]) expect(onCrowdGround(...at((r0 + r1) / 2, (side * (a0 + a1)) / 2))).toBe(true);
+  it("is reckoned about the stage's axis: a point's distance from the stage, along the axis and to either side of it, and its angle off it", () => {
+    // fromStage and offAxis undo one another, to either side of the axis, before the stage and behind it.
+    for (const [r, th] of [[20, 0], [33, 0.4], [33, -0.4], [50, 1.2], [12, 2.5], [40, -3]]) {
+      const [x, z] = at(r, th), about = offAxis(x, z);
+      expect(about.r).toBeCloseTo(r, 9);
+      expect(about.off).toBeCloseTo(Math.abs(th), 9);
+      expect(about.along).toBeCloseTo(r * Math.cos(th), 9);
+      expect(about.aside).toBeCloseTo(Math.abs(r * Math.sin(th)), 9);
     }
-    // Three rings of them span the stage's axis, each beginning where the one before ends: the walks between them lie there.
-    const across = (SECTIONS as { r0: number; r1: number; a0: number }[]).filter((s) => s.a0 === 0).sort((p, q) => p.r0 - q.r0);
-    expect(across.map((s) => [s.r0, s.r1])).toEqual([[13.5, 28], [28, 42], [42, 55]]);
+    // The axis runs from the stage toward the island's middle: the stage faces up its hill.
+    expect(offAxis(0, 0).off).toBeCloseTo(0, 9);
+    expect(offAxis(0, 0).along).toBeCloseTo(Math.hypot(STAGE[0], STAGE[1]), 9);
+    expect(at(1, 0)[0] - STAGE[0]).toBeCloseTo(Math.sin(FACING), 9);
+  });
+
+  it("is so many metres deep at each point, from its rim: the same ground as its sections make, whole where one section runs on into the next", () => {
+    const all = seats({ path: [], line: [], landmarks: [] }) as { x: number; z: number; r: number }[];
+    let onIt = 0, deep = 0;
+    for (let x = -10; x <= 110; x += 0.9) for (let z = -110; z <= 10; z += 0.9) {
+      const into = intoCrowdGround(x, z);
+      // In it where onCrowdGround says so and nowhere else, and within `room` of it wherever it is less than `room` outside.
+      expect(into >= 0).toBe(onCrowdGround(x, z));
+      for (const room of [2, 4.5]) if (into > -room) expect(onCrowdGround(x, z, room)).toBe(true);
+      if (into < 0) continue;
+      onIt += 1;
+      // A point with 2 m of the crowd's ground all round it is 2 m deep, or a little less by a corner where a wing ends (1.45 m).
+      // Reckoned a section at a time it was 0 m deep on the line where one section ends and the next begins.
+      if (!Array.from({ length: 32 }, (_, k) => onCrowdGround(x + 2.05 * Math.cos((k * Math.PI) / 16), z + 2.05 * Math.sin((k * Math.PI) / 16))).every(Boolean)) continue;
+      expect(into).toBeGreaterThan(1.4);
+      deep += 1;
+    }
+    expect(onIt).toBeGreaterThan(2000);
+    expect(deep).toBeGreaterThan(1000);
+    for (const seat of all) expect(intoCrowdGround(seat.x, seat.z)).toBeGreaterThanOrEqual(0);
+    // Its spans reach as far as its seats and no more than a row further, and each is a ring's span to either side of the axis.
+    const spans = SPANS as number[][], rows = all.map((seat) => seat.r);
+    expect(spans.length).toBeGreaterThan(0);
+    for (const [r0, r1, a1] of spans) { expect(r0).toBeLessThan(r1); expect(a1).toBeGreaterThan(0); expect(a1).toBeLessThanOrEqual(Math.PI / 2); }
+    expect(Math.min(...spans.map(([r0]) => r0))).toBeLessThanOrEqual(Math.min(...rows));
+    expect(Math.max(...spans.map(([, r1]) => r1))).toBeGreaterThanOrEqual(Math.max(...rows));
+    // The walks lie between rings of seats on the stage's axis, well inside the ground: seats stand nearer the stage than each
+    // and further from it.
+    const walks = WALKS as number[];
+    expect(walks.length).toBeGreaterThan(0);
+    for (const walk of walks) {
+      expect(intoCrowdGround(...at(walk, 0))).toBeGreaterThan(2);
+      expect(rows.some((r) => r < walk)).toBe(true);
+      expect(rows.some((r) => r > walk)).toBe(true);
+    }
   });
 
   it("is wider by the room asked, all round", () => {
-    const at = (far: number, off: number): [number, number] => [STAGE[0] + far * Math.sin(FACING + off), STAGE[1] + far * Math.cos(FACING + off)];
     expect(onCrowdGround(...at(56.5, 0), 2)).toBe(true);
     expect(onCrowdGround(...at(57.5, 0), 2)).toBe(false);
     expect(onCrowdGround(...at(12, 0), 2)).toBe(true);
