@@ -100,7 +100,9 @@ beforeAll(async () => {
     appendChild: () => {},
     getBoundingClientRect: () => ({ top: 0 }),
   });
-  const main = { dataset: { state: "playing", routing: "webaudio", view: "third" } };
+  // The visitor stands behind the crowd, facing the stage (?pose=crowd): main.js leaves the crowd out of a frame that has no figure
+  // in view (crowd.js cull), and these frames are to have the figures and the beams in them.
+  const main = { dataset: { state: "playing", routing: "webaudio", view: "third", testHooks: "1" } };
   const data = { showDate: "1986-07-04", identifier: "gd1986-07-04.sbd.test", tracks: [{ title: "Bertha", duration: 600 }], seed: 7 };
   const byId: Record<string, unknown> = { world: container, "world-data": { textContent: JSON.stringify(data) } };
   const media = () => ({ matches: false });
@@ -119,7 +121,7 @@ beforeAll(async () => {
   vi.stubGlobal("matchMedia", media);
   vi.stubGlobal("innerWidth", 1280);
   vi.stubGlobal("navigator", { maxTouchPoints: 0, userAgent: "" });
-  vi.stubGlobal("location", { search: "" });
+  vi.stubGlobal("location", { search: "?pose=crowd" });
   vi.stubGlobal("HTMLElement", class {});
   vi.stubGlobal("performance", { now: () => now });
   vi.stubGlobal("requestAnimationFrame", (f: FrameRequestCallback) => {
