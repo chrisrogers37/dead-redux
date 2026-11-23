@@ -924,8 +924,9 @@ try {
 
       for (const step of steps ?? []) {
         const selector = step.click ?? step.focus;
-        // A control missing from the page is logged and skipped, and fails the run only for a required step; a step that only presses a
-        // key has none to miss.
+        // A control missing from the page is logged and the step skipped; a step that only presses a key has none to miss. A required
+        // step says so in a failure of its own; any step's untaken still fails the run at its end, when what was saved is held to
+        // the plan (planFailures).
         if (selector && (await page.locator(selector).count()) === 0) {
           if (step.required) failures.push(`${device}-${step.shot}.png: ${selector} absent`);
           console.log(`${step.shot}: ${selector} absent`);
@@ -1066,7 +1067,8 @@ try {
     const file = `${device}-${name}.webm`;
     await open(page, url);
     if (click) {
-      // A control missing from the page is logged and skipped, not an error.
+      // A control missing from the page is logged and the recording skipped; the run then fails at its end, for a recording the plan
+      // names and nothing saved (planFailures).
       // Scripts may draw the control after load, so it gets time to appear.
       const found = await page.waitForSelector(click, { timeout: 15_000 }).then(
         () => true,
