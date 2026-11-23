@@ -32,13 +32,14 @@ One file: `npx vitest run src/lib/__tests__/quality.test.ts`. The dev server sen
 
 - Through a pull request off `main`. The repo's "Protect main" ruleset requires one, with Lint, Type-check and Unit tests passing and one approving review, and refuses force pushes and deletion.
 - Small PRs, each with a code review and a review of its screenshots (#121).
-- Every push to a PR's branch gets a Vercel preview, and the Screenshots workflow shoots it (`screenshots.yml`). The run's artifact holds the stills and recordings the screenshot review reads.
+- Every push to a PR's branch gets a Vercel preview, and the Screenshots workflow shoots it (`screenshots.yml`), as three jobs side by side, one for each shard: `desktop-acts`, the desktop's pages that click, press or play; `desktop-looks`, its pages that are only loaded and shot; and `rest`, every other device, the recordings and the generated images (`.github/screenshots/shards.mjs`; `scripts/__tests__/shoot-shards.test.ts`). Each job uploads an artifact named for its shard, and `gh run download <run>` makes a folder of each. The screenshot review reads the three folders together: every still and recording is in exactly one of them. A job fails when a still or a recording its plan names was not saved, as when a step is skipped because its control is absent, or when it saved a file the plan does not name (`planFailures`). A job that fails fails the run, and still uploads what it took.
+- A device's pages share one browser, so a still can depend on the pages before it: a play step whose page names no `?at=` resumes where the day's show last played. The desktop's pages that act are shot together, in the list's order, so each finds what it does in a whole shoot. A page with only shots and near steps is shot apart from them, in a browser no page has acted in: a still that needs what an earlier page left belongs to a page that acts (`onlyLooks` in `shards.mjs`).
 - Commit and PR titles start with the area they change, such as `world:`, `maps:`, `ci:` or `player:` (`git log`).
 
 ## three.js is pinned, by version and by hash
 
 - three 0.185.0 loads from jsDelivr through the import map in `src/lib/import-map.ts`, which gives each file a sha384 digest. `import-map.test.ts` holds the map to exactly the files the world imports, at the version `package.json` installs for the tests (`devDependencies`).
-- The Screenshots workflow fetches each pinned file and fails when the CDN's copy doesn't match its digest.
+- The Screenshots workflow fetches each pinned file, in each of its jobs, and fails when the CDN's copy doesn't match its digest.
 - An upgrade changes the version in both places and every digest, in one PR.
 
 ## The Content-Security-Policy
@@ -79,11 +80,11 @@ One file: `npx vitest run src/lib/__tests__/quality.test.ts`. The dev server sen
 
 ## Test hooks
 
-The test hooks, `?at=`, `?t=`, `?stats=1`, `?day=`, `?sleep=`, `?lookup=`, `?pose=`, `?as=`, `?drive=`, `?still=` and `?rung=`, answer only on Vercel previews. The server reads the switch, never a `NEXT_PUBLIC_` variable (`src/lib/test-hooks.ts`; `test-hooks.test.ts`). `?tier=` works anywhere.
+The test hooks, `?at=`, `?t=`, `?stats=1`, `?day=`, `?sleep=`, `?lookup=`, `?pose=`, `?as=`, `?drive=`, `?still=`, `?rung=` and `?hold=`, answer only on Vercel previews. The server reads the switch, never a `NEXT_PUBLIC_` variable (`src/lib/test-hooks.ts`; `test-hooks.test.ts`). `?tier=` works anywhere.
 
-`?pose=near-K` stands the visitor on the path beside song K's landmark, facing it (`nearStand` in `public/world/path.js`), and `?as=K:Title` builds song K's landmark as a song of that title would have it. With them the shoot takes a still of every landmark of the fixed day, then of every other kind of landmark, then of the eight kinds of standing stone, on a desktop and a phone (`.github/screenshots/near.mjs`). `scripts/__tests__/near-landmarks.test.ts` holds those titles to the builders' table and to the stones' kinds, so a new kind of landmark gets a still there.
+`?pose=near-K` stands the visitor on the path beside song K's landmark, facing it (`nearStand` in `public/world/path.js`), and `?as=K:Title` builds song K's landmark as a song of that title would have it. With them the shoot takes a still of every landmark of the fixed day, then of every other kind of landmark, then of the eight kinds of standing stone, on a desktop and a phone (`.github/screenshots/near.mjs`). `scripts/__tests__/near-landmarks.test.ts` holds those titles to the builders' table and to the stones' kinds, so a new kind of landmark gets a still there. Those pages ask for `?hold=1`, which holds the landmarks' moving parts as they were built and nothing else: a ball that pulsed or a wheel that turned would be shot at another moment on every run (`public/world/main.js`; `main.test.ts`).
 
-`?still=1`, `?rung=N` and a `?pose=` of four numbers, `X,Z,HEADING,PITCH`, are the flash counter's (`public/world/main.js`; `main.test.ts`). `?still=1` stills the figures and nothing else: the bears are hidden, the band is not moved and the crowd is posed standing still, while the rig and the lights, the sky, the sea, the tufts in the wind, the fireflies and the landmarks' moving parts move as ever. `?rung=N` starts the world N rungs down its quality ladder and holds it there. The four numbers stand the visitor anywhere a walker may stand.
+`?still=1`, `?rung=N` and a `?pose=` of four numbers, `X,Z,HEADING,PITCH`, are the flash counter's (`public/world/main.js`; `main.test.ts`). `?still=1` stills the figures and nothing else: the bears are hidden, the band is not moved and the crowd is posed standing still, while the rig and the lights, the sky, the sea, the tufts in the wind, the fireflies and the landmarks' moving parts move as ever, the last unless `?hold=1` holds them. `?rung=N` starts the world N rungs down its quality ladder and holds it there. The four numbers stand the visitor anywhere a walker may stand.
 
 ## The daily pick
 

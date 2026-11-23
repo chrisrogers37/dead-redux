@@ -66,7 +66,8 @@ const fake = vi.hoisted(() => {
   type Sky = { uniforms: Record<string, { value: number | Vec }> };
 
   // What the world main.js built: its scene, its camera, every bear it made (a downgrade drops some from the scene), and where the
-  // visitor's bear last stepped; the flame of a fire landmark, the stage, the crowd's mesh, the sky, its sun and the meshes main.js makes
+  // visitor's bear last stepped; the landmarks' moving parts, one of each kind (a fire landmark's flame and its light, a ball that
+  // pulses, a wheel that turns and a miracle that bobs), the stage, the crowd's mesh, the sky, its sun and the meshes main.js makes
   // itself (the beam); and the figures' phase in beats, as the last frame gave it to the stage, the crowd's pose, as the last frame gave
   // it to the crowd, and whether its last parting stood the figures at once.
   // `line` is the bears' line each test gives it, and `onset` the time of the last onset the analyser heard, which each test sets (null
@@ -92,6 +93,11 @@ const fake = vi.hoisted(() => {
     treesBuilt: [] as { spots: Point[]; lit: unknown; phone: boolean }[],
     made: [] as string[],
     trunks: undefined as unknown,
+    // The lit bands (path.js bandMask, island.js): the mask the path's stand-in hands back, which a test sets (null for a show none
+    // of whose songs runs into the next), each time it was asked for one and with what, and what the island was given to wear.
+    mask: null as object | null,
+    masksAsked: [] as { path: unknown; tracks: { title: string; segueOut?: boolean }[]; landmarkU: number[]; size: number }[],
+    bands: undefined as { map: { value: unknown }; glow: { value: number } } | null | undefined,
     nearAsks: [] as number[][],
     trunkAsks: [] as number[][],
     treeReads: new Set<string>(),
@@ -105,6 +111,10 @@ const fake = vi.hoisted(() => {
     laidOut: [] as string[],
     placed: [] as string[],
     flame: { scale: new Vec(1, 1, 1) },
+    torch: { intensity: 40 },
+    ball: { material: { emissiveIntensity: 0.6 } },
+    wheel: { rotation: { y: 0 } },
+    miracle: { position: { y: 4 } },
     stage: undefined as unknown as Stage,
     crowd: undefined as unknown as CrowdMesh,
     sky: undefined as unknown as Sky,
@@ -182,6 +192,9 @@ const fake = vi.hoisted(() => {
   // to a trunk and how far from one anything grows.
   const LIT = (material: unknown) => material, OUTLINE = [[0, 0], [1, 0], [0, 1]], WAYS = { eyes: [[1, 2, 3]], views: [{ from: [0, 0], to: [1, 1], half: 5 }] };
   const SLIDE = () => {}, CEILING = () => Infinity, TREE_REACH = 2.5, TRUNK_ROOM = 2.25;
+  // The bands' glow at dusk, as island.js has it; the stand-in's own number, so that main.js is seen to read the island's.
+  const BAND_GLOW = 0.4;
+  const PATH = { at: () => new Vec(), tangentAt: () => new Vec(1, 0, 0) };
   const three = {
     WebGLRenderer: class {
       shadowMap = (world.shadowMap = { enabled: false, autoUpdate: true, needsUpdate: false });
@@ -203,9 +216,11 @@ const fake = vi.hoisted(() => {
   const modules = {
     // The island draws the night's look on its sea and its ground itself (island.js), which the frames here do not read.
     island: {
-      buildIsland: (_scene: unknown, _grid: number, _phone: boolean, _loop: unknown, trunks: unknown) => {
+      BAND_GLOW,
+      buildIsland: (_scene: unknown, _grid: number, _phone: boolean, _loop: unknown, trunks: unknown, bands: typeof world.bands) => {
         world.made.push("island");
         world.trunks = trunks;
+        world.bands = bands;
         return { caves: [], shade: (_look: unknown, time: number, calm: number) => { world.tide = time; world.calm = calm; }, flora: { thin: (half: boolean) => { world.thinned = half; }, sparse: () => { world.sparse = true; } }, lit: LIT };
       },
     },
@@ -237,7 +252,7 @@ const fake = vi.hoisted(() => {
     },
     path: {
       // The loop, where the walker stands before a frame puts it in its place in the bears' line.
-      buildPath: () => ({ at: () => new Vec(), tangentAt: () => new Vec(1, 0, 0) }),
+      buildPath: () => PATH,
       // Where each song's landmark stands along the loop, and the loop's end: the first song at 0.5.
       layout: (tracks: { title: string }[]) => {
         world.laidOut = tracks.map((t) => t.title);
@@ -252,14 +267,24 @@ const fake = vi.hoisted(() => {
       nearStand: (_path: unknown, _landmarkU: unknown, landmarks: unknown[], k: number) => (landmarks[k] ? world.nearSpot(k) : null),
       // A landmark's outline from above, the same for each here.
       outline: () => OUTLINE,
-      buildSegues: () => {},
+      // The mask of the show's lit bands: the one a test sets, and what main.js asked for it with.
+      bandMask: (path: unknown, tracks: { title: string }[], landmarkU: number[], size: number) => {
+        world.masksAsked.push({ path, tracks, landmarkU, size });
+        return world.mask;
+      },
       buildWalkLine: () => world.line,
     },
     landmarks: {
-      // One part that moves: a fire landmark's flame, which swells before a peak.
+      // The parts that move, one of each kind, each as landmarks.js builds it: a fire landmark's flame, which swells before a
+      // peak, and its light, which follows the low end; Not Fade Away's ball, which pulses; a wheel, which turns; and a miracle,
+      // which bobs.
       makeBuilders: () => {
         world.flame = { scale: new Vec(1, 1, 1) };
-        return { moving: [{ obj: world.flame, kind: "swell" }] };
+        world.torch = { intensity: 40 };
+        world.ball = { material: { emissiveIntensity: 0.6 } };
+        world.wheel = { rotation: { y: 0 } };
+        world.miracle = { position: { y: 4 } };
+        return { moving: [{ obj: world.flame, kind: "swell" }, { obj: world.torch, kind: "flame", base: world.torch.intensity }, { obj: world.ball, kind: "pulse" }, { obj: world.wheel, kind: "spin" }, { obj: world.miracle, kind: "bob" }] };
       },
       mergeLandmarks: () => {},
     },
@@ -372,7 +397,7 @@ const fake = vi.hoisted(() => {
       }),
     },
   };
-  return { world, three, modules, TURN, LIT, OUTLINE, WAYS, SLIDE, CEILING, TREE_REACH, TRUNK_ROOM };
+  return { world, three, modules, TURN, LIT, OUTLINE, WAYS, SLIDE, CEILING, TREE_REACH, TRUNK_ROOM, BAND_GLOW, PATH };
 });
 
 vi.mock("three", () => fake.three);
@@ -447,6 +472,7 @@ type Hill = {
   near: { index: number; title: string; clear: boolean } | null;
   rung: number;
   still: boolean;
+  hold: boolean;
   walker: { x: number; z: number; heading: number; pitch: number };
   crowd: { drawn: number; dance: number; sit: number; parted: number };
   analysis: { source: string | null; weight: number };
@@ -471,9 +497,10 @@ type Hud = { plate?: number | null; away?: boolean; stick?: number | null; hint?
 // show playing; `routing` is how it sounds ("webaudio" through the world's graph, "plain" in plain stereo); `search` is the page's
 // query, on a preview, or anywhere else with `hooks` false; `reduced` asks for reduced motion; `title` names the track, the first of
 // `songs`, each with one of the `landmarks`; `trees` is where the trees stand; `view` is "third" or "first" person; and a day with no
-// `recording` has no tracks. A page
-// with a map waits until the world has read it.
-async function startWorld({ playing = false, routing = "webaudio", search = "", hooks = true, reduced = false, map = null as object | null, title = TRACK.title, songs = 1, landmarks = [] as { position: Point3; rotation: { y: number } }[], trees = [] as Point[], view = "third", recording = true, screen = DESKTOP, hud = {} as Hud } = {}) {
+// `recording` has no tracks. `segues` are the songs that run into the next, by their place in the show, and `mask` what the path's
+// stand-in hands back as the mask of the show's lit bands (null, as for a show with none). A page with a map waits until the world has
+// read it.
+async function startWorld({ playing = false, routing = "webaudio", search = "", hooks = true, reduced = false, map = null as object | null, title = TRACK.title, songs = 1, landmarks = [] as { position: Point3; rotation: { y: number } }[], trees = [] as Point[], view = "third", recording = true, screen = DESKTOP, hud = {} as Hud, segues = [] as number[], mask = null as object | null } = {}) {
   let now = 0;
   let queued: FrameRequestCallback | null = null;
   const container = Object.assign(new EventTarget(), {
@@ -502,7 +529,7 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
   const play = plate && { closest: (selector: string) => (selector === ".plate" ? plate : null) };
   const hint = hintTop === null ? null : { getBoundingClientRect: () => ({ top: hintTop, height: 52 }) };
   const found: Record<string, unknown> = { main, "[data-stick]": stick, "[data-action='play']": play, "[data-hint]": hint };
-  const data = { showDate: SHOW, identifier: recording ? RECORDING : null, tracks: recording ? Array.from({ length: songs }, (_, k) => ({ ...TRACK, title: k ? `${title} ${k + 1}` : title })) : [], seed: 7 };
+  const data = { showDate: SHOW, identifier: recording ? RECORDING : null, tracks: recording ? Array.from({ length: songs }, (_, k) => ({ ...TRACK, title: k ? `${title} ${k + 1}` : title, ...(segues.includes(k) ? { segueOut: true } : {}) })) : [], seed: 7 };
   const byId: Record<string, unknown> = { world: container, "world-data": { textContent: JSON.stringify(data) } };
   const media = (query: string) => ({ matches: query === "(max-width: 639px)" ? screen.width < 640 : reduced && query === "(prefers-reduced-motion: reduce)" });
   const asked: string[] = [];
@@ -544,6 +571,9 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
   fake.world.waysAsked = [];
   fake.world.treesBuilt = [];
   fake.world.made = [];
+  fake.world.mask = mask;
+  fake.world.masksAsked = [];
+  fake.world.bands = undefined;
   fake.world.nearAsks = [];
   fake.world.trunkAsks = [];
   fake.world.treeReads = new Set();
@@ -1054,6 +1084,86 @@ describe("main.js's frames", () => {
     });
   });
 
+  describe("?hold=1", () => {
+    // What a frame moves of each of the landmarks' moving parts: the flame's size, its light's strength, the ball's glow, the wheel's
+    // turn and the miracle's height.
+    const readParts = () => {
+      const { flame, torch, ball, wheel, miracle } = fake.world;
+      return { flame: flame.scale.x, light: torch.intensity, ball: ball.material.emissiveIntensity, wheel: wheel.rotation.y, miracle: miracle.position.y };
+    };
+    type Parts = ReturnType<typeof readParts>;
+    // A show that plays where the analyser cannot hear it, on a map whose low end is half of full and whose one peak is at 300 s,
+    // cued 8 s before the peak and run 2 s: by then the flame has swelled, its light follows the low end, and the ball, the wheel and
+    // the miracle have moved by the time alone. `built` is each part before any frame ran, as it was built, and `parts` after; and
+    // `sky` is the sky's own time and how long since its last drop fell, before any frame and after.
+    const moved = async (search: string, hooks = true) => {
+      const page = await startWorld({ playing: true, routing: "plain", map: showMap({ bass: 128, peaks: [[300, 0.9]] }), search, hooks });
+      const readSky = () => ({ time: fake.world.sky.uniforms.uTime.value as number, sinceDrop: page.sinceDrop() }), built = readParts(), before = readSky();
+      page.seek(292);
+      page.run(2);
+      return { page, built, parts: readParts(), sky: { before, after: readSky() } };
+    };
+    // Every part has moved from where it was built, by more than a rounding.
+    const expectMoved = (parts: Parts, built: Parts) => {
+      for (const name of Object.keys(built) as (keyof Parts)[]) expect(Math.abs(parts[name] - built[name]), name).toBeGreaterThan(0.01);
+    };
+
+    it("holds the landmarks' moving parts as they were built, and nothing else: the band plays on, the bears walk, the crowd dances and the sky's time runs", async () => {
+      fake.world.beats = NaN;
+      const { parts, built, sky } = await moved("?hold=1");
+      expect(hill().hold).toBe(true);
+      // Each part is what it was before any frame ran.
+      expect(parts).toEqual(built);
+      // All else moves: the band is moved to the beat, the crowd dances, and no bear is hidden; and the sky keeps its own
+      // time, by which its light and the sea move and its drops fall.
+      expect(sky.after.time).toBeGreaterThan(sky.before.time + 1);
+      expect(sky.after.sinceDrop).toBeGreaterThan(sky.before.sinceDrop + 1);
+      expect(fake.world.beats).toBeGreaterThan(0);
+      expect(fake.world.posed.dance).toBeGreaterThan(0);
+      expect(fake.world.bears.filter((b) => b.g.visible === false)).toEqual([]);
+      expect(hill().still).toBe(false);
+    });
+
+    it("moves every one of them without it: the same two seconds swell the flame, drive its light, pulse the ball, turn the wheel and lift the miracle", async () => {
+      const { parts, built } = await moved("?pose=crowd");
+      expect(hill().hold).toBe(false);
+      expectMoved(parts, built);
+    });
+
+    it.each(["?hold=0", "?hold=", "?hold=true", "?hold=2", "?hold=01", "?hold=1x", "?hold"])("holds nothing under %s: only ?hold=1 does", async (search) => {
+      // A hook that took any word for yes would hold the parts of a page that asked for them moving: the flash counter's, which
+      // counts the ball's pulse.
+      const { parts, built } = await moved(search);
+      expect(hill().hold).toBe(false);
+      expectMoved(parts, built);
+    });
+
+    it("answers only on a preview: elsewhere the parts move as ever", async () => {
+      const { parts, built } = await moved("?hold=1", false);
+      expect(hill().hold).toBe(false);
+      expectMoved(parts, built);
+    });
+
+    it("holds them beside a landmark, on the page the shoot's near stills are taken from, through a move to another song's", async () => {
+      fake.world.nearSpot = (k: number) => ({ x: 30 + k, z: 20, heading: 0, pitch: 0, clear: true });
+      const landmarks = [40.6, 60.3].map((d) => ({ position: LINE.at(d), rotation: { y: 0 } }));
+      const page = await startWorld({ search: "?pose=near-0&hold=1", songs: 2, landmarks });
+      const built = readParts();
+      page.run(1);
+      document.dispatchEvent(new CustomEvent("world:near", { detail: { index: 1 } }));
+      page.run(1);
+      expect(hill().near?.index).toBe(1);
+      expect(hill().hold).toBe(true);
+      expect(readParts()).toEqual(built);
+      // The same page without the hook moves what time alone moves: the ball, the wheel and the miracle. Its flame keeps its size and
+      // its light its strength, since nothing plays there.
+      const loose = await startWorld({ search: "?pose=near-0", songs: 2, landmarks });
+      loose.run(1);
+      const now = readParts();
+      for (const name of ["ball", "wheel", "miracle"] as const) expect(Math.abs(now[name] - built[name]), name).toBeGreaterThan(0.01);
+    });
+  });
+
   describe("the flash counter's hooks", () => {
     // Stepped down by slow frames until a window finds no rung left: the foot of the tier's ladder.
     const foot = (page: Awaited<ReturnType<typeof startWorld>>) => {
@@ -1558,6 +1668,75 @@ describe("main.js's frames through the night", () => {
     expect(late).toBeCloseTo(lookAt(fake.world.graded, newLook()).beams, 3);
     expect(late).toBeLessThan(0.6);
     expect(late).toBeGreaterThan(0.4);
+  });
+
+  describe("the lit bands", () => {
+    const MASK = { isTexture: true };
+
+    it("asks the path for the mask of the show's bands, by the show's own songs and their points as the landmarks have them, 512 texels a side, and hands it to the island with the bands' glow", async () => {
+      await startWorld({ songs: 3, segues: [1], mask: MASK });
+      expect(fake.world.masksAsked).toHaveLength(1);
+      const [asked] = fake.world.masksAsked;
+      expect(asked.path).toBe(fake.PATH);
+      expect(asked.tracks.map((t) => Boolean(t.segueOut))).toEqual([false, true, false]);
+      // The songs' points: the stand-in lays them out a tenth of the loop apart from its middle, and the loop's end after them.
+      expect(asked.landmarkU).toHaveLength(4);
+      asked.landmarkU.forEach((v, k) => expect(v).toBeCloseTo(0.5 + 0.1 * k, 12));
+      expect(asked.size).toBe(512);
+      // The island wears that mask, with the glow at the island's own strength for dusk, before a frame is drawn.
+      expect(fake.world.bands!.map.value).toBe(MASK);
+      expect(fake.world.bands!.glow.value).toBe(fake.BAND_GLOW);
+      // The bands are the ground's: main.js makes no mesh for them. Its one mesh is the beam over the song's landmark.
+      expect(fake.world.meshes).toHaveLength(1);
+    });
+
+    it("asks for a phone's mask at 256 texels a side, and a TV's at a desktop's 512", async () => {
+      await startWorld({ songs: 2, segues: [0], mask: MASK, screen: { width: 390, height: 844, touch: true } });
+      expect(hill().tier).toBe("phone");
+      expect(fake.world.masksAsked.map((asked) => asked.size)).toEqual([256]);
+      await startWorld({ songs: 2, segues: [0], mask: MASK, search: "?tier=tv" });
+      expect(hill().tier).toBe("tv");
+      expect(fake.world.masksAsked.map((asked) => asked.size)).toEqual([512]);
+    });
+
+    it("dims the bands' glow as the night darkens, to a third of it in the deep of the night, and lands on it at once under reduced motion", async () => {
+      // The stand-in hands back the mask whatever the show: here a show of one song, whose middle is the deep of its night.
+      const dusk = await startWorld({ playing: true, mask: MASK });
+      dusk.run(0.1);
+      expect(fake.world.dark).toBeLessThan(0.3);
+      expect(fake.world.bands!.glow.value).toBeCloseTo(fake.BAND_GLOW * (1 - 0.68 * fake.world.dark), 12);
+      const atDusk = fake.world.bands!.glow.value;
+      expect(atDusk).toBeGreaterThan(0.8 * fake.BAND_GLOW);
+      // The seek to 298 s lands in the first frame.
+      const deep = await startWorld({ playing: true, mask: MASK });
+      deep.seek(298);
+      deep.run(2);
+      expect(fake.world.dark).toBeGreaterThan(0.99);
+      expect(fake.world.bands!.glow.value).toBeCloseTo(fake.BAND_GLOW * (1 - 0.68 * fake.world.dark), 12);
+      expect(fake.world.bands!.glow.value).toBeLessThan(0.33 * fake.BAND_GLOW);
+      expect(fake.world.bands!.glow.value).toBeGreaterThan(0.3 * fake.BAND_GLOW);
+      // Under reduced motion the hour is the one halfway through the song, the deep of the night here, in the first frame drawn.
+      const still = await startWorld({ reduced: true, mask: MASK });
+      still.run(0.02);
+      expect(hill().night.hour).toBe(DEEP);
+      expect(fake.world.bands!.glow.value).toBeCloseTo(fake.BAND_GLOW * (1 - 0.68 * fake.world.dark), 12);
+      expect(fake.world.bands!.glow.value).toBeLessThan(0.33 * fake.BAND_GLOW);
+    });
+
+    it("hands the island no bands where no song runs into the next, or the day has no recording: the ground is drawn as it is without them, and the frames run", async () => {
+      // The path's stand-in answers as path.js does for a show with no such song: null.
+      const plain = await startWorld({ songs: 3, mask: null });
+      expect(fake.world.masksAsked).toHaveLength(1);
+      expect(fake.world.bands).toBeNull();
+      plain.run(0.5);
+      // A day with no recording has one stand-in track, and main.js asks the path all the same: it is the path that finds no song
+      // running into the next and answers null (path.test.ts), as its stand-in does here.
+      const empty = await startWorld({ recording: false, mask: null });
+      expect(fake.world.masksAsked).toHaveLength(1);
+      expect(fake.world.masksAsked[0].tracks.map((t) => [t.title, Boolean(t.segueOut)])).toEqual([["Set", false]]);
+      expect(fake.world.bands).toBeNull();
+      empty.run(0.5);
+    });
   });
 
   it("redraws the stage's shadow only in a frame where the sky says its key light has turned", async () => {

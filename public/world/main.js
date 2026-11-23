@@ -1,8 +1,8 @@
 /* eslint-disable */
 import * as THREE from "three";
-import { buildIsland } from "./island.js";
+import { BAND_GLOW, buildIsland } from "./island.js";
 import { FIRST_EYE, height, STAGE_COLUMN, TEST_POSES } from "./ground.js";
-import { buildPath, layout, nearStand, outline, placeLandmarks, buildSegues, buildWalkLine } from "./path.js";
+import { bandMask, buildPath, layout, nearStand, outline, placeLandmarks, buildWalkLine } from "./path.js";
 import { makeBuilders, mergeLandmarks } from "./landmarks.js";
 import { buildBears, drawLegs, stride } from "./bears.js";
 import { buildAvatar } from "./avatar.js";
@@ -155,12 +155,15 @@ function start(gl) {
   });
   /* How long the trees took to place, the cameras' ways among it; the stats report it beside the landmarks'. */
   window.__hill.treesMs = Math.round((performance.now() - treeStart) * 10) / 10;
+  /* The lit bands that join a song to the one it runs into, for the ground to wear: the mask its shader draws them from, of the path
+     and the songs' points as the landmarks have them (path.js bandMask), a phone's 256 texels a side and any other tier's 512, and
+     their own glow, which the night dims. bandMask itself answers null where no song runs into the next, and so for a day with no
+     recording, whose one stand-in track runs into nothing: no show needs telling apart here. */
+  const mask = bandMask(path, tracks, landmarkU, phone ? 256 : 512);
+  const bands = mask ? { map: { value: mask }, glow: { value: BAND_GLOW } } : null;
   /* Nothing grows or lies within TRUNK_ROOM of a trunk. */
-  const { caves, shade, flora, lit } = buildIsland(scene, budget.grid, phone, loop, (x, z) => placed.near(x, z, TRUNK_ROOM));
+  const { caves, shade, flora, lit } = buildIsland(scene, budget.grid, phone, loop, (x, z) => placed.near(x, z, TRUNK_ROOM), bands);
   const trees = buildTrees(scene, placed.spots, { lit, phone });
-  /* The lit bands that join a song to the one it runs into, and their own glow, which the night dims (null with no such song). */
-  const segues = hasShow ? buildSegues(scene, path, tracks, landmarkU) ?? null : null;
-  const segueGlow = segues?.emissiveIntensity ?? 0;
 
   /* ---------- the bears ---------- */
   const bears = buildBears(scene, budget.bears);
@@ -302,10 +305,15 @@ function start(gl) {
   /* ?still=1: the figures are stilled, and nothing else. The bears are hidden, though they walk their line as ever and keep the
      visitor out of their reach; the band is not moved; and the crowd is posed standing still (it still sits where the track seats it,
      and parts for the visitor). All else moves as it does: the rig and the lights, the sky and its drops, the sea, the tufts in the
-     wind, the fireflies and the landmarks' moving parts; and the visitor's own bear stands where it is posed. The flash counter
-     calls this pass the light alone (scripts/flash/README.md). */
+     wind, the fireflies and the landmarks' moving parts, unless ?hold=1, below, holds those; and the visitor's own bear stands
+     where it is posed. The flash counter calls this pass the light alone (scripts/flash/README.md). */
   const still = hooks?.get("still") === "1";
   if (still) for (const b of bears) b.g.visible = false;
+  /* ?hold=1: the landmarks' moving parts are held as they were built, and nothing else. A wheel is not turned, a ball glows as it
+     was made to and does not pulse, a miracle hangs where it was hung, and a flame keeps its own size and its light its own
+     strength, whatever the time and the music. The shoot's near pages ask for it (.github/screenshots/near.mjs): the shoot does not
+     hold the moment a still is taken at, so a still of a part that moved would differ from one run to the next. */
+  const hold = hooks?.get("hold") === "1";
   /* ?rung=N, N from 1 to 99: the world starts N rungs down its quality ladder (fewer if the ladder ends) and holds there, as a slow
      device would after N slow seconds. The sweep and reduced motion, which hold rung 0, ignore it. */
   const rungAsked = Number(/^\d{1,2}$/.exec(hooks?.get("rung") ?? "")?.[0] ?? 0);
@@ -509,6 +517,8 @@ function start(gl) {
     /* Whether ?still=1 was heard: the flash counter reads it, so a world from before the hook never passes for one with its figures
        stilled. */
     still: stat(() => still),
+    /* Whether ?hold=1 was heard: the landmarks' moving parts are held as they were built. */
+    hold: stat(() => hold),
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
     frameMs: stat(() => Math.round(sampler.frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
     mode: stat(() => mode),
@@ -594,7 +604,7 @@ function start(gl) {
     /* The night's share of the stage's light is steady: the music moves that light by as much as it does at dusk, on top. */
     stage.light.intensity = lightBase.stage * (layer2.stage + look.stageLift);
     /* The lit bands glow a third as bright in the deep of the night, where their own glow at dusk would outshine the stage. */
-    if (segues) segues.emissiveIntensity = segueGlow * (1 - 0.68 * look.dark);
+    if (bands) bands.glow.value = BAND_GLOW * (1 - 0.68 * look.dark);
     /* Whether a song plays: the crowd dances and the rig lights for one. */
     const dances = playing && crowdAt[index].dance ? 1 : 0;
     if (!reduced) {
@@ -605,7 +615,7 @@ function start(gl) {
       if (elapsed >= nextDrop || (peak && elapsed - dropAt > 5)) drop();
       lastIndex = index; lastPos = trackPos;
       skyMat.uniforms.uDrop.value.z = elapsed - dropAt;
-      for (const m of moving) {
+      if (!hold) for (const m of moving) {
         if (m.kind === "spin") m.obj.rotation.y += dt * 0.3;
         else if (m.kind === "pulse") m.obj.material.emissiveIntensity = 0.6 + 0.4 * Math.sin(elapsed * 3);
         else if (m.kind === "bob") m.obj.position.y = 4 + 0.5 * Math.sin(elapsed * 1.5);
