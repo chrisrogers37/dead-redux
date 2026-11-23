@@ -184,28 +184,61 @@ export function placeLandmarks(scene, { at, tangentAt }, tracks, hasShow, { BUIL
   return landmarks;
 }
 
-/* A band of the island's stone, glowing amber, on the ground between two landmarks whose first song segues into the next,
-   so the show's structure reads on the island. */
-export function buildSegues(scene, { at, tangentAt, curveLength }, tracks, landmarkU) {
-  const arr = [];
-  for (let i = 0; i < tracks.length - 1; i++) {
-    if (!tracks[i].segueOut) continue;
-    /* Samples every two metres or so along the loop, with an edge point a metre to either side of each. */
-    const u0 = landmarkU[i], u1 = landmarkU[i + 1], n = Math.max(2, Math.ceil((u1 - u0) * curveLength / 2));
-    const left = [], right = [];
-    for (let s = 0; s <= n; s++) {
-      const u = u0 + (u1 - u0) * (s / n), p = at(u), t = tangentAt(u), len = Math.hypot(t.x, t.z);
-      const sx = -t.z / len, sz = t.x / len;
-      left.push([p.x + sx, height(p.x + sx, p.z + sz) + 0.35, p.z + sz]);
-      right.push([p.x - sx, height(p.x - sx, p.z - sz) + 0.35, p.z - sz]);
+/* The lit bands: where a song segues into the next, the ground between their landmarks is lit, so the show's structure reads on the
+   island. They are drawn in the ground's own shader (island.js grained), which reads how far a point of the ground lies from the
+   middle of the nearest band from a mask made here, in code: one byte a texel over the island's square, BAND_SIDE m a side, 255 on a
+   band's centre line, one less for every BAND_RANGE / 255 m from it (2.4 cm), and 0 from BAND_RANGE m on, which is all the ground
+   off the bands. The mask holds the distance and not the band's own soft edge: a distance read between four texels is still the
+   distance, so the shader draws the edge as smooth from a phone's mask as from a desktop's, however near the eye, and widens it by
+   what a pixel takes in of the ground, however far. A band's centre line is the path's own, in steps of BAND_STEP m or so. */
+export const BAND_SIDE = 260, BAND_RANGE = 6, BAND_STEP = 2;
+
+/* The mask of a show's lit bands, `size` texels a side, as a texture for the ground's shader: row by row from the island's north edge
+   (z of -BAND_SIDE / 2), each from its west (x the same), so a point (x, z) reads it at ((x, z) + BAND_SIDE / 2) / BAND_SIDE. Its
+   texels are read as they are, the four round a point weighed by the GPU's linear filter, with no smaller copies: the mean of
+   distances over a patch of ground is no distance. Null for a show none of whose songs runs into the next: its ground is drawn
+   without bands, and pays nothing for them. */
+export function bandMask({ at, curveLength }, tracks, landmarkU, size = 512) {
+  const runs = [];
+  for (let i = 0; i < tracks.length - 1; i++) if (tracks[i].segueOut) runs.push([landmarkU[i], landmarkU[i + 1]]);
+  if (runs.length === 0) return null;
+  const cell = BAND_SIDE / size, half = BAND_SIDE / 2, data = new Uint8Array(size * size);
+  /* The first and the last texel whose middle lies within BAND_RANGE m of a stretch from `lo` to `hi` along one axis. */
+  const first = (lo) => Math.max(0, Math.ceil((lo - BAND_RANGE + half) / cell - 0.5)), last = (hi) => Math.min(size - 1, Math.floor((hi + BAND_RANGE + half) / cell - 0.5));
+  for (const [u0, u1] of runs) {
+    /* Each step's line, and every texel near it: a texel keeps the nearest step's distance, so a band that meets another, or
+       itself, is one band and no brighter. */
+    const n = Math.max(2, Math.ceil(((u1 - u0) * curveLength) / BAND_STEP));
+    let a = at(u0);
+    for (let s = 1; s <= n; s++) {
+      const b = at(u0 + (u1 - u0) * (s / n));
+      const abx = b.x - a.x, abz = b.z - a.z, len2 = Math.max(abx * abx + abz * abz, 1e-6);
+      for (let iz = first(Math.min(a.z, b.z)); iz <= last(Math.max(a.z, b.z)); iz++) {
+        for (let ix = first(Math.min(a.x, b.x)); ix <= last(Math.max(a.x, b.x)); ix++) {
+          /* The texel's middle, and how far it lies from this step's line. */
+          const px = (ix + 0.5) * cell - half, pz = (iz + 0.5) * cell - half;
+          const t = Math.max(0, Math.min(1, ((px - a.x) * abx + (pz - a.z) * abz) / len2));
+          const dx = px - a.x - t * abx, dz = pz - a.z - t * abz, near = Math.round(255 * (1 - Math.sqrt(dx * dx + dz * dz) / BAND_RANGE));
+          if (near > data[iz * size + ix]) data[iz * size + ix] = near;
+        }
+      }
+      a = b;
     }
-    for (let s = 0; s < n; s++) arr.push(...left[s], ...left[s + 1], ...right[s], ...right[s], ...left[s + 1], ...right[s + 1]);
   }
-  if (arr.length === 0) return null;
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(arr, 3));
-  geo.computeVertexNormals();
-  const lit = new THREE.MeshLambertMaterial({ color: 0x8e8a82, emissive: 0xe8b04b, emissiveIntensity: 0.25, side: THREE.DoubleSide });
-  scene.add(new THREE.Mesh(geo, lit));
-  return lit;
+  const mask = new THREE.DataTexture(data, size, size, THREE.RedFormat, THREE.UnsignedByteType);
+  mask.minFilter = mask.magFilter = THREE.LinearFilter;
+  mask.needsUpdate = true;
+  return mask;
+}
+
+/* How far a point of the ground lies from the middle of the nearest lit band, in metres, as the ground's shader reads it from the mask:
+   the four texels round the point, each weighed by how near its middle is, and past the mask's edge the edge's own texel. BAND_RANGE
+   where no band lies within that. */
+export function bandAway(mask, x, z) {
+  const { data, width: size } = mask.image;
+  const u = ((x + BAND_SIDE / 2) / BAND_SIDE) * size - 0.5, v = ((z + BAND_SIDE / 2) / BAND_SIDE) * size - 0.5;
+  const i = Math.floor(u), j = Math.floor(v), fu = u - i, fv = v - j;
+  const texel = (ix, iz) => data[Math.max(0, Math.min(size - 1, iz)) * size + Math.max(0, Math.min(size - 1, ix))];
+  const near = (texel(i, j) * (1 - fu) + texel(i + 1, j) * fu) * (1 - fv) + (texel(i, j + 1) * (1 - fu) + texel(i + 1, j + 1) * fu) * fv;
+  return (1 - near / 255) * BAND_RANGE;
 }

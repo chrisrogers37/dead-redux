@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { buildFlora } from "./flora.js";
 import { CAVES, G, height, SHELF_Y, STAGE } from "./ground.js";
 import { MOON } from "./night.js";
+import { BAND_RANGE, BAND_SIDE } from "./path.js";
 import { AXIS, intoCrowdGround, offAxis, onCrowdGround, SPANS, WALKS } from "./seats.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, and at its north-east edge a shelf for the stage.
@@ -81,6 +82,33 @@ export function treadAt(x, z) {
    hold the grain): none off the crowd's ground, WEAR at the most. The ground's shader reckons the same (EARTH). */
 export function wearAt(x, z, tussocks = 0.5) {
   return troddenAt(x, z) * (1 - ease(PATCH_FROM, PATCH_TO, tussocks + 0.5 - treadAt(x, z))) * WEAR;
+}
+/* The lit bands, where one song runs into the next (path.js bandMask), as the ground wears them: the island's pale stone, BAND_TONE,
+   laid over the turf as far as BAND_LAY where a band is whole, under the grain as the tracks and the worn earth are, and glowing in
+   BAND_AMBER, BAND_GLOW of it at dusk, which the night dims (main.js). A band is whole within BAND_CORE m of its middle and eases
+   to nothing by BAND_REACH m, so it has no hard edge; and its edge is no even line either, but stands BAND_FRAY m further out where
+   the turf is thinnest than where a tussock stands thickest, by the ground's own tussock grain, as the worn earth's patches go by
+   it. Where a pixel cannot hold that grain the edge runs even, so nothing dithers. At its furthest the edge is inside the room the
+   path keeps clear of tufts (LOOP_ROOM), so nothing grows through a band. */
+export const BAND_CORE = 0.8, BAND_REACH = 1.7, BAND_FRAY = 0.5, BAND_LAY = 0.9, BAND_TONE = 0x8e8a82, BAND_AMBER = 0xe8b04b, BAND_GLOW = 0.25;
+/* A band is drawn as the mean of itself over the ground a pixel takes in, so that far off, where a pixel takes in more ground than
+   a band is wide, it is a wider and fainter band holding all of its light, and never a line of pixels that comes and goes as the
+   eye moves. A pixel takes in no less than BAND_HELD m, and is reckoned to take in no more than BAND_BLUR m, which is under twice
+   what the mask's range leaves past a band's furthest edge: so ground that the mask says is BAND_RANGE m or more from a band is not
+   lit at all, whatever a pixel takes in and whatever the grain. */
+export const BAND_HELD = 0.02, BAND_BLUR = 8;
+/* How much of a band lies between its middle and `x` m to one side of it: the band's strength summed across it, in metres. */
+const bandArea = (x) => {
+  const a = Math.abs(x), t = Math.max(0, Math.min(1, (a - BAND_CORE) / (BAND_REACH - BAND_CORE)));
+  return Math.sign(x) * (Math.min(a, BAND_CORE) + (BAND_REACH - BAND_CORE) * t * (1 - t * t * (1 - 0.5 * t)));
+};
+/* How far a point of the ground is lit by a band whose middle is `away` m from it, 0 to 1, where a pixel takes in `covers` m of the
+   ground and the tussock grain stands at `tussocks`, 0 to 1 (a half where a pixel cannot hold the grain): 1 within BAND_CORE, none
+   past BAND_REACH and eased between them, as a pixel that takes in next to nothing sees it on even grain. The ground's shader
+   reckons the same (BANDS). */
+export function bandAt(away, covers = 0, tussocks = 0.5) {
+  const wide = Math.max(BAND_HELD, Math.min(covers, BAND_BLUR)), mid = away + BAND_FRAY * (tussocks - 0.5);
+  return (bandArea(mid + 0.5 * wide) - bandArea(mid - 0.5 * wide)) / wide;
 }
 /* How far from the setlist's path anything grows, and the side of the squares its points are sorted into (no less than that). */
 const LOOP_ROOM = 2.2, LOOP_SQUARE = 4;
@@ -182,18 +210,40 @@ float worn(vec2 p, float tussocks) {
   if (inside <= 0.0) return 0.0;
   return inside * (1.0 - smoothstep(${f(PATCH_FROM)}, ${f(PATCH_TO)}, tussocks + 0.5 - tread(p, r, along, aside))) * ${f(WEAR)};
 }`;
+/* The lit bands, as the ground's shader reckons them: how far a point lies from the middle of the nearest, read from the mask
+   (path.js bandAway, in GLSL), and bandAt. The mask's reading is kept in a float of the shader's own precision before anything is
+   reckoned with it: a sampler's own may be low, and hold no number past 2. A point of the ground the mask reads as off the bands
+   pays for that one reading, a comparison, and the glow's own line, which adds nothing there; one within the mask's range of a
+   band pays for some fifty sums as well, with no loop and no second reading. */
+const BANDS = `
+uniform highp sampler2D uBands;
+uniform float uBandGlow;
+float bandAway(vec2 p) {
+  float read = texture2D(uBands, vec2((p.x + ${f(BAND_SIDE / 2)}) / ${f(BAND_SIDE)}, (p.y + ${f(BAND_SIDE / 2)}) / ${f(BAND_SIDE)})).r;
+  return (1.0 - read) * ${f(BAND_RANGE)};
+}
+float bandArea(float x) {
+  float a = abs(x), t = clamp((a - ${f(BAND_CORE)}) / ${f(BAND_REACH - BAND_CORE)}, 0.0, 1.0);
+  return sign(x) * (min(a, ${f(BAND_CORE)}) + ${f(BAND_REACH - BAND_CORE)} * t * (1.0 - t * t * (1.0 - 0.5 * t)));
+}
+float band(float away, float covers, float tussocks) {
+  float wide = max(${f(BAND_HELD)}, min(covers, ${f(BAND_BLUR)})), mid = away + ${f(BAND_FRAY)} * (tussocks - 0.5);
+  return (bandArea(mid + 0.5 * wide) - bandArea(mid - 0.5 * wide)) / wide;
+}`;
 /* Has a material that takes the stage's glow (takesPool) wear the land's grain as well, and with `tracked` the tracks' packed earth
    where they run and the crowd's worn earth where it stands. `pixel` holds the angle one pixel of the frame spans, in radians, which
-   whoever draws the mesh keeps to the camera and the frame (pixelAngle); left alone it is a desktop's. The material is one that
-   shades smooth: the grain reads its normal. */
-export function grained(material, relief, tracked = false, pixel = { value: PIXEL }) {
+   whoever draws the mesh keeps to the camera and the frame (pixelAngle); left alone it is a desktop's. With `bands`, the mask of a
+   show's lit bands and their glow, as `{ map: { value }, glow: { value } }`, it wears the bands too; without, its shader is the one
+   it would be had there never been any. The material is one that shades smooth: the grain reads its normal. */
+export function grained(material, relief, tracked = false, pixel = { value: PIXEL }, bands = null) {
   const pool = material.onBeforeCompile;
   material.onBeforeCompile = (shader) => {
     pool(shader);
     shader.uniforms.uPixel = pixel;
-    const earth = new THREE.Color(TRACK), worn = new THREE.Color(WORN);
+    if (bands) { shader.uniforms.uBands = bands.map; shader.uniforms.uBandGlow = bands.glow; }
+    const earth = new THREE.Color(TRACK), worn = new THREE.Color(WORN), tone = new THREE.Color(BAND_TONE), amber = new THREE.Color(BAND_AMBER);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>\nuniform float uPixel;${GRAIN}${tracked ? TRACKS + EARTH : ""}`)
+      .replace("#include <common>", `#include <common>\nuniform float uPixel;${GRAIN}${tracked ? TRACKS + EARTH : ""}${bands ? BANDS : ""}`)
       .replace("#include <color_fragment>", `#include <color_fragment>${tracked ? `
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${f(earth.r)}, ${f(earth.g)}, ${f(earth.b)}), tracks(vPoolAt.xz));` : ""}
         /* How much ground this pixel takes in along the line of sight, in metres: as far as the ground is from the eye, by the
@@ -213,8 +263,19 @@ export function grained(material, relief, tracked = false, pixel = { value: PIXE
         /* The crowd's worn earth: where the turf is thin, which is where the tussock grain is low, and the more of the ground the
            harder it is trodden. Where a pixel cannot hold the grain, tussocks is 0.5 and the earth is as much of the ground as it
            is trodden hard, so nothing dithers. */
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${f(worn.r)}, ${f(worn.g)}, ${f(worn.b)}), worn(vPoolAt.xz, tussocks));` : ""}
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${f(worn.r)}, ${f(worn.g)}, ${f(worn.b)}), worn(vPoolAt.xz, tussocks));` : ""}${bands ? `
+        /* The lit bands: how far this point of the ground is lit by one, over the ground this pixel takes in and by the tussock
+           grain as the shader holds it, and the band's pale stone over whatever the ground is here, the grain lying on it as on
+           the turf. The mask is read for every pixel, outside the branch, so its filter has a slope to go by on every driver. */
+        float bandLit = 0.0, bandOff = bandAway(vPoolAt.xz);
+        if (bandOff < ${f(BAND_RANGE)}) {
+          bandLit = band(bandOff, covers, tussocks);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${f(tone.r)}, ${f(tone.g)}, ${f(tone.b)}), ${f(BAND_LAY)} * bandLit);
+        }` : ""}
         diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - 0.5) + 0.26 * (blades - 0.5) * fineShown;`);
+    /* The bands' own glow, added to what the ground gives off, which is nothing else. */
+    if (bands) shader.fragmentShader = shader.fragmentShader.replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+        totalEmissiveRadiance += vec3(${f(amber.r)}, ${f(amber.g)}, ${f(amber.b)}) * uBandGlow * bandLit;`);
     if (relief) shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_begin>", `#include <normal_fragment_begin>
         {
           /* The surface leans away from where the grain rises, as a bump map leans it (three's own way of it). */
@@ -351,11 +412,12 @@ export function landColour(x, y, z, ny, out) {
 /* The ground (a grid of the tier's size, coloured by vertex, with the ring road and the lightning path worn into it) and the sea,
    then what grows, lies and flies on the land (flora.js), then the caves' pools and lights. `loop` is the setlist's path as points
    [x, z] every couple of metres, which nothing grows on, and `trunks(x, z)` whether a tree's trunk stands too near (x, z) for
-   anything to grow or lie there (trees.js). It returns the caves, the flora, `lit`, which has a material take the stage's glow as
+   anything to grow or lie there (trees.js), and `bands` the show's lit bands for the ground to wear (grained), null where it has
+   none. It returns the caves, the flora, `lit`, which has a material take the stage's glow as
    the ground does, or as a thing that stands on it does (takesPool), and `shade`, which draws a look of the night on the island
    at a time: the water's colour, the light lying on it and its swell, the stage's glow on the ground (buildSea, takesPool), the
    wind in the tufts, and the fireflies. */
-export function buildIsland(scene, grid, phone, loop = [], trunks = () => false) {
+export function buildIsland(scene, grid, phone, loop = [], trunks = () => false, bands = null) {
   const ground = new THREE.PlaneGeometry(260, 260, grid, grid);
   ground.rotateX(-Math.PI / 2);
   const pos = ground.attributes.position;
@@ -367,7 +429,7 @@ export function buildIsland(scene, grid, phone, loop = [], trunks = () => false)
   ground.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   const uPool = { value: new THREE.Color(0x000000) };
   const uPixel = { value: PIXEL }, drawn = new THREE.Vector2();
-  const land = new THREE.Mesh(ground, grained(takesPool(new THREE.MeshLambertMaterial({ vertexColors: true }), uPool), !phone, true, uPixel));
+  const land = new THREE.Mesh(ground, grained(takesPool(new THREE.MeshLambertMaterial({ vertexColors: true }), uPool), !phone, true, uPixel, bands));
   /* The grain fades by what a pixel of this frame takes in of the ground, whatever the tier's view and the render scale. */
   land.onBeforeRender = (renderer, _scene, camera) => { uPixel.value = pixelAngle(camera, renderer.getDrawingBufferSize(drawn).y); };
   scene.add(land);

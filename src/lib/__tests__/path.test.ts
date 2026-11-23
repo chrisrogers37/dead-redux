@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+// @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
+import * as THREE from "three";
 import { FIRST_EYE, height } from "../../../public/world/ground.js";
-import { buildPath, layout, nearStand } from "../../../public/world/path.js";
+import { BAND_RANGE, BAND_SIDE, BAND_STEP, bandAway, bandMask, buildPath, layout, nearStand } from "../../../public/world/path.js";
 
 const path = buildPath();
 const { pointU } = path;
@@ -181,5 +183,132 @@ describe("?pose=near-K: where the visitor stands by a landmark", () => {
     for (const k of [12, 99, -1, 1.5, Number.NaN]) expect(nearStand(path, u, all, k), `song ${k}`).toBeNull();
     // A distance no path reaches: the search ends once it has gone the loop round.
     expect(nearStand(path, u, all, 3, 1e6)).toBeNull();
+  });
+});
+
+describe("the lit bands' mask", () => {
+  type Mask = { image: { data: Uint8Array; width: number; height: number }; format: number; type: number; minFilter: number; magFilter: number; wrapS: number; wrapT: number; generateMipmaps: boolean; flipY: boolean };
+  // A straight path 200 m long, from west to east 20 m south of the island's middle, and a show of five songs on it, the second of
+  // which runs into the third: one band, from 60 m west of the middle to 60 m east of it. `also` names more songs that run on.
+  const straight = { at: (u: number) => new THREE.Vector3(-100 + 200 * u, 0, 20), curveLength: 200 };
+  const points = [0, 0.2, 0.8, 0.9, 0.95, 1];
+  const five = (...also: number[]) => Array.from({ length: 5 }, (_, i) => ({ title: `Song ${i}`, duration: 300, segueOut: i === 1 || also.includes(i) }));
+  const quantum = BAND_RANGE / 255;
+
+  it.each([512, 256])("holds how far the ground lies from the band's middle, in a mask %i texels a side: on the band, beside it, past its ends and off it", (size) => {
+    const mask = bandMask(straight, five(), points, size) as Mask, cell = BAND_SIDE / size;
+    // On the centre line the reading is the two rows of texels that straddle it, each half a texel off: no more than that.
+    for (const x of [-59, -20, 0, 33.3, 59]) expect(bandAway(mask, x, 20), `on the band at x ${x}`).toBeLessThanOrEqual(cell / 2 + quantum);
+    // Beside it, a texel or more from the line and a texel or more inside the mask's range, the reading is the distance, to a step
+    // of the byte; on either side alike. A mask turned over in z would have the band 20 m north of the middle, and one with x and z
+    // swapped would run it north to south.
+    for (const x of [-50, 0, 41.7]) for (const off of [1.1, 1.7, 2.5, 4, 4.9, -1.1, -2.5, -4.9]) {
+      expect(bandAway(mask, x, 20 + off), `${off} m beside the band at x ${x}`).toBeGreaterThan(Math.abs(off) - quantum);
+      expect(bandAway(mask, x, 20 + off), `${off} m beside the band at x ${x}`).toBeLessThan(Math.abs(off) + quantum);
+    }
+    for (const [x, z] of [[0, 20 + BAND_RANGE + cell], [0, 20 - BAND_RANGE - cell], [0, -20], [20, 0], [20, 60]]) expect(bandAway(mask, x, z), `off the band at ${x}, ${z}`).toBe(BAND_RANGE);
+    // Past each end the band is rounded off: 3 m past it along the path is 3 m away, to the few centimetres the filter gives a
+    // distance that bends between texels, and the song before it, which runs into nothing, has no band, nor has the one after.
+    for (const x of [-63, 63]) expect(Math.abs(bandAway(mask, x, 20) - 3), `3 m past the band's end at x ${x}`).toBeLessThan(0.05);
+    for (const x of [-99, -80, -60 - BAND_RANGE - cell, 60 + BAND_RANGE + cell, 70, 85, 99]) expect(bandAway(mask, x, 20), `on the path at x ${x}`).toBe(BAND_RANGE);
+    // Each texel is a byte: 255 on the line, one less for each 2.4 cm from it, by the texel's own middle, and 0 from BAND_RANGE on.
+    const at = (ix: number, iz: number) => mask.image.data[iz * size + ix], middle = (i: number) => (i + 0.5) * cell - BAND_SIDE / 2;
+    for (const [x, z] of [[0, 20], [10, 21.3], [-30, 16.2], [0, 25.9], [64.5, 22.5]]) {
+      const ix = Math.floor((x + BAND_SIDE / 2) / cell), iz = Math.floor((z + BAND_SIDE / 2) / cell);
+      const away = Math.hypot(Math.max(Math.abs(middle(ix)) - 60, 0), middle(iz) - 20);
+      expect(at(ix, iz), `the texel at ${x}, ${z}`).toBe(Math.max(0, Math.round(255 * (1 - away / BAND_RANGE))));
+    }
+    expect(mask.image.data.reduce((most, byte) => Math.max(most, byte), 0)).toBeGreaterThanOrEqual(255 - Math.ceil(cell / 2 / quantum));
+  });
+
+  it("is a texture the ground's shader reads as it is: one byte a texel, the four round a point weighed by the linear filter, with no smaller copies, the edge's texel past the edge", () => {
+    const mask = bandMask(straight, five(), points) as Mask;
+    expect(mask.image.width).toBe(512);
+    expect(mask.image.height).toBe(512);
+    expect(mask.image.data).toHaveLength(512 * 512);
+    expect(mask.format).toBe(THREE.RedFormat);
+    expect(mask.type).toBe(THREE.UnsignedByteType);
+    // A nearest filter would draw the band's edge in half-metre steps, and a mipmap would read the mean of distances far off, which
+    // is no distance: the band would thin to nothing.
+    expect(mask.minFilter).toBe(THREE.LinearFilter);
+    expect(mask.magFilter).toBe(THREE.LinearFilter);
+    expect(mask.generateMipmaps).toBe(false);
+    expect(mask.wrapS).toBe(THREE.ClampToEdgeWrapping);
+    expect(mask.wrapT).toBe(THREE.ClampToEdgeWrapping);
+    // Row 0 is the island's north edge.
+    expect(mask.flipY).toBe(false);
+    // bandAway reads it as the filter does: halfway between two texels' middles, the mean of the two; a quarter of the way, three
+    // parts of the nearer to one of the further; and past the mask's edge, the edge.
+    const size = 8, data = Uint8Array.from({ length: size * size }, (_, k) => (k * 37) % 256), cell = BAND_SIDE / size, middle = (i: number) => (i + 0.5) * cell - BAND_SIDE / 2;
+    const small = { image: { data, width: size, height: size } }, far = (byte: number) => (1 - byte / 255) * BAND_RANGE;
+    const texel = (ix: number, iz: number) => data[iz * size + ix];
+    expect(bandAway(small, middle(3), middle(5))).toBeCloseTo(far(texel(3, 5)), 12);
+    expect(bandAway(small, (middle(3) + middle(4)) / 2, middle(5))).toBeCloseTo(far((texel(3, 5) + texel(4, 5)) / 2), 12);
+    expect(bandAway(small, middle(3), middle(5) + cell / 4)).toBeCloseTo(far(0.75 * texel(3, 5) + 0.25 * texel(3, 6)), 12);
+    expect(bandAway(small, middle(2) + cell / 2, middle(6) + cell / 2)).toBeCloseTo(far((texel(2, 6) + texel(3, 6) + texel(2, 7) + texel(3, 7)) / 4), 12);
+    expect(bandAway(small, -BAND_SIDE, middle(5))).toBeCloseTo(far(texel(0, 5)), 12);
+    expect(bandAway(small, middle(3), 2 * BAND_SIDE)).toBeCloseTo(far(texel(3, 7)), 12);
+  });
+
+  it("is null for a show none of whose songs runs into the next, and the last song's segue joins nothing", () => {
+    const none = Array.from({ length: 5 }, (_, i) => ({ title: `Song ${i}`, duration: 300 }));
+    expect(bandMask(straight, none, points)).toBeNull();
+    expect(bandMask(straight, [], [1])).toBeNull();
+    expect(bandMask(straight, none.map((t, i) => ({ ...t, segueOut: i === 4 })), points)).toBeNull();
+  });
+
+  it("is the same on every build, and one band where two meet: each texel holds the nearer band's distance, never the two summed", () => {
+    const one = bandMask(straight, five(), points) as Mask, again = bandMask(straight, five(), points) as Mask;
+    expect(Buffer.from(again.image.data).equals(Buffer.from(one.image.data))).toBe(true);
+    // The second song runs into the third, and the third into the fourth: they meet at the third's point, 60 m east of the middle.
+    const next = bandMask(straight, Array.from({ length: 5 }, (_, i) => ({ title: `Song ${i}`, duration: 300, segueOut: i === 2 })), points) as Mask;
+    const both = bandMask(straight, five(2), points) as Mask;
+    let lit = 0, wrong = 0;
+    for (let k = 0; k < both.image.data.length; k++) {
+      if (both.image.data[k] !== Math.max(one.image.data[k], next.image.data[k])) wrong += 1;
+      if (one.image.data[k] > 0 && next.image.data[k] > 0) lit += 1;
+    }
+    expect(wrong).toBe(0);
+    // The two do overlap, round where they meet, and there is no gap at the joint.
+    expect(lit).toBeGreaterThan(100);
+    expect(bandAway(both, 60, 20)).toBeLessThanOrEqual(BAND_SIDE / 512 / 2 + quantum);
+    expect(Math.abs(bandAway(both, 60, 23) - 3)).toBeLessThan(quantum);
+  });
+
+  // The island's own path, and a show of twelve songs of which the fourth, the fifth and the tenth run on: bands round the summit,
+  // and one out of the right cave. The measure is against the path itself, a point every 5 cm.
+  it.each([512, 256])("follows the island's own path between the songs' points, in a mask %i texels a side, to within a hand of it all over the island", { timeout: 20000 }, (size) => {
+    const tracks = show({ 5: "Drums", 9: "Space" }).map((t, i) => ({ ...t, segueOut: i === 3 || i === 4 || i === 9 })), u = layout(tracks, 3, path);
+    const mask = bandMask(path, tracks, u, size) as Mask, cell = BAND_SIDE / size;
+    const line: number[][] = [];
+    for (const i of [3, 4, 9]) for (let d = 0, long = (u[i + 1] - u[i]) * path.curveLength; d <= long; d += 0.05) { const p = path.at(u[i] + d / path.curveLength); line.push([p.x, p.z]); }
+    const squares = new Map<number, number[][]>(), square = (v: number) => Math.floor(v / 8), key = (i: number, j: number) => i * 4096 + j;
+    for (const p of line) { const k = key(square(p[0]), square(p[1])); if (!squares.has(k)) squares.set(k, []); squares.get(k)!.push(p); }
+    const truly = (x: number, z: number) => {
+      let least = Infinity;
+      for (let i = square(x) - 1; i <= square(x) + 1; i++) for (let j = square(z) - 1; j <= square(z) + 1; j++) for (const [px, pz] of squares.get(key(i, j)) ?? []) least = Math.min(least, Math.hypot(x - px, z - pz));
+      return least;
+    };
+    let near = 0, off = 0, worst = 0, worstBeyond = 0;
+    const wrong: string[] = [];
+    for (let x = -129; x <= 129; x += 0.7) for (let z = -129; z <= 129; z += 0.7) {
+      const real = truly(x, z), read = bandAway(mask, x, z);
+      if (real >= BAND_RANGE + 1.5 * cell) { off += 1; if (read !== BAND_RANGE) wrong.push(`${x.toFixed(1)}, ${z.toFixed(1)}: ${read.toFixed(2)} m, off the bands`); continue; }
+      // Within a texel of the line the reading is rounded off, as above, and within one of the mask's range it nears the range.
+      if (real < cell || real > BAND_RANGE - cell) continue;
+      // A band is drawn within 2 m of its middle or so (island.js); the mask reads on to its range for a pixel that takes in more.
+      if (real < 2.5) { near += 1; worst = Math.max(worst, Math.abs(read - real)); }
+      else worstBeyond = Math.max(worstBeyond, Math.abs(read - real));
+    }
+    expect(wrong.slice(0, 5)).toEqual([]);
+    // The points do try the bands and the ground off them.
+    expect(near).toBeGreaterThan(2000);
+    expect(off).toBeGreaterThan(100000);
+    // A byte's step, the path's bend within a step of BAND_STEP m (a tenth of a metre where it turns tightest), and the filter
+    // between texels: a hand's breadth where a band is drawn, and a little more where two stretches of a band are as near as each
+    // other. A mask half a texel out of place is a quarter of a metre off on a desktop and half a metre on a phone.
+    expect(worst).toBeLessThan(0.15);
+    expect(worstBeyond).toBeLessThan(0.25);
+    expect(BAND_STEP).toBeLessThanOrEqual(2);
   });
 });

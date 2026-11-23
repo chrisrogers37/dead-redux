@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
 import {
+  BAND_AMBER, BAND_BLUR, BAND_CORE, BAND_FRAY, BAND_GLOW, BAND_HELD, BAND_LAY, BAND_REACH, BAND_TONE, bandAt,
   BOLT, BOLT_HALF, buildIsland, FEATHER, grained, landColour, offTracks, PATCH_FROM, PATCH_TO, pixelAngle, RING, SHORE, surfaceOf, takesPool, TRACK, tracksAt, TREAD,
   troddenAt, WEAR, WEAR_FEATHER, WEAR_GROW, wearAt, WORN,
 } from "../../../public/world/island.js";
+import { BAND_RANGE, BAND_SIDE, bandAway, bandMask, buildPath, layout } from "../../../public/world/path.js";
 import { CAVES, height, STAGE } from "../../../public/world/ground.js";
 import { fromStage, offAxis, onCrowdGround, seats, SPANS, WALKS } from "../../../public/world/seats.js";
 import { lookAt, newLook } from "../../../public/world/night.js";
@@ -418,6 +420,302 @@ describe("the crowd's worn earth", () => {
     expect(some(offTheGround)).toEqual([]);
     // The aisle is the one the seats leave: every seat stands clear of its worn middle.
     for (const seat of seats({ path: [], line: [], landmarks: [] }) as { x: number; z: number }[]) expect(offAxis(seat.x, seat.z).aside).toBeGreaterThanOrEqual(aisleOut - 0.2);
+  });
+});
+
+describe("the lit bands", () => {
+  const n = (v: number) => v.toFixed(4);
+  type Mask = { image: { data: Uint8Array; width: number; height: number } };
+  type Bands = { map: { value: Mask }; glow: { value: number } };
+  // The island's own path, and a show of twelve songs of which the fourth, the fifth and the tenth run into the next: bands down
+  // from the summit and out of the right cave.
+  const path = buildPath();
+  const tracks = Array.from({ length: 12 }, (_, i) => ({ title: i === 5 ? "Drums" : i === 9 ? "Space" : `Song ${i}`, duration: 300, segueOut: i === 3 || i === 4 || i === 9 }));
+  const u = layout(tracks, 3, path) as number[];
+  const bandsOf = (size: number): Bands => ({ map: { value: bandMask(path, tracks, u, size) as Mask }, glow: { value: BAND_GLOW } });
+  // The ground's shader: with bands, or as it is without. (To the type checker a parameter of the world's that is left null by
+  // default takes nothing but null.)
+  const land = (bands: Bands | null) => {
+    const shader = { uniforms: {} as Record<string, unknown>, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
+    grained(takesPool(new THREE.MeshLambertMaterial(), { value: new THREE.Color() }), false, true, undefined, bands as never).onBeforeCompile(shader);
+    return shader;
+  };
+  const ease = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  // The shader's own text for the bands, from the mask's uniform to the end of its last function.
+  const text = (fragment: string) => fragment.slice(fragment.indexOf("uniform highp sampler2D uBands;"), fragment.indexOf("\n}", fragment.indexOf("float band(")) + 2);
+
+  it("are whole within BAND_CORE m of their middle and gone by BAND_REACH, eased between, with an edge that stands further out where the turf is thin", () => {
+    // As a pixel that takes in next to nothing sees it, on even grain: the eased step itself.
+    for (let away = 0; away <= BAND_RANGE; away += 0.013) expect(Math.abs(bandAt(away) - (1 - ease(BAND_CORE, BAND_REACH, away))), `${away.toFixed(3)} m from the middle`).toBeLessThan(1e-3);
+    expect(bandAt(0)).toBeCloseTo(1, 12);
+    expect(bandAt(BAND_CORE - BAND_HELD)).toBeCloseTo(1, 12);
+    expect(bandAt((BAND_CORE + BAND_REACH) / 2)).toBeCloseTo(0.5, 6);
+    expect(bandAt(BAND_REACH + BAND_HELD)).toBe(0);
+    // Never brighter further out.
+    for (let away = 0; away < BAND_RANGE; away += 0.01) expect(bandAt(away + 0.01)).toBeLessThanOrEqual(bandAt(away) + 1e-12);
+    // No hard edge: the ease is over half a metre or more, and the band is whole across a metre or more, as the mesh it replaces
+    // was 2 m across. Its reach is no less than 1.6 m.
+    expect(BAND_REACH - BAND_CORE).toBeGreaterThanOrEqual(0.5);
+    expect(BAND_CORE).toBeGreaterThanOrEqual(0.5);
+    expect(BAND_REACH).toBeGreaterThanOrEqual(1.6);
+    // The edge by the tussock grain: where the turf is thinnest the band reaches half of BAND_FRAY further, and where a tussock
+    // stands thickest half of it less. A fray turned the other way would lay the band over the tussocks and leave the hollows turf.
+    for (const away of [0, 0.4, 0.9, 1.3, 1.7, 2.1]) {
+      expect(bandAt(away, 0, 0)).toBeCloseTo(bandAt(Math.abs(away - BAND_FRAY / 2)), 12);
+      expect(bandAt(away, 0, 1)).toBeCloseTo(bandAt(away + BAND_FRAY / 2), 12);
+    }
+    expect(bandAt(BAND_REACH, 0, 0)).toBeGreaterThan(0.01);
+    expect(bandAt(BAND_REACH - BAND_FRAY / 2 + BAND_HELD, 0, 1)).toBe(0);
+    expect(BAND_FRAY).toBeGreaterThan(0);
+    // The edge frays by less than the ease is wide, so it stays soft all along.
+    expect(BAND_FRAY).toBeLessThan(BAND_REACH - BAND_CORE);
+  });
+
+  it("hold all of their light however much ground a pixel takes in: far off a band is wider and fainter, never a line that comes and goes, and ground the mask reads as off the bands is not lit at all", () => {
+    // Across a band, the sum of how far each point is lit: BAND_CORE + BAND_REACH m of full light, whatever a pixel takes in.
+    const across = (covers: number, tussocks = 0.5) => { let sum = 0; for (let s = -30 + 0.0025; s < 30; s += 0.005) sum += bandAt(Math.abs(s), covers, tussocks) * 0.005; return sum; };
+    for (const covers of [0, 0.3, 1, 2.5, 5, BAND_BLUR]) expect(across(covers), `a pixel that takes in ${covers} m`).toBeCloseTo(BAND_CORE + BAND_REACH, 3);
+    // A pixel that takes in 5 m of ground, on the band's middle, holds the whole band's light in its 5 m; and 3 m from the middle,
+    // where a sharp eye sees no band, it still holds its share.
+    expect(bandAt(0, 5)).toBeCloseTo((BAND_CORE + BAND_REACH) / 5, 9);
+    expect(bandAt(3, 0)).toBe(0);
+    expect(bandAt(3, 5)).toBeGreaterThan(0.1);
+    // Up to a metre, which is what a walker's pixel takes in of the ground 60 m off, the band's middle is still whole.
+    expect(bandAt(0, 1)).toBeCloseTo(1, 12);
+    // A pixel takes in no less than BAND_HELD m and is reckoned to take in no more than BAND_BLUR.
+    for (const away of [0, 1, 2, 4]) {
+      expect(bandAt(away, 0)).toBe(bandAt(away, BAND_HELD));
+      expect(bandAt(away, 1000)).toBe(bandAt(away, BAND_BLUR));
+      expect(bandAt(away, Infinity)).toBe(bandAt(away, BAND_BLUR));
+    }
+    // The mask reads BAND_RANGE m wherever no band lies within that: such ground is not lit, by exactly nothing, whatever a pixel
+    // takes in and whatever the grain. A blur as wide as twice the range would light the whole island a little.
+    for (const covers of [0, 0.5, 3, BAND_BLUR, 1000]) for (const tussocks of [0, 0.5, 1]) expect(bandAt(BAND_RANGE, covers, tussocks), `a pixel that takes in ${covers} m, grain ${tussocks}`).toBe(0);
+    expect(BAND_RANGE - BAND_FRAY / 2 - BAND_BLUR / 2).toBeGreaterThan(BAND_REACH);
+  });
+
+  it.each([512, 256])("are reckoned in the shader as bandAway and bandAt reckon them: the shader's own text, run as it stands on a mask %i texels a side, agrees with them all over the island", { timeout: 20000 }, (size) => {
+    const bands = bandsOf(size), mask = bands.map.value, { fragmentShader: fragment } = land(bands);
+    // The shader's three functions, from its text, made to run here, as the worn earth's are: a GLSL float is a number, its vec2 a
+    // pair and its functions Math's own. texture2D is the GPU's linear filter over the mask's own bytes, the edge's texel past the
+    // edge, written here from what a filter is and not from bandAway.
+    const source = text(fragment).replace(/^uniform [^\n]*\n/gm, "")
+      .replace(/\bfloat (\w+)\(([^)]*)\)\s*\{/g, (_: string, name: string, args: string) => `function ${name}(${args.replace(/\b(float|vec2) /g, "")}) {`)
+      .replace(/\bfloat /g, "let ");
+    expect(source).toContain("function bandAway(p) {");
+    expect(source).toContain("function band(away, covers, tussocks) {");
+    const texture2D = ({ image: { data, width } }: Mask, { x, y }: { x: number; y: number }) => {
+      const s = x * width - 0.5, t = y * width - 0.5, i = Math.floor(s), j = Math.floor(t), a = s - i, b = t - j, hold = (k: number) => Math.min(Math.max(k, 0), width - 1);
+      const byte = (ix: number, iy: number) => data[hold(iy) * width + hold(ix)] / 255;
+      return { r: (1 - b) * ((1 - a) * byte(i, j) + a * byte(i + 1, j)) + b * ((1 - a) * byte(i, j + 1) + a * byte(i + 1, j + 1)) };
+    };
+    // And the shader's own lines for a pixel, from where it reads the mask to where it has laid the band: ground the mask reads as
+    // off the bands is passed over, and the rest is lit as bandAt has it. The colour it lays is not reckoned here.
+    const from = fragment.indexOf("float bandLit = 0.0, bandOff = bandAway(vPoolAt.xz);"), to = fragment.indexOf("\n        }", from) + 10;
+    expect(from).toBeGreaterThan(-1);
+    expect(to).toBeGreaterThan(from);
+    const pixel = fragment.slice(from, to).replace(/\bfloat /g, "let ");
+    expect(pixel).toContain("bandLit = band(bandOff, covers, tussocks);");
+    const run = new Function("uBands", "texture2D", `const { abs, min, max, sign } = Math, clamp = (v, a, b) => min(max(v, a), b), vec2 = (x, y) => ({ x, y });
+      const vec3 = () => null, mix = () => null, diffuseColor = { rgb: null };
+      ${source}
+      return { away: (x, z) => bandAway({ x, y: z }), lit: (x, z, covers, tussocks) => { const vPoolAt = { xz: { x, y: z } }; ${pixel} return bandLit; } };`)(mask, texture2D) as { away: (x: number, z: number) => number; lit: (x: number, z: number, covers: number, tussocks: number) => number };
+    // All over the island, every 1.3 m; along each band, across it every quarter of a metre out to the mask's range; and past the
+    // island's edge, where the mask reads its own edge.
+    const points: number[][] = [];
+    for (let x = -129; x <= 129; x += 1.3) for (let z = -129; z <= 129; z += 1.3) points.push([x, z]);
+    for (const i of [3, 4, 9]) for (let k = 0; k <= 40; k++) {
+      const at = u[i] + (k / 40) * (u[i + 1] - u[i]), p = path.at(at), t = path.tangentAt(at), l = Math.hypot(t.x, t.z);
+      for (let off = -BAND_RANGE - 1; off <= BAND_RANGE + 1; off += 0.25) points.push([p.x + (t.z / l) * off, p.z - (t.x / l) * off]);
+    }
+    points.push([-140, 3], [150, -150], [0, 131]);
+    let apart = 0, whole = 0, eased = 0, none = 0;
+    for (const [x, z] of points) {
+      expect(run.away(x, z)).toBeCloseTo(bandAway(mask, x, z), 9);
+      for (const covers of [0, 0.3, 2, 20]) for (const tussocks of [0, 0.5, 1]) apart = Math.max(apart, Math.abs(run.lit(x, z, covers, tussocks) - bandAt(bandAway(mask, x, z), covers, tussocks)));
+      const here = bandAt(bandAway(mask, x, z));
+      if (here > 1 - 1e-9) whole += 1;
+      else if (here > 0) eased += 1;
+      else none += 1;
+    }
+    // The shader's numbers are written to four places, and the band's are round ones.
+    expect(apart).toBeLessThan(1e-9);
+    // The points do try the bands, their edges and the ground off them.
+    expect(whole).toBeGreaterThan(400);
+    expect(eased).toBeGreaterThan(400);
+    expect(none).toBeGreaterThan(30000);
+    // Past the island's edge there is no band, and no reading but the mask's own edge.
+    expect(run.away(-140, 3)).toBe(BAND_RANGE);
+    // The numbers are the island's and the path's own: the mask's side and range, the band's reach and its fray.
+    expect(fragment).toContain(`float read = texture2D(uBands, vec2((p.x + ${n(BAND_SIDE / 2)}) / ${n(BAND_SIDE)}, (p.y + ${n(BAND_SIDE / 2)}) / ${n(BAND_SIDE)})).r;`);
+    expect(fragment).toContain(`return (1.0 - read) * ${n(BAND_RANGE)};`);
+    expect(fragment).toContain(`float a = abs(x), t = clamp((a - ${n(BAND_CORE)}) / ${n(BAND_REACH - BAND_CORE)}, 0.0, 1.0);`);
+    expect(fragment).toContain(`float wide = max(${n(BAND_HELD)}, min(covers, ${n(BAND_BLUR)})), mid = away + ${n(BAND_FRAY)} * (tussocks - 0.5);`);
+  });
+
+  it("lie where the ground's mesh lies: the mask's square is the ground's own, and a band on the mask is drawn on the ground under it", () => {
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x000000, 100, 400);
+    buildIsland(scene, 20, false);
+    const ground = scene.children.find((o: { isMesh?: boolean; geometry: { attributes: { position: { count: number } } } }) => o.isMesh && o.geometry.attributes.position.count === 21 ** 2);
+    ground.geometry.computeBoundingBox();
+    const { min, max } = ground.geometry.boundingBox;
+    expect([min.x, max.x, min.z, max.z]).toEqual([-BAND_SIDE / 2, BAND_SIDE / 2, -BAND_SIDE / 2, BAND_SIDE / 2]);
+    // The ground is not turned or moved: a point of its mesh is where the shader reads the mask for.
+    expect(ground.matrixWorld.equals(new THREE.Matrix4())).toBe(true);
+  });
+
+  it("are drawn in the ground's own shader, over the tracks and the worn earth and under the grain, with their own glow added, from one reading of the mask", () => {
+    const bands = bandsOf(512), shader = land(bands), fragment = shader.fragmentShader;
+    const tone = new THREE.Color(BAND_TONE), amber = new THREE.Color(BAND_AMBER);
+    expect(shader.uniforms.uBands).toBe(bands.map);
+    expect(shader.uniforms.uBandGlow).toBe(bands.glow);
+    // The mask is read at the shader's own precision, whatever a sampler's is on the device.
+    expect(fragment).toContain("uniform highp sampler2D uBands;");
+    expect(fragment).toContain("uniform float uBandGlow;");
+    const read = "float bandLit = 0.0, bandOff = bandAway(vPoolAt.xz);", near = `if (bandOff < ${n(BAND_RANGE)}) {`, lit = "bandLit = band(bandOff, covers, tussocks);";
+    const laid = `diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${n(tone.r)}, ${n(tone.g)}, ${n(tone.b)}), ${n(BAND_LAY)} * bandLit);`;
+    const glows = `totalEmissiveRadiance += vec3(${n(amber.r)}, ${n(amber.g)}, ${n(amber.b)}) * uBandGlow * bandLit;`;
+    for (const line of [read, near, lit, laid, glows]) expect(fragment.split(line)).toHaveLength(2);
+    // One reading of the mask a pixel, and it is read where every pixel of the ground runs, before the branch that passes over the
+    // ground off the bands: a reading inside a branch would have no slope to pick its filter by on some drivers. What the branch
+    // holds reads no texture and takes no slope.
+    expect(fragment.split("texture2D(uBands").length).toBe(2);
+    expect(fragment.split("bandAway(").length).toBe(3);
+    expect(fragment).toMatch(/float bandLit = 0\.0, bandOff = bandAway\(vPoolAt\.xz\);\s+if \(bandOff < [\d.]+\) \{\s+bandLit = band\(bandOff, covers, tussocks\);\s+diffuseColor\.rgb = mix\([^;]+;\s+\}/);
+    expect(text(fragment)).not.toMatch(/dFd[xy]|fwidth/);
+    expect(text(fragment).indexOf("texture2D(uBands")).toBeLessThan(text(fragment).indexOf("float bandArea("));
+    // The band is laid once the pixel's reach and the tussock grain are known, after the tracks and the worn earth, and before the
+    // grain's own line, so the grain lies on it as on the turf; and its glow is added where three sums what a surface gives off.
+    const worn = fragment.indexOf("worn(vPoolAt.xz, tussocks));"), grain = fragment.indexOf("diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - 0.5) + 0.26 * (blades - 0.5) * fineShown;");
+    expect(worn).toBeGreaterThan(fragment.indexOf("tracks(vPoolAt.xz));"));
+    expect(fragment.indexOf(read)).toBeGreaterThan(worn);
+    expect(fragment.indexOf(lit)).toBeGreaterThan(fragment.indexOf("covers = max(covers,"));
+    expect(fragment.indexOf(lit)).toBeGreaterThan(fragment.indexOf("if (coarseShown > 0.0) tussocks ="));
+    expect(fragment.indexOf(laid)).toBeGreaterThan(fragment.indexOf(lit));
+    expect(grain).toBeGreaterThan(fragment.indexOf(laid));
+    // three's Lambert shader, as the pinned version writes it, has the line the glow hangs on once, after the colour's and before
+    // the lights are summed. A three upgrade that renames it would leave the bands without their glow.
+    const plainLambert = THREE.ShaderLib.lambert.fragmentShader as string;
+    expect(plainLambert.split("#include <emissivemap_fragment>")).toHaveLength(2);
+    expect(plainLambert.indexOf("#include <emissivemap_fragment>")).toBeGreaterThan(plainLambert.indexOf("#include <color_fragment>"));
+    expect(plainLambert.indexOf("vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;")).toBeGreaterThan(plainLambert.indexOf("#include <emissivemap_fragment>"));
+    expect(fragment.indexOf(glows)).toBeGreaterThan(fragment.indexOf("#include <emissivemap_fragment>"));
+    expect(fragment.indexOf(glows)).toBeLessThan(fragment.indexOf("#include <lights_lambert_fragment>"));
+    // The band reads against the turf. Its stone, laid as far as BAND_LAY, is half as bright again as the hill's turf in the same
+    // light, and the glow is the rest of it: at dusk as bright as that turf in full white light, and in the deep of the night, when
+    // main.js leaves it a third, still 0.03 of full white, which the screen shows as a fifth of its range, where the night's turf
+    // is a twentieth.
+    const luma = (c: { r: number; g: number; b: number }) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    const turf = landColour(20, height(20, -40), -40, 0.98, new THREE.Color());
+    expect(luma(tone.clone().lerp(turf, 1 - BAND_LAY))).toBeGreaterThan(1.5 * luma(turf));
+    expect(BAND_GLOW * luma(amber)).toBeGreaterThan(0.8 * luma(turf));
+    expect(0.32 * BAND_GLOW * luma(amber)).toBeGreaterThan(0.03);
+    expect(BAND_LAY).toBeLessThanOrEqual(1);
+  });
+
+  it("change nothing of the ground's shader but what they add, and a ground with no bands has the shader it had before there were any", () => {
+    const { vertexShader, fragmentShader } = THREE.ShaderLib.lambert;
+    const compiled = (relief: boolean, bands?: Bands | null) => {
+      const shader = { uniforms: {} as Record<string, unknown>, vertexShader, fragmentShader };
+      const material = takesPool(new THREE.MeshLambertMaterial(), { value: new THREE.Color() });
+      (bands === undefined ? grained(material, relief, true) : grained(material, relief, true, undefined, bands as never)).onBeforeCompile(shader);
+      return shader;
+    };
+    for (const relief of [false, true]) {
+      const before = compiled(relief), without = compiled(relief, null), banded = compiled(relief, bandsOf(256));
+      // No bands: the same text, to the letter, and no uniform of theirs.
+      expect(without.fragmentShader).toBe(before.fragmentShader);
+      expect(without.vertexShader).toBe(before.vertexShader);
+      expect(Object.keys(without.uniforms).sort()).toEqual(Object.keys(before.uniforms).sort());
+      for (const word of ["uBands", "uBandGlow", "bandLit", "bandAway(", "bandArea(", "band("]) expect(before.fragmentShader).not.toContain(word);
+      // With bands: every line of the shader without them is still there, in its order, so the stage's glow, the grain, the tracks,
+      // the worn earth and the relief are all as they were; and the vertex shader is untouched.
+      expect(banded.vertexShader).toBe(before.vertexShader);
+      const lines = banded.fragmentShader.split("\n");
+      let from = 0;
+      const lost: string[] = [];
+      for (const line of before.fragmentShader.split("\n")) {
+        const found = lines.indexOf(line, from);
+        if (found < 0) lost.push(line);
+        else from = found + 1;
+      }
+      expect(lost).toEqual([]);
+      // What they add: their text before main, and in it a comment of three lines, the five that lay the band and the one that adds
+      // its glow.
+      const added = lines.length - before.fragmentShader.split("\n").length;
+      expect(added).toBe(text(banded.fragmentShader).split("\n").length + 9);
+      expect(Object.keys(banded.uniforms).sort()).toEqual([...Object.keys(before.uniforms), "uBandGlow", "uBands"].sort());
+    }
+  });
+
+  it("are written as a strict GLSL ES compiler takes them: every number a float, no name a reserved word, and nothing divided by what could be nothing", () => {
+    const fragment = land(bandsOf(256)).fragmentShader, from = fragment.indexOf("float bandLit =");
+    const written = `${text(fragment)}\n${fragment.slice(from, fragment.indexOf("\n        }", from) + 10)}\n${fragment.slice(fragment.indexOf("totalEmissiveRadiance += vec3("), fragment.indexOf("* uBandGlow * bandLit;") + 22)}`;
+    expect(written).toContain("if (bandOff < ");
+    expect(written).toContain("float band(float away, float covers, float tussocks) {");
+    expect(written).toContain("* uBandGlow * bandLit;");
+    // A whole number written without its point is an int, and GLSL ES makes no float of it: 2 * x does not compile.
+    expect(written.match(/(?<![\w.])\d+(?![\w.])/g)).toBeNull();
+    expect(written.match(/\d\.\d/g)!.length).toBeGreaterThan(20);
+    // The names the text declares, and the words GLSL ES 3.00 keeps for itself or for later (and `near` and `far`, which some
+    // drivers' compilers keep too).
+    const names = [...written.matchAll(/\b(?:float|vec2|vec3) (\w+)/g), ...written.matchAll(/, (\w+) = /g)].map(([, name]) => name);
+    expect(names).toEqual(expect.arrayContaining(["bandAway", "bandArea", "band", "read", "a", "t", "wide", "mid", "bandLit", "bandOff"]));
+    const kept = ["near", "far", "sample", "filter", "input", "output", "common", "partition", "active", "in", "out", "inout", "half", "fixed", "long", "short", "double", "unsigned", "superp", "resource", "patch", "this", "union", "enum", "class", "template", "using", "namespace", "cast", "inline", "noinline", "public", "static", "extern", "interface", "goto", "volatile", "asm", "packed", "flat", "smooth", "centroid", "layout", "precision", "lowp", "mediump", "highp", "invariant", "discard", "struct", "switch", "case", "default", "texture", "sampler", "image", "buffer", "shared", "coherent", "restrict", "readonly", "writeonly", "subroutine", "typedef", "sizeof"];
+    expect(names.filter((name) => kept.includes(name))).toEqual([]);
+    // Two divisions by a number of the shader's own, the mask's side and the ease's width, and one by the pixel's reach, which is
+    // never under BAND_HELD.
+    expect(Number(n(BAND_SIDE))).toBeGreaterThan(0);
+    expect(Number(n(BAND_REACH - BAND_CORE))).toBeGreaterThan(0);
+    expect(Number(n(BAND_HELD))).toBeGreaterThan(0);
+    expect(written.split("/").length - 1).toBe(4);
+    expect(written).toContain(`/ ${n(BAND_REACH - BAND_CORE)}, 0.0, 1.0);`);
+    expect(written).toContain("/ wide;");
+    expect(written.split(`/ ${n(BAND_SIDE)}`).length - 1).toBe(2);
+    // No loop for a driver to refuse, and no smoothstep whose edges could come out of order.
+    expect(written).not.toMatch(/\b(for|while|do|smoothstep)\b/);
+  });
+
+  it("are worn by the island's ground and by nothing else, with no mesh of their own, and no tuft grows in one", { timeout: 20000 }, () => {
+    const loop = Array.from({ length: Math.ceil(path.curveLength / 2) }, (_, k) => { const p = path.at((2 * k) / path.curveLength); return [p.x, p.z]; });
+    // Every song runs into the next: the whole path is a band.
+    const all = tracks.map((t) => ({ ...t, segueOut: true })), mask = bandMask(path, all, layout(all, 3, path), 512) as Mask, bands = { map: { value: mask }, glow: { value: BAND_GLOW } };
+    const built = (given: Bands | null) => {
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.Fog(0x000000, 100, 400);
+      const { flora } = buildIsland(scene, 64, false, loop, () => false, given as never);
+      return { scene, flora, meshes: scene.children.filter((o: { isMesh?: boolean }) => o.isMesh) };
+    };
+    const banded = built(bands), bare = built(null);
+    // The same meshes with bands as without: the ground, the sea, the tufts, the stones and the caves' two pools.
+    expect(banded.meshes).toHaveLength(6);
+    expect(bare.meshes).toHaveLength(6);
+    const compile = (o: { material: { onBeforeCompile?: (shader: object) => void; isShaderMaterial?: boolean } }) => {
+      const shader = { uniforms: {} as Record<string, unknown>, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
+      if (!o.material.isShaderMaterial) o.material.onBeforeCompile?.(shader);
+      return shader;
+    };
+    const wearers = banded.meshes.filter((o: Parameters<typeof compile>[0]) => "uBands" in compile(o).uniforms);
+    expect(wearers).toHaveLength(1);
+    expect(wearers[0].geometry.attributes.position.count).toBe(65 ** 2);
+    expect(compile(wearers[0]).uniforms.uBands).toBe(bands.map);
+    expect(compile(wearers[0]).uniforms.uBandGlow).toBe(bands.glow);
+    expect(bare.meshes.filter((o: Parameters<typeof compile>[0]) => "uBands" in compile(o).uniforms)).toHaveLength(0);
+    // No tuft's root stands where a band is lit at all, even where the turf is thinnest and the band reaches furthest: the path
+    // keeps its room clear of them, and the band's furthest edge is inside it.
+    const matrix = new THREE.Matrix4(), at = new THREE.Vector3();
+    let nearest = Infinity;
+    expect(banded.flora.tufts.count).toBeGreaterThan(1000);
+    for (let i = 0; i < banded.flora.tufts.count; i++) {
+      banded.flora.tufts.getMatrixAt(i, matrix);
+      at.setFromMatrixPosition(matrix);
+      const away = bandAway(mask, at.x, at.z);
+      expect(bandAt(away, 0, 0)).toBe(0);
+      nearest = Math.min(nearest, away);
+    }
+    // And tufts do grow beside a band: within a metre of where its light gives out.
+    expect(nearest).toBeLessThan(BAND_REACH + BAND_FRAY / 2 + 1);
   });
 });
 
