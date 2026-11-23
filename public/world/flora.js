@@ -55,6 +55,10 @@ export function tuftGeometry() {
   return geo;
 }
 
+/* How far the largest stone reaches from where it lies: its corners stand up to 0.61 of its size out (stoneGeometry), it is up to
+   1.3 times as wide one way as its size, and its size is up to 1.9 m (buildFlora). */
+export const STONE_REACH = 0.61 * 1.3 * 1.9;
+
 /* A stone in its own units, about a metre across and lower than it is wide, no two of its corners the same distance out. */
 export function stoneGeometry() {
   const geo = new THREE.IcosahedronGeometry(0.5, 1), pos = geo.attributes.position, v = new THREE.Vector3();
@@ -225,17 +229,21 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, sur
   const flyCount = Math.min(flies, placed.length);
   const flyAt = new Float32Array(3 * flyCount), flySeed = new Float32Array(4 * flyCount), flyLie = new Float32Array(2 * flyCount);
   const lie = (rise) => Math.max(-FLY_LIE, Math.min(FLY_LIE, rise / (2 * FLY_ROAM)));
-  for (let k = 0; k < flyCount; k++) {
-    /* Every so-many-th tuft, which the cells' scattered order has already spread across the island. */
-    const [x, , z, , a, b] = placed[Math.floor((k * placed.length) / flyCount)];
-    /* The lie of the land across its wander, east and south, which the wander follows; and the highest the ground stands over
-       that lie anywhere under the wander, which its lowest point clears. */
+  /* The lie of the land across a wander at (x, z), east and south, which the wander follows; and the highest the ground stands over
+     that lie anywhere under the wander, which its lowest point clears. */
+  const wander = (x, z) => {
     const lx = lie(surface(x + FLY_ROAM, z) - surface(x - FLY_ROAM, z)), lz = lie(surface(x, z + FLY_ROAM) - surface(x, z - FLY_ROAM));
     let proud = -Infinity;
     for (let i = -FLY_STEPS; i <= FLY_STEPS; i++) for (let j = -FLY_STEPS; j <= FLY_STEPS; j++) {
       const dx = (i / FLY_STEPS) * FLY_ROAM, dz = (j / FLY_STEPS) * FLY_ROAM;
       proud = Math.max(proud, surface(x + dx, z + dz) - lx * dx - lz * dz);
     }
+    return { lx, lz, proud };
+  };
+  for (let k = 0; k < flyCount; k++) {
+    /* Every so-many-th tuft, which the cells' scattered order has already spread across the island. */
+    const [x, , z, , a, b] = placed[Math.floor((k * placed.length) / flyCount)];
+    const { lx, lz, proud } = wander(x, z);
     flyAt.set([x, proud + FLY_BOB * FLY_ROAM + FLY_CLEAR + FLY_LIFT * chance(a, b, 31), z], 3 * k);
     flySeed.set([chance(a, b, 32), chance(a, b, 33), chance(a, b, 34), chance(a, b, 35)], 4 * k);
     flyLie.set([lx, lz], 2 * k);

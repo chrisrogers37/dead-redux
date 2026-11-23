@@ -138,7 +138,7 @@ export function buildWalkLine({ curve, curveLength }, side, rMin = 4.5, passes =
 
 /* A landmark's outline seen from above, in its own frame (collide.js): the hull of all its parts, a part that spins covering the
    circle it turns through. */
-function outline(g, moving) {
+export function outline(g, moving) {
   const v = new THREE.Vector3(), pts = [];
   for (const o of g.children) {
     if (!o.isMesh) continue;
@@ -170,7 +170,9 @@ export function placeLandmarks(scene, { at, tangentAt }, tracks, hasShow, { BUIL
     const t = tangentAt(landmarkU[i]);
     g.rotation.y = Math.atan2(t.x, t.z);
     const b = BUILDERS.find(([re]) => re.test(tracks[i].title));
-    (b ? b[1] : standingStone)(g);
+    /* A song with a landmark of its own gets it; any other, its title's standing stone. */
+    if (b) b[1](g);
+    else standingStone(g, tracks[i].title);
     const edge = outline(g, moving);
     const s = standClear(p.x, p.z, g.rotation.y, edge, pts);
     g.position.set(s.x, height(s.x, s.z), s.z);

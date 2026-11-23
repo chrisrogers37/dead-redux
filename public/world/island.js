@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { buildFlora } from "./flora.js";
 import { CAVES, G, height, SHELF_Y, STAGE } from "./ground.js";
 import { MOON } from "./night.js";
-import { onCrowdGround } from "./seats.js";
+import { AXIS, intoCrowdGround, offAxis, onCrowdGround, SPANS, WALKS } from "./seats.js";
 
 /* The island is the mark: a hill with two caves, a ring road and a lightning path, and at its north-east edge a shelf for the stage.
    The ground's height is in ground.js. */
@@ -43,8 +43,45 @@ export function offTracks(x, z, room) {
 
 /* How far past the crowd's ground the turf is trodden bare of tufts. A figure stands or sits anywhere on that ground and rises with
    the music, and one at its rim steps out past it for the visitor, who it keeps 4.2 m from (crowd.js's parting). A blade or a
-   bloom that came up through a figure would flicker against it as it swayed. */
+   bloom that came up through a figure would flicker against it as it swayed. The worn earth lies where the tufts do not. */
 const CROWD_ROOM = 4.5;
+/* The crowd's ground is worn to earth, in the ground's own shader as the tracks are: it comes in across WEAR_FEATHER m at a section's
+   edge, WEAR_GROW of them past the edge, so it ends inside the 4.5 m where no tuft grows. WEAR is how far the ground takes the earth's
+   colour where it is barest, and WORN that colour: a brown no brighter than the crowd's turf is, taken together, under any light of
+   the show, the stage's glow among them, which is nearly all red and lights a brown more than it does turf. A figure dancing against
+   paler ground swings more blocks of the frame than it does against turf: counted with scripts/flash, an earth a quarter brighter
+   than the turf took the blocks at 5 swings or more in a second from 1,048 to 1,370 through the seeks, the whole frame from behind
+   the crowd. */
+export const WEAR_FEATHER = 4, WEAR_GROW = 2, WEAR = 0.9, WORN = 0x6f6750;
+/* How hard the crowd's ground is trodden, from 0, turf, to 1, bare, so that it reads as ground people have stood, danced and walked
+   on and not as one flat patch: `front` within `from` m of the stage, where they dance, easing to `back` by `to` m, up the hill
+   where they sit; `wing` less out at the crowd's two wings, where few stand, eased over the tangents `wingFrom` to `wingTo` of the
+   angle off the stage's axis; bare along the aisle the seats leave up that axis (seats.js), within `aisle[0]` m of it and easing off
+   by `aisle[1]` m; `path` along the walks between the rings of sections, within `walk[0]` m of each and gone by `walk[1]`; and
+   `patchy` more or less in broad patches some 6 m across, which a pixel always holds. */
+export const TREAD = { front: 0.78, back: 0.46, from: 22, to: 46, wing: 0.3, wingFrom: 0.61, wingTo: 1.4, aisle: [1.2, 3.2], path: 0.9, walk: [0.5, 1.6], patchy: 0.09 };
+/* The earth shows where the turf is thin: where the tussock grain, less how hard the ground is trodden, is under PATCH_FROM, and
+   none where it is over PATCH_TO. */
+export const PATCH_FROM = 0.32, PATCH_TO = 0.68;
+/* How far out from the stage the earth is worn at all: from WEAR_GROW m inside the crowd's nearest ring to WEAR_GROW m past its
+   furthest (seats.js SPANS). The shader reckons no wear outside it. */
+const WEAR_REACH = [Math.min(...SPANS.map(([r0]) => r0)) - WEAR_GROW, Math.max(...SPANS.map(([, r1]) => r1)) + WEAR_GROW];
+/* How far into the crowd's worn ground a point lies, 0 to 1: how far it lies into the crowd's ground (seats.js), eased across
+   WEAR_FEATHER m. The ground's shader reckons the same (EARTH). */
+export const troddenAt = (x, z) => ease(-WEAR_GROW, WEAR_FEATHER - WEAR_GROW, intoCrowdGround(x, z));
+/* How hard a point of the crowd's ground is trodden (TREAD). The ground's shader reckons the same (EARTH). */
+export function treadAt(x, z) {
+  const { r, along, aside } = offAxis(x, z);
+  let hard = TREAD.front + (TREAD.back - TREAD.front) * ease(TREAD.from, TREAD.to, r) - TREAD.wing * ease(TREAD.wingFrom, TREAD.wingTo, aside / Math.max(along, 1));
+  hard = Math.max(hard, TREAD.path * (1 - ease(TREAD.walk[0], TREAD.walk[1], Math.min(1000, ...WALKS.map((far) => Math.abs(r - far))))));
+  hard = Math.max(hard, 1 - ease(TREAD.aisle[0], TREAD.aisle[1], aside));
+  return hard + TREAD.patchy * (Math.sin(x * 0.61 + 1.3) * Math.cos(z * 0.53 - 0.4) + Math.sin((x + z) * 0.37 + 2.1));
+}
+/* How far a point of the ground is worn to earth where the tussock grain stands at `tussocks`, 0 to 1 (a half where a pixel cannot
+   hold the grain): none off the crowd's ground, WEAR at the most. The ground's shader reckons the same (EARTH). */
+export function wearAt(x, z, tussocks = 0.5) {
+  return troddenAt(x, z) * (1 - ease(PATCH_FROM, PATCH_TO, tussocks + 0.5 - treadAt(x, z))) * WEAR;
+}
 /* How far from the setlist's path anything grows, and the side of the squares its points are sorted into (no less than that). */
 const LOOP_ROOM = 2.2, LOOP_SQUARE = 4;
 /* The stage's light on the water: its colour at its fullest, as the screen shows it, and where it lies, from SHINE_OUT m past the stage's
@@ -58,25 +95,32 @@ const POOL = new THREE.Color(0xff7a30).multiplyScalar(5), POOL_UP = 7, POOL_HALF
 const f = (v) => v.toFixed(4);
 
 /* Has a Lambert material take the stage's glow (`uPool`, its colour times its strength) as one more light on it, by the angle its
-   face turns to the stage. */
-export function takesPool(material, uPool) {
+   face turns to the stage. With `stands`, the material draws instances that stand on the ground, each one's root `stands.sunk` m
+   under it, as a tree's is: a face that turns squarely to the stage would take the glow several times more strongly than the ground
+   it stands on, which lies nearly edge-on to it. So such a thing takes it no more strongly than level ground at its foot does, and
+   `stands.share` of that, its colours being paler than the turf's. */
+export function takesPool(material, uPool, stands = null) {
+  const from = `vec3(${f(STAGE[0])}, ${f(SHELF_Y + POOL_UP)}, ${f(STAGE[1])})`, most = stands ? "\nvarying float vPoolMost;" : "";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uPool = uPool;
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vPoolAt;")
+      .replace("#include <common>", `#include <common>\nvarying vec3 vPoolAt;${most}`)
       /* Where the point stands in the world: for an instanced mesh, where its instance puts it. */
       .replace("#include <project_vertex>", `#include <project_vertex>
         #ifdef USE_INSTANCING
           vPoolAt = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
         #else
           vPoolAt = (modelMatrix * vec4(transformed, 1.0)).xyz;
-        #endif`);
+        #endif${stands ? `
+        /* How squarely level ground at the instance's foot turns to the glow. */
+        vPoolMost = max(normalize(${from} - (modelMatrix * instanceMatrix[3]).xyz - vec3(0.0, ${f(stands.sunk)}, 0.0)).y, 0.0);` : ""}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform vec3 uPool;\nvarying vec3 vPoolAt;")
+      .replace("#include <common>", `#include <common>\nuniform vec3 uPool;\nvarying vec3 vPoolAt;${most}`)
       .replace("#include <lights_fragment_end>", `#include <lights_fragment_end>
-        vec3 poolTo = vec3(${f(STAGE[0])}, ${f(SHELF_Y + POOL_UP)}, ${f(STAGE[1])}) - vPoolAt;
+        vec3 poolTo = ${from} - vPoolAt;
         float poolFar = length(poolTo) / ${f(POOL_HALF)};
-        float poolLit = max(dot(normal, normalize((viewMatrix * vec4(poolTo, 0.0)).xyz)), 0.0);
+        float poolLit = max(dot(normal, normalize((viewMatrix * vec4(poolTo, 0.0)).xyz)), 0.0);${stands ? `
+        poolLit = min(poolLit, vPoolMost) * ${f(stands.share)};` : ""}
         reflectedLight.directDiffuse += uPool * diffuseColor.rgb * poolLit * (1.0 - smoothstep(${f(0.6 * POOL_END / POOL_HALF)}, ${f(POOL_END / POOL_HALF)}, poolFar)) / (1.0 + poolFar * poolFar);`);
   };
   return material;
@@ -113,17 +157,43 @@ float tracks(vec2 p) {
   float bolt = min(min(fromLine(p, ${g2(BOLT[0])}, ${g2(BOLT[1])}), fromLine(p, ${g2(BOLT[1])}, ${g2(BOLT[2])})), fromLine(p, ${g2(BOLT[2])}, ${g2(BOLT[3])}));
   return max(ring, 1.0 - smoothstep(${f(BOLT_HALF)}, ${f(BOLT_HALF + FEATHER)}, bolt));
 }`;
+/* A number as the shader's text takes it after an operator: one under nothing in brackets. */
+const signed = (v) => (v < 0 ? `(${f(v)})` : f(v));
+/* The crowd's worn earth, as the ground's shader reckons it: wearAt, in GLSL, with troddenAt (a line to a span) and treadAt. A point
+   of the ground outside the reach of the wear pays for a square root and no more, and one inside it and off the crowd's ground
+   pays nothing for how hard the ground is trodden. Where a point lies about the stage is reckoned once, for both. */
+const EARTH = `
+float trodden(float r, float along, float aside) {
+  float off = atan(aside, along), edge = -1000.0;
+  ${SPANS.map(([r0, r1, a1]) => `edge = max(edge, min(min(r - ${f(r0)}, ${f(r1)} - r), (${f(a1)} - off) * r));`).join("\n  ")}
+  return smoothstep(${f(-WEAR_GROW)}, ${f(WEAR_FEATHER - WEAR_GROW)}, edge);
+}
+float tread(vec2 p, float r, float along, float aside) {
+  float hard = mix(${f(TREAD.front)}, ${f(TREAD.back)}, smoothstep(${f(TREAD.from)}, ${f(TREAD.to)}, r)) - ${f(TREAD.wing)} * smoothstep(${f(TREAD.wingFrom)}, ${f(TREAD.wingTo)}, aside / max(along, 1.0));
+  hard = max(hard, ${f(TREAD.path)} * (1.0 - smoothstep(${f(TREAD.walk[0])}, ${f(TREAD.walk[1])}, ${WALKS.reduce((least, far) => `min(${least}, abs(r - ${f(far)}))`, "1000.0")})));
+  hard = max(hard, 1.0 - smoothstep(${f(TREAD.aisle[0])}, ${f(TREAD.aisle[1])}, aside));
+  return hard + ${f(TREAD.patchy)} * (sin(p.x * 0.61 + 1.3) * cos(p.y * 0.53 - 0.4) + sin((p.x + p.y) * 0.37 + 2.1));
+}
+float worn(vec2 p, float tussocks) {
+  float dx = p.x - ${signed(STAGE[0])}, dz = p.y - ${signed(STAGE[1])}, r = sqrt(dx * dx + dz * dz);
+  if (r <= ${f(WEAR_REACH[0])} || r >= ${f(WEAR_REACH[1])}) return 0.0;
+  float along = dx * ${signed(AXIS[0])} + dz * ${signed(AXIS[1])}, aside = abs(dx * ${signed(AXIS[1])} - dz * ${signed(AXIS[0])});
+  float inside = trodden(r, along, aside);
+  if (inside <= 0.0) return 0.0;
+  return inside * (1.0 - smoothstep(${f(PATCH_FROM)}, ${f(PATCH_TO)}, tussocks + 0.5 - tread(p, r, along, aside))) * ${f(WEAR)};
+}`;
 /* Has a material that takes the stage's glow (takesPool) wear the land's grain as well, and with `tracked` the tracks' packed earth
-   where they run. `pixel` holds the angle one pixel of the frame spans, in radians, which whoever draws the mesh keeps to the camera
-   and the frame (pixelAngle); left alone it is a desktop's. The material is one that shades smooth: the grain reads its normal. */
+   where they run and the crowd's worn earth where it stands. `pixel` holds the angle one pixel of the frame spans, in radians, which
+   whoever draws the mesh keeps to the camera and the frame (pixelAngle); left alone it is a desktop's. The material is one that
+   shades smooth: the grain reads its normal. */
 export function grained(material, relief, tracked = false, pixel = { value: PIXEL }) {
   const pool = material.onBeforeCompile;
   material.onBeforeCompile = (shader) => {
     pool(shader);
     shader.uniforms.uPixel = pixel;
-    const earth = new THREE.Color(TRACK);
+    const earth = new THREE.Color(TRACK), worn = new THREE.Color(WORN);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>\nuniform float uPixel;${GRAIN}${tracked ? TRACKS : ""}`)
+      .replace("#include <common>", `#include <common>\nuniform float uPixel;${GRAIN}${tracked ? TRACKS + EARTH : ""}`)
       .replace("#include <color_fragment>", `#include <color_fragment>${tracked ? `
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${f(earth.r)}, ${f(earth.g)}, ${f(earth.b)}), tracks(vPoolAt.xz));` : ""}
         /* How much ground this pixel takes in along the line of sight, in metres: as far as the ground is from the eye, by the
@@ -139,7 +209,11 @@ export function grained(material, relief, tracked = false, pixel = { value: PIXE
         float fineShown = (1.0 - smoothstep(${f(FINE_NEAR)}, ${f(FINE_FAR)}, length(vViewPosition))) * (1.0 - smoothstep(${f(HELD_FROM)}, ${f(HELD_TO)}, covers * ${f(BLADE)}));
         float tussocks = 0.5, blades = 0.5;
         if (coarseShown > 0.0) tussocks = mix(0.5, grain(vPoolAt.xz * ${f(TUSSOCK)} + 17.0), coarseShown);
-        if (fineShown > 0.0) blades = grain(vPoolAt.xz * ${f(BLADE)} + 41.0);
+        if (fineShown > 0.0) blades = grain(vPoolAt.xz * ${f(BLADE)} + 41.0);${tracked ? `
+        /* The crowd's worn earth: where the turf is thin, which is where the tussock grain is low, and the more of the ground the
+           harder it is trodden. Where a pixel cannot hold the grain, tussocks is 0.5 and the earth is as much of the ground as it
+           is trodden hard, so nothing dithers. */
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${f(worn.r)}, ${f(worn.g)}, ${f(worn.b)}), worn(vPoolAt.xz, tussocks));` : ""}
         diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - 0.5) + 0.26 * (blades - 0.5) * fineShown;`);
     if (relief) shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_begin>", `#include <normal_fragment_begin>
         {
@@ -276,10 +350,12 @@ export function landColour(x, y, z, ny, out) {
 
 /* The ground (a grid of the tier's size, coloured by vertex, with the ring road and the lightning path worn into it) and the sea,
    then what grows, lies and flies on the land (flora.js), then the caves' pools and lights. `loop` is the setlist's path as points
-   [x, z] every couple of metres, which nothing grows on. It returns the caves, the flora and `shade`, which draws a look of the night
-   on the island at a time: the water's colour, the light lying on it and its swell, the stage's glow on the ground (buildSea,
-   takesPool), the wind in the tufts, and the fireflies. */
-export function buildIsland(scene, grid, phone, loop = []) {
+   [x, z] every couple of metres, which nothing grows on, and `trunks(x, z)` whether a tree's trunk stands too near (x, z) for
+   anything to grow or lie there (trees.js). It returns the caves, the flora, `lit`, which has a material take the stage's glow as
+   the ground does, or as a thing that stands on it does (takesPool), and `shade`, which draws a look of the night on the island
+   at a time: the water's colour, the light lying on it and its swell, the stage's glow on the ground (buildSea, takesPool), the
+   wind in the tufts, and the fireflies. */
+export function buildIsland(scene, grid, phone, loop = [], trunks = () => false) {
   const ground = new THREE.PlaneGeometry(260, 260, grid, grid);
   ground.rotateX(-Math.PI / 2);
   const pos = ground.attributes.position;
@@ -300,8 +376,8 @@ export function buildIsland(scene, grid, phone, loop = []) {
   /* What grows and lies on the land (flora.js): as many tufts and stones as the tier's ground is fine, thickest on a desktop's (a
      grid of 80 or more), thinner on a TV's and fewer than half as thick on a phone's, whose frame is small and whose every triangle
      costs it more. Each stands on the ground as its mesh draws it and takes the stage's glow as the ground does, and none of them
-     stands on a track or on the setlist's path, where the bears walk and the lit bands lie. No tuft grows on the crowd's ground;
-     stones lie there as anywhere. */
+     stands on a track, on the setlist's path, where the bears walk and the lit bands lie, or in a tree's trunk. No tuft grows on the
+     crowd's ground, which is worn to earth in the ground's own shader (grained); stones lie there as anywhere. */
   const thick = phone ? 0.6 : grid >= 80 ? 1.0 : 0.8;
   /* The path's points by the square of LOOP_SQUARE m each lies in, so a place is tried against the few points near it and not
      against the whole path. */
@@ -319,10 +395,11 @@ export function buildIsland(scene, grid, phone, loop = []) {
     }
     return true;
   };
+  const lit = (material, stands = null) => takesPool(material, uPool, stands);
   const flora = buildFlora(scene, { tufts: Math.round(grid * grid * thick), stones: Math.round(grid * (phone ? 2.5 : 4)), flies: Math.round(grid * (phone ? 8 : 14)),
     extent: RING - 1, beach: [SHORE + 0.8, SHORE + 3.6], surface: surfaceOf(grid),
-    colour: landColour, lit: (material) => takesPool(material, uPool),
-    clear: (x, z) => offTracks(x, z, FEATHER + 0.4) && offLoop(x, z), trodden: (x, z) => onCrowdGround(x, z, CROWD_ROOM) });
+    colour: landColour, lit,
+    clear: (x, z) => offTracks(x, z, FEATHER + 0.4) && offLoop(x, z) && !trunks(x, z), trodden: (x, z) => onCrowdGround(x, z, CROWD_ROOM) });
 
   /* The caves light for Drums (left) and Space (right): a pool on each floor and, but on a phone, a light inside. */
   const caves = CAVES.map(([cx, cz]) => {
@@ -343,5 +420,5 @@ export function buildIsland(scene, grid, phone, loop = []) {
   /* A look of the night on the island at a time: the sea's, the wind in the tufts at the same time, and the fireflies, which come out
      as far as the night is dark and `calm` (1 when the music is quiet, 0 at its loudest) lets them. */
   const shade = (look, time = 0, calm = 1) => { sea(look, time); flora.wind(time); flora.glow(look.dark * look.dark * (0.35 + 0.65 * calm)); };
-  return { caves, shade, flora };
+  return { caves, shade, flora, lit };
 }

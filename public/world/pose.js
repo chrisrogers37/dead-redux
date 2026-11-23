@@ -8,6 +8,13 @@ import { slotDistance } from "./modes.js";
    and `keepInView(from, look)`, how far (rad) a third-person view from `from` toward `look` turns down, which reads the visitor's
    bear and the camera, so main.js holds it. The visitor's bear stands where slotDistance (modes.js) puts it. */
 
+/* The opening's descent comes straight down from this high over the island's middle to the camera that walks with the bears. */
+export const DESCENT_FROM = 140;
+
+/* Lean-back's crane hangs `back` m behind the visitor's bear along the bears' line, sways `sway` m to either side of the line, and
+   looks at the line `ahead` m on from where it hangs. */
+export const CRANE = { back: 14, sway: 2, ahead: 28 };
+
 /* The camera that walks with the bears, in follow and attract, its eye above their heads; it looks at the lead bear, turned by `yaw`
    and tilted by `pitch`. In third person it stands behind the visitor's bear and to its left, away from the path, along the chord from
    that bear to the lead one, and looks 2 m over the lead bear's head, so all six read: 16 m behind and 6 m to the left with the eye

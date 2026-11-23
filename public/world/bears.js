@@ -56,6 +56,9 @@ function torso() {
   return geo;
 }
 const INK = new THREE.Color(0x0b0b0d), WHITE = new THREE.Color(0xffffff);
+/* A bear's nose: an egg NOSE.r m long about a point NOSE.up m over its feet and NOSE.ahead m ahead of its centre. Its tip is the
+   furthest any part of a bear stands from its centre, SNOUT m ahead of it: what a bear is stopped by, it is stopped that far from. */
+export const NOSE = { up: 3.5, ahead: 2.16, r: 0.2 }, SNOUT = NOSE.ahead + NOSE.r;
 /* Fur whose relative luminance is over TRIM_OVER is near white; its ruff and tail are TRIM_DEEP of its colour. */
 const TRIM_OVER = 0.6, TRIM_DEEP = 0.68;
 
@@ -91,7 +94,7 @@ export function buildBear(scene, hue) {
     part(new THREE.SphereGeometry(0.35, 12, 8).translate(-0.7, 4.5, 0.6), ear),
     part(new THREE.SphereGeometry(0.35, 12, 8).translate(0.7, 4.5, 0.6), ear),
     part(new THREE.SphereGeometry(0.45, 16, 10).scale(1.15, 0.9, 1).translate(0, 3.4, 1.8), plain(pale)),
-    part(new THREE.SphereGeometry(0.2, 12, 8).scale(1.2, 0.85, 1).translate(0, 3.5, 2.16), plain(INK)),
+    part(new THREE.SphereGeometry(NOSE.r, 12, 8).scale(1.2, 0.85, 1).translate(0, NOSE.up, NOSE.ahead), plain(INK)),
     part(new THREE.SphereGeometry(0.11, 8, 6).translate(-0.42, 3.9, 1.73), plain(INK)),
     part(new THREE.SphereGeometry(0.11, 8, 6).translate(0.42, 3.9, 1.73), plain(INK)),
     /* What shows from behind, where the walk's camera stands: a ruff round the neck, standing a hand proud of the shoulders, round
