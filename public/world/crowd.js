@@ -176,7 +176,7 @@ export function figureGeometry(plain = false) {
   add(new THREE.ConeGeometry(0.016, 0.1, 4).rotateX(Math.PI).translate(SHOULDER_X, 0.79, 0), RIG.ARM_R, PART.FINGER, TINT.SELF);
   if (!plain) {
     /* A hoop in the hands at the hips, which a dancer lifts and swings; a hand drum at the left hip. */
-    add(new THREE.TorusGeometry(0.305, 0.016, 3, 10).rotateX(Math.PI / 2).translate(0, 0.9, 0), RIG.BODY, PART.HOOP, TINT.THING);
+    add(new THREE.TorusGeometry(0.305, 0.022, 3, 10).rotateX(Math.PI / 2).translate(0, 0.9, 0), RIG.BODY, PART.HOOP, TINT.THING);
     add(new THREE.CylinderGeometry(0.105, 0.065, 0.3, 6).rotateX(-0.45).translate(-0.12, 1.0, 0.15), RIG.BODY, PART.DRUM, TINT.THING);
     /* A child on the shoulders, behind the head: a body, a head, legs down over the chest and arms up. */
     add(tube([{ y: 1.84, rx: 0.1, rz: 0.075, cz: -0.1 }, { y: 1.56, rx: 0.085, rz: 0.07, cz: -0.1 }], 6, { top: true, bottom: true }), RIG.BODY, PART.RIDER, TINT.THING);
@@ -203,13 +203,20 @@ export const FOLD = 0.18, STAGGER = 0.5, SEAT = 0.075, FOOT = [0.36, 0.03];
 /* The ground's fall or rise ahead of a seat that a seated figure's feet follow, in the figure's own units, at the most. */
 export const DROP = [-0.12, 0.3];
 /* The dance, on the figures' beat. Each figure moves one way (MOVES), as far as its own size lets it (aWear.w, 1 at the most), and
-   keeps its own phase (aFig.y, 0-1). One that bobs brings its hips down on each beat by BOB of what a fold to FOLD takes, swings its
-   arms out ARM_SWING rad between beats and sways SWAY rad to each side over two beats, its knees within JITTER of a beat of the rest.
-   One that sways leans from the feet over four beats, its hips out and its shoulders back over them; one waves both arms overhead;
-   one turns on the spot, there and back over eight beats, a skirt flaring as it turns; one nods with its arms folded; one claps
-   overhead on the beat; one stands and watches, its hands on its hips or at its sides. A stance, folded arms or hands on hips, is
-   kept dancing or not, but let go, like the dance, as the parting stills a figure. No way of moving carries a hand further from the
-   figure's axis than the bob does as the build-up lifts its arms, so the reaches below bound them all (crowd.test.ts). */
+   keeps its own phase (aFig.y, 0-1). One that bobs brings its hips down on each beat by BOB of what a fold to FOLD takes, its knees
+   within JITTER of a beat of the rest, sways SWAY rad to each side over two beats and swings each arm out ARM_SWING rad as it leans
+   that way. One that sways leans from the feet over four beats, its hips out and its shoulders back over them; one waves both arms
+   overhead, over four beats; one turns on the spot, there and back over eight beats, a skirt flaring as it turns; one nods with its
+   arms folded; one claps on the beat, before its chest; one stands and watches, its hands on its hips or at its sides. A stance,
+   folded arms or hands on hips, is kept dancing or not, but let go, like the dance, as the parting stills a figure. Seated, every
+   arm hangs.
+   The dance is slow on purpose, for the flash count (CLAUDE.md, motion and flashes): a limb that passes over lit ground or the stage
+   swings each block on its way twice as it goes and twice as it comes back. So no arm goes out and back more than once in two
+   beats; what keeps every beat is the bob's knees, the nod and the clap, which a figure's own body covers; and no arm is raised by
+   one that sits, as the whole crowd does through Space. It is counted by render, with scripts/flash, and the PR's text holds the
+   counts: a new way of moving is counted the same way before it merges.
+   No way of moving carries a hand further from the figure's axis than the bob does as the build-up lifts its arms, so the reaches
+   below bound them all (crowd.test.ts). */
 const BOB = 0.12, ARM_SWING = 0.5, SWAY = 0.08, JITTER = 0.12;
 /* The beats the phase is kept to: the longest move's cycle, the turn's, which every other divides. */
 export const CYCLE = 8;
@@ -324,9 +331,9 @@ function person(r, sits, prop, stature) {
   const child = p.stature === "child", small = child || p.stature === "teen";
   p.build = child ? choose(r, only(CHOICES.build, ["slight", "average"])) : choose(r, CHOICES.build);
   p.move = prop === "stand" ? "watch" : prop === "rider" || prop === "hoop" ? "sway" : prop === "drum" ? "bob"
-    : prop !== "none" ? choose(r, only(CHOICES.move, ["bob", "sway", "watch"]))
-    : child ? choose(r, only(CHOICES.move, ["bob", "wave", "spin", "clap"]))
-    : sits ? choose(r, only(CHOICES.move, ["bob", "sway", "wave", "nod", "clap", "watch"])) : choose(r, CHOICES.move);
+    : prop !== "none" ? choose(r, only(CHOICES.move, ["sway", "watch"]))
+    : sits ? choose(r, only(CHOICES.move, ["bob", "sway", "nod", "watch"]))
+    : child ? choose(r, only(CHOICES.move, ["bob", "wave", "spin", "clap"])) : choose(r, CHOICES.move);
   p.legs = p.move === "spin" && r() < 0.85 ? choose(r, only(CHOICES.legs, ["maxi", "dress"]))
     : prop === "stand" ? choose(r, CHOICES.legs.filter(([name]) => name !== "maxi")) : choose(r, CHOICES.legs);
   p.top = prop === "hoop" || prop === "drum" || prop === "stand" ? choose(r, only(CHOICES.top, ["shirt", "tee"])) : choose(r, CHOICES.top);
@@ -463,7 +470,7 @@ function reaches(p, wear) {
   if (has("POLE")) reach(0.335 + forward);
   if (has("STAND")) reach(0.35);
   if (has("BALLOON")) reach(0.335 + back);
-  if (has("HOOP")) reach(0.325);
+  if (has("HOOP")) reach(0.33);
   if (has("DRUM")) reach(0.345 + forward);
   if (has("RIDER")) reach(0.27 + back);
   /* The top: its hands at the rise's peak, and what stands over its head, each as far up as the sway lifts its far side. */
@@ -522,6 +529,8 @@ if (!worn) {
   float rise = clamp((uRise - ${f(RISE_FROM)} - ${f(RISE_SPAN)} * aFig.z) / ${f(RISE_W)}, 0.0, 1.0) * aRise;
   float sit = max(aFig.x, clamp(uSit * ${f(1 + STAGGER)} - aFig.y * ${f(STAGGER)}, 0.0, 1.0)) * (1.0 - rise);
   float bounce = 0.5 + 0.5 * cos(6.2832 * (uBeat + ${f(JITTER)} * aFig.y));
+  /* The figure's slow beat: every other beat, its own of the two, 1 on it and 0 on the beat between. */
+  float slow = 0.5 + 0.5 * cos(3.1416 * (uBeat + ${f(JITTER)} * aFig.y + floor(2.0 * fract(5.3 * aFig.y))));
   float two = sin(3.1416 * (uBeat + aFig.y)), four = sin(1.5708 * (uBeat + 4.0 * aFig.y)), eight = 0.7854 * (uBeat + 8.0 * aFig.y);
   float spin = kind > 2.5 && kind < 3.5 ? 1.0 : 0.0;
 
@@ -570,23 +579,23 @@ if (!worn) {
   if (!legRig && !footRig && !skirtRig && !groundRig) y += up;
   if (bit == ${B.FLAG}) z += 0.06 * dance * aMark.w * sin(1.5708 * (uBeat + 4.0 * aFig.y) - 2.6 * aMark.w);
   if (bit == ${B.BALLOON}) { x += 0.06 * dance * aMark.w * four; z += 0.04 * dance * aMark.w * cos(eight); }
-  if (bit == ${B.HOOP}) y += 0.13 * going + 0.28 * min(dance, 1.2) * (x * cos(3.1416 * (uBeat + 2.0 * aFig.y)) + z * sin(3.1416 * (uBeat + 2.0 * aFig.y)));
+  if (bit == ${B.HOOP}) y += (1.0 - sit) * (0.13 * going + 0.28 * min(dance, 1.2) * (x * cos(1.5708 * (uBeat + 4.0 * aFig.y)) + z * sin(1.5708 * (uBeat + 4.0 * aFig.y))));
 
   if (armRig) {
-    float side = rig < 3.5 ? -1.0 : 1.0, stand = moves * (1.0 - sit);
+    float side = rig < 3.5 ? -1.0 : 1.0, stand = moves * (1.0 - sit), aloft = going * (1.0 - sit);
     float lift = 0.0, fore = 0.0, bend = 0.0, inward = 0.0, held = 0.0;
-    if (kind < 0.5) lift = dance * ${f(ARM_SWING)} * (1.0 - bounce);
-    else if (kind < 1.5) lift = max(0.05 * stand + side * dance * 0.1 * sin(1.5708 * (uBeat + 4.0 * aFig.y) - 0.9), -0.04);
-    else if (kind < 2.5) { lift = going * (2.65 + side * 0.2 * dance * two); bend = going * 0.25; inward = 1.0; }
-    else if (kind < 3.5) lift = dance * (0.12 + 0.45 * abs(cos(eight)));
+    if (kind < 0.5) lift = dance * ${f(ARM_SWING)} * (0.5 + 0.5 * side * two) * (1.0 - sit);
+    else if (kind < 1.5) lift = max(0.05 * stand + side * dance * 0.1 * (1.0 - sit) * sin(1.5708 * (uBeat + 4.0 * aFig.y) - 0.9), -0.04);
+    else if (kind < 2.5) { lift = aloft * (2.65 + side * 0.3 * min(dance, 1.3) * four); bend = aloft * 0.25; inward = 1.0; }
+    else if (kind < 3.5) lift = dance * (0.12 + 0.45 * abs(cos(eight))) * (1.0 - sit);
     else if (kind < 4.5) { lift = 0.12 * stand; fore = 0.25 * stand; bend = 1.75 * stand; inward = 0.75; }
-    else if (kind < 5.5) lift = going * (2.9 + 0.65 * bounce);
+    else if (kind < 5.5) { fore = 0.6 * aloft; bend = 1.75 * aloft; inward = 0.35 + 0.37 * bounce; }
     else if (akimbo) { lift = 0.62 * stand; bend = 1.5 * stand; inward = 1.0; }
     if (arms > 0.5 && arms < 1.5 && side > 0.0) { lift = 0.0; fore = 0.0; bend = 0.0; held = 1.0; }
     else if (arms > 1.5 && arms < 2.5 && side > 0.0) { lift = 2.95 * moves; fore = 0.0; bend = 0.0; held = 1.0; }
     else if (arms > 2.5 && arms < 3.5) { lift = 0.1 * moves; fore = 0.55 * moves; bend = 2.1 * moves; inward = 0.35; held = 1.0; }
     else if (arms > 3.5 && arms < 4.5) { lift = 0.1 * stand; fore = 0.35 * stand; bend = (1.25 + 0.3 * dance * (side > 0.0 ? bounce : 1.0 - bounce)) * stand; inward = 0.55; }
-    else if (arms > 4.5) lift = 0.6 * going;
+    else if (arms > 4.5) lift = 0.6 * aloft;
     float lifted = rise * (1.0 - held);
     lift = mix(lift, ${f(ARM_UP)}, lifted); fore *= 1.0 - lifted; bend *= 1.0 - lifted;
     float sx = side * ${f(SHOULDER_X)} * aBody.y, sy = ${f(SHOULDER_Y)} + up;
@@ -608,9 +617,13 @@ if (!worn) {
     y = ${f(NECK_Y)} + up - z * sn + hy * cn; z = z * cn + hy * sn;
   }
 
-  float bobs = kind < 0.5 ? 1.0 : kind < 1.5 ? 0.35 : kind < 2.5 ? 0.6 : kind < 4.5 ? 0.3 : kind < 5.5 ? 0.5 : 0.0;
-  float bob = (1.0 - sit) * dance * (1.0 + rise) * ${f(BOB)} * bounce * mix(bobs, 1.0, rise);
-  float lower = legL * ${f(1 - FOLD)} * bob + (legL - ${f(SEAT)}) * sit;
+  /* The knees: one that bobs bends them on every beat, one that sways, waves or claps on its slow beat and less, and the rest not at
+     all; as the build-up lifts them, all on every beat. */
+  float bobs = kind < 0.5 ? 1.0 : kind < 1.5 ? 0.35 : 0.0;
+  float dip = mix(kind < 0.5 ? bounce : slow, bounce, rise);
+  float bob = (1.0 - sit) * dance * (1.0 + rise) * ${f(BOB)} * dip * mix(bobs, 1.0, rise);
+  /* A seat stands as much higher as the thighs are thicker, so that a broad figure's rest on the ground as a slight one's do. */
+  float lower = legL * ${f(1 - FOLD)} * bob + (legL - ${f(SEAT)} - 0.044 * max(girth - 1.0, 0.0)) * sit;
   bool onLeg = legRig || footRig || (skirtRig && y < legL + 0.001);
   if (onLeg) {
     /* The hip, the foot and the knee between them, as forward (Z) and up (Y). */
@@ -639,8 +652,8 @@ if (!worn) {
   } else if (!groundRig) y -= lower;
 
   if (!groundRig) {
-    float lean = kind < 0.5 ? two : kind < 1.5 ? four * (1.0 + 0.6 * (1.0 - rise) * (1.0 - sit)) : kind < 2.5 ? 0.6 * two
-      : kind < 3.5 ? 0.0 : kind < 4.5 ? 0.25 * two : kind < 5.5 ? 0.5 * two : 0.2 * four;
+    float lean = kind < 0.5 ? two : kind < 1.5 ? four * (1.0 + 0.6 * (1.0 - rise) * (1.0 - sit)) : kind < 2.5 ? 0.6 * four
+      : kind < 3.5 ? 0.0 : kind < 4.5 ? 0.25 * four : kind < 5.5 ? 0.3 * four : 0.2 * four;
     /* A foot stays flat where it stands as the figure leans over it: a foot that tipped with the lean lifted an edge off the ground
        and sank the other in it, which on a phone's small frame flickered against the lit ground. */
     float tilt = footRig ? 0.0 : dance * ${f(SWAY)} * lean;
@@ -652,7 +665,7 @@ if (!worn) {
       y += sk * x + (ck - 1.0) * over; x = ck * x - sk * over;
     }
     float cs = cos(tilt), ss = sin(tilt), tx = cs * x - ss * y, ty = ss * x + cs * y;
-    float turn = spin * 2.4 * min(dance, 1.3) * sin(eight) * (1.0 - sit), cr = cos(turn), sr = sin(turn);
+    float turn = spin * 1.6 * min(dance, 1.3) * sin(eight) * (1.0 - sit), cr = cos(turn), sr = sin(turn);
     x = cr * tx + sr * z; y = ty; z = cr * z - sr * tx;
   }
   if (skirtRig) y = max(y, 0.012 - clamp(aFig.w, ${f(DROP[0])}, ${f(DROP[1])}) * z / ${f(FOOT[0])});
