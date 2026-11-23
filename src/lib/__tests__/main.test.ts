@@ -66,7 +66,8 @@ const fake = vi.hoisted(() => {
   type Sky = { uniforms: Record<string, { value: number | Vec }> };
 
   // What the world main.js built: its scene, its camera, every bear it made (a downgrade drops some from the scene), and where the
-  // visitor's bear last stepped; the flame of a fire landmark, the stage, the crowd's mesh, the sky, its sun and the meshes main.js makes
+  // visitor's bear last stepped; the landmarks' moving parts, one of each kind (a fire landmark's flame and its light, a ball that
+  // pulses, a wheel that turns and a miracle that bobs), the stage, the crowd's mesh, the sky, its sun and the meshes main.js makes
   // itself (the beam); and the figures' phase in beats, as the last frame gave it to the stage, the crowd's pose, as the last frame gave
   // it to the crowd, and whether its last parting stood the figures at once.
   // `line` is the bears' line each test gives it, and `onset` the time of the last onset the analyser heard, which each test sets (null
@@ -110,6 +111,10 @@ const fake = vi.hoisted(() => {
     laidOut: [] as string[],
     placed: [] as string[],
     flame: { scale: new Vec(1, 1, 1) },
+    torch: { intensity: 40 },
+    ball: { material: { emissiveIntensity: 0.6 } },
+    wheel: { rotation: { y: 0 } },
+    miracle: { position: { y: 4 } },
     stage: undefined as unknown as Stage,
     crowd: undefined as unknown as CrowdMesh,
     sky: undefined as unknown as Sky,
@@ -277,10 +282,16 @@ const fake = vi.hoisted(() => {
       buildWalkLine: () => world.line,
     },
     landmarks: {
-      // One part that moves: a fire landmark's flame, which swells before a peak.
+      // The parts that move, one of each kind, each as landmarks.js builds it: a fire landmark's flame, which swells before a
+      // peak, and its light, which follows the low end; Not Fade Away's ball, which pulses; a wheel, which turns; and a miracle,
+      // which bobs.
       makeBuilders: () => {
         world.flame = { scale: new Vec(1, 1, 1) };
-        return { moving: [{ obj: world.flame, kind: "swell" }] };
+        world.torch = { intensity: 40 };
+        world.ball = { material: { emissiveIntensity: 0.6 } };
+        world.wheel = { rotation: { y: 0 } };
+        world.miracle = { position: { y: 4 } };
+        return { moving: [{ obj: world.flame, kind: "swell" }, { obj: world.torch, kind: "flame", base: world.torch.intensity }, { obj: world.ball, kind: "pulse" }, { obj: world.wheel, kind: "spin" }, { obj: world.miracle, kind: "bob" }] };
       },
       mergeLandmarks: () => {},
     },
@@ -474,6 +485,7 @@ type Hill = {
   near: { index: number; title: string; clear: boolean } | null;
   rung: number;
   still: boolean;
+  hold: boolean;
   walker: { x: number; z: number; heading: number; pitch: number };
   crowd: { drawn: number; dance: number; sit: number; parted: number };
   analysis: { source: string | null; weight: number };
@@ -1100,6 +1112,86 @@ describe("main.js's frames", () => {
         await near("?pose=near-1");
         expect(fake.world.placed).toEqual(real);
       });
+    });
+  });
+
+  describe("?hold=1", () => {
+    // What a frame moves of each of the landmarks' moving parts: the flame's size, its light's strength, the ball's glow, the wheel's
+    // turn and the miracle's height.
+    const readParts = () => {
+      const { flame, torch, ball, wheel, miracle } = fake.world;
+      return { flame: flame.scale.x, light: torch.intensity, ball: ball.material.emissiveIntensity, wheel: wheel.rotation.y, miracle: miracle.position.y };
+    };
+    type Parts = ReturnType<typeof readParts>;
+    // A show that plays where the analyser cannot hear it, on a map whose low end is half of full and whose one peak is at 300 s,
+    // cued 8 s before the peak and run 2 s: by then the flame has swelled, its light follows the low end, and the ball, the wheel and
+    // the miracle have moved by the time alone. `built` is each part before any frame ran, as it was built, and `parts` after; and
+    // `sky` is the sky's own time and how long since its last drop fell, before any frame and after.
+    const moved = async (search: string, hooks = true) => {
+      const page = await startWorld({ playing: true, routing: "plain", map: showMap({ bass: 128, peaks: [[300, 0.9]] }), search, hooks });
+      const readSky = () => ({ time: fake.world.sky.uniforms.uTime.value as number, sinceDrop: page.sinceDrop() }), built = readParts(), before = readSky();
+      page.seek(292);
+      page.run(2);
+      return { page, built, parts: readParts(), sky: { before, after: readSky() } };
+    };
+    // Every part has moved from where it was built, by more than a rounding.
+    const expectMoved = (parts: Parts, built: Parts) => {
+      for (const name of Object.keys(built) as (keyof Parts)[]) expect(Math.abs(parts[name] - built[name]), name).toBeGreaterThan(0.01);
+    };
+
+    it("holds the landmarks' moving parts as they were built, and nothing else: the band plays on, the bears walk, the crowd dances and the sky's time runs", async () => {
+      fake.world.beats = NaN;
+      const { parts, built, sky } = await moved("?hold=1");
+      expect(hill().hold).toBe(true);
+      // Each part is what it was before any frame ran.
+      expect(parts).toEqual(built);
+      // All else moves: the band is moved to the beat, the crowd dances, and no bear is hidden; and the sky keeps its own
+      // time, by which its light and the sea move and its drops fall.
+      expect(sky.after.time).toBeGreaterThan(sky.before.time + 1);
+      expect(sky.after.sinceDrop).toBeGreaterThan(sky.before.sinceDrop + 1);
+      expect(fake.world.beats).toBeGreaterThan(0);
+      expect(fake.world.posed.dance).toBeGreaterThan(0);
+      expect(fake.world.bears.filter((b) => b.g.visible === false)).toEqual([]);
+      expect(hill().still).toBe(false);
+    });
+
+    it("moves every one of them without it: the same two seconds swell the flame, drive its light, pulse the ball, turn the wheel and lift the miracle", async () => {
+      const { parts, built } = await moved("?pose=crowd");
+      expect(hill().hold).toBe(false);
+      expectMoved(parts, built);
+    });
+
+    it.each(["?hold=0", "?hold=", "?hold=true", "?hold=2", "?hold=01", "?hold=1x", "?hold"])("holds nothing under %s: only ?hold=1 does", async (search) => {
+      // A hook that took any word for yes would hold the parts of a page that asked for them moving: the flash counter's, which
+      // counts the ball's pulse.
+      const { parts, built } = await moved(search);
+      expect(hill().hold).toBe(false);
+      expectMoved(parts, built);
+    });
+
+    it("answers only on a preview: elsewhere the parts move as ever", async () => {
+      const { parts, built } = await moved("?hold=1", false);
+      expect(hill().hold).toBe(false);
+      expectMoved(parts, built);
+    });
+
+    it("holds them beside a landmark, on the page the shoot's near stills are taken from, through a move to another song's", async () => {
+      fake.world.nearSpot = (k: number) => ({ x: 30 + k, z: 20, heading: 0, pitch: 0, clear: true });
+      const landmarks = [40.6, 60.3].map((d) => ({ position: LINE.at(d), rotation: { y: 0 } }));
+      const page = await startWorld({ search: "?pose=near-0&hold=1", songs: 2, landmarks });
+      const built = readParts();
+      page.run(1);
+      document.dispatchEvent(new CustomEvent("world:near", { detail: { index: 1 } }));
+      page.run(1);
+      expect(hill().near?.index).toBe(1);
+      expect(hill().hold).toBe(true);
+      expect(readParts()).toEqual(built);
+      // The same page without the hook moves what time alone moves: the ball, the wheel and the miracle. Its flame keeps its size and
+      // its light its strength, since nothing plays there.
+      const loose = await startWorld({ search: "?pose=near-0", songs: 2, landmarks });
+      loose.run(1);
+      const now = readParts();
+      for (const name of ["ball", "wheel", "miracle"] as const) expect(Math.abs(now[name] - built[name]), name).toBeGreaterThan(0.01);
     });
   });
 
