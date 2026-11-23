@@ -10,7 +10,7 @@ export const PERSON = 3.15;
 /* The crowd's sections, in rings round the stage's centre: `r0` to `r1` metres out, and `a0` to `a1` radians either side of its axis
    (from 0, one span across the axis). A section's rows stand `gap` metres apart, and its figures about as far apart along a row; the
    front stands closest. Up the hill they sit. */
-const SECTIONS = [
+export const SECTIONS = [
   { r0: 13.5, r1: 28, a0: 0, a1: 0.7, gap: 1.6 },
   { r0: 28, r1: 42, a0: 0, a1: 0.85, gap: 2.6 },
   { r0: 42, r1: 55, a0: 0, a1: 0.85, gap: 3.8, sit: true },

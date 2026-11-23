@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { figureGeometry, partingOptions } from "../../../public/world/crowd.js";
 import { FACING, height, STAGE, STAGE_COLUMN } from "../../../public/world/ground.js";
-import { crowdPlan, isBetweenSongs, isDrums, isNotASong, isSpace, isTuning, onCrowdGround, parting, PERSON, seats, songsOf } from "../../../public/world/seats.js";
+import { crowdPlan, isBetweenSongs, isDrums, isNotASong, isSpace, isTuning, onCrowdGround, parting, PERSON, seats, SECTIONS, songsOf } from "../../../public/world/seats.js";
 
 type Seat = { x: number; z: number; r: number; sit: boolean };
 type Plan = { dance: boolean; sit: boolean };
@@ -383,6 +383,21 @@ describe("the crowd's ground", () => {
     expect(onCrowdGround(...at(50, 0.95))).toBe(false);
     expect(onCrowdGround(...at(40, 0.95))).toBe(true);
     expect(onCrowdGround(...at(14.5, 0.9))).toBe(false);
+  });
+
+  it("is five sections in rings round the stage, which the island reads to draw the worn earth on them (island.js)", () => {
+    const at = (far: number, off: number): [number, number] => [STAGE[0] + far * Math.sin(FACING + off), STAGE[1] + far * Math.cos(FACING + off)];
+    // A section dropped from the list, or the list no longer exported, would leave its ground green, or the island unable to load.
+    expect(SECTIONS).toHaveLength(5);
+    for (const { r0, r1, a0, a1 } of SECTIONS as { r0: number; r1: number; a0: number; a1: number }[]) {
+      expect(r0).toBeLessThan(r1);
+      expect(a0).toBeLessThan(a1);
+      // The middle of each, on either side of the axis, is the crowd's ground, and just past its outer ring and its side is not its own.
+      for (const side of [1, -1]) expect(onCrowdGround(...at((r0 + r1) / 2, (side * (a0 + a1)) / 2))).toBe(true);
+    }
+    // Three rings of them span the stage's axis, each beginning where the one before ends: the walks between them lie there.
+    const across = (SECTIONS as { r0: number; r1: number; a0: number }[]).filter((s) => s.a0 === 0).sort((p, q) => p.r0 - q.r0);
+    expect(across.map((s) => [s.r0, s.r1])).toEqual([[13.5, 28], [28, 42], [42, 55]]);
   });
 
   it("is wider by the room asked, all round", () => {

@@ -4,8 +4,9 @@ import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { CAVES, height, STAGE } from "./ground.js";
 
 /* What grows, lies and flies on the land: tufts of grass over the turf, some in flower; stones where the slope steepens and along the
-   shore; and fireflies over the meadows in the dark. The tufts and the stones are one instanced mesh each and the fireflies one set of
-   points, so the three cost three draw calls however many there are. Nothing here is walked round: a tuft stands no higher than a
+   shore; and fireflies over the meadows in the dark, and high over the crowd's heads where a caller asks for them (island.js asks
+   for none). The tufts and the stones are one instanced mesh each and the fireflies one set of points, so the three cost three draw
+   calls however many there are. Nothing here is walked round: a tuft stands no higher than a
    figure's knee, its bloom a hand above that, and a stone no higher than a bear's shin. */
 
 /* A number from 0 to 1 for a whole-numbered place and a salt, the same on every visit: nothing here is left to chance, so two stills of
@@ -98,17 +99,25 @@ const FLY_CLEAR = 0.4, FLY_LIFT = 1.2, FLY_STEPS = 3, FLY_LIE = 0.6;
    no more than its square. */
 const FLY_SEEN = 0.05;
 const FLY_COLOUR = [0.8, 1.0, 0.42];
+/* The fireflies over the crowd's heads: at the lowest of its wander each is CROWD_UP m over the highest ground it passes, or up to
+   CROWD_LIFT m more, which is over the head and the raised arms of any figure under it. They are tried at places within CROWD_REACH m
+   of the stage each way (the crowd's sections end 55 m from it), CROWD_TRIES places at the most for each one asked for. Seen from
+   behind the crowd they lie one behind another in a band over its heads, and a block of the frame there has swung 4 times in a
+   second where the fireflies over the meadows swing one twice, so whoever asks for any counts them first (scripts/flash). */
+const CROWD_UP = 5, CROWD_LIFT = 0.8, CROWD_REACH = 56, CROWD_TRIES = 80;
 
-/* Builds what grows and lies on the land: at most `tufts` tufts and `stones` stones, and `flies` fireflies over the tufts. The turf reaches `extent` m from the island's
+/* Builds what grows and lies on the land: at most `tufts` tufts and `stones` stones, `flies` fireflies over the tufts, and at most
+   `crowdFlies` more high over the ground that `over(x, z)` says is the crowd's. The turf reaches `extent` m from the island's
    centre and the shore's sand lies from `beach[0]` to `beach[1]` m out; `surface(x, z)` is the ground's height as its mesh draws it,
    which all of them stand on; `colour(x, y, z, ny, out)` gives the land's colour at a point,
    `lit(material)` has a material take the light the ground takes (the stage's glow), `clear(x, z)` is false where nothing may
-   stand (a track), and `trodden(x, z)` is true where the turf is trodden and no tuft grows, so no firefly flies (the crowd's ground). A tuft grows on turf, more thickly in some meadows than others, and a stone lies where the turf gives way to bare
+   stand (a track), and `trodden(x, z)` is true where the turf is trodden and no tuft grows, so no firefly flies low (the crowd's ground). A tuft grows on turf, more thickly in some meadows than others, and a stone lies where the turf gives way to bare
    stone, along the shore's sand, and here and there on the turf. Returns `wind(time)`, which sways the tufts and moves the
    fireflies at a time; `glow(level)`, which lights the fireflies from 0, by day, to 1; `thin(half)`, which draws half the tufts
-   and half the fireflies, or all of them; and `sparse()`, which from then on draws a handful of tufts, for a frame that is only
-   counted and never looked at. */
-export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, surface = height, colour, lit, clear, trodden = () => false }) {
+   and half the fireflies over them and none of the crowd's, or all of them; `sparse()`, which from then on draws a handful of tufts,
+   for a frame that is only counted and never looked at; and `flyCounts`, how many fireflies fly over the tufts (`ground`) and over
+   the crowd (`crowd`). */
+export function buildFlora(scene, { tufts, stones, flies = 0, crowdFlies = 0, over = () => false, extent, beach, surface = height, colour, lit, clear, trodden = () => false }) {
   const dummy = new THREE.Object3D(), tint = new THREE.Color(), bloomColour = new THREE.Color();
   /* The land at a point: the height its mesh draws it at, and how upright the island's own slope stands there (1 on level ground). */
   const land = (x, z) => {
@@ -220,34 +229,51 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, sur
 
   /* The most tufts drawn: all of them, until a caller asks for a handful (sparse). */
   let most = Infinity;
-  /* The fireflies: over tufts spread across the island, above the grass. Their light is added to what is behind them, and they
-     write no depth, so one never hides another; they hide behind the land and whatever stands on it. */
+  /* The fireflies: over tufts spread across the island, above the grass, and then high over the crowd. Their light is added to what
+     is behind them, and they write no depth, so one never hides another; they hide behind the land and whatever stands on it. */
   const flyLevel = { value: 0 };
   /* The height in pixels of the frame they are drawn into, which their size is a share of, so they are as large on the screen
      whatever the render scale. */
   const flyTall = { value: 900 }, drawn = new THREE.Vector2();
   const flyCount = Math.min(flies, placed.length);
-  const flyAt = new Float32Array(3 * flyCount), flySeed = new Float32Array(4 * flyCount), flyLie = new Float32Array(2 * flyCount);
+  const flyAt = new Float32Array(3 * (flyCount + crowdFlies)), flySeed = new Float32Array(4 * (flyCount + crowdFlies)), flyLie = new Float32Array(2 * (flyCount + crowdFlies));
   const lie = (rise) => Math.max(-FLY_LIE, Math.min(FLY_LIE, rise / (2 * FLY_ROAM)));
-  for (let k = 0; k < flyCount; k++) {
-    /* Every so-many-th tuft, which the cells' scattered order has already spread across the island. */
-    const [x, , z, , a, b] = placed[Math.floor((k * placed.length) / flyCount)];
-    /* The lie of the land across its wander, east and south, which the wander follows; and the highest the ground stands over
-       that lie anywhere under the wander, which its lowest point clears. */
+  /* The lie of the land across a wander at (x, z), east and south, which the wander follows; and the highest the ground stands over
+     that lie anywhere under the wander, which its lowest point clears. */
+  const wander = (x, z) => {
     const lx = lie(surface(x + FLY_ROAM, z) - surface(x - FLY_ROAM, z)), lz = lie(surface(x, z + FLY_ROAM) - surface(x, z - FLY_ROAM));
     let proud = -Infinity;
     for (let i = -FLY_STEPS; i <= FLY_STEPS; i++) for (let j = -FLY_STEPS; j <= FLY_STEPS; j++) {
       const dx = (i / FLY_STEPS) * FLY_ROAM, dz = (j / FLY_STEPS) * FLY_ROAM;
       proud = Math.max(proud, surface(x + dx, z + dz) - lx * dx - lz * dz);
     }
+    return { lx, lz, proud };
+  };
+  for (let k = 0; k < flyCount; k++) {
+    /* Every so-many-th tuft, which the cells' scattered order has already spread across the island. */
+    const [x, , z, , a, b] = placed[Math.floor((k * placed.length) / flyCount)];
+    const { lx, lz, proud } = wander(x, z);
     flyAt.set([x, proud + FLY_BOB * FLY_ROAM + FLY_CLEAR + FLY_LIFT * chance(a, b, 31), z], 3 * k);
     flySeed.set([chance(a, b, 32), chance(a, b, 33), chance(a, b, 34), chance(a, b, 35)], 4 * k);
     flyLie.set([lx, lz], 2 * k);
   }
+  /* Then those over the crowd's heads, after the others so theirs keep their places: by the same hash, tried at places over a square
+     round the stage, kept where `over` says the crowd's ground is. At the lowest of its wander each is CROWD_UP m over the ground. */
+  let flyTotal = flyCount;
+  for (let k = 0; flyTotal < flyCount + crowdFlies && k < crowdFlies * CROWD_TRIES; k++) {
+    const x = STAGE[0] + (2 * chance(k, 1, 41) - 1) * CROWD_REACH, z = STAGE[1] + (2 * chance(k, 2, 41) - 1) * CROWD_REACH;
+    if (!over(x, z)) continue;
+    const { lx, lz, proud } = wander(x, z);
+    flyAt.set([x, proud + FLY_BOB * FLY_ROAM + CROWD_UP + CROWD_LIFT * chance(k, 3, 41), z], 3 * flyTotal);
+    flySeed.set([chance(k, 4, 41), chance(k, 5, 41), chance(k, 6, 41), chance(k, 7, 41)], 4 * flyTotal);
+    flyLie.set([lx, lz], 2 * flyTotal);
+    flyTotal += 1;
+  }
   const flyGeo = new THREE.BufferGeometry();
-  flyGeo.setAttribute("position", new THREE.BufferAttribute(flyAt, 3));
-  flyGeo.setAttribute("aSeed", new THREE.BufferAttribute(flySeed, 4));
-  flyGeo.setAttribute("aLie", new THREE.BufferAttribute(flyLie, 2));
+  /* As many as were placed and no more: a short count is a short buffer, never a firefly left at the world's origin. */
+  flyGeo.setAttribute("position", new THREE.BufferAttribute(flyAt.subarray(0, 3 * flyTotal), 3));
+  flyGeo.setAttribute("aSeed", new THREE.BufferAttribute(flySeed.subarray(0, 4 * flyTotal), 4));
+  flyGeo.setAttribute("aLie", new THREE.BufferAttribute(flyLie.subarray(0, 2 * flyTotal), 2));
   const flyMat = new THREE.ShaderMaterial({
     uniforms: { uTime: wind, uGlow: flyLevel, uTall: flyTall },
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -285,13 +311,14 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, sur
   scene.add(flyPoints);
 
   return {
-    tufts: tuftMesh, stones: stoneMesh, flies: flyPoints,
+    tufts: tuftMesh, stones: stoneMesh, flies: flyPoints, flyCounts: { ground: flyCount, crowd: flyTotal - flyCount },
     wind: (time) => { wind.value = time; },
     /* By day and at last light, under a twentieth of their glow, they are not drawn at all, which saves their draw call. */
     glow: (level) => { flyLevel.value = level; flyPoints.visible = level > FLY_SEEN; },
     thin: (half) => {
       tuftMesh.count = Math.min(most, half ? Math.ceil(placed.length / 2) : placed.length);
-      flyGeo.setDrawRange(0, half ? Math.ceil(flyCount / 2) : flyCount);
+      /* The crowd's fireflies go with half the others. */
+      flyGeo.setDrawRange(0, half ? Math.ceil(flyCount / 2) : flyTotal);
     },
     /* The tufts are one draw call however few of them are drawn, as long as one is. */
     sparse: () => { most = Math.min(placed.length, SPARSE); tuftMesh.count = Math.min(tuftMesh.count, most); },
