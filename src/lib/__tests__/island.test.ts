@@ -134,11 +134,53 @@ describe("grained", () => {
       // band's edge, which go by the tussock grain, are even there too.
       expect(shader.fragmentShader).toContain("float tussocks = 0.5, blades = 0.5;");
       expect(shader.fragmentShader).toContain("reflectedLight.directDiffuse += uPool");
+      // The broad grain: shown only as the tussocks go, and gone as its own cells near a pixel's reach, as the others go; a half,
+      // which shades nothing, wherever it is not shown; and laid on the colour after the grain's own line, in no relief.
+      const broadShown = "float broadShown = (1.0 - coarseShown) * (1.0 - smoothstep(0.2500, 0.6000, covers * 0.5000));";
+      const broad = "if (broadShown > 0.0) broad = grain(vPoolAt.xz * 0.5000 + 73.0);";
+      const laid = "diffuseColor.rgb *= 1.0 + 0.2400 * (broad - 0.5) * broadShown;";
+      for (const line of [broadShown, "float broad = 0.5;", broad, laid]) expect(shader.fragmentShader.split(line)).toHaveLength(2);
+      expect(shader.fragmentShader.indexOf(broadShown)).toBeGreaterThan(shader.fragmentShader.indexOf("float coarseShown ="));
+      expect(shader.fragmentShader.indexOf(laid)).toBeGreaterThan(shader.fragmentShader.indexOf("diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - 0.5)"));
+      expect(shader.fragmentShader).not.toMatch(/float high = [^;]*broad/);
     }
     // The relief leans the normal by the grain's own change from pixel to pixel, and takes no more of the grain to do it.
     expect(tilted.fragmentShader).toContain("normal = normalize(max(abs(det), 1e-12) * normal - grad);");
     expect(flat.fragmentShader).not.toContain("dFdx(high)");
     expect(tilted.fragmentShader.split("grain(vPoolAt.xz").length).toBe(flat.fragmentShader.split("grain(vPoolAt.xz").length);
+  });
+
+  it("keeps a grain on a phone's ground past where the tussocks go, out of reach of the near ground, and never finer than a pixel holds", () => {
+    const { vertexShader, fragmentShader } = THREE.ShaderLib.lambert;
+    const shader = { uniforms: {} as Record<string, unknown>, vertexShader, fragmentShader };
+    grained(takesPool(new THREE.MeshLambertMaterial(), { value: new THREE.Color() }), false).onBeforeCompile(shader);
+    const fragment = shader.fragmentShader;
+    // How far the tussocks and the broad grain are shown, by what a pixel takes in of the ground, run from the shader's own lines.
+    const line = (name: string) => new RegExp(`float ${name} = [^;]*;`).exec(fragment)![0];
+    const [coarse, broadOwn] = runGlsl<[(covers: number) => number, (covers: number) => number]>(
+      `float coarseAt(float covers) { ${line("coarseShown")} return coarseShown; }\nfloat broadAt(float covers) { ${line("coarseShown")} ${line("broadShown")} return broadShown; }`,
+      "return [coarseAt, broadAt];",
+    );
+    // The broad grain's cells a metre and its depth on the colour, as the shader has them.
+    const [, cells] = /broad = grain\(vPoolAt\.xz \* ([\d.]+) \+ 73\.0\);/.exec(fragment)!.map(Number);
+    const [, deep] = /diffuseColor\.rgb \*= 1\.0 \+ ([\d.]+) \* \(broad - 0\.5\) \* broadShown;/.exec(fragment)!.map(Number);
+    // The tussocks lie 0.2 deep on the colour.
+    expect(fragment).toContain("diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - 0.5)");
+    // A phone's frame: 717 px tall (844 at a render scale of 0.85) with a 75 degree view, the eye 3 m over level ground.
+    const pixel = pixelAngle({ fov: 75 }, Math.round(844 * 0.85));
+    const covers = (far: number) => (Math.hypot(far, 3) * pixel) / (3 / Math.hypot(far, 3));
+    const along = Array.from({ length: 121 }, (_, k) => k / 2);
+    // The near ground is as it was: no broad grain within 19 m, where the tussocks are drawn in full.
+    expect(coarse(covers(19))).toBe(1);
+    for (const far of along.filter((d) => d <= 19)) expect(broadOwn(covers(far))).toBe(0);
+    // Where the tussocks fade the broad grain comes in, at 0.4 of its depth or more somewhere between 24 and 30 m; and by 30.5 m,
+    // where the tussocks are gone and main's ground has no grain left, the two together still lie 0.08 deep on the colour or more.
+    expect(Math.max(...along.filter((d) => d >= 24 && d <= 30).map((d) => broadOwn(covers(d))))).toBeGreaterThan(0.4);
+    expect(coarse(covers(30.5))).toBe(0);
+    expect(0.2 * coarse(covers(30.5)) + deep * broadOwn(covers(30.5))).toBeGreaterThan(0.08);
+    // It goes, as the others do, before a pixel takes in 0.6 of one of its cells, where it would only dither: by 41 m at most.
+    for (const far of along.filter((d) => covers(d) * cells >= 0.6)) expect(broadOwn(covers(far))).toBe(0);
+    for (const far of along.filter((d) => d >= 41)) expect(broadOwn(covers(far))).toBe(0);
   });
 });
 
@@ -387,8 +429,8 @@ describe("the crowd's worn earth", () => {
     const laid = `diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${n(worn.r)}, ${n(worn.g)}, ${n(worn.b)}), worn(vPoolAt.xz, tussocks));`;
     expect(fragment).toContain(laid);
     expect(fragment).toContain(`return inside * (1.0 - smoothstep(${n(PATCH_FROM)}, ${n(PATCH_TO)}, tussocks + 0.5 - tread(p, r, along, aside))) * ${n(WEAR)};`);
-    // Two calls of the grain and no more, the tussocks' and the blades': the earth reads the first and makes none.
-    expect(fragment.split("grain(vPoolAt.xz").length).toBe(3);
+    // Three calls of the grain and no more, the tussocks', the blades' and the broad grain's: the earth reads the first and makes none.
+    expect(fragment.split("grain(vPoolAt.xz").length).toBe(4);
     expect(fragment.split("grain(vPoolAt.xz").length).toBe(land(false).split("grain(vPoolAt.xz").length);
     // The earth is laid after the tussocks are reckoned and before the grain's own line, so the grain lies on it as on the turf and
     // the tracks.
@@ -819,9 +861,54 @@ describe("the sea", () => {
     shade(look, 12.5);
     expect(material.uniforms.uTide.value).toBe(12.5);
     expect(material.uniforms.uSea.value.toArray()).toEqual([...look.sea]);
+    // In the deep of the night the sky's light on the swell is the look's own `ambient`, whole.
+    expect(look.dark).toBe(1);
+    expect(material.uniforms.uNight.value.toArray()).toEqual([...look.ambient]);
     // A caller that gives no time gets still water.
     shade(look);
     expect(material.uniforms.uTide.value).toBe(0);
+  });
+
+  it("lays the night sky's light on the swell's backs: some 4 to 8 steps of the screen's 255 from a trough to a back in the deep of the night, where the water's own colour gave one, and none to see at dusk or daybreak", () => {
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x000000, 100, 400);
+    const { shade } = buildIsland(scene, 20, true);
+    const { material } = scene.children.find((o: { isMesh?: boolean; material?: { isShaderMaterial?: boolean } }) => o.isMesh && o.material?.isShaderMaterial);
+    const fragment = material.fragmentShader as string;
+    expect(fragment).toContain("uniform vec3 uSea, uGlow, uShine, uNight;");
+    const laid = "col += uNight * smoothstep(0.35, 0.8, swell) * 0.0560;";
+    expect(fragment.split(laid)).toHaveLength(2);
+    // It is the sky's light, laid on the water's own colour and the twilight's glow, and before the shallows and the foam are mixed
+    // over them, so the shore's pale water is as it was; it is in no path of light, the stage's nor the twilight's.
+    expect(fragment.indexOf(laid)).toBeGreaterThan(fragment.indexOf("vec3 col = uSea * (0.92 + 0.18 * swell)"));
+    expect(fragment.indexOf(laid)).toBeLessThan(fragment.indexOf("col = mix(col, pale,"));
+    expect(fragment.split("uNight").length).toBe(3);
+    // The swell's 10th and 90th percentiles, a trough and a back, as 200,000 points of the shader's own swell (its two trains of grain,
+    // 0.6 and 0.4 of it) gave them through a port of its grain: 0.297 and 0.703. The shader's edges and its strength are read from its
+    // text, so a change to either is held to the steps below.
+    expect(fragment).toContain("swell = 0.6 * grain(one / 9.0000) + 0.4 * grain(two / 4.0500 + 31.0);");
+    const [, from, to, strength] = /col \+= uNight \* smoothstep\(([\d.]+), ([\d.]+), swell\) \* ([\d.]+);/.exec(fragment)!.map(Number);
+    const backOverTrough = smoothstep(from, to, 0.703) - smoothstep(from, to, 0.297);
+    expect(backOverTrough).toBeGreaterThan(0.85);
+    // How far a back stands over a trough at an hour, in steps of the screen's 255, in each channel: the sea writes its colours as
+    // they are, with no encoding after.
+    expect(fragment).not.toContain("colorspace_fragment");
+    const steps = (hour: number) => {
+      shade(lookAt(hour, newLook()));
+      return (material.uniforms.uNight.value.toArray() as number[]).map((v) => v * strength * backOverTrough * 255);
+    };
+    // The deep of the night: blue, the brightest, 4 to 8 steps; under 4 a screen shows no swell, and over 8 it reads as stripes.
+    const deep = steps(1);
+    expect(deep[2]).toBeGreaterThanOrEqual(4);
+    expect(Math.max(...deep)).toBeLessThanOrEqual(8);
+    // Dusk and daybreak keep their water: under half a step. The water's own colour already moves with the swell there.
+    for (const hour of [0, 2]) expect(Math.max(...steps(hour))).toBeLessThan(0.5);
+    // And no hour of the night goes over the deep's: it comes on by how dark the island is.
+    for (let hour = 0; hour <= 2; hour += 0.02) expect(Math.max(...steps(hour))).toBeLessThanOrEqual(Math.max(...deep) + 1e-9);
+    // In the last light it is under 0.4 % of the sky's light: a factor of how dark the island is to its third power.
+    const dusk = lookAt(0, newLook());
+    shade(dusk);
+    (material.uniforms.uNight.value.toArray() as number[]).forEach((v, k) => expect(v).toBeLessThan(0.004 * dusk.ambient[k]));
   });
 
   it("laps the island's own shore: its depth is written from the ground's slope past the ring road", () => {

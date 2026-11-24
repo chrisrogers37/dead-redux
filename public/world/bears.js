@@ -3,8 +3,8 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { mesh } from "./landmarks.js";
 
-/* The bears are soft toys of a kind: round, smooth-shaded, each in one colour with a paler belly and muzzle, a dark nose and two dark
-   eyes. They walk upright, arms swinging against their legs. */
+/* The bears are soft toys of a kind: round, smooth-shaded, each in one colour with a belly and muzzle a shade apart from it, a dark
+   nose and two dark eyes. They walk upright, arms swinging against their legs. */
 
 /* A bear's fur: a smooth Lambert surface whose colour pales toward white where it turns from the eye, so its edge reads soft against the
    sky by day and stays dark at night. It is the surface's own colour that pales, never the light on it: at its palest the rim is
@@ -59,8 +59,9 @@ const INK = new THREE.Color(0x0b0b0d), WHITE = new THREE.Color(0xffffff);
 /* A bear's nose: an egg NOSE.r m long about a point NOSE.up m over its feet and NOSE.ahead m ahead of its centre. Its tip is the
    furthest any part of a bear stands from its centre, SNOUT m ahead of it: what a bear is stopped by, it is stopped that far from. */
 export const NOSE = { up: 3.5, ahead: 2.16, r: 0.2 }, SNOUT = NOSE.ahead + NOSE.r;
-/* Fur whose relative luminance is over TRIM_OVER is near white; its ruff and tail are TRIM_DEEP of its colour. */
-const TRIM_OVER = 0.6, TRIM_DEEP = 0.68;
+/* Fur whose relative luminance is over TRIM_OVER is near white; its ruff and tail are TRIM_DEEP of its colour, and its belly, muzzle
+   and inner ears PALE_DEEP of it, a shade deeper than the fur and less deep than the ruff. */
+const TRIM_OVER = 0.6, TRIM_DEEP = 0.68, PALE_DEEP = 0.84;
 
 /* A part of a bear's body, coloured by `paint`, which gives each vertex's colour from its place in the body. */
 function part(geo, paint) {
@@ -73,14 +74,18 @@ function part(geo, paint) {
    the world keeps round a bear: its nose 2.36 m ahead of its centre and its arms, the widest of it, 1.45 m to either side, within the
    2.4 m and the 1.5 m the walk allows it (collide.js), and no part of it further than 1.98 m from its middle, which stands 0.4 m ahead
    of its centre, the reach the crowd parts round (crowd.js). bears.test.ts holds it to them. Its belly, its muzzle and the insides of
-   its ears are paler than its fur; a ruff round its neck and its round tail stand apart from it, paler on a bear in a colour and a
-   shade deeper on a pale one; its nose and eyes are dark. Each limb stays in the group as a hidden mesh, where the gait swings it
-   (stride) and what reads the bear's meshes finds it (main.js's bearsInView); drawLegs draws them. */
+   its ears are paler than its fur on a bear in a colour and a shade deeper on a pale one; a ruff round its neck and its round tail
+   stand apart from it, paler on a bear in a colour and a shade deeper still on a pale one; its nose and eyes are dark. Each limb
+   stays in the group as a hidden mesh, where the gait swings it (stride) and what reads the bear's meshes finds it (main.js's
+   bearsInView); drawLegs draws them. */
 export function buildBear(scene, hue) {
-  const fur = new THREE.Color(hue), pale = fur.clone().lerp(WHITE, 0.5), mix = new THREE.Color();
-  /* The ruff and the tail stand apart from the fur: paler on a bear in a colour, and a shade deeper on a bear whose fur is near white
-     already (the visitor's), where paler would not show. */
-  const trim = 0.2126 * fur.r + 0.7152 * fur.g + 0.0722 * fur.b > TRIM_OVER ? fur.clone().multiplyScalar(TRIM_DEEP) : pale;
+  const fur = new THREE.Color(hue), mix = new THREE.Color();
+  /* The belly, the muzzle and the inner ears, and the ruff and the tail, stand apart from the fur: all paler on a bear in a colour;
+     on a bear whose fur is near white already (the visitor's), where paler would not show, the first a shade deeper than the fur and
+     the ruff and tail deeper still. */
+  const nearWhite = 0.2126 * fur.r + 0.7152 * fur.g + 0.0722 * fur.b > TRIM_OVER;
+  const pale = nearWhite ? fur.clone().multiplyScalar(PALE_DEEP) : fur.clone().lerp(WHITE, 0.5);
+  const trim = nearWhite ? fur.clone().multiplyScalar(TRIM_DEEP) : pale;
   const plain = (c) => () => c;
   const smooth = (edge0, edge1, x) => { const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0))); return t * t * (3 - 2 * t); };
   /* The belly: the front of the body, an oval 0.78 m to each side of its middle and 1.15 m above and below a point 2 m up. */
