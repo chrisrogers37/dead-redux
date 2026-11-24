@@ -157,14 +157,15 @@ export function outline(g, moving) {
 }
 
 /* A landmark stands level, at the height of the ground under its middle, and on a slope the ground under its upper side rises over
-   that. One built level, on a footing, a plinth or a floor, says what of it must show (its builder's `userData.rim`, landmarks.js):
+   that. A builder may say what of its landmark must show (`userData.rim`; landmarks.js says which do, and only four do yet):
    a list of [outline, y], each a convex outline in its own frame seen from above and the height over its own ground of the lowest
    thing that must show inside it, such as a box's water, a kerb's top or a footing's. The ground is read both as it lies and as
    the tier draws it (island.js surfaceOf), whose cells lie over the true ground by up to 0.29 m on a desktop and 0.65 m on a phone
    where the ground dips. Where the ground under no outline rises over that outline's height, the landmark stands where it did, at
    its middle's ground: it stands right, and does not move. Where it rises over one, the landmark stands higher, by as much as
    puts the ground under every outline RIM_CLEAR under its height, and no higher. Its feet go on down far enough for that on the
-   slope's lower side (landmarks.js says how far for each). A landmark that says nothing never moves. */
+   slope's lower side (landmarks.js says how far for each). A landmark whose builder says nothing never moves: it stands at its
+   middle's ground, as every landmark did before. */
 export const RIM_CLEAR = 0.1;
 /* Where the ground is read under an outline: its corners and every RIM_EDGE m along its edges, where the most a plane rises under
    it lies, and every RIM_STEP m inside it, for ground that bends. Worked out once an outline. */
