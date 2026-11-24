@@ -9,7 +9,7 @@ import { buildAvatar } from "./avatar.js";
 import { buildSky, skyPair } from "./sky.js";
 import { bindInput } from "./input.js";
 import { BEAR_GAP, confine, DESCENT_S, enterMode, keepSpot, modeRules, slotAt, slotDistance, walkLimits } from "./modes.js";
-import { CRANE, DESCENT_FROM, postPose as poseOver } from "./pose.js";
+import { cranePose, DESCENT_FROM, postPose as poseOver, ridePose, RIG_EASE_S } from "./pose.js";
 import { cueClock } from "./clock.js";
 import { analyse, analysisStats, listen, mappings, onsetAt, soundStats, startSound } from "./audio.js";
 import { buildUp, loadMap, mapDrive, passesPeak } from "./maps.js";
@@ -89,7 +89,7 @@ function start(gl) {
   const camera = new THREE.PerspectiveCamera(budget.fov, 1, 0.5, 900);
   /* The frame's height, and the now-plate's top edge in it (px from the top; 0.62 of the height without a player), or the top of what
      is left at the frame's foot while the plate is away: on a phone the camera keeps the visitor's bear above it. Measured on a resize
-     and when the plate moves (the join, lean-back, its shelf). */
+     and when the plate moves (the join, a ride as it settles and wakes, its shelf). */
   let frameH = 1, plateTop = 0;
   function measurePlate() {
     const frameTop = container.getBoundingClientRect().top;
@@ -276,7 +276,7 @@ function start(gl) {
     nextDrop = elapsed + 40 + rnd() * 20;
   }
 
-  /* ---------- the camera: walker, attract, descent, drift ---------- */
+  /* ---------- the camera: walker, descent, attract, and the ride's two rigs ---------- */
   /* The walker is the visitor, seen from behind as their own bear (third person, the default) or through its eyes (first person). The
      page mirrors the setting on <main>; changing it cuts the camera. */
   const trailhead = at(0);
@@ -345,8 +345,10 @@ function start(gl) {
   }
   let mode = over ? "attract" : reduced || posed ? "walk" : "descent";
   let elapsed = 0;
-  /* The walker's heading when follow began; the look turns away from the lead bear by how far the heading has moved since. */
-  let followBase = 0;
+  /* The ride (modes.js). How far the visitor has turned its look from the lead bear, which is kept while the crane has the view;
+     the walker's heading at which that turn is none, so the look turns by how far the heading has moved from it; and how far the
+     camera has gone from the rig that walks with the bears, 0, to the crane, 1, as a share of the time that takes (pose.js). */
+  let yaw = 0, followBase = 0, lean = 0;
   /* The bears walk their own line at a lively pace, five BEAR_GAP m apart by distance along it (modes.js), and pass the landmarks
      rather than walk through them (path.js). */
   const BEAR_SPEED = 2.5;
@@ -387,7 +389,7 @@ function start(gl) {
   /* The camera that walks with the bears, in follow and attract, its eye above their heads; it looks at the lead bear, turned by `yaw`
      and tilted by `pitch` (pose.js). */
   function postPose(yaw, pitch) {
-    return poseOver({ third, phone, bearD, count: bears.length, gap: BEAR_GAP, line, height, keepInView }, yaw, pitch);
+    return poseOver(depsNow(), yaw, pitch);
   }
   /* Where the visitor's feet stand on a phone: 24 px above the now-plate, as a share of the frame's height from -1 to 1. */
   const plateY = () => 1 - (2 * (plateTop - 24)) / frameH;
@@ -395,25 +397,33 @@ function start(gl) {
      stand above the now-plate, at most 0.45 rad, which still keeps the lead bear below the top plates; elsewhere until the top of its
      head stands 36 % up the frame, at most 0.3 rad. */
   const keepInView = (from, look) => phone ? avatar.turnDown(camera, from, look, avatar.feet, plateY(), 0.45) : avatar.turnDown(camera, from, look, avatar.top, -0.28);
+  /* What the bears' cameras are reckoned from (pose.js's `deps`), as the world stands now: one object, made once. */
+  const deps = { third, phone, bearD, count: bears.length, gap: BEAR_GAP, line, height, keepInView };
+  function depsNow() {
+    deps.third = third; deps.bearD = bearD; deps.count = bears.length;
+    return deps;
+  }
   const forward = () => new THREE.Vector3(-Math.sin(walker.heading), 0, -Math.cos(walker.heading));
   /* Changes the camera's mode and tells the page. A walk starts where the visitor's bear last stood in one (`spot`). Where that is away
      from its place in the line the camera cuts to it, since easing there would carry the view across the island without the bear in
-     it; entering follow frames the bears again, level. */
+     it. A ride entered from outside it frames the bears again, level, with the camera on the rig it enters; back from the crane the
+     look is as the visitor left it, from the walker's heading as the crane left that. */
   function setMode(m) {
     const entry = enterMode(mode, m, spot);
     if (!entry.changed) return;
     if (entry.cut) cut = true;
-    if (entry.followEntered) { followBase = walker.heading; walker.pitch = 0; }
+    if (entry.rideEntered) { yaw = 0; walker.pitch = 0; lean = m === "drift" ? 1 : 0; }
+    if (m === "follow") followBase = walker.heading - yaw;
     mode = m;
     document.dispatchEvent(new CustomEvent("world:mode", { detail: { mode } }));
   }
-  /* What changes the mode (modes.js): the controls, lean-back's switch and the frames. */
+  /* What changes the mode (modes.js): the controls, the page's word on the ride and the frames. */
   const rules = modeRules(() => mode, setMode);
-  /* A control the world takes wakes it for a frame; lean-back takes none. */
+  /* A control wakes the world for a frame. */
   function userInput(action) {
-    if (rules.input(action)) wake();
+    rules.input(action);
+    wake();
   }
-  document.addEventListener("world:follow", () => userInput("follow"));
   const input = bindInput(container, walker, userInput);
   const { keys, stick } = input;
   /* Whether a control that acts over time is held: a key that walks, turns or looks, or a push on the stick. */
@@ -421,24 +431,28 @@ function start(gl) {
     stick.walk !== 0 || stick.turn !== 0;
   /* How far the controls walk or turn, from -1 to 1: a key at full, the stick as far as it is pushed (input.js). */
   const axis = (plus, minus, push) => Math.max(-1, Math.min(1, (plus ? 1 : 0) - (minus ? 1 : 0) + push));
-  /* Lean-back, the player's state and the view live on <main>; read them now too, since the show may have started before the world
-     loaded. The join, lean-back and the now-plate's shelf move the now-plate. */
+  /* The ride, the player's state and the view live on <main>; read them now too, since the show may have started before the world
+     loaded, and a visitor carried over from the day before arrives riding. The page marks a ride "awake" or "settled". The join, a
+     ride as it settles and wakes, and the now-plate's shelf move the now-plate. */
   function syncMain() {
-    const lean = main.dataset.mode === "leanback";
+    const ride = main.dataset.ride;
     playing = main.dataset.state === "playing";
     const t = main.dataset.view !== "first";
     if (t !== third) { third = t; cut = true; bearPose = bearHook; }
     avatar.g.visible = third;
     measurePlate();
-    rules.lean(lean);
+    rules.ride(ride === "awake" || ride === "settled", ride === "settled");
     wake();
   }
-  new MutationObserver(syncMain).observe(main, { attributes: true, attributeFilter: ["data-mode", "data-state", "data-view", "data-joined", "data-shelves"] });
+  new MutationObserver(syncMain).observe(main, { attributes: true, attributeFilter: ["data-ride", "data-state", "data-view", "data-joined", "data-shelves"] });
   syncMain();
 
   const lookTarget = new THREE.Vector3();
+  /* Where the crane's pose is written, its look straight into `lookTarget`, and the camera's between the rigs: made once, so that a
+     frame of the ride makes neither. The points the bears' line hands out are its own new ones each call (path.js), and so is
+     postPose's answer, as in every frame of the opening. */
+  const craneAt = { pos: new THREE.Vector3(), look: lookTarget }, onWay = { pos: new THREE.Vector3(), look: new THREE.Vector3() };
   const easeOut = (x) => { const t = Math.max(0, Math.min(1, x)); return 1 - (1 - t) * (1 - t) * (1 - t); };
-  const up = new THREE.Vector3(0, 1, 0);
 
   function placeWalker() {
     const y = height(walker.x, walker.z) + FIRST_EYE;
@@ -522,6 +536,9 @@ function start(gl) {
     calls: stat(() => renderer.info.render.calls), triangles: stat(() => renderer.info.render.triangles),
     frameMs: stat(() => Math.round(sampler.frameMs * 10) / 10), frames: stat(() => renderer.info.render.frame), sound: stat(soundStats),
     mode: stat(() => mode),
+    /* In a ride, how far the camera has gone from the rig that walks with the bears, 0, to the crane, 1, as a share of the time
+       that takes, and how far the visitor has turned its look (rad); null out of one. */
+    ride: stat(() => (mode === "follow" || mode === "drift" ? { lean: r3(lean), yaw: r3(yaw) } : null)),
     /* Where the visitor stands and how they look (x, z, heading, pitch). The flash counter holds a pose it asked for to this: the
        walk's limits move a visitor who is stood where no walker may stand. */
     walker: stat(() => ({ x: r3(walker.x), z: r3(walker.z), heading: r3(walker.heading), pitch: r3(walker.pitch) })),
@@ -721,27 +738,35 @@ function start(gl) {
         const end = postPose(0, 0);
         camera.position.set(end.pos.x * k, DESCENT_FROM + (end.pos.y - DESCENT_FROM) * k, end.pos.z * k);
         aim(lookTarget.set(end.look.x * k, end.look.y * k, -3 + (end.look.z + 3) * k), true);
-      } else if (mode === "attract" || mode === "follow") {
-        /* In follow, turning adds an offset to the look. */
-        if (mode === "follow") walker.heading += axis(keys.left, keys.right, stick.turn) * 1.6 * dt;
-        const pose = mode === "follow" ? postPose(walker.heading - followBase, walker.pitch) : postPose(0, 0);
-        camera.position.copy(pose.pos);
-        aim(lookTarget.copy(pose.look), true);
-      } else if (mode === "drift") {
-        if (reduced) {
-          const p0 = at(0);
-          camera.position.set(0, height(0, 0) + 8, 0);
-          camera.lookAt(lookTarget.set(p0.x, p0.y, p0.z));
+      } else if (reduced && mode === "drift") {
+        /* A settled ride under reduced motion: the trailhead from over the summit, which a frame draws once and nothing moves. */
+        const p0 = at(0);
+        lean = 1;
+        camera.position.set(0, height(0, 0) + 8, 0);
+        camera.lookAt(lookTarget.set(p0.x, p0.y, p0.z));
+      } else {
+        /* Attract, and the ride. In follow, turning adds an offset to the look. */
+        if (mode === "follow") { walker.heading += axis(keys.left, keys.right, stick.turn) * 1.6 * dt; yaw = walker.heading - followBase; }
+        /* The ride's camera eases between its rigs over RIG_EASE_S (pose.js), and stands on the one its mode names at once under
+           reduced motion. Each rig is reckoned only while the camera is on it or on its way to or from it. */
+        const to = mode === "drift" ? 1 : 0;
+        lean = reduced ? to : toward(lean, to, dt / RIG_EASE_S);
+        const post = lean < 1 ? (mode === "attract" ? postPose(0, 0) : postPose(yaw, walker.pitch)) : null;
+        if (lean > 0) {
+          /* A slow crane high above the bears, behind the visitor's bear along their line (pose.js). Its aim is its own: on a phone
+             in third person turned down from where it hangs until the visitor's bear stands above the now-plate. */
+          cranePose(depsNow(), elapsed, craneAt);
+          camera.position.copy(craneAt.pos);
+          if (phone && third) avatar.tilt(camera, lookTarget, avatar.feet, plateY());
+          if (post) {
+            ridePose(post, craneAt, lean, onWay);
+            camera.position.copy(onWay.pos);
+            lookTarget.copy(onWay.look);
+          }
+          camera.lookAt(lookTarget);
         } else {
-          /* A slow crane high above the bears, behind the visitor's bear along their line (pose.js CRANE). */
-          const dd = slotD() - CRANE.back;
-          const p = line.at(dd), tg = line.tangentAt(dd);
-          const side = new THREE.Vector3().crossVectors(tg, up).normalize();
-          const sway = CRANE.sway * Math.sin((elapsed * Math.PI * 2) / 30);
-          const x = p.x + side.x * sway, z = p.z + side.z * sway;
-          camera.position.set(x, height(x, z) + 9, z);
-          const ahead = line.at(dd + CRANE.ahead);
-          aim(lookTarget.set(ahead.x, ahead.y + 8, ahead.z));
+          camera.position.copy(post.pos);
+          aim(lookTarget.copy(post.look), true);
         }
       }
       avatar.settle(camera.position, lookTarget);

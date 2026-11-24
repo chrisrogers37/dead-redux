@@ -86,9 +86,15 @@ export const GREY = 0x7d7a74, PALE_STONE = 0xa9a59c, MOSS = 0x55663f, SNOW = 0xe
    plinth go down, which is as far as the ground falls under them on the path and a hand more (their builders say how far that
    is), and their tones. */
 export const TRESTLE_SUNK = 7.4, BAND_SUNK = 4.4;
+/* The lighthouse's footing and the terrapin's legs, the same way (their builders say how far the ground falls under them). */
+export const LIGHT_SUNK = 2.4, TERRAPIN_SUNK = 2.4;
 export const SIGN_YELLOW = 0xd4a056, SIGN_DARK = 0x3a2a1e, PLAQUE = 0xe0d9c4, POST = 0x7a5230, HANDRAIL = 0xa98a5c, PLANK_TONES = [DARK_TIMBER, 0x5a4128, 0x3d2b1a];
 export const KITE_TONES = [0xd4607a, 0xe8b04b], BOW_TONES = [0x5b8fb5, 0xf0dba0];
 export const PIER_PLINTH = 0x6f6a63, PIER_NICHE = 0x2a2622, CREAM = 0xd8d2c4, COPPER = [0x5f8f7f, 0x4e7a6c];
+/* The lighthouse's, the eyes', the lotus bowl's, the banner's and the terrapin's own tones. */
+export const SCARLET = 0xb8333a, DEEP_RED = 0x8f2630, IRIS = 0x2f6f6a, PUPIL = 0x15110d, WATER = 0xbfe3ea, BOWL_PALE = 0xd9d2b8;
+export const TRIM = 0xc89a3c, BEGONIA = 0xf2b7ae, HEART = 0xf0c860, BEGONIA_LEAF = 0x538550;
+export const SEAM = 0x2e3524, SCUTES = [0x5d6b3a, 0x8a8548, 0x8f7440], BELLY = 0xcdbf8a, HIDE = 0x86946a, PAD = 0x6b7850, CLAW = 0xcfc4a2;
 
 /* The builders table: a title rule and the landmark it builds; a song no rule matches gets one of eight standing stones, by its title. */
 export function makeBuilders(phone) {
@@ -390,9 +396,9 @@ export function makeBuilders(phone) {
     [/truckin/i, roadSign],
     [/sugar magnolia|sugaree/i, magnolia],
     [/ripple/i, (g) => { g.add(mesh(new THREE.CircleGeometry(3, 24).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x0e1014 }), 0, 0.12, 0)); const r = mesh(new THREE.TorusGeometry(3.2, 0.15, 6, 32), stone, 0, 0.15, 0); r.rotation.x = -Math.PI / 2; g.add(r); }],
-    [/eyes/i, (g) => { for (const x of [-0.9, 0.9]) g.add(mesh(new THREE.CylinderGeometry(0.12, 0.12, 3.2, 6), wood, x, 1.6, 0), mesh(new THREE.SphereGeometry(0.45, 8, 6), amber, x, 3.5, 0)); }],
-    [/scarlet/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(0.12, 0.12, 6.5, 6), wood, -1.1, 3.25, 0), mesh(new THREE.BoxGeometry(2, 3, 0.06), new THREE.MeshLambertMaterial({ color: 0xb8333a, flatShading: true }), 0, 4.6, 0)); }],
-    [/terrapin/i, (g) => { for (const x of [-1.1, 1.1]) for (const z of [-1.2, 1.2]) g.add(mesh(new THREE.BoxGeometry(0.6, 0.7, 0.6), stone, x, 0.35, z)); const d = mesh(new THREE.SphereGeometry(1.5, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), stone, 0, 1.3, 0); d.scale.set(1, 0.7, 1.1); g.add(mesh(new THREE.BoxGeometry(2.8, 0.6, 3.2), stone, 0, 1, 0), d, mesh(new THREE.SphereGeometry(0.45, 8, 6), stone, 0, 1, 2)); }],
+    [/eyes/i, eyes],
+    [/scarlet/i, scarletBanner],
+    [/terrapin/i, terrapin],
     [/dark star/i, (g) => { g.add(mesh(new THREE.BoxGeometry(2, 1.2, 2), stone, 0, 0.6, 0), mesh(new THREE.SphereGeometry(1.4, 12, 8), new THREE.MeshBasicMaterial({ color: 0x0b0b0d }), 0, 2.6, 0)); }],
     [/morning dew/i, (g) => { g.add(mesh(new THREE.DodecahedronGeometry(2.2), new THREE.MeshPhongMaterial({ color: 0x7d7a74, specular: 0xffffff, shininess: 80, flatShading: true }), 0, 1.8, 0)); }],
     [/box of rain/i, (g) => { for (const z of [-1.5, 1.5]) g.add(mesh(new THREE.BoxGeometry(3.2, 2.6, 0.2), stone, 0, 1.3, z)); for (const x of [-1.5, 1.5]) g.add(mesh(new THREE.BoxGeometry(0.2, 2.6, 2.8), stone, x, 1.3, 0)); }],
@@ -409,13 +415,13 @@ export function makeBuilders(phone) {
     [/fire/i, fireMountain],
     [/samson/i, templePillars],
     [/wheel/i, (g) => { const w = mesh(new THREE.TorusGeometry(3.2, 0.4, 6, 16), wood, 0, 3.6, 0); g.add(w); moving.push({ obj: w, kind: "spin" }); }],
-    [/miracle/i, (g) => { const s = mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.9 }), 0, 4, 0); g.add(s); moving.push({ obj: s, kind: "bob" }); }],
+    [/miracle/i, miracleBowl],
     [/band/i, bandstand],
     [{ test: isDrums }, drumCircle],
     [{ test: isSpace }, spaceRim],
     [/lovin/i, leaningStones],
     [/road/i, trestle],
-    [/lovelight|light/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(1.2, 1.6, 10, 8), new THREE.MeshLambertMaterial({ color: 0xeceae4, flatShading: true }), 0, 5, 0)); const b = mesh(new THREE.BoxGeometry(1, 1, 1), amber, 0, 10.6, 0); g.add(b); moving.push({ obj: b, kind: "spin" }); }],
+    [/lovelight|light/i, lighthouse],
     [/blues/i, bannerPole],
   ];
   /* ---------- the standing stones ---------- */
@@ -766,9 +772,9 @@ export function makeBuilders(phone) {
     g.add(m);
     return m;
   };
-  /* A rod from one place to another, `r` thick, of `sides` flat sides, open at its ends unless `capped`. It is turned the
-     shortest way from upright, which is all a round thing asks. */
-  const rod = (g, mat, from, to, r, sides = 4, capped = false) => { laid(g, mat, from, to, (length) => new THREE.CylinderGeometry(r, r, length, sides, 1, !capped), (quaternion, way) => quaternion.setFromUnitVectors(UP, way)); };
+  /* A rod from one place to another, `r` thick, of `sides` flat sides, open at its ends unless `capped`; one that tapers is
+     `foot` thick where it begins. It is turned the shortest way from upright, which is all a round thing asks. */
+  const rod = (g, mat, from, to, r, sides = 4, capped = false, foot = r) => { laid(g, mat, from, to, (length) => new THREE.CylinderGeometry(r, foot, length, sides, 1, !capped), (quaternion, way) => quaternion.setFromUnitVectors(UP, way)); };
   /* A shape turned about the upright from a profile of [radius, height], foot first, with `sides` flat sides. Where the profile
      meets the upright it closes on a point, with no face of no area there. */
   const turned = (profile, sides) => {
@@ -1311,6 +1317,256 @@ export function makeBuilders(phone) {
     put(g, new THREE.CylinderGeometry(cupola, cupola, drum, sides, 1, true), cream, 0, crown + drum / 2, 0);
     put(g, turned([[0, under], [1.2, under], [1.2, under + 0.06], [0, tip]], sides), tone(COPPER[1], true), 0, 0, 0);
     put(g, new THREE.SphereGeometry(ball, 6, 4), tone(BRASS), 0, tip + 0.01, 0);
+  }
+
+  /* ---------- Lovelight, Eyes Of The World, I Need A Miracle, Scarlet Begonias and Terrapin Station ---------- */
+  /* Each of these five keeps inside the outline, seen from above, of the plain shape it replaced, and under its top, as the
+     batches before it do: a landmark is stood off its song's point by its outline (path.js), and the walk's camera and the
+     crowd keep out of its box (avatar.js, crowd.js).
+     Three of them hold a light, and each light is main's own part: the lighthouse's lamp, the eyes' two balls and the
+     miracle's light are the shapes main drew, in main's materials, and move as they did. The light show was counted with
+     them. What is built here stands under a light, round it or over it, and none of it glows.
+     The renderer does not smooth an edge, so a part thinner than a pixel breaks into specks that come and go as the eye
+     moves. No post, rail, stalk or pole here is thinner than 13 cm, which is two pixels of a desktop's frame from 50 m: the
+     lighthouse's gallery has a stout rail on a few stanchions, not a wire one, and the banner hangs by loops of cloth and
+     has no cords.
+     Two of them are broad, and stand level on a slope: so the lighthouse's footing and the terrapin's legs go down as far as
+     the ground falls under them anywhere on the path, and a hand more, as the trestle's posts do. */
+
+  /* Lovelight, Smokestack Lightning, Lazy Lightnin': a lighthouse, where the plain tower stood, as tall and on a footing as
+     broad. The footing is main's tower's own foot, eight-sided and 1.6 m out, so the outline is main's. On it a step, and a
+     tower in seven hoops, white and red turn about, a flat of it toward the walker with a door in a pale surround and two
+     windows over it; a corbel under the gallery; the gallery's deck, its stanchions and its rail; the lantern room, a low
+     wall with a sill on it and posts from the sill to the roof's plate; and a red roof with a brass ball on it.
+     The lamp is main's: a box of a metre in the shared amber, which turns. It stands 1.1 m lower than it did, on the sill,
+     so that the roof over it ends under main's top. It turns inside the posts, clear of them, and no post stands before its
+     middle as the walker sees it. A phone's tower has eight sides, and six posts and six stanchions where a desktop has
+     eight.
+     The footing is 3.2 m across. Stood at every quarter metre of the path, as the trestle is, the ground under a corner of
+     its foot lies 2.01 m under the landmark's own ground at the lowest: so it goes LIGHT_SUNK down, which is that and a
+     hand more. Its test sweeps the path and holds the depth to covering the fall by no more than a hand. */
+  /* The lighthouse's heights: its footing's top, the tower's foot and its top, the lantern's sill, the roof's plate, how tall the
+     roof is, and the lamp's middle. And how far out each of its rings stands: the footing, the step and the tower's wall at
+     their feet and at their tops, and the rest all the way up. */
+  const TOWER = { footing: 0.5, foot: 0.75, top: 7.85, hoops: 7, sill: 9, plate: 10.04, roof: 0.8, lamp: 9.5 };
+  const TOWER_OUT = { footing: { foot: 1.6, top: 1.5 }, step: { foot: 1.46, top: 1.42 }, wall: { foot: 1.38, top: 1.02 }, corbel: 1.38, deck: 1.46, rail: 1.27, room: 0.98, sill: 1.04, posts: 0.9, plate: 1.06, roof: 1.14 };
+  function lighthouse(g) {
+    const sides = phone ? 8 : 12, flat = Math.PI / sides, posts = phone ? 6 : 8, { footing, foot, top, sill, plate } = TOWER, out = TOWER_OUT;
+    const iron = tone(IRON, true), pale = tone(PALE_STONE, true), white = tone(SNOW, true);
+    /* How far out the tower's wall is at a height, at a corner; and its flat toward the walker, at a part's foot, where the
+       wall is furthest out under it. Each thing on the wall is set by that. */
+    const wall = (y) => out.wall.foot - ((out.wall.foot - out.wall.top) * (y - foot)) / (top - foot), face = (y) => wall(y) * Math.cos(flat);
+    put(g, new THREE.CylinderGeometry(out.footing.top, out.footing.foot, footing + LIGHT_SUNK, 8), stone, 0, (footing - LIGHT_SUNK) / 2, 0);
+    put(g, new THREE.CylinderGeometry(out.step.top, out.step.foot, foot - footing + KEYED, sides).rotateY(flat), pale, 0, (foot + footing - KEYED) / 2, 0);
+    /* The tower's hoops are its own faces, painted: seven of them, the first and the last white. */
+    const tall = top - foot + 2 * KEYED;
+    put(g, paint(new THREE.CylinderGeometry(out.wall.top, out.wall.foot, tall, sides, TOWER.hoops).rotateY(flat), (x, y) => (Math.floor(((y + tall / 2) / tall) * TOWER.hoops) % 2 ? SCARLET : SNOW)), painted, 0, (top + foot) / 2, 0);
+    /* A thing on the wall, from `y` up: a pale surround, 5 cm proud of the wall at its foot, and in it a dark leaf or pane,
+       `rise` over the surround's foot and 3 cm proud of it. Both go 0.3 m back into the tower. The door's foot is half of
+       KEYED into the step, between its surround's foot and the tower's: at one height with either, two feet would lie in
+       one plane. */
+    const set = (y, [across, high], [leaf, leafHigh], rise, dark) => {
+      const flush = face(y);
+      put(g, new THREE.BoxGeometry(across, high, 0.3), pale, 0, y + high / 2, 0.1 - flush);
+      put(g, new THREE.BoxGeometry(leaf, leafHigh, 0.3), tone(dark, true), 0, y + rise + leafHigh / 2, 0.07 - flush);
+    };
+    set(foot, [0.82, 1.6], [0.56, 1.44 + KEYED / 2], -KEYED / 2, DARK_TIMBER);
+    for (const y of phone ? [4.9] : [3.0, 5.1]) set(y, [0.52, 0.8], [0.34, 0.6], 0.1, PIER_NICHE);
+    /* The corbel widens from the wall to the deck's underside; the deck; and on it the rail that joins the stanchions'
+       heads. */
+    const deck = top + 0.18, rail = deck + 0.7;
+    put(g, new THREE.CylinderGeometry(out.corbel, wall(top - 0.4) + 0.005, 0.4 + KEYED, sides, 1, true).rotateY(flat), pale, 0, top - 0.2 + KEYED / 2, 0);
+    put(g, new THREE.CylinderGeometry(out.deck, out.deck, deck - top, sides).rotateY(flat), iron, 0, (deck + top) / 2, 0);
+    put(g, new THREE.TorusGeometry(out.rail, 0.08, 4, phone ? 12 : 16), iron, 0, rail, 0, Math.PI / 2);
+    /* The lantern room: its wall, the sill the lamp stands on, the roof's plate, the roof and its ball. */
+    put(g, new THREE.CylinderGeometry(out.room, out.room, sill - 0.08 - deck + KEYED, sides).rotateY(flat), white, 0, (sill - 0.08 + deck - KEYED) / 2, 0);
+    put(g, new THREE.CylinderGeometry(out.sill, out.sill, 0.1, sides).rotateY(flat), iron, 0, sill - 0.05, 0);
+    put(g, new THREE.CylinderGeometry(out.plate, out.plate, 0.12, sides).rotateY(flat), iron, 0, plate + 0.06, 0);
+    put(g, new THREE.ConeGeometry(out.roof, TOWER.roof, sides).rotateY(flat), tone(DEEP_RED, true), 0, plate + 0.11 + TOWER.roof / 2, 0);
+    /* The uprights, each half a step round from the walker's line: at every such place a stanchion of the gallery, from the
+       deck up into the rail, and a post of the lantern room, from the sill up into the plate. */
+    for (let k = 0; k < posts; k++) {
+      const a = ((k + 0.5) / posts) * 2 * Math.PI, sin = Math.sin(a), cos = Math.cos(a);
+      put(g, new THREE.BoxGeometry(0.13, rail - deck, 0.13), iron, out.rail * sin, (rail + deck) / 2, out.rail * cos, 0, a, 0);
+      put(g, new THREE.BoxGeometry(0.14, plate - sill + 2 * KEYED, 0.14), iron, out.posts * sin, (plate + sill) / 2, out.posts * cos, 0, a, 0);
+    }
+    put(g, new THREE.SphereGeometry(0.09, 6, 5), tone(BRASS), 0, plate + 0.11 + TOWER.roof + 0.04, 0);
+    /* The lamp is main's: a box of a metre in the shared amber, turning. */
+    const lamp = mesh(new THREE.BoxGeometry(1, 1, 1), amber, 0, TOWER.lamp, 0);
+    g.add(lamp);
+    moving.push({ obj: lamp, kind: "spin" });
+  }
+
+  /* Eyes Of The World: two eyes on stalks, where the two plain balls stood on their poles, and looking at the walker. Each is
+     a turned stalk with a brass collar at its foot and one under its cup; the cup, which the stalk widens into and the eye
+     sits in; the eye; a lid over it, like a hood, down to just over the iris; and on the eye's face an iris with a dark
+     pupil on it. The two eyes are main's balls, their size and their material main's, drawn as one mesh where main drew two;
+     they glow and do not pulse. They stand a tenth of a metre lower than they did, so that the lids end under main's top,
+     and nearer each other, which leaves the outline room for each iris: main's balls stood at the outline's own edge.
+     Seen from above a ball fills the outline from front to back: main's ball had a corner at the outline's very edge, 0.45 m
+     before its middle, and nothing can stand before that. So each ball is turned an eighth of a turn about the upright,
+     which puts an edge of it foremost, 0.416 m before its middle, and leaves 3 cm: the iris and the pupil are discs let into
+     the ball, their faces in those 3 cm, and the ball falls away from them at either side. A corner left foremost would
+     stand through the pupil, a bright point in its middle. A lid is no broader than its ball. */
+  const EYE = { out: 0.68, at: 3.4, r: 0.45, iris: 0.2, pupil: 0.11, lid: 0.215, cup: 3.15 };
+  function eyes(g) {
+    const sides = phone ? 6 : 8, round = phone ? 8 : 10, { out, at, r, cup } = EYE;
+    const stalk = [[0.2, -SUNK], [0.2, 0.22], [0.26, 0.36], [0.14, 0.6], [0.115, 1.7], [0.1, 2.7], [0.2, 2.85], [0.36, 3.01], [0.41, cup - 0.04], [0.41, cup], [0.3, cup]];
+    /* The lid, about its eye's middle: its underside, its edge, and its dome up to 0.54 m over the middle. */
+    const lid = [[0, EYE.lid], [r - 0.005, EYE.lid], [r - 0.005, EYE.lid + 0.05], [0.38, 0.4], [0.22, 0.5], [0, 0.54]];
+    for (const x of [-out, out]) {
+      put(g, lathe(stalk, sides), tone(TIMBER), x, 0, 0);
+      for (const [y, wide] of [[0.6, 0.155], [2.7, 0.125]]) put(g, new THREE.CylinderGeometry(wide, wide, 0.1, sides, 1, true), tone(BRASS), x, y, 0);
+      put(g, turned(lid, round), tone(DARK_TIMBER, true), x, at, 0);
+      /* The iris's face is 13 mm inside the outline's front edge and 2 cm proud of the ball's foremost edge, and the pupil's
+         is 1 cm proud of the iris's. */
+      put(g, new THREE.CylinderGeometry(EYE.iris, EYE.iris, 0.12, phone ? 8 : 12).rotateX(Math.PI / 2), tone(IRIS, true), x, at, -(r - 0.013 - 0.06));
+      put(g, new THREE.CylinderGeometry(EYE.pupil, EYE.pupil, 0.12, 8).rotateX(Math.PI / 2), tone(PUPIL, true), x, at, -(r - 0.003 - 0.06));
+    }
+    const ball = (x) => new THREE.SphereGeometry(r, 8, 6).rotateY(Math.PI / 8).translate(x, at, 0);
+    g.add(mesh(mergeGeometries([ball(-out), ball(out)]), amber, 0, 0, 0));
+  }
+
+  /* I Need A Miracle: main's light, which rises and falls, over a stone lotus. The plain landmark was the light alone, and
+     the outline is the light's: eight-sided, a metre out at its corners. So the footing has those eight sides; on it a step
+     and an eight-sided pillar; on the pillar a bowl with water in it; and round the bowl eight petals, one toward each corner
+     of the outline, which is where they have room to open. The light is main's sphere in main's material, 4 m up and moved
+     as main moves it: at its lowest its underside is 2.5 m up, and the petals' tips are 12 cm under that. */
+  /* The bowl's rim and its water; and a petal: how far out and how high its middle is, half its length, and its lean. */
+  const LOTUS = { rim: 2.27, water: 2.17, petal: { out: 0.735, at: 1.97, long: 0.47, lean: 0.54 } };
+  function miracleBowl(g) {
+    const round = phone ? 8 : 12, { rim, petal } = LOTUS;
+    put(g, new THREE.CylinderGeometry(0.9, 0.98, 0.35 + SUNK, 8), stone, 0, (0.35 - SUNK) / 2, 0);
+    put(g, new THREE.CylinderGeometry(0.72, 0.78, 0.2 + KEYED, 8), tone(PALE_STONE, true), 0, 0.45 - KEYED / 2, 0);
+    put(g, lathe([[0.5, 0.54], [0.5, 0.62], [0.36, 0.74], [0.3, 1.0], [0.3, 1.42], [0.36, 1.54], [0.4, 1.62]], 8), tone(GREY, true), 0, 0, 0);
+    /* The bowl is one closed shape: its outside up to its rim, the rim's top, and its inside down to its floor. Its inside
+       and its rim's top are the paler. */
+    const bowl = [[0, 1.58], [0.36, 1.6], [0.56, 1.8], [0.68, 2.0], [0.72, 2.2], [0.72, rim], [0.62, rim], [0.58, LOTUS.water], [0.4, 2.03], [0, 1.98]];
+    put(g, paint(turned(bowl, round), (x, y, z) => (y > rim - 0.01 || (y > 1.975 && Math.hypot(x, z) < 0.61) ? BOWL_PALE : GREY)), painted, 0, 0, 0);
+    put(g, new THREE.CircleGeometry(0.6, round).rotateX(-Math.PI / 2), tone(WATER, true), 0, LOTUS.water, 0);
+    /* The petals: each a long flat leaf that leans out from the pillar's head past the bowl's rim, its tip toward a corner
+       of the outline. */
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * 2 * Math.PI;
+      put(g, new THREE.SphereGeometry(1, phone ? 4 : 6, phone ? 3 : 4).scale(0.27, petal.long, 0.085).rotateX(petal.lean), tone(PALE_STONE), petal.out * Math.sin(a), petal.at, petal.out * Math.cos(a), 0, a, 0);
+    }
+    const s = mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.9 }), 0, 4, 0);
+    g.add(s);
+    moving.push({ obj: s, kind: "bob" });
+  }
+
+  /* Scarlet Begonias: a banner of begonias, where the plain red board hung beside its pole. Seen from above the plain shape
+     was a pole of six sides and a board 6 cm through, and that is all the room there is: 12 cm either way at the pole, and
+     3 cm at the board's far edge. So the pole is main's own six sides, turned, with brass collars and a brass head; a yard
+     runs from it, 13 cm tall and thinner than the cloth; and the banner hangs from the yard by loops of gold cloth, broad face to the walker.
+     It is scarlet, with a gold band at its head and a dark one over its foot, and its foot is cut to tongues, a brass drop
+     hung from each. The begonias are sewn on both its faces: each a ring of five pale petals round a gold heart, with two
+     leaves under it. A layer lies 4 mm proud of the one under it, which is as much as the outline leaves at the blossoms'
+     far side. A phone's banner has three tongues and two blossoms, where a desktop's has four and three. */
+  const FLAG = { pole: -1.1, yard: 6.08, spar: 0.13, head: 5.9, tall: 2.8, wide: 1.86, mid: 0.05, cut: 0.3, layer: 0.004, loop: 0.007 };
+  function scarletBanner(g) {
+    const { pole, yard, head, tall, wide, mid, layer } = FLAG, cols = phone ? 6 : 8, rows = phone ? 6 : 8, gold = tone(TRIM, true);
+    put(g, lathe([[0.115, -SUNK], [0.115, 0.45], [0.095, 0.7], [0.085, 5.7], [0.112, 5.82], [0.112, 6.2], [0.085, 6.26]], 6), tone(TIMBER), pole, 0, 0);
+    /* The collars are as broad as main's pole was, and six-sided as it was, and the yard's brass end is as thick as main's
+       board and ends where it ended, each less a tenth of a millimetre: so the outline is main's to within 0.09 mm at the
+       pole and 0.14 mm at the far end's two corners, and inside it. */
+    for (const y of [0.58, 5.76]) put(g, new THREE.CylinderGeometry(0.1199, 0.1199, 0.1, 6, 1, true), tone(BRASS), pole, y, 0);
+    put(g, turned([[0.085, 6.26], [0.118, 6.32], [0.07, 6.42], [0, 6.49]], 6), tone(BRASS, true), pole, 0, 0);
+    put(g, new THREE.BoxGeometry(0.98 - pole, FLAG.spar, CLOTH - 2 * FLAG.loop), tone(DARK_TIMBER, true), (0.98 + pole) / 2, yard, 0);
+    put(g, new THREE.BoxGeometry(0.06, 0.16, 0.0598), tone(BRASS, true), 0.9699, yard, 0);
+    /* The loops go over the yard, 2 cm over its top, and are the cloth's own thickness: so the yard is FLAG.loop thinner than
+       the cloth before and behind, and a loop is proud of it by that, with no step where it meets the cloth's head. A loop
+       thicker than the cloth showed its underside there as a dark dash, a pixel thick, that came and went. */
+    const loops = phone ? 4 : 5;
+    const over = yard + FLAG.spar / 2 + 0.02;
+    for (let k = 0; k < loops; k++) put(g, new THREE.BoxGeometry(0.18, over - head + 0.04, CLOTH), gold, mid + (wide - 0.3) * (k / (loops - 1) - 0.5), (over + head - 0.04) / 2, 0);
+    /* The cloth: a slab of cells. Along its foot every other corner is lifted, so the ones between hang as tongues. It has no
+       underside: along the tongues' slanting edges that showed from the path as dark specks, a pixel each, that came and
+       went, and without it the sky shows there, as it does beside the cloth. */
+    const cloth = new THREE.BoxGeometry(wide, tall, CLOTH, cols, rows, 1), pos = cloth.attributes.position, row = tall / rows;
+    const under = cloth.groups.find((group) => group.materialIndex === 3), faces = Array.from(cloth.index.array);
+    faces.splice(under.start, under.count);
+    cloth.setIndex(faces);
+    for (let i = 0; i < pos.count; i++) {
+      if (Math.abs(pos.getY(i) + tall / 2) > 1e-6) continue;
+      if (Math.round(((pos.getX(i) + wide / 2) / wide) * cols) % 2 === 0) pos.setY(i, pos.getY(i) + FLAG.cut);
+    }
+    put(g, paint(cloth, (x, y) => (y > tall / 2 - row ? TRIM : y < -tall / 2 + row ? TRIM : y < -tall / 2 + 2 * row ? DEEP_RED : SCARLET)), painted, mid, head - tall / 2, 0);
+    /* A drop is 20 cm broad for most of its length: a slimmer one broke into specks from 45 m on a phone. */
+    for (let k = 1; k < cols; k += 2) put(g, cut([[-0.04, 0.05], [0.04, 0.05], [0.1, -0.08], [0.1, -0.28], [0, -0.38], [-0.1, -0.28], [-0.1, -0.08]], CLOTH - 0.01), tone(BRASS, true), mid - wide / 2 + (k * wide) / cols, head - tall, 0);
+    /* The begonias, each [x, y, how far its petals reach], on the cloth's near face and on its far one. */
+    const blossoms = phone ? [[-0.3, 5.0, 0.36], [0.4, 4.25, 0.36]] : [[-0.36, 5.08, 0.34], [0.42, 4.5, 0.36], [-0.3, 3.92, 0.32]];
+    for (const side of [-1, 1]) {
+      const face = side * (CLOTH / 2), turn = side < 0 ? Math.PI : 0;
+      blossoms.forEach(([x, y, reach], n) => {
+        for (const leaf of [0.5 + n, 3.4 + n]) put(g, new THREE.CircleGeometry(1, 6).scale(0.55 * reach, 0.26 * reach, 1), tone(BEGONIA_LEAF, true), x + 0.8 * reach * Math.cos(leaf), y + 0.8 * reach * Math.sin(leaf), face + side * layer, 0, turn, side * leaf);
+        for (let k = 0; k < 5; k++) { const a = ((k + 0.25 * n) / 5) * 2 * Math.PI; put(g, new THREE.CircleGeometry(0.42 * reach, phone ? 6 : 8), tone(BEGONIA, true), x + 0.52 * reach * Math.cos(a), y + 0.52 * reach * Math.sin(a), face + side * 2 * layer, 0, turn, 0); }
+        /* The heart covers the gap the petals leave at the blossom's middle, with a margin: a smaller one left slivers of the
+           cloth showing between it and the petals. */
+        put(g, new THREE.CircleGeometry(0.28 * reach, 6), tone(HEART, true), x, y, face + side * 3 * layer, 0, turn, 0);
+      });
+    }
+  }
+
+  /* Terrapin Station: a terrapin, its head toward the walker and raised. Its shell is a dome of plates: a crown plate, a ring
+     of tall ones round it, a ring under those, and a ring of marginals that flares to the shell's edge, each plate a shade
+     of its own and never its neighbour's, raised from the dark shell under it, which shows between them as the seams. Under
+     the shell's edge is its pale belly. Four stout legs go on down under the ground, splayed, each with a broad foot before
+     it, and the forefeet with three claws; a neck comes out under the shell's front and carries the head, with a dark eye
+     at each side; and a tail hangs behind.
+     The plain shape reached 1.6 m toward the walker, and 2.45 m the other way, where its head was. So the shell stands back
+     of the landmark's middle, with the head before it inside those 1.6 m, and the shell's hind end and the tail lie where
+     the plain head was. A phone's shell has eight plates to a ring, where a desktop's has twelve, and no claws.
+     Stood at every quarter metre of the path, the ground under a corner of a leg's foot lies 1.91 m under the landmark's own
+     ground at the lowest: so the legs go TERRAPIN_SUNK down, which is that and a hand more, their feet cut square to their
+     lean. Their test sweeps the path and holds the depth to covering the fall by no more than a hand. */
+  /* The shell: how far along the path its middle is, and how far it is drawn out along it; its crown's height; its rings, each
+     [how far out, how high], from the crown's plate down to its edge; under its edge, the ring its belly turns in at, and the
+     belly's lowest; how far a plate stands proud, is drawn in and goes into the shell; and each ring's two shades, turn
+     about round it, which are never the shades over them. */
+  const SHELL = { at: 0.55, long: 1.09, crown: 2.28, rings: [[0.5, 2.2], [1.02, 1.9], [1.31, 1.42], [1.4, 0.9]], under: [1.14, 0.7], belly: 0.6, proud: 0.05, inset: 0.1, keyed: 0.02, shades: [{ even: 1, odd: 0 }, { even: 2, odd: 1 }, { even: 0, odd: 2 }] };
+  /* The legs: how high a leg's head is, in the shell, and how thick it is there and at its foot; and for the fore pair and the
+     hind pair, how far across the path and along it a leg's head and its foot are. */
+  const LEG = { up: 1, head: 0.34, foot: 0.4 };
+  const LEGS = [{ fore: true, head: { across: 0.74, along: -0.2 }, foot: { across: 1.0, along: -0.75 } }, { fore: false, head: { across: 0.72, along: 1.2 }, foot: { across: 0.88, along: 1.35 } }];
+  function terrapin(g) {
+    const sectors = phone ? 8 : 12, { rings, crown, proud, inset } = SHELL, hide = tone(HIDE, true);
+    /* A place on the shell, `r` out and `y` up at sector k's corner, drawn out along the path and set back as the shell is. */
+    const at = ([r, y], k) => { const a = (k / sectors) * 2 * Math.PI; return new THREE.Vector3(r * Math.sin(a), y, r * Math.cos(a) * SHELL.long + SHELL.at); };
+    /* The shell under the plates, one closed shape, dark over its edge and pale under it. */
+    const under = turned([[0, SHELL.belly], SHELL.under, ...[...rings].reverse(), [0, crown]], sectors).scale(1, 1, SHELL.long).translate(0, 0, SHELL.at);
+    put(g, paint(under, (x, y) => (y < rings[rings.length - 1][1] ? BELLY : SEAM)), painted, 0, 0, 0);
+    /* A plate over a facet of the shell, whose corners go round it anticlockwise as it is seen from outside: its top is the
+       facet drawn in toward its middle and raised, and its sides go down into the shell. The crown's plate rises to a `tip`
+       over the shell's own. */
+    const plates = SCUTES.map(() => []);
+    const plate = (shade, facet, tip = null) => {
+      const middle = facet.reduce((sum, p) => sum.add(p), new THREE.Vector3()).divideScalar(facet.length);
+      const look = facet[1].clone().sub(facet[0]).cross(facet[2].clone().sub(facet[0])).normalize();
+      const top = facet.map((p) => p.clone().lerp(middle, inset).addScaledVector(look, proud)), foot = facet.map((p) => p.clone().lerp(middle, inset / 3).addScaledVector(look, -SHELL.keyed));
+      const corners = plates[shade], push = (...points) => { for (const p of points) corners.push(p.x, p.y, p.z); };
+      for (let i = tip ? 0 : 1; i < facet.length - (tip ? 0 : 1); i++) push(tip ?? top[0], top[i], top[(i + 1) % facet.length]);
+      facet.forEach((_, i) => { const n = (i + 1) % facet.length; push(foot[i], foot[n], top[n], foot[i], top[n], top[i]); });
+    };
+    plate(2, Array.from({ length: sectors }, (_, k) => at(rings[0], k)), at([0, crown + proud], 0));
+    for (let band = 0; band + 1 < rings.length; band++) for (let k = 0; k < sectors; k++) plate(SHELL.shades[band][k % 2 ? "odd" : "even"], [at(rings[band], k), at(rings[band + 1], k), at(rings[band + 1], k + 1), at(rings[band], k + 1)]);
+    plates.forEach((corners, shade) => put(g, solid(corners), tone(SCUTES[shade], true), 0, 0, 0));
+    /* The legs, each from its foot under the ground to its head inside the shell: they lean out as they go down, the fore ones
+       forward and the hind ones back. A foot lies before each fore leg and behind each hind one, where the leg meets the
+       ground, and each forefoot has three claws. */
+    for (const leg of LEGS) for (const side of [-1, 1]) {
+      const head = [side * leg.head.across, LEG.up, leg.head.along], foot = [side * leg.foot.across, -TERRAPIN_SUNK, leg.foot.along], share = LEG.up / (LEG.up + TERRAPIN_SUNK);
+      rod(g, hide, foot, head, LEG.head, phone ? 5 : 7, true, LEG.foot);
+      /* Where the leg's middle meets the ground, and the foot's own middle, before it or behind it. */
+      const x = head[0] + (foot[0] - head[0]) * share, z = head[2] + (foot[2] - head[2]) * share + (leg.fore ? -0.22 : 0.22), long = leg.fore ? 1.25 : 1.1;
+      put(g, new THREE.SphereGeometry(0.4, phone ? 5 : 7, 4).scale(1, 0.38, long), tone(PAD, true), x * 1.04, 0.1, z);
+      if (leg.fore && !phone) for (const off of [-0.2, 0, 0.2]) put(g, new THREE.ConeGeometry(0.085, 0.3, 4).rotateX(-Math.PI / 2), tone(CLAW, true), x * 1.04 + off, 0.11, z - 0.4 * long - 0.02 + 0.3 * Math.abs(off));
+    }
+    /* The neck, from inside the shell's front to inside the head; the head, its nose a little up; and its eyes. */
+    rod(g, hide, [0, 1.0, -0.55], [0, 1.64, -1.12], 0.2, phone ? 6 : 8, true, 0.26);
+    put(g, new THREE.SphereGeometry(0.36, phone ? 6 : 8, phone ? 4 : 6).scale(0.84, 0.74, 1.12), hide, 0, 1.74, -1.17, 0.2, 0, 0);
+    for (const x of [-0.21, 0.21]) put(g, new THREE.IcosahedronGeometry(0.07, 0), tone(PUPIL, true), x, 1.86, -1.37);
+    put(g, new THREE.ConeGeometry(0.15, 0.5, 5).rotateX(Math.PI / 2 + 0.3), hide, 0, 0.84, SHELL.at + SHELL.long * rings[rings.length - 1][0] + 0.02);
   }
 
   /* Each landmark's still parts merge into one mesh once it is built; a part that moves stays apart. The standing stone alone is
