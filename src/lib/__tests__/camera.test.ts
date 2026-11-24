@@ -702,6 +702,49 @@ describe("the walk's camera at a landmark and the stage", () => {
     }
   });
 
+  // A bear that stops among trees beside a landmark: the same woods and the same turns as the test above, each cut off at a
+  // frame of its own, and five seconds' stand.
+  // What it finds: every one of them at rest within 86 frames, no further than 5.7 cm from where a cut would put it, and turned
+  // back from its rest by 4.5 cm at the most. 1,638 stops on a desktop and 1,326 on a phone: three seconds, more on a busy machine.
+  it("comes to rest among the trees beside a landmark as well, and one way: after the eight turns and every kind of walk at each landmark of two shows that has a tree within 30 m, it is at rest within three seconds where a cut would put it, and was never further from there than it had been by more than 5 cm but for going round", { timeout: 120000 }, () => {
+    const STILL = 300;
+    for (const phone of [false, true]) {
+      const tier = phone ? "phone" : "desktop", rest = new THREE.Vector3(), stand: Stand = { places: new Float64Array(3 * STILL), frames: STILL, head: new THREE.Vector3() };
+      let stops = 0;
+      for (const date of ["1973-11-28", "1991-09-12"]) {
+        const w = world(date, partway(date), phone, false), wood = treesOf(w.placed, phone), random = seeded(53);
+        const among = walkLimits([], wood.trunks as never, TREE_REACH as never), trees = { slide: wood.slide, ceiling: wood.ceiling };
+        const mine = avatarOf(w.marks, phone, trees), cutter = avatarOf(w.marks, phone, trees), camera = cameraOf(phone), fresh = cameraOf(phone), was = new THREE.Vector3(), between = barriers(w, camera);
+        // Beside each landmark with a tree within 30 m of it: the eight turns, and every kind of walk at it.
+        const wooded = (k: number) => wood.trunks(w.marks[k].position.x, w.marks[k].position.z, 30).length > 0, walks: Walk[] = [];
+        w.marks.forEach((mark, k) => { if (wooded(k)) for (let a = 0; a < 8; a++) walks.push(turningBeside(mark, k, a, 20 + Math.floor(random() * 220))); });
+        for (const walk of walksOf(w)) if (walk.of.startsWith("song ") && wooded(Number(walk.of.slice(5)))) walks.push({ ...walk, frames: 20 + Math.floor(random() * Math.min(400, walk.frames - 20)) });
+        {
+          for (const walk of walks) {
+            const walker = { ...walk.start }, at = `${date} on a ${tier}: ${walk.name}, stopped at frame ${walk.frames}`;
+            confine(walker, among);
+            let rested = 0;
+            for (let f = 0; f < walk.frames + STILL; f++) {
+              if (f > 0 && f < walk.frames) stride(walker, walk.keys(f, walker), among);
+              mine.step(walker.x, walker.z, walker.heading, DT);
+              mine.boom(camera, walker, DT, f === 0);
+              if (f >= walk.frames) { camera.position.toArray(stand.places, 3 * (f - walk.frames)); if (camera.position.distanceTo(was) >= 0.01) rested = f - walk.frames + 1; }
+              was.copy(camera.position);
+            }
+            cutter.step(walker.x, walker.z, walker.heading, 0);
+            cutter.boom(fresh, walker, 0, true);
+            stand.head.set(walker.x, height(walker.x, walker.z) + HEAD, walker.z);
+            expect(rested, at).toBeLessThanOrEqual(180);
+            expect(camera.position.distanceTo(fresh.position), at).toBeLessThan(SLACK + 0.05);
+            expect(turnedBack(stand, between, rest.copy(camera.position)).turned, at).toBeLessThanOrEqual(TURN_BACK);
+            stops += 1;
+          }
+        }
+      }
+      expect(stops, tier).toBeGreaterThan(1000);
+    }
+  });
+
   it("stands as high as the crowd asks in every frame, on its way to its goal as at it: with a stand-in for the crowd that asks 9 m over the ground everywhere, a walk past the tower never has the camera lower", () => {
     // crowd.js `over` raises a camera's place to clear the crowd's figures. It is asked of the boom's end and, last of all, of the
     // camera's place, which a landmark has drawn in from there: this stand-in asks the same of both.
@@ -860,16 +903,16 @@ describe("the walk's camera at a landmark and the stage", () => {
     }
     // What a count of three's classes cannot see: a list walked by `for ... of` makes an iterator, an arrow or a function written in
     // a function is made at each call, and an object or a list written out is made where it stands. None is in the frame's code:
-    // boom.js's functions, and avatar.js's boom and what it calls there, clear, hang, seek and chase. (rise's Math.hypot is as it
+    // boom.js's functions, and avatar.js's boom and what it calls there, clear, floored, reached, hang, seek and chase. (rise's Math.hypot is as it
     // was: a root in its place is another number.)
     const made0 = /\bnew\b|=>|\bfunction\b.*\bfunction\b|\bfor \([^;)]*\bof\b|\.\.\.|return \{|[=(,] \[|= \{|\.(map|filter|some|every|forEach|slice|concat)\(/;
     const boomJs = readFileSync(new URL("../../../public/world/boom.js", import.meta.url), "utf8"), avatarJs = readFileSync(new URL("../../../public/world/avatar.js", import.meta.url), "utf8");
-    const bodies = ["nearest", "enters", "stoodOff", "standOff", "goRound", "over", "rise"].map((name) => { const from = boomJs.indexOf(`function ${name}(`); return [name, boomJs.slice(from, boomJs.indexOf("\n}\n", from))]; });
+    const bodies = ["nearest", "enters", "stoodOff", "standOff", "goRound", "crest", "rise"].map((name) => { const from = boomJs.indexOf(`function ${name}(`); return [name, boomJs.slice(from, boomJs.indexOf("\n}\n", from))]; });
     bodies.push(["boom", avatarJs.slice(avatarJs.indexOf("  function boom(camera, walker, dt, cut) {"), avatarJs.indexOf("  /* Another camera placed the view"))]);
-    // clear, and hang, seek and chase, which stand after it down to the boom's own comment.
+    // clear, and floored, reached, hang, seek and chase, which stand after it down to the boom's own comment.
     const helpers = avatarJs.slice(avatarJs.indexOf("  function clear(p) {"), avatarJs.indexOf("  /* The walk's camera. Its place and its aim ease after the bear"));
-    for (const name of ["hang(p, room)", "seek(out, hangs, met, lift, reach, k, room)", "chase(aim, leapt, dt, room)"]) expect(helpers, name).toContain(`  function ${name} {`);
-    bodies.push(["clear, hang, seek and chase", helpers]);
+    for (const name of ["floored(p)", "reached(far)", "strays(p)", "hang(p, room)", "seek(out, hangs, met, lift, reach, k, room)", "chase(aim, leapt, dt, room)"]) expect(helpers, name).toContain(`  function ${name} {`);
+    bodies.push(["clear, floored, reached, hang, seek and chase", helpers]);
     for (const [name, text] of bodies) {
       expect(text.length, name).toBeGreaterThan(200);
       expect(text.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter((line) => made0.test(line)), name).toEqual([]);

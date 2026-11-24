@@ -53,12 +53,24 @@ export const LEAST = 2.5;
    is the column, `room` m round its side and over its top. `room` is what the eye's near plane needs (avatar.js eyeRoom). */
 
 /* A place within SKIN m of a room's side stands on that side, where the last frame's stop left it; and a place sent along a side
-   goes SKIN m past its edge, clear of the side it left. */
+   goes SKIN m past its edge, clear of the side it left. A millimetre: a hundred million times what a sum or a scaling leaves a
+   coordinate of some hundred metres out by (1e-13 m; the bear's least moved a goal 1e-15 m off a side), and a hundredth of what
+   a pixel shows at the boom's length. */
 const SKIN = 0.001;
+/* Whether `v` is at `edge` or past it, up the numbers (`way` 1) or down them (-1), or within SKIN of being so. */
+const past = (v, edge, way) => (way > 0 ? v >= edge - SKIN : v <= edge + SKIN);
+/* Whether `v` lies between `lo` and `hi`, deeper in than a point set on either. */
+const deep = (v, lo, hi) => !past(v, lo, -1) && !past(v, hi, 1);
+/* `v`, or whichever of `lo` and `hi` it lies inside of by less than SKIN. */
+const edged = (v, lo, hi) => (v > lo && v - lo < SKIN ? lo : v < hi && hi - v < SKIN ? hi : v);
+/* A length shorter than this has no way to it, in m: nothing is divided by one. */
+export const NIL = 1e-9;
 /* Whether a point is in a box's room. */
 const inRoom = (p, b, room) => p.x > b.min.x - room && p.x < b.max.x + room && p.z > b.min.z - room && p.z < b.max.z + room && p.y < b.max.y + room;
 /* A squared distance is tried against a bound's square first, and against the bound itself, by its root, only within a hair of
-   it: a place that the last frame set on a bound is then on the side of it that the root says, as it was before the squares. */
+   it: a place that the last frame set on a bound is then on the side of it that the root says, as it was before the squares.
+   The hair is a part in a thousand million of the square: a square and its root's square differ by a part in 1e16, so this is
+   wide of that ten million times over, and at 20 m it is a hundredth of a micrometre. */
 export const HAIR = 1 + 1e-9;
 /* How little of its step a place that two rooms have stopped may have made, as a share of the step, before it is taken to stand
    in the corner between them (goRound). */
@@ -77,7 +89,7 @@ const put = (p, side, x0, x1, z0, z1, y1) => {
 };
 /* Whether a point is out on a side's own side of the room: over its top, or west of its west side, and so on; or within SKIN m
    of being so, as a point set on that side is, and one that the bear's least has since moved by a hair (avatar.js `clear`). */
-const before = (g, side, x0, x1, z0, z1, y1) => (side === TOP ? g.y >= y1 - SKIN : side === WEST ? g.x <= x0 + SKIN : side === EAST ? g.x >= x1 - SKIN : side === NORTH ? g.z <= z0 + SKIN : g.z >= z1 - SKIN);
+const before = (g, side, x0, x1, z0, z1, y1) => (side === TOP ? past(g.y, y1, 1) : side === WEST ? past(g.x, x0, -1) : side === EAST ? past(g.x, x1, 1) : side === NORTH ? past(g.z, z0, -1) : past(g.z, z1, 1));
 /* Moves a point `by` m the way a side looks: up, west, east, north or south. */
 const out = (p, side, by) => {
   if (side === TOP) p.y += by; else if (side === WEST) p.x -= by; else if (side === EAST) p.x += by; else if (side === NORTH) p.z -= by; else p.z += by;
@@ -101,7 +113,7 @@ function stoodOff(p, head, hangs, boxes, columns, room, back) {
     const d = Math.sqrt(dd);
     if (d >= r) continue;
     if (c.top + room - p.y < r - d) p.y = c.top + room;
-    else if (d > 1e-9) { p.x = c.x + (dx / d) * r; p.z = c.z + (dz / d) * r; }
+    else if (d > NIL) { p.x = c.x + (dx / d) * r; p.z = c.z + (dz / d) * r; }
     else p.x = c.x + r;
   }
   let up = false;
@@ -193,9 +205,8 @@ export function goRound(p, was, goal, head, hangs, boxes, columns, room) {
          and out on that side: a goal set on a side and moved a hair in from it lies under the top's edge by that hair, and a
          place over it, still on the top, could not come down to it (0.89 m over its rest for good, at a stop of 1986-07-04). */
       const tx = goal.x - fx, tz = goal.z - fz, t = Math.sqrt(tx * tx + tz * tz), by = Math.min(rest, t);
-      if (t > 1e-9) { p.x += (tx / t) * by; p.z += (tz / t) * by; }
-      if (p.x > x0 && p.x - x0 < SKIN) p.x = x0; else if (p.x < x1 && x1 - p.x < SKIN) p.x = x1;
-      if (p.z > z0 && p.z - z0 < SKIN) p.z = z0; else if (p.z < z1 && z1 - p.z < SKIN) p.z = z1;
+      if (t > NIL) { p.x += (tx / t) * by; p.z += (tz / t) * by; }
+      p.x = edged(p.x, x0, x1); p.z = edged(p.z, z0, z1);
       continue;
     }
     /* How far round the box's middle the goal lies from here, in rad, turning from +x toward +z: the way round. Over the box is
@@ -205,7 +216,7 @@ export function goRound(p, was, goal, head, hangs, boxes, columns, room) {
        the goal, each frame the other way, and the place would swing between two spots for ever. Up, then. (Over it by more than
        SKIN: a goal set on a side of the room and moved a hair in from it is beside the box, and a place sent up for it went up
        that side 0.5 m and came down again, measured at a stop beside a landmark of 1986-07-04.) */
-    const above = goal.x > x0 + SKIN && goal.x < x1 - SKIN && goal.z > z0 + SKIN && goal.z < z1 - SKIN;
+    const above = deep(goal.x, x0, x1) && deep(goal.z, z0, z1);
     if (above || y1 - fy + Math.max(0, y1 - goal.y) < ((x1 - x0 + z1 - z0) / Math.PI) * Math.abs(turn)) { out(p, TOP, Math.min(rest, y1 - fy + SKIN)); continue; }
     /* Turning that way goes east along the north side, south along the east, west along the south and north along the west; and
        as far as the step has left, or just past that end of the side. */
@@ -225,7 +236,7 @@ export function goRound(p, was, goal, head, hangs, boxes, columns, room) {
       if (Math.min(r - d, top - p.y) < deep) continue;
       const by = Math.min(step, deep + SKIN);
       p.x = was.x; p.y = was.y; p.z = was.z;
-      if (deep === top - was.y) p.y += by; else if (wr > 1e-9) { p.x += (wx / wr) * by; p.z += (wz / wr) * by; } else p.x += by;
+      if (deep === top - was.y) p.y += by; else if (wr > NIL) { p.x += (wx / wr) * by; p.z += (wz / wr) * by; } else p.x += by;
       continue;
     }
     const gx = goal === null ? 0 : goal.x - c.x, gz = goal === null ? 0 : goal.z - c.z, gr = Math.sqrt(gx * gx + gz * gz);
@@ -235,22 +246,22 @@ export function goRound(p, was, goal, head, hangs, boxes, columns, room) {
     if (on) short = true;
     /* The way out from the column's axis to where it stood. A goal lies on past the column where it is lower than the top the
        place came in by, or behind the upright plane that touches the side where the place stood. */
-    const ux = wr > 1e-9 ? wx / wr : 1, uz = wr > 1e-9 ? wz / wr : 0;
+    const ux = wr > NIL ? wx / wr : 1, uz = wr > NIL ? wz / wr : 0;
     if (!on || (byTop ? goal.y >= top : gx * ux + gz * uz >= r - SKIN)) {
       /* Stopped, and no more. */
       if (byTop) p.y = top;
-      else { const bearing = Math.atan2(d > 1e-9 ? dz : 0, d > 1e-9 ? dx : 1); p.x = c.x + r * Math.cos(bearing); p.z = c.z + r * Math.sin(bearing); }
+      else { const bearing = Math.atan2(d > NIL ? dz : 0, d > NIL ? dx : 1); p.x = c.x + r * Math.cos(bearing); p.z = c.z + r * Math.sin(bearing); }
       continue;
     }
     /* How far round the column's axis the goal lies from where the place stood, in rad. Over the column is the way where the place
        stands over it already, and where the climb to its top and down to the goal's height is less than the way round its side.
        Each way shortens only its own measure, so the choice holds from frame to frame. */
-    const turn = gr > 1e-9 ? Math.atan2(wx * gz - wz * gx, wx * gx + wz * gz) : 0;
+    const turn = gr > NIL ? Math.atan2(wx * gz - wz * gx, wx * gx + wz * gz) : 0;
     if (over || Math.max(0, top - was.y) + Math.max(0, top - goal.y) < r * Math.abs(turn)) {
       if (high) {
         /* Across the top from where it stood, set on the top: on toward the goal, level, and no further than over it. */
         const tx = goal.x - was.x, tz = goal.z - was.z, t = Math.sqrt(tx * tx + tz * tz), by = Math.min(t, Math.max(0, step - Math.max(0, was.y - top)));
-        p.x = was.x + (t > 1e-9 ? (tx / t) * by : 0); p.y = top; p.z = was.z + (t > 1e-9 ? (tz / t) * by : 0);
+        p.x = was.x + (t > NIL ? (tx / t) * by : 0); p.y = top; p.z = was.z + (t > NIL ? (tz / t) * by : 0);
       } else {
         /* Up its side from where it stood, set against the side, to just over its top. */
         p.x = c.x + ux * r; p.y = was.y + Math.min(Math.max(0, step - Math.max(0, wr - r)), top - was.y + SKIN); p.z = c.z + uz * r;
@@ -262,8 +273,8 @@ export function goRound(p, was, goal, head, hangs, boxes, columns, room) {
        up it and out over its top to a goal that stands over the column, which no way round at the place's own height reaches;
        and never past the goal's bearing, where the way round would turn back, each frame the other way. */
     const along = r * turn, up = goal.y - was.y, all = Math.sqrt(along * along + up * up), by = Math.min(all, Math.max(0, step - Math.max(0, wr - r)));
-    const bearing = Math.atan2(uz, ux) + (all > 1e-9 ? ((along / all) * by) / r : 0);
-    p.x = c.x + r * Math.cos(bearing); p.y = was.y + (all > 1e-9 ? (up / all) * by : 0); p.z = c.z + r * Math.sin(bearing);
+    const bearing = Math.atan2(uz, ux) + (all > NIL ? ((along / all) * by) / r : 0);
+    p.x = c.x + r * Math.cos(bearing); p.y = was.y + (all > NIL ? (up / all) * by : 0); p.z = c.z + r * Math.sin(bearing);
   }
   if (step < 0) return;
   /* Where rooms overlap, the stop at one may lie in the next, and the way round one may lead into the corner between them: the
@@ -312,15 +323,20 @@ const risen = { lift: 0, room: 1 };
    times, which is the same wherever the steps started; and if a step above that the line meets nothing, the landmark is one
    the boom is all but over, and it rises a step more and over it. Else `need` is as the steps left it: the boom is over a
    short landmark already, or stops in front of a tall one. */
-function over(from, dir, len, boxes, columns, hx, hz, el, need) {
+function crest(from, dir, len, boxes, columns, hx, hz, el, need) {
   if (nearest(from, dir, boxes, columns) >= len) return need;
-  let under = el + need - STEP, clear = el + need;
+  /* A step above the steps' own line is as high as a step above the least rise can be. Where the line there still meets a
+     landmark, a lower one does too, every landmark standing on the ground: it stops in front of one, and no halving is needed
+     to tell. So the halving is for the few frames a landmark's top is within two steps. */
+  aim(dir, hx, hz, Math.min(Math.PI / 2, el + need + STEP));
+  if (nearest(from, dir, boxes, columns) < len) return need;
+  let low = el + need - STEP, high = el + need;
   for (let n = 0; n < HALVINGS; n++) {
-    const mid = (under + clear) / 2;
+    const mid = (low + high) / 2;
     aim(dir, hx, hz, mid);
-    if (nearest(from, dir, boxes, columns) < Math.min(CLOSE, len)) under = mid; else clear = mid;
+    if (nearest(from, dir, boxes, columns) < Math.min(CLOSE, len)) low = mid; else high = mid;
   }
-  aim(dir, hx, hz, Math.min(Math.PI / 2, clear + STEP));
+  aim(dir, hx, hz, Math.min(Math.PI / 2, high + STEP));
   return nearest(from, dir, boxes, columns) >= len ? need + STEP : need;
 }
 
@@ -329,7 +345,7 @@ function over(from, dir, len, boxes, columns, hx, hz, el, need) {
    front of a landmark between its end and the head, but never nearer the head than LEAST. A landmark that starts within CLOSE m of
    the head leaves no room for that, so the boom rises instead, STEP rad at a time, until the line from the head meets no landmark
    within CLOSE m: it passes over a short one, and meets a tall one high enough up its face to stop in front of it, unless a step
-   more would pass over that one too (`over`). It rises at once
+   more would pass over that one too (`crest`). It rises at once
    and comes back down at the ease. Straight up always clears, since every box and column stands on the ground and so none reaches
    over a head outside it. Turns `dir` to the line and answers the new rise and the share of `len` the line may use, in `risen`.
    That is where the landmarks would have the camera, its goal: its place goes there at a pace of its own, and comes to rest out
@@ -338,7 +354,7 @@ export function rise(from, dir, len, boxes, columns, lift, k) {
   const h = Math.hypot(dir.x, dir.z), el = Math.atan2(dir.y, h), hx = dir.x / (h || 1), hz = dir.z / (h || 1);
   let need = 0;
   while (el + need < Math.PI / 2 && nearest(from, dir, boxes, columns) < Math.min(CLOSE, len)) aim(dir, hx, hz, el + (need += STEP));
-  if (need > 0 && el + need < Math.PI / 2) need = over(from, dir, len, boxes, columns, hx, hz, el, need);
+  if (need > 0 && el + need < Math.PI / 2) need = crest(from, dir, len, boxes, columns, hx, hz, el, need);
   lift = need > lift ? need : lift + (need - lift) * k;
   aim(dir, hx, hz, Math.max(el, Math.min(Math.PI / 2, el + lift)));
   const s = nearest(from, dir, boxes, columns);
