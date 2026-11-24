@@ -2,7 +2,7 @@ import { readFileSync } from "fs";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
-import { boomLength, buildAvatar, eyeRoom, GATHER, GRACE, HEAD, keepOutBox, LAND, SLACK, swift } from "../../../public/world/avatar.js";
+import { boomLength, buildAvatar, crane, eyeRoom, GATHER, GRACE, HEAD, keepOutBox, LAND, PAN, SLACK, swift } from "../../../public/world/avatar.js";
 import { LEAST, nearest } from "../../../public/world/boom.js";
 import { BOUND, height, STAGE, STAGE_COLUMN, STAGE_REACH } from "../../../public/world/ground.js";
 import { confine, walkLimits } from "../../../public/world/modes.js";
@@ -34,6 +34,27 @@ vi.mock("three", async (original) => {
   const counted = (Base: new (...args: never[]) => object) => class extends Base { constructor(...args: never[]) { super(...args); made.count += 1; } };
   return { ...three, Vector3: counted(three.Vector3), Box3: counted(three.Box3), Matrix4: counted(three.Matrix4) };
 });
+// Whether the camera's chase has been handed the goal the bear's least pressed into a room (boom.js goRound's `given`, which sets
+// it craning, avatar.js `chase`), in the frames since a test began to watch (`watch`). goRound runs as it is.
+const round = vi.hoisted(() => ({ on: false, given: false }));
+vi.mock("../../../public/world/boom.js", async (original) => {
+  const boom = await original<{ goRound: (p: { x: number; y: number; z: number }, ...args: unknown[]) => void }>();
+  return {
+    ...boom,
+    goRound: (p: { x: number; y: number; z: number }, ...args: unknown[]) => {
+      boom.goRound(p, ...args);
+      if (!round.on) return;
+      if (args[7] !== null && args[7] !== undefined) round.given = true;
+    },
+  };
+});
+const watch = (on: boolean) => { round.on = on; round.given = false; };
+// By when a stand's camera must be at rest, in frames from the stop: three seconds; and four where it cranes, its chase handed the
+// goal the bear's least pressed into a landmark's room. Four, because then the place cranes round the room (avatar.js `crane`):
+// the way round is 9 m and more, 23 m at the longest, which the swift pace took in under a second, a hop, and a crane's pace takes
+// in up to 3.9 s. A stand whose place goes round a room or the stage's column at the swift pace keeps three seconds.
+const REST = 180, ROUND = 240;
+const restBar = () => (round.given ? ROUND : REST);
 
 type Point = { x: number; y: number; z: number };
 type Box = { min: Point; max: Point; containsPoint(p: unknown): boolean };
@@ -469,11 +490,11 @@ describe("the walk's camera at a landmark and the stage", () => {
   // 0.5 m apart (1 m on a phone) beside the stage's column, its goal over the column, where the way round turned back each frame;
   // and the same between two landmarks whose rooms overlap. Here every kind of walk is cut off at a frame of its own and the bear
   // stands still. 1,771 stops a tier on seven shows, 1.6 million frames in all: four seconds, and more on a busy machine.
-  it("comes to rest once the bear stands still, whatever the walk before: after each kind of walk at every third landmark of seven shows, round the stage, along the path and at random, and after turning round at the stage's edge as the review did, it moves less than a centimetre a frame within three seconds and rests where a cut to that stand would put it", { timeout: 120000 }, () => {
-    // How long the bear stands, in frames; and by when the camera must be at rest, in frames: 3 s. At rest means at rest: over the
+  it("comes to rest once the bear stands still, whatever the walk before: after each kind of walk at every third landmark of seven shows, round the stage, along the path and at random, and after turning round at the stage's edge as the review did, it moves less than a centimetre a frame within three seconds, or four where it cranes round a landmark's room, and rests where a cut to that stand would put it", { timeout: 120000 }, () => {
+    // How long the bear stands, in frames; the camera must be at rest by `restBar`. At rest means at rest: over the
     // last second of the stand, TAIL frames, the camera moves less than a millimetre in all, so one that crept, or swung by less
     // than the centimetre a frame the first bar reads, would fail.
-    const STILL = 300, REST = 180, TAIL = 60;
+    const STILL = 300, TAIL = 60;
     for (const phone of [false, true]) {
       const tier = phone ? "phone" : "desktop";
       let stops = 0, longest = 0, longestAt = "";
@@ -484,8 +505,10 @@ describe("the walk's camera at a landmark and the stage", () => {
           const walker = { ...walk.start }, at = `${date} on a ${tier}: ${walk.name}, stopped at frame ${walk.frames}`;
           confine(walker, limits);
           let rested = 0, tail = 0;
+          watch(false);
           for (let f = 0; f < walk.frames + STILL; f++) {
             if (f > 0 && f < walk.frames) stride(walker, walk.keys(f, walker), limits);
+            if (f === walk.frames) watch(true);
             avatar.step(walker.x, walker.z, walker.heading, DT);
             avatar.boom(camera, walker, DT, f === 0);
             // At rest from the frame after the last in which it moved a centimetre.
@@ -493,9 +516,11 @@ describe("the walk's camera at a landmark and the stage", () => {
             if (f >= walk.frames + STILL - TAIL) tail += camera.position.distanceTo(was);
             was.copy(camera.position);
           }
+          const bar = restBar();
+          watch(false);
           cutter.step(walker.x, walker.z, walker.heading, 0);
           cutter.boom(fresh, walker, 0, true);
-          expect(rested, at).toBeLessThanOrEqual(REST);
+          expect(rested, at).toBeLessThanOrEqual(bar);
           expect(tail, at).toBeLessThan(0.001);
           expect(camera.position.distanceTo(fresh.position), at).toBeLessThan(SLACK + 0.05);
           if (rested > longest) { longest = rested; longestAt = at; }
@@ -666,25 +691,29 @@ describe("the walk's camera at a landmark and the stage", () => {
   // for its rest, led back in. Looking up or down beside each corner of every landmark of that show found it again, 5.0 m short;
   // and at the three places the path lens of #191 named, main's own camera rested up to 10.3 m short at 16 of 360 such stops on a
   // desktop, and the review's branch's up to 3.3 m short at 4 more on a phone.
-  it("is not held short of its rest by the bear's least once the view alone has moved: looking up or down to the limit and turning beside a landmark, where the review of #195 did, at each corner of every landmark of the fixed day's show and at the three places #191's path lens named, it comes to rest within three seconds where a cut would put it", { timeout: 60000 }, () => {
-    const STILL = 300, REST = 180;
+  it("is not held short of its rest by the bear's least once the view alone has moved: looking up or down to the limit and turning beside a landmark, where the review of #195 did, at each corner of every landmark of the fixed day's show and at the three places #191's path lens named, it comes to rest within three seconds, or four where it cranes round a landmark's room, where a cut would put it", { timeout: 60000 }, () => {
+    const STILL = 300;
     // One stand: the keys until `frames`, then STILL frames still. It must rest within SLACK and the 5 cm of the test above of a
-    // cut's place, and move less than a centimetre a frame from REST frames into the stand on.
+    // cut's place, and move less than a centimetre a frame from REST frames into the stand on, or ROUND where it craned.
     const stand = (w: World, start: Walker, frames: number, keys: (f: number, walker: Walker) => void, at: string) => {
       const avatar = avatarOf(w.marks, w.phone), cutter = avatarOf(w.marks, w.phone), camera = cameraOf(w.phone), fresh = cameraOf(w.phone), was = new THREE.Vector3(), walker = { ...start };
       confine(walker, limits);
       let rested = 0;
+      watch(false);
       for (let f = 0; f < frames + STILL; f++) {
         if (f > 0 && f < frames) keys(f, walker);
+        if (f === frames) watch(true);
         avatar.step(walker.x, walker.z, walker.heading, DT);
         avatar.boom(camera, walker, DT, f === 0);
         if (f >= frames && camera.position.distanceTo(was) >= 0.01) rested = f - frames + 1;
         was.copy(camera.position);
       }
+      const bar = restBar();
+      watch(false);
       cutter.step(walker.x, walker.z, walker.heading, 0);
       cutter.boom(fresh, walker, 0, true);
       expect(camera.position.distanceTo(fresh.position), at).toBeLessThan(SLACK + 0.05);
-      expect(rested, at).toBeLessThanOrEqual(REST);
+      expect(rested, at).toBeLessThanOrEqual(bar);
       return 1;
     };
     for (const phone of [false, true]) {
@@ -718,6 +747,108 @@ describe("the walk's camera at a landmark and the stage", () => {
       }
       expect(stops, tier).toBe(1 + 19 * 24 + 360);
     }
+  });
+
+  // Where the bear's least pressed the camera's goal into a landmark's room, the bear standing, main's camera came to rest short
+  // of that goal for good: going after the pressed goal, its place was stopped at the room's side or top with the goal inside, or
+  // pressed back in at one spot each frame. Phase 11's first landmarks found it on the stands above: beside the drop of Morning
+  // Dew of 1987-09-12, 0.75 m short on a desktop, and beside the wheel of 1986-07-04, 1.15 m short. Here they are boxes where
+  // they stood, and the stands are the same. And 60,000 stands beside one box of every size, wherever it stood round the bear,
+  // found it at 50, by up to 7.5 m, every one with the bear looking up, which brings the boom's end down behind the bear and
+  // within its least. These are 2,400 more such stands: main's camera was held short at 10 of them, by up to 7.2 m, and at 2 more
+  // still crept after three seconds. The camera now rests at each where a cut would put it, and turns back by 2 cm at the most:
+  // within 98 frames where its place goes round no room after the stop, and within 234 where it does, craning round.
+  it("comes to rest where a cut would put it wherever the bear's least presses its goal into a landmark's room, whatever the landmark's shape: beside a box of any size anywhere round a bear that looks up, walks in or turns looking up, and stands, on both tiers, and beside phase 11's first dewdrop and wheel, it rests where a cut would put it, within three seconds or four where it goes round the box, and one way, craning round where the bear's least pressed its goal in: no faster than a crane's pace, its view turning no faster than PAN", { timeout: 60000 }, () => {
+    const STILL = 300, rest = new THREE.Vector3(), stand: Stand = { places: new Float64Array(3 * STILL), frames: STILL, head: new THREE.Vector3() };
+    // A box from its least corner to its most: x, y, z and x, y, z.
+    const meshOf = ([x0, y0, z0, x1, y1, z1]: number[]) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0));
+      mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+      mesh.updateMatrixWorld(true);
+      return mesh;
+    };
+    // One stand beside one box, as the test above takes one: the keys until `frames`, then STILL frames still. And from the stop
+    // on, as the test of a stop's one way holds it, its distance to where it comes to rest never grows by more than TURN_BACK
+    // past the least it has been, but where the box's room or the bear stands between. From the frame its chase is first handed
+    // the pressed goal, it cranes: no step of the camera's is longer than `crane` takes it in a frame, and its view turns no
+    // further in a frame than PAN does, as long as the bear stands. (A tenth of a millimetre over is for the ground: the place is
+    // raised again where the ground under its capped step stands higher, avatar.js `floored`.)
+    let stops = 0, craned = 0, longest = 0;
+    const view = new THREE.Vector3(), viewWas = new THREE.Vector3();
+    const beside = (box: number[], phone: boolean, start: Walker, frames: number, keys: (f: number, walker: Walker) => void, at: string) => {
+      const marks = [meshOf(box)], avatar = avatarOf(marks, phone), cutter = avatarOf(marks, phone), camera = cameraOf(phone), fresh = cameraOf(phone), was = new THREE.Vector3(), walker = { ...start };
+      confine(walker, limits);
+      let rested = 0, craning = false, step = 0, turn = 0;
+      watch(false);
+      for (let f = 0; f < frames + STILL; f++) {
+        if (f > 0 && f < frames) keys(f, walker);
+        if (f === frames) watch(true);
+        avatar.step(walker.x, walker.z, walker.heading, DT);
+        view.copy(avatar.boom(camera, walker, DT, f === 0) as THREE.Vector3).sub(camera.position).normalize();
+        if (f >= frames) {
+          if (camera.position.distanceTo(was) >= 0.01) rested = f - frames + 1;
+          camera.position.toArray(stand.places, 3 * (f - frames));
+          craning ||= round.given;
+          if (craning) { step = Math.max(step, camera.position.distanceTo(was)); turn = Math.max(turn, view.angleTo(viewWas)); }
+        }
+        was.copy(camera.position); viewWas.copy(view);
+      }
+      const bar = restBar();
+      if (craning) craned += 1;
+      watch(false);
+      cutter.step(walker.x, walker.z, walker.heading, 0);
+      cutter.boom(fresh, walker, 0, true);
+      stand.head.set(walker.x, height(walker.x, walker.z) + HEAD, walker.z);
+      expect(camera.position.distanceTo(fresh.position), at).toBeLessThan(SLACK + 0.05);
+      expect(rested, at).toBeLessThanOrEqual(bar);
+      expect(turnedBack(stand, barriers({ marks } as unknown as World, camera), rest.copy(camera.position)).turned, at).toBeLessThanOrEqual(TURN_BACK);
+      expect(step, at).toBeLessThanOrEqual(crane(phone) * DT + 1e-4);
+      expect(turn, at).toBeLessThanOrEqual(PAN * DT + 1e-6);
+      longest = Math.max(longest, rested);
+      stops += 1;
+      return craning;
+    };
+    // Phase 11's first drop of Morning Dew and its first wheel, as their keep-out boxes stood, and the stands of the tests above
+    // that found them: along the landmark before the drop looking up, stopped 165 frames in; and at the place #191's path lens
+    // named by the wheel, turning left looking up to 135 degrees.
+    const DEW = [97.208, 0.434, 24.049, 101.714, 5.514, 27.541], WHEEL = [-72.815, 0.46, -74.151, -67.459, 9.11, -68.788];
+    // And the longest way round that 60,000 stands like those below found: walking in looking up beside a box 6.3 m by 3.6 m and
+    // 10.2 m tall, the place goes 23 m round it, craning, and rests 233 frames from the stop; a crane any slower rests after
+    // the fourth second (0.575 boom lengths a second: 244 frames).
+    const LONG = [-69.306, 8.087, -0.057, -63.028, 18.314, 3.586], heading = 4.7007;
+    beside(LONG, false, { x: -60 + Math.sin(heading) * 8, z: Math.cos(heading) * 8, heading, pitch: 0.8 }, 41, (f, walker) => stride(walker, [1, 0, 0, 0, 0], limits), "desktop: the longest way round");
+    for (const phone of [false, true]) {
+      const tier = phone ? "phone" : "desktop";
+      const dew = beside(DEW, phone, { x: 109.744, z: 0.0137, heading: 2.7704, pitch: 0.6 }, 165, (f, walker) => stride(walker, [1, 0, 0, 0, 0], limits), `${tier}: the first drop of Morning Dew`);
+      const wheel = beside(WHEEL, phone, { x: -75.3, z: -66.8, heading: 0.7562, pitch: 0.8 }, 61, (f, walker) => { walker.heading += 1.6 / 60; confine(walker, limits); }, `${tier}: the first wheel`);
+      // On a desktop both crane round; on a phone the longer boom's goal is not pressed in at either.
+      if (!phone) expect([dew, wheel], tier).toEqual([true, true]);
+    }
+    // Boxes 0.6 to 8 m across each way and 1 to 15 m tall, standing on the ground anywhere within 4 m of a bear on open ground,
+    // from inside the box to 4 m off: the bear looks up to the limit over a second, or walks 8 m in looking up, or turns 1.6 rad
+    // either way looking up, facing anywhere, and stands.
+    const random = seeded(195), X = -60, Z = 0;
+    for (const phone of [false, true]) {
+      const tier = phone ? "phone" : "desktop";
+      for (let i = 0; i < 1200; i++) {
+        const a = 0.3 + random() * 3.7, b = 0.3 + random() * 3.7, tall = 1 + random() * 14, cx = X + (random() * 2 - 1) * (a + 4), cz = Z + (random() * 2 - 1) * (b + 4), foot = height(cx, cz) - 0.5;
+        const heading = random() * 2 * Math.PI, way = Math.floor(random() * 4), box = [cx - a, foot, cz - b, cx + a, foot + tall, cz + b];
+        const at = `${tier}: stand ${i}, ${["looking up", "walking in looking up", "turning left looking up", "turning right looking up"][way]} at ${heading.toFixed(3)} rad, box ${box.map((v) => v.toFixed(3)).join(", ")}`;
+        if (way === 0) beside(box, phone, { x: X, z: Z, heading, pitch: 0 }, 61, (f, walker) => stride(walker, [0, 0, 0, 0, 1], limits), at);
+        else if (way === 1) beside(box, phone, { x: X + Math.sin(heading) * 8, z: Z + Math.cos(heading) * 8, heading, pitch: 0.8 }, 41, (f, walker) => stride(walker, [1, 0, 0, 0, 0], limits), at);
+        else { const turn = way === 2 ? 1 : -1; beside(box, phone, { x: X, z: Z, heading: heading - 1.6 * turn, pitch: 0.8 }, 61, (f, walker) => stride(walker, [0, 0, turn, 0, 0], limits), at); }
+      }
+    }
+    expect(stops).toBe(5 + 2400);
+    // 26 of the stands crane, and so have four seconds; the longest way round rests 234 frames from the stop. So the fourth second
+    // is needed, and the rest keep three. The crane's pace, 0.6 boom lengths a second, and the aim's turn while it cranes, 0.6 rad a
+    // second, are the slowest that bring every stand here and in 60,000 like them to rest within four seconds: held here, so a
+    // change to either is a change to this test.
+    expect(craned).toBeGreaterThan(0);
+    expect(craned).toBeLessThan(stops / 10);
+    expect(longest).toBeGreaterThan(REST);
+    expect(PAN).toBe(0.6);
+    for (const phone of [false, true]) expect(crane(phone) / boomLength(phone), phone ? "phone" : "desktop").toBeCloseTo(0.6, 12);
   });
 
   it("goes round a trunk in its way as it goes after its goal, and under a crown no faster than the crown's slope makes it: in the woods beside the landmarks of two shows, turning on the spot at eight places round each, it never jumps from one side of a trunk to the other", { timeout: 120000 }, () => {
@@ -767,7 +898,7 @@ describe("the walk's camera at a landmark and the stage", () => {
   // frame of its own, and five seconds' stand.
   // What it finds: every one of them at rest within 86 frames, no further than 5.7 cm from where a cut would put it, and turned
   // back from its rest by 4.5 cm at the most. 1,638 stops on a desktop and 1,326 on a phone: three seconds, more on a busy machine.
-  it("comes to rest among the trees beside a landmark as well, and one way: after the eight turns and every kind of walk at each landmark of two shows that has a tree within 30 m, it is at rest within three seconds where a cut would put it, and was never further from there than it had been by more than 5 cm but for going round", { timeout: 120000 }, () => {
+  it("comes to rest among the trees beside a landmark as well, and one way: after the eight turns and every kind of walk at each landmark of two shows that has a tree within 30 m, it is at rest within three seconds, or four where it cranes round a landmark's room, where a cut would put it, and was never further from there than it had been by more than 5 cm but for going round", { timeout: 120000 }, () => {
     const STILL = 300;
     for (const phone of [false, true]) {
       const tier = phone ? "phone" : "desktop", rest = new THREE.Vector3(), stand: Stand = { places: new Float64Array(3 * STILL), frames: STILL, head: new THREE.Vector3() };
@@ -785,17 +916,21 @@ describe("the walk's camera at a landmark and the stage", () => {
             const walker = { ...walk.start }, at = `${date} on a ${tier}: ${walk.name}, stopped at frame ${walk.frames}`;
             confine(walker, among);
             let rested = 0;
+            watch(false);
             for (let f = 0; f < walk.frames + STILL; f++) {
               if (f > 0 && f < walk.frames) stride(walker, walk.keys(f, walker), among);
+              if (f === walk.frames) watch(true);
               mine.step(walker.x, walker.z, walker.heading, DT);
               mine.boom(camera, walker, DT, f === 0);
               if (f >= walk.frames) { camera.position.toArray(stand.places, 3 * (f - walk.frames)); if (camera.position.distanceTo(was) >= 0.01) rested = f - walk.frames + 1; }
               was.copy(camera.position);
             }
+            const bar = restBar();
+            watch(false);
             cutter.step(walker.x, walker.z, walker.heading, 0);
             cutter.boom(fresh, walker, 0, true);
             stand.head.set(walker.x, height(walker.x, walker.z) + HEAD, walker.z);
-            expect(rested, at).toBeLessThanOrEqual(180);
+            expect(rested, at).toBeLessThanOrEqual(bar);
             expect(camera.position.distanceTo(fresh.position), at).toBeLessThan(SLACK + 0.05);
             expect(turnedBack(stand, between, rest.copy(camera.position)).turned, at).toBeLessThanOrEqual(TURN_BACK);
             stops += 1;
@@ -1002,7 +1137,7 @@ describe("the walk's camera at a landmark and the stage", () => {
     bodies.push(["boom", avatarJs.slice(avatarJs.indexOf("  function boom(camera, walker, dt, cut) {"), avatarJs.indexOf("  /* Another camera placed the view"))]);
     // clear, and floored, strays, hang, seek and chase, which stand after it down to the boom's own comment.
     const helpers = avatarJs.slice(avatarJs.indexOf("  function clear(p) {"), avatarJs.indexOf("  /* The walk's camera. Its place and its aim ease after the bear"));
-    for (const name of ["floored(p)", "strays(p)", "hang(p, room)", "seek(out, hangs, met, lift, reach, k, room)", "chase(aim, leapt, dt, room)"]) expect(helpers, name).toContain(`  function ${name} {`);
+    for (const name of ["floored(p)", "strays(p)", "hang(p, room)", "seek(out, hangs, met, lift, reach, k, room, bare = null)", "chase(aim, steer, leapt, dt, room)"]) expect(helpers, name).toContain(`  function ${name} {`);
     bodies.push(["clear, floored, strays, hang, seek and chase", helpers]);
     for (const [name, text] of bodies) {
       expect(text.length, name).toBeGreaterThan(200);
