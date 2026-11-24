@@ -33,16 +33,26 @@ describe("the ride's name", () => {
   });
 
   it("has taken the place of both the names it replaces, in the code, the styles, the shoot, the README and CLAUDE.md", () => {
-    // In prose the old names are held loosely, in any case and with any join. In the code they are held as the code wrote them, a
-    // label or an identifier: a figure of the crowd may still lean back over its feet (crowd.js).
-    const prose = /lean.?back|walk with the bears/i, code = /Lean back|[Ll]ean[-_]?[Bb]ack|LEAN_?BACK|[Ww]alk with the bears/;
+    // In prose the old names are held loosely, in any case, with any join and as a verb ("F leans back"); "the camera that walks
+    // with the bears" is a rig, and stays. In the code they are held as the code wrote them, a label or an identifier, since a
+    // figure of the crowd may still lean back over its feet.
+    const prose = /lean(?:s|ing|ed)?.?back|walk(?:ing)? with the bears/i, code = /Lean back|[Ll]ean[-_]?[Bb]ack|LEAN_?BACK|[Ww]alk with the bears/;
     // The shoot's own scripts, not what is installed beside them.
     const shoot = readdirSync(join(ROOT, ".github/screenshots")).filter((file) => file.endsWith(".mjs")).map((file) => join(".github/screenshots", file));
-    expect(shoot).toContain(".github/screenshots/shoot.mjs");
+    expect(shoot).toEqual(expect.arrayContaining([".github/screenshots/shoot.mjs", ".github/screenshots/recordings.mjs", ".github/screenshots/ride.mjs"]));
     expect([...SOURCE, ...shoot].filter((file) => code.test(text(file)))).toEqual([]);
     expect(["README.md", "CLAUDE.md"].filter((file) => prose.test(text(file)))).toEqual([]);
-    // What the looser hold would catch in the code is the crowd's posture alone.
-    expect([...SOURCE, ...shoot].filter((file) => prose.test(text(file)))).toEqual(["public/world/crowd.js"]);
+    // What the looser hold catches in the code is a body's posture, wherever a figure is drawn: each line it catches says what
+    // leans, a figure, its feet, hips or shoulders, a stoop or a pack. A line that names the ride's old name says none of those.
+    const posture = /\b(figures?|feet|hips|shoulders|stoop|pack|body)\b/i;
+    const caught = [...SOURCE, ...shoot].flatMap((file) => text(file).split("\n").filter((line) => prose.test(line)).map((line) => `${file}: ${line.trim()}`));
+    expect(caught.length).toBeGreaterThan(0);
+    for (const line of caught) expect(line).toMatch(posture);
+    // The old names as the shoot's and the trees' lines had them are caught, and are no posture.
+    for (const old of ["F leans back, Escape leaves it", "Walking with the bears on a phone", "lean-back's crane", "Lean-back records on the TV."]) {
+      expect(prose.test(old), old).toBe(true);
+      expect(posture.test(old), old).toBe(false);
+    }
   });
 
   it("is on the one button the page has for it, as its label, its tooltip and its text, with the paw; the button is not pressed until the visitor rides", () => {

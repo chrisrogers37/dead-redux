@@ -2,11 +2,13 @@ import { spawnSync } from "child_process";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, movePointer, pressFailure, pressWorld, RIDE, RIDE_RECORDINGS, rideFailure, rideIdle, rideNow, ridePages, rideSteps, stillInLook } from "../../.github/screenshots/ride.mjs";
+import { EASE_MS, RECORDINGS } from "../../.github/screenshots/recordings.mjs";
+import { cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, movePointer, pressFailure, pressWorld, RIDE, rideFailure, rideIdle, rideNow, ridePages, rideSteps, stillInLook } from "../../.github/screenshots/ride.mjs";
 import { planFailures } from "../../.github/screenshots/shards.mjs";
 import { IDLE_S, watchIdle } from "../../src/components/world/ride";
 
-// The shoot's stills and recordings of the ride (.github/screenshots/ride.mjs). The ride changes look on a timer, so each of its
+// The shoot's stills of the ride (.github/screenshots/ride.mjs); its recordings are in the shoot's list of them, which
+// shoot-recordings.test.ts holds. The ride changes look on a timer, so each of its
 // stills depends on the look the page is in as it is taken. On CI's software renderer, where a still takes seconds, the first run of
 // these steps found a page settled before the step that pressed its sleep timer: the control was gone, the step was skipped in
 // silence, two stills were never taken, and the run was green. These tests hold every step to saying the look it needs and to
@@ -19,12 +21,12 @@ type Step = {
   shot: string; later?: Later;
 };
 type Page = { devices: string[] | null; ownIdle?: boolean; steps: Step[] };
-type Recording = { device: string; name: string; path: string; click: string; required?: boolean; waitFor: string; settled?: boolean; keys?: [string, number][]; recordMs?: number };
 
 // How long a step that starts a show waits for it (shoot.mjs's PLAY_WAIT_MS), which the new day's last step waits too.
 const PLAY_WAIT_MS = 45_000;
 const pages = ridePages(PLAY_WAIT_MS) as Record<string, Page>;
-const recordings = RIDE_RECORDINGS as unknown as Record<string, Recording>;
+// The ride's recordings, by their names.
+const recordings = (RECORDINGS as { device: string; name: string }[]).filter(({ name }) => /^ride(-|$)/.test(name));
 const shoot = readFileSync(join(__dirname, "../../.github/screenshots/shoot.mjs"), "utf8");
 // A page's stills, each with the look it needs: a step's own, and a later one's after it.
 const stills = (page: Page) => page.steps.flatMap((step) => [[step.shot, step.ride], ...(step.later ? [[step.later.shot, step.later.ride]] : [])]);
@@ -81,7 +83,8 @@ describe("the shoot's stills of the ride", () => {
     expect(mine.filter((file) => /^desktop-(?!reduced-|nowebgl-)/.test(file))).toHaveLength(16);
     for (const file of mine) expect(named, file).toContain(file);
     // And the recordings, under the names here.
-    for (const r of Object.values(recordings)) expect(whole.recordings).toContain(`${r.device}-${r.name}.webm`);
+    expect(recordings).toHaveLength(5);
+    for (const r of recordings) expect(whole.recordings).toContain(`${r.device}-${r.name}.webm`);
   });
 
   it("shoots the desktop's ride pages with the pages that act, in the list's order, and every other device's with the rest, where the recordings are", () => {
@@ -98,7 +101,7 @@ describe("the shoot's stills of the ride", () => {
     const order = ["desktop-ride.png", "desktop-fixed-ride.png", "desktop-fixed-newday-ride.png", "desktop-fixed-sleep-ride.png", "desktop-fixed-lookup-failed-ride.png"].map((file) => taking(acts, file));
     expect(order).toEqual([...order].sort((a, b) => a - b));
     expect(order[0]).toBeGreaterThanOrEqual(0);
-    expect(rest.recordings).toEqual(expect.arrayContaining(Object.values(recordings).map((r) => `${r.device}-${r.name}.webm`)));
+    expect(rest.recordings).toEqual(expect.arrayContaining(recordings.map((r) => `${r.device}-${r.name}.webm`)));
     expect([acts.recordings, looks.recordings]).toEqual([[], []]);
   }, 20_000);
 
@@ -162,6 +165,9 @@ describe("the shoot's stills of the ride", () => {
     expect(RIDE).toBe("[data-action='ride']");
     // The settled ride itself is the subject on the home page and the fixed day; elsewhere it is a plate, and no still waits.
     expect(Object.entries(pages).filter(([, page]) => page.steps.some((step) => step.crane)).map(([name]) => name)).toEqual(["home", "fixed"]);
+    // A still whose camera never reaches the crane fails the run, by the wait a recording of the ease has: it is not shot as if it had.
+    expect(shoot).toContain("{ timeout: EASE_MS })\n            .catch(() => {\n              console.log(`${step.shot}: the camera had not reached the crane`);\n              perFile.fail(`${device}-${step.shot}.png`, `the camera had not reached the crane ${EASE_MS} ms after the page settled`);");
+    expect(EASE_MS).toBe(120_000);
     // A settled still's wait outlasts the longest wait to settle, with the slowest awake still before it.
     expect(settled.waitMs! / 1000).toBeGreaterThan(rideIdle("desktop") + 2 * SLOWEST_S.desktop);
   });
@@ -382,9 +388,8 @@ describe("the shoot's stills of the ride", () => {
     }
   });
 
-  it("is what the shoot runs: each page's steps and each recording come from here, a ride page loads with its device's wait, and a still in the wrong look, a missing control or a state that never comes fails the run", () => {
+  it("is what the shoot runs: each page's steps come from here, a ride page loads with its device's wait, and a still in the wrong look, a missing control or a state that never comes fails the run", () => {
     for (const name of Object.keys(pages)) expect(shoot, name).toContain(`RIDE_PAGES.${name}.steps`);
-    for (const name of Object.keys(recordings)) expect(shoot, name).toContain(`RIDE_RECORDINGS.${name},`);
     expect(shoot).toContain("const RIDE_PAGES = ridePages(PLAY_WAIT_MS);");
     expect(shoot).toContain(`const PLAY_WAIT_MS = ${PLAY_WAIT_MS.toLocaleString("en-US").replace(",", "_")};`);
     expect(shoot).toContain("steps?.some((step) => step.ride) && !ownIdle ? rideIdle(device) : null");
@@ -416,74 +421,5 @@ describe("the shoot's stills of the ride", () => {
     expect(FOCUS_STOPS).toHaveLength(12);
     expect(FOCUS_STOPS.indexOf("the ride's button")).toBe(3);
     expect(new Set(FOCUS_STOPS).size).toBe(12);
-  });
-});
-
-describe("the shoot's recordings of the ride", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("shows the camera's way back whole in the recording that settles and wakes: Shift, held for the length of the return, keeps the page awake under a wait of three seconds, and gives the world no control", () => {
-    const [[look, lookMs], [hold, holdMs]] = recordings.settleWake.keys!;
-    expect([look, hold]).toEqual(["ArrowLeft", "ShiftLeft"]);
-    // CI's software renderer took about 35 s to draw the ease from the crane: the hold outlasts it, and the recording the hold.
-    expect(holdMs).toBeGreaterThan(35_000);
-    expect(recordings.settleWake.recordMs).toBeGreaterThanOrEqual(lookMs + holdMs);
-    // By the page's own watch, with the page's wait of three seconds: left alone after the look, it settles again in three; with
-    // Shift held it never does, and settles three seconds after Shift is let go.
-    vi.useFakeTimers();
-    const idle = 3000;
-    for (const held of [false, true]) {
-      const win = new EventTarget(), told: boolean[] = [];
-      const send = (type: string, code: string, key: string) => win.dispatchEvent(Object.assign(new Event(type), { code, key }));
-      const stop = watchIdle(win, { ms: idle, settled: true, onChange: (settled) => told.push(settled) });
-      send("keydown", look, look);
-      vi.advanceTimersByTime(lookMs);
-      send("keyup", look, look);
-      if (held) send("keydown", hold, "Shift");
-      vi.advanceTimersByTime(holdMs);
-      expect(told, String(held)).toEqual(held ? [false] : [false, true]);
-      if (held) {
-        send("keyup", hold, "Shift");
-        vi.advanceTimersByTime(idle - 1);
-        expect(told).toEqual([false]);
-        vi.advanceTimersByTime(1);
-        expect(told).toEqual([false, true]);
-      }
-      stop();
-    }
-    // Shift is the run of a walk, which alone is no control of the world's: it starts no walk and turns no look (input.js).
-    const input = readFileSync(join(__dirname, "../../public/world/input.js"), "utf8");
-    expect(input).toContain('ShiftLeft: "run"');
-    expect(input).toContain('if (k !== "run") userInput(k);');
-    // The time the keys are held is the recording's own: it adds five seconds to the recording, and no more.
-    expect(shoot).toContain("await page.waitForTimeout(Math.max(recordMs - held, 0));");
-  });
-
-  it("records the ride on the TV, with the bears on a desktop, on a straight stretch and on a phone, and as it settles and wakes, under the names the pull request's table gives", () => {
-    expect(Object.fromEntries(Object.entries(recordings).map(([key, r]) => [key, `${r.device}-${r.name}.webm`]))).toEqual({
-      tv: "tv-ride.webm", desktop: "desktop-ride.webm", straight: "desktop-ride-straight.webm", phone: "phone-ride.webm", settleWake: "desktop-ride-settle-wake.webm",
-    });
-  });
-
-  it("fails the run where a recording's button is missing or its state never comes, and keeps a ride that is not about settling awake through its recording six times over", () => {
-    for (const [key, r] of Object.entries(recordings)) {
-      expect(r.required, key).toBe(true);
-      expect(r.click.endsWith(RIDE), key).toBe(true);
-      expect(r.waitFor, key).toMatch(/data-ride='(awake|settled)'|aria-pressed='true'/);
-    }
-    // Ten seconds of recording (shoot.mjs's RECORD_MS) under a wait of a minute.
-    expect(shoot).toContain("const RECORD_MS = 10_000;");
-    for (const key of ["desktop", "straight", "phone"]) {
-      expect(new URL(recordings[key].path, "https://x").searchParams.get("idle"), key).toBe("60");
-      expect(recordings[key].recordMs, key).toBeUndefined();
-    }
-    // The one that settles waits for the settled page and for the camera on the crane before the look that wakes it.
-    expect(recordings.settleWake).toMatchObject({ waitFor: "main[data-ride='settled']", settled: true, keys: [["ArrowLeft", 600], ["ShiftLeft", 40_000]], recordMs: 45_000 });
-    expect(new URL(recordings.settleWake.path, "https://x").searchParams.get("idle")).toBe("3");
-    expect(shoot).toContain("perFile.fail(file, `${click} absent, so nothing was recorded`, false);");
-    expect(shoot).toContain("if (required) perFile.fail(file, `never reached ${waitFor}`);");
-    expect(shoot).toContain('if (required) perFile.fail(file, "the camera never reached the crane");');
   });
 });

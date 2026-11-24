@@ -17,7 +17,8 @@ import {
   walkPoses,
 } from "./assets.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
-import { cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, movePointer, pressFailure, pressWorld, RIDE_RECORDINGS, rideIdle, ridePages, stillInLook } from "./ride.mjs";
+import { EASE_MS, press, RECORD_MS, RECORDINGS, step, WORLD_MS, worldStarted } from "./recordings.mjs";
+import { cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, movePointer, pressFailure, pressWorld, rideIdle, ridePages, stillInLook } from "./ride.mjs";
 import { planFailures, planFiles, shardPlan, writtenSince } from "./shards.mjs";
 
 const DEVICES = {
@@ -521,84 +522,12 @@ const LOAD_MS = 30_000;
 // Full-page shots stop at this many screens; the archive lists a month.
 const MAX_SCREENS = 4;
 
-// Short recordings show the motion that stills cannot. The TV records the ride as a TV has it: started, then left alone.
-// An entry records the page at its path, "/" unless it names one. The ride's are in ride.mjs; a `required` one fails the run where
-// its control is missing or the state it waits for never comes.
-const RECORDINGS = [
-  { device: "desktop", name: "home" },
-  { device: "phone", name: "home" },
-  RIDE_RECORDINGS.tv,
-  // Roaming: focus the scene, then hold each key for its milliseconds, in order.
-  {
-    device: "desktop",
-    name: "roam",
-    click: "canvas",
-    keys: [
-      ["ArrowUp", 3000],
-      ["ArrowLeft", 1200],
-      ["ArrowUp", 3000],
-      ["ArrowRight", 800],
-      // Then look up at the sky and down past the horizon.
-      ["KeyT", 700],
-      ["KeyG", 1400],
-    ],
-  },
-  // The phone roams with its on-screen stick, pushed to its rim each way in turn for its milliseconds, then let go.
-  {
-    device: "phone",
-    name: "roam",
-    stick: [
-      ["up", 3000],
-      ["left", 1200],
-    ],
-  },
-  // The fixed day's descent with nothing pressed: from over the summit down to the camera that walks with the bears, which wait at the
-  // trailhead. CI draws about two frames a second and each adds at most 50 ms of world time, so the 6-s descent takes about a minute there.
-  { device: "desktop", name: "descent", path: "/2026-10-20", recordMs: 75_000 },
-  // Riding with the bears on the fixed day, the same from a straight stretch, and on a phone; then a ride that settles and wakes.
-  RIDE_RECORDINGS.desktop,
-  RIDE_RECORDINGS.straight,
-  RIDE_RECORDINGS.phone,
-  RIDE_RECORDINGS.settleWake,
-  // From ?pose=stage the click starts the show, then the visitor's bear walks down the slope to the platform and stops at its edge. The
-  // walk is 23 m, and a frame moves the bear at most 0.6 m (12 m/s, each frame's step capped at 50 ms), so it takes 39 frames. CI's
-  // software renderer draws this view about once every 0.5 s, so the walk takes about 20 s there: it is held for 25 s, a few seconds of
-  // them at the edge, and the recording runs 26.
-  {
-    device: "desktop",
-    name: "stage",
-    path: "/2026-10-20?pose=stage",
-    click: "canvas",
-    keys: [["ArrowUp", 25_000]],
-    recordMs: 26_000,
-  },
-  // The sound's listener through the camera's modes, from ?pose=stage: the click starts the show, B starts the ride, a step walks
-  // again, F starts the ride as B does, Escape leaves it and a step walks on. The stats line after each control shows the mode, where
-  // the listener stands and where the visitor's bear's head does; in third person they are the same point in every mode. A key held
-  // down keeps the ride awake, so the crane's line is in the recording above.
-  {
-    device: "desktop",
-    name: "stage-modes",
-    path: "/2026-10-20?pose=stage",
-    click: "canvas",
-    keys: [
-      ["KeyB", 3000],
-      ["ArrowUp", 2000],
-      ["KeyF", 3000],
-      ["Escape", 500],
-      ["ArrowUp", 2000],
-    ],
-  },
-];
-
-// How long each recording runs once the page has loaded and any control is pressed, unless it names its own `recordMs`.
-const RECORD_MS = 10_000;
-
 // What fails the run once every shot is taken: a generated image the site answers with an error, a frame over its tier's draw-call
 // budget (a shot's, or the walk's peak in a sweep), a first-person frame where a bear comes inside the camera's near plane, a show
 // playing with its sound neither through the world nor in plain stereo for a reason the player names, a required step whose control is
-// missing or whose state never comes, a page whose HTML arrives without the text it names (`served`), a sweep that cannot finish, and a
-// policy problem (below).
+// missing or whose state never comes, a page whose HTML arrives without the text it names (`served`), a sweep that cannot finish, a
+// recording whose control's state never comes, whose world never starts or whose step waits for what never comes (recordings.mjs),
+// and a policy problem (below).
 const failures = [];
 // A still's or a recording's own failures, one line a file, and those of them that were not saved (ride.mjs).
 const perFile = fileFailures(failures);
@@ -964,11 +893,15 @@ try {
             });
         }
         // A settled ride's still waits for the camera to reach the crane (public/world/main.js's `ride` stat), where the page has a
-        // world; a minute and a half on it is shot as it stands, and the log says so.
+        // world. The crane is what the still shows, so one that never gets there fails the run, as a recording's wait for it does
+        // (EASE_MS in recordings.mjs); the still is taken as it stands.
         if (step.crane) {
           await page
-            .waitForFunction(() => { const ride = window.__hill?.ride; return !ride || ride.lean === 1; }, null, { timeout: 90_000 })
-            .catch(() => console.log(`${step.shot}: the camera had not reached the crane; shooting anyway`));
+            .waitForFunction(() => { const ride = window.__hill?.ride; return !ride || ride.lean === 1; }, null, { timeout: EASE_MS })
+            .catch(() => {
+              console.log(`${step.shot}: the camera had not reached the crane`);
+              perFile.fail(`${device}-${step.shot}.png`, `the camera had not reached the crane ${EASE_MS} ms after the page settled`);
+            });
         }
         if (step.player) {
           // The player's state and the now-plate's sentence ("Starting…", "Reconnecting…", an error, or the position), and how the
@@ -1060,7 +993,7 @@ try {
     await context.close();
   }
 
-  recording: for (const { device, name, path = "/", click, required, waitFor, settled, keys, stick, recordMs = RECORD_MS } of plan.recordings) {
+  recording: for (const { device, name, path = "/", click, waitFor, keys, stick, recordMs = RECORD_MS } of plan.recordings) {
     const options = DEVICES[device];
     // Frames arrive at the viewport's CSS size, whatever the device scale factor.
     const context = await browser.newContext({
@@ -1077,41 +1010,28 @@ try {
     await open(page, url);
     if (click) {
       // A control missing from the page is logged and the recording skipped, and the run fails for it in one line that says why
-      // (perFile.fail), which the plan's check at the run's end does not repeat (planFailures).
-      // Scripts may draw the control after load, so it gets time to appear.
-      const found = await page.waitForSelector(click, { timeout: 15_000 }).then(
-        () => true,
-        () => false
-      );
-      if (!found) {
+      // (perFile.fail), which the plan's check at the run's end does not repeat (planFailures). A control whose state never comes
+      // fails the run, and is recorded as it is.
+      const pressed = await press(page, click, waitFor, file);
+      if (!pressed.found) {
         console.log(`${file}: ${click} absent`);
         perFile.fail(file, `${click} absent, so nothing was recorded`, false);
         await context.close();
         continue;
       }
-      await page.click(click);
-      if (waitFor) {
-        await page.waitForSelector(waitFor, { timeout: 15_000 }).catch(() => {
-          console.log(`${file}: waitFor timed out; recording anyway`);
-          if (required) perFile.fail(file, `never reached ${waitFor}`);
-        });
-      }
+      if (pressed.failure) failures.push(pressed.failure);
     }
-    // A recording of a ride that settles waits for the camera to reach the crane before its keys, and logs the stats there.
-    if (settled) {
-      await page.waitForFunction(() => window.__hill?.ride?.lean === 1, null, { timeout: 90_000 }).catch(() => {
-        console.log(`${file}: the camera had not reached the crane; recording on`);
-        if (required) perFile.fail(file, "the camera never reached the crane");
-      });
-      await logStats(page, `${file} settled`);
+    // Keys and the stick go to a world that has started: pressed into a page that has not, they are lost, and the recording is of a
+    // bear that stands where it began.
+    if ((keys || stick) && (await worldStarted(page)) === null) {
+      failures.push(`${file}: the world had not said where the visitor stands ${WORLD_MS} ms after the page loaded, so its keys went to nothing`);
     }
     let held = 0;
-    for (const [key, ms] of keys ?? []) {
-      await page.keyboard.down(key);
-      await page.waitForTimeout(ms);
-      await page.keyboard.up(key);
-      held += ms;
-      await logStats(page, `${file} after ${key}`);
+    for (const [n, [key, ms, until]] of (keys ?? []).entries()) {
+      const taken = await step(page, [key, ms, until], { file, n: n + 1 });
+      held += taken.ms;
+      if (taken.failure) failures.push(taken.failure);
+      await logStats(page, `${file} after ${key ?? "standing"}`);
     }
     // The stick is pushed with a mouse press, not a touch, from its centre to its rim each way in turn, and let go at the end; the
     // log says so.
@@ -1123,6 +1043,7 @@ try {
         .catch(() => null);
       if (!box) {
         console.log(`${file}: [data-stick] absent`);
+        perFile.fail(file, "[data-stick] absent, so nothing was recorded", false);
         await context.close();
         continue recording;
       }

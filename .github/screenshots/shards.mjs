@@ -74,7 +74,8 @@ export const pageShard = (device, page) => (device !== SPLIT_DEVICE ? REST : onl
  * devices' order and the list's, without the devices that shoot nothing in it; the recordings; and the generated images. A name that
  * is no shard's is an error, the empty string too: a job whose SHARD came out empty would otherwise do the whole shoot.
  *
- * @param lists - { devices, byName, pages, recordings, assets }: shoot.mjs's devices' names, BY_NAME, PAGES, RECORDINGS and ASSETS.
+ * @param lists - { devices, byName, pages, recordings, assets }: shoot.mjs's devices' names, BY_NAME, PAGES and ASSETS, and
+ *   recordings.mjs's RECORDINGS.
  */
 export function shardPlan(shard, { devices, byName, pages, recordings, assets }) {
   if (shard !== undefined && !SHARDS.includes(shard)) {

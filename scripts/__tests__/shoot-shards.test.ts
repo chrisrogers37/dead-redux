@@ -258,7 +258,7 @@ describe("the shoot's shards, by the script's own lists", () => {
     expect([...new Set(whole.pages.map((page) => page.device))]).toEqual(["desktop", "phone", "tv", "desktop-reduced", "phone-360", "phone-landscape", "desktop-nowebgl", "phone-nowebgl"]);
     expect(whole.pages[0]).toMatchObject({ device: "desktop", path: "/" });
     expect(whole.pages[0].stills.slice(0, 2)).toEqual(["desktop-home-1.png", "desktop-home-2.png"]);
-    for (const file of ["desktop-fixed-near-tuning.png", "phone-fixed-crowd-rise-8s.png", "tv-archive-2026-09-end.png", "desktop-reduced-fixed-focus-12.png", "phone-nowebgl-fixed-playing.png", "tv-ride.webm", "asset-icon.png"]) {
+    for (const file of ["desktop-fixed-near-tuning.png", "phone-fixed-crowd-rise-8s.png", "tv-archive-2026-09-end.png", "desktop-reduced-fixed-focus-12.png", "phone-nowebgl-fixed-playing.png", "tv-ride.webm", "desktop-camera-stage.webm", "phone-camera-tower.webm", "asset-icon.png"]) {
       expect(filesOf(whole), file).toContain(file);
     }
   });
