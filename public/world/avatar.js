@@ -31,6 +31,17 @@ export const swift = (phone) => 3 * boomLength(phone);
    bear is by then as far clear of it as the boom rises for (boom.js CLOSE), and the landmark is the camera's to pass, not the
    boom's to clear. */
 export const GATHER = 0.4, LAND = 0.08, SLACK = 0.02, GRACE = 0.25;
+/* Once the bear stands still and its camera's place steers by where its goal stood before the bear's least pressed it into a
+   landmark's room (`chase`), the place cranes for as long as the bear stands: no faster than `crane`, 0.6 boom lengths a
+   second (6.6 m/s on a desktop, 12 m/s on a phone), its whole step counted in. And its aim turns no faster than PAN rad/s;
+   once the bear moves again, the aim's turn is let go by LOOSEN rad/s each second until it has caught up, so nothing jumps.
+   At SWIFT the way round, up the room's side within the bear's least, over and down, 9 m and more, took a quarter of a
+   second: the view rose to look down on the bear, small at the landmark's corner, and dropped back, a hop. The crane's pace
+   is the slowest that brings every stand that goes round to rest within four seconds: the longest way round, 23 m, takes 3.9
+   s (camera.test.ts). */
+export const crane = (phone) => 0.6 * boomLength(phone);
+export const PAN = 0.6;
+const LOOSEN = 6;
 /* How many times the place's way out of the bear is halved where the bear has pressed it past its pace (`chase`). */
 const PRESSED = 5;
 /* How far over the ground the camera's place keeps, and the middle of its boom. */
@@ -110,8 +121,12 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
      boom's two ends stood a frame ago, the head and the place it hangs to. */
   const goal = new THREE.Vector3(), goalWas = new THREE.Vector3(), bareGoal = new THREE.Vector3(), place = new THREE.Vector3(), stood = new THREE.Vector3(), from = new THREE.Vector3(), to = new THREE.Vector3();
   const hungWas = new THREE.Vector3(), pivotWas = new THREE.Vector3();
-  const SWIFT = swift(phone);
+  const SWIFT = swift(phone), CRANE = crane(phone);
   let pace = 0;
+  /* Whether the place goes at CRANE (`craning`); how fast its aim may turn, in rad/s (`pan`, Infinity where nothing holds it);
+     the way the camera looked a frame ago, and this frame's way and aim where the turn is held. */
+  let craning = false, pan = Infinity;
+  const view = new THREE.Vector3(), turned = new THREE.Vector3(), seen = new THREE.Vector3();
   /* How long ago the head last stood in each box, in s, and the boxes the boom meets this frame, in one array that is the same
      every frame. */
   const left = new Float32Array(boxes.length).fill(Infinity), met = [];
@@ -192,30 +207,33 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
      It steers by `steer`: the aim itself, or, where the bear's least has pressed the aim into a landmark's room or the stage's,
      where the aim stood out of every room before that. Then it goes there as round anything else, and the bear presses it in as
      it pressed the aim; and a landmark's room gives way to the bear for the place's own step as it did for the aim (goRound
-     `given`). */
+     `given`), at each of its stops. Steered so, it cranes (`craning`) for as long as the bear stands: from where it stands, not
+     as its goal went, and its whole step no longer than CRANE takes it. */
   function chase(aim, steer, leapt, dt, room) {
     stood.copy(place);
-    if (aim === goal) { if (leapt) place.add(pivot).sub(pivotWas); else place.add(goal).sub(goalWas); }
-    const bore = place.distanceTo(stood), togo = place.distanceTo(steer), most = Math.max(SWIFT * dt, bore);
-    pace = Math.min(pace + (SWIFT / GATHER) * dt, Math.max(0, SWIFT - bore / dt), togo / LAND);
+    const given = steer === aim ? null : aim;
+    if (given !== null) craning = true;
+    if (aim === goal && !craning) { if (leapt) place.add(pivot).sub(pivotWas); else place.add(goal).sub(goalWas); }
+    const fast = craning ? CRANE : SWIFT, bore = place.distanceTo(stood), togo = place.distanceTo(steer), most = craning ? CRANE * dt : Math.max(SWIFT * dt, bore);
+    pace = Math.min(pace + (SWIFT / GATHER) * dt, Math.max(0, fast - bore / dt), togo / LAND);
     place.lerp(steer, Math.min(1, (pace * dt) / (togo || 1)));
     slide(place, room, aim);
-    goRound(place, stood, steer, pivot, hung, boxes, columns, room, steer === aim ? null : aim);
+    goRound(place, stood, steer, pivot, hung, boxes, columns, room, given);
     /* No nearer the bear than the boom's least: put out from it (`clear`), stopped again at what that would take it into, and
        in all no further this frame than SWIFT takes it; then, where a landmark's room has kept it nearer, on toward the goal,
        which is no nearer, by what SWIFT leaves. */
     from.copy(place);
     if (clear(place)) {
-      goRound(place, from, null, pivot, hung, boxes, columns, room);
+      goRound(place, from, null, pivot, hung, boxes, columns, room, given);
       const gone = place.distanceTo(stood);
-      if (gone > most) { place.sub(stood).multiplyScalar(most / gone).add(stood); goRound(place, stood, null, pivot, hung, boxes, columns, room); }
+      if (gone > most) { place.sub(stood).multiplyScalar(most / gone).add(stood); goRound(place, stood, null, pivot, hung, boxes, columns, room, given); }
       const still = place.distanceTo(steer), spare = most - place.distanceTo(stood);
       /* (Whether it is nearer still, a copy of it tells: `clear` says whether it moved the point.) */
       from.copy(place);
       if (still > 0 && spare > 0 && clear(from)) {
         from.copy(place);
         place.lerp(steer, Math.min(1, spare / still));
-        goRound(place, from, null, pivot, hung, boxes, columns, room);
+        goRound(place, from, null, pivot, hung, boxes, columns, room, given);
       }
     }
     floored(place);
@@ -225,7 +243,7 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     const all = place.distanceToSquared(stood);
     if (all > most * most * HAIR) {
       place.sub(stood).multiplyScalar(most / Math.sqrt(all)).add(stood);
-      goRound(place, stood, null, pivot, hung, boxes, columns, room);
+      goRound(place, stood, null, pivot, hung, boxes, columns, room, given);
       floored(place);
     }
     /* And whatever a room, the ground or its pace has made of that, it is no nearer the bear than the least (`clear`). Where
@@ -348,6 +366,7 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
        with the walk; one that moved further leapt. Most frames need no root to tell. */
     const walked = Math.max(hung.distanceToSquared(hungWas), pivot.distanceToSquared(pivotWas)), went = goal.distanceToSquared(goalWas);
     const leapt = went > walked && Math.sqrt(went) > Math.sqrt(walked) + SLACK;
+    craning = craning && stands && !reduced && !cut && dt > 0;
     if (reduced || cut || !(dt > 0)) { place.copy(goal); pace = 0; }
     else if (bent) chase(rest, rest, false, dt, room);
     else {
@@ -359,14 +378,24 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     /* (Within a millimetre of the boom's own end the camera is on it, and the trees have had their say in that already.) */
     if (camera.position.distanceToSquared(cam) > 1e-6) { slide(camera.position, room); under(camera.position, room); }
     over(camera.position);
-    return look;
+    /* The aim, as the place cranes round, turns no faster than PAN; after, its turn is let go by LOOSEN each second until it has
+       caught up. Held, it turns from the way the camera looked a frame ago toward the aim's way, in the plane of the two. */
+    turned.subVectors(look, camera.position);
+    const far = turned.length();
+    turned.divideScalar(far || 1);
+    pan = reduced || cut || !(dt > 0) ? Infinity : craning ? PAN : pan + LOOSEN * dt;
+    const cos = Math.max(-1, Math.min(1, view.dot(turned))), most = pan * dt;
+    if (!(Math.acos(cos) > most) || cos < -1 + NIL) { view.copy(turned); if (!craning) pan = Infinity; return look; }
+    turned.addScaledVector(view, -cos).normalize();
+    view.multiplyScalar(Math.cos(most)).addScaledVector(turned, Math.sin(most)).normalize();
+    return seen.copy(camera.position).addScaledVector(view, far);
   }
 
   /* Another camera placed the view: the boom eases on from there, its place on its goal. */
   function settle(position, aim) {
     cam.copy(position); look.copy(aim); reach = 1; lift = 0; raise[0] = 0;
     place.copy(position); goalWas.copy(position); hungWas.copy(position); pivotWas.set(feet.x, feet.y + HEAD, feet.z); pace = 0;
-    closest = Infinity; bent = false;
+    closest = Infinity; bent = false; craning = false; pan = Infinity;
   }
 
   const d = new THREE.Vector3(), r = new THREE.Vector3(), u = new THREE.Vector3(), f = new THREE.Vector3();
