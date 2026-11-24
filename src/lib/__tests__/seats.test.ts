@@ -602,18 +602,81 @@ describe("parting", () => {
       for (let k = 0; k < 300; k++) step(0, 1 / 60);
       return day.every((_, i) => p.offset[4 * i] === 0 && p.offset[4 * i + 2] === 0);
     };
-    // Six walks on each of ten days and the fixed day: every one of the fixed day's comes back, and all of the rest but one at the
-    // most, where two walking back met head on, each in the other's way and as far from its seat (Still weak, in the PR). And no one
-    // on any of them steps faster than the 5.5 m/s that the walk on the first day holds them to: while a group makes room, the one
-    // further from the visitor gives way, however far each stands from its seat.
+    // Six walks on each of ten days and the fixed day: every one comes back, two that meet walking back head on among them, as they
+    // pass each other. And no one on any of them steps faster than the 5.5 m/s that the walk on the first day holds them to: while a
+    // group makes room, the one further from the visitor gives way, however far each stands from its seat.
     const walks = [-12, -6, 0, 6, 9, 12], stuck: number[][] = [];
     for (const seed of [800, ...Array.from({ length: 10 }, (_, k) => k)]) {
       const day = seats(none, seed) as Seat[];
       for (const off of walks) if (!back(day, off)) stuck.push([seed, off]);
     }
-    expect(stuck.filter(([seed]) => seed === 800)).toEqual([]);
-    expect(stuck.length).toBeLessThanOrEqual(1);
+    expect(stuck).toEqual([]);
     expect(fastest).toBeLessThanOrEqual(5.5 + 1e-4);
+  }, 30000);
+
+  // A walk at 12 m/s along `at`, `length` m from its start, the stage's solids and a hand kept clear, as buildCrowd keeps them, then
+  // 5 s standing at its end: the most anyone stepped in a frame past the visitor's step, or past the pace it steps aside at where the
+  // visitor's step is less; then how many stand off their seats, and the nearest two.
+  const walked = (day: Seat[], at: (t: number) => ReturnType<typeof bear>, length: number) => {
+    const p = parting(day, { ...OPTS, keeps: [[STAGE[0], STAGE[1], STAGE_COLUMN.r + OPTS.wide]] });
+    // The visitor arrives at the walk's start at once, and the figures stand at once where they would end.
+    p.step(0, at(0).feet, at(0).head, false);
+    let last = Float32Array.from(p.offset), was = 0, past = 0;
+    const step = (t: number) => {
+      p.step(1 / 60, at(t).feet, at(t).head, false);
+      // The visitor's middle moves as far as their bear does.
+      const visitorStep = Math.abs(t - was);
+      for (let i = 0; i < day.length; i++)
+        past = Math.max(past, Math.hypot(p.offset[4 * i] - last[4 * i], p.offset[4 * i + 2] - last[4 * i + 2]) - Math.max(visitorStep, OPTS.step / 60));
+      last = Float32Array.from(p.offset); was = t;
+    };
+    for (let t = 0; t <= length; t += 0.2) step(t);
+    for (let k = 0; k < 300; k++) step(was);
+    const xs = day.map((s, i) => s.x + p.offset[4 * i]), zs = day.map((s, i) => s.z + p.offset[4 * i + 2]);
+    let nearest = Infinity;
+    for (let i = 0; i < day.length; i++) for (let j = i + 1; j < day.length; j++) nearest = Math.min(nearest, Math.hypot(xs[i] - xs[j], zs[i] - zs[j]));
+    return { past, left: day.filter((_, i) => p.offset[4 * i] !== 0 || p.offset[4 * i + 2] !== 0).length, nearest };
+  };
+
+  it("sends everyone back after a walk down past the stage's solids, no two nearer than APART once they stand, and steps no one faster in a frame than the visitor or the pace it steps aside at", () => {
+    // Down the hill toward the stage from 62 m out, `off` metres off its axis, to its centre. Fifteen walks on each of the days the
+    // team's review found faults on: on days 40, 79, 96 and 111 two that passed each other walking back head on stood in each other
+    // for good, and on day 69 for 5 s; on day 24 a figure the stage's solids held in the visitor's reach jumped 1.2 m in a frame, and
+    // on days 5 and 43 others jumped less far. Day 31 has the walk where a step straight out of the solids goes past the cap; days 33
+    // and 53 have walks that leave people off their seats where a group that stands still a moment out of a pass passes no one again.
+    const ux = -STAGE[0] / Math.hypot(...STAGE), uz = -STAGE[1] / Math.hypot(...STAGE), faults: string[] = [];
+    for (const seed of [5, 24, 31, 33, 40, 43, 53, 69, 79, 96, 111]) {
+      const day = seats(none, seed) as Seat[];
+      for (let off = -14; off <= 14; off += 2) {
+        const at = (t: number) => bear(STAGE[0] + (62 - t) * ux - off * uz, STAGE[1] + (62 - t) * uz + off * ux, -ux, -uz);
+        const { past, left, nearest } = walked(day, at, 62);
+        if (past > 1e-6 || left > 0 || nearest < APART - 1e-9)
+          faults.push(`day ${seed}, ${off} m: a step ${past.toFixed(6)} m too far, ${left} off their seats, the nearest two ${nearest.toFixed(3)} m apart`);
+      }
+    }
+    expect(faults).toEqual([]);
+  }, 60000);
+
+  it("stands no two nearer than APART once they stand after walks up the hill and across the front rows, which turn two that pass each other back to pushing apart once either stands in the pass or is back on its seat, and steps no one faster in a frame than the visitor or the pace", () => {
+    // Up the hill from the front rows, 14 m from the stage's centre, to 62 m, `off` metres off its axis; and across the front rows,
+    // `off` metres from the stage's centre, from 26 m to one side of the axis to 26 m to the other. The visitor stands at the end among
+    // the crowd, so some stand off their seats there. The walks that a pass which went on through a stand, or past a seat, leaves two
+    // standing in each other on: up the hill on day 125; across the front rows on days 68, 69 and 109, and day 76 past a seat.
+    const mx = -STAGE[0] / Math.hypot(...STAGE), mz = -STAGE[1] / Math.hypot(...STAGE);
+    const ax = Math.sin(FACING), az = Math.cos(FACING), nx = az, nz = -ax, faults: string[] = [];
+    const check = (name: string, day: Seat[], at: (t: number) => ReturnType<typeof bear>, length: number) => {
+      const { past, nearest } = walked(day, at, length);
+      if (past > 1e-6 || nearest < APART - 1e-9) faults.push(`${name}: a step ${past.toFixed(6)} m too far, the nearest two ${nearest.toFixed(3)} m apart`);
+    };
+    const up = seats(none, 125) as Seat[];
+    for (let off = -14; off <= 14; off += 4)
+      check(`up the hill on day 125, ${off} m`, up, (t) => bear(STAGE[0] + (14 + t) * mx - off * mz, STAGE[1] + (14 + t) * mz + off * mx, mx, mz), 48);
+    for (const seed of [68, 69, 76, 109]) {
+      const day = seats(none, seed) as Seat[];
+      for (const off of [15, 17, 19, 22, 25])
+        check(`across on day ${seed}, ${off} m`, day, (t) => bear(STAGE[0] + off * ax + (t - 26) * nx, STAGE[1] + off * az + (t - 26) * nz, nx, nz), 52);
+    }
+    expect(faults).toEqual([]);
   }, 30000);
 
   it("brings a still figure's arms down over a quarter second and up as slowly, turning them at most once each half second, and keeps them down through a dip", () => {
@@ -666,10 +729,22 @@ describe("parting", () => {
     for (const i of all) if (off(i) === 0 && from(i, moved) >= 2.85 && middle(i) >= OPTS.reach + 1) expect(still(i)).toBe(0);
   });
 
-  it("makes room through a turn across the front rows: no step past the visitor's own, or the pace it steps aside at where a figure holds the visitor back; none in what it keeps clear of, out of reach", () => {
+  it("makes room through a turn across the front rows: no step past the visitor's own, or the pace it steps aside at where a figure holds the visitor back, and none past that pace but near the visitor; none in what it keeps clear of, out of reach", () => {
     // Along the front, 17 m from the stage's centre, at 12 m/s, the stage's solids and a hand kept clear, as buildCrowd keeps them, the
     // walker held as main.js holds it.
     const kept = STAGE_COLUMN.r + OPTS.wide, p = parting(placed, { ...OPTS, keeps: [[STAGE[0], STAGE[1], kept]] });
+    // A figure steps faster than the pace it steps aside at only where the room reached its group within half the lead, as a turn
+    // brings it, or where the visitor's reach pushed it, or pushed one that pushed it, `passes` neighbours out. The room reaches `keep`
+    // to either side of the visitor's middle and as far ahead as they walk in `lead` s and `keep`, so a group reached late, at 12 m/s,
+    // has a seat within `late` of their middle; one pushed, within the reach and `passes` groups' `space` of it, which is less. The
+    // groups the parting moves as one: seats nearer than `space` joined.
+    const late = Math.hypot(OPTS.keep + (12 * OPTS.lead) / 2, OPTS.keep);
+    expect(OPTS.reach + OPTS.passes * OPTS.space).toBeLessThan(late);
+    const up = placed.map((_, i) => i), root = (i: number): number => (up[i] === i ? i : (up[i] = root(up[i])));
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (Math.hypot(placed[i].x - placed[j].x, placed[i].z - placed[j].z) < OPTS.space) up[root(i)] = root(j);
+    const group = new Map<number, number[]>();
+    placed.forEach((_, i) => group.set(root(i), [...(group.get(root(i)) ?? []), i]));
+    let fast = 0, far = 0;
     const ux = Math.sin(FACING), uz = Math.cos(FACING), nx = uz, nz = -ux;
     const walker = { x: STAGE[0] + 17 * ux - 26 * nx, z: STAGE[1] + 17 * uz - 26 * nz, heading: Math.atan2(-nx, -nz) };
     const middle = () => [walker.x - 0.4 * Math.sin(walker.heading), walker.z - 0.4 * Math.cos(walker.heading)];
@@ -684,7 +759,12 @@ describe("parting", () => {
       const visitorStep = Math.hypot(mx - lx, mz - lz);
       for (let i = 0; i < n; i++) {
         const [x, z] = where(p, i), d = Math.hypot(x - mx, z - mz);
-        worst = Math.max(worst, Math.hypot(p.offset[4 * i] - last[4 * i], p.offset[4 * i + 2] - last[4 * i + 2]) - Math.max(visitorStep, OPTS.step / 60));
+        const stepped = Math.hypot(p.offset[4 * i] - last[4 * i], p.offset[4 * i + 2] - last[4 * i + 2]);
+        worst = Math.max(worst, stepped - Math.max(visitorStep, OPTS.step / 60));
+        if (stepped > OPTS.step / 60 + 1e-6) {
+          fast += 1;
+          far = Math.max(far, Math.min(...(group.get(root(i)) ?? []).map((j) => Math.hypot(placed[j].x - mx, placed[j].z - mz))));
+        }
         if (p.offset[4 * i] === 0 && p.offset[4 * i + 2] === 0) continue;
         moved += 1;
         inside = Math.max(inside, kept - Math.hypot(x - STAGE[0], z - STAGE[1]));
@@ -694,6 +774,8 @@ describe("parting", () => {
     }
     expect(moved).toBeGreaterThan(0);
     expect(worst).toBeLessThanOrEqual(1e-6);
+    expect(fast).toBeGreaterThan(0);
+    expect(far).toBeLessThanOrEqual(late);
     expect(inside).toBeLessThanOrEqual(1e-3);
     expect(nearest).toBeGreaterThanOrEqual(OPTS.reach - 1e-4);
     expect(nearestStill).toBeGreaterThanOrEqual(OPTS.hang - 1e-4);

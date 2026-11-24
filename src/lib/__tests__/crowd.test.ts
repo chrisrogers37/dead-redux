@@ -621,9 +621,9 @@ describe("the crowd, as buildCrowd builds it", () => {
       if (movedNow.length > 0) frames += 1;
     }
     expect(frames).toBeGreaterThan(6);
-    // And the room it makes, as it was measured: 17 figures that stood at their seats step off them over these frames. A room 0.15 m
-    // wider all round (partingOptions' keep) steps 23 off theirs, and one 0.1 m narrower 16.
-    expect(leftSeat.size).toBe(17);
+    // And the room it makes, as it was measured: 12 figures that stood at their seats step off them over these frames. A room 0.15 m
+    // wider all round (partingOptions' keep) steps 17 off theirs, and one 0.1 m narrower 11.
+    expect(leftSeat.size).toBe(12);
     // And every corner of every figure holds its figure's step, moved or not.
     let stale = 0;
     for (const g of figures) for (let k = crowd.corners[g.i]; k < crowd.corners[g.i + 1]; k++) {
