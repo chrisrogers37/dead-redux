@@ -155,20 +155,22 @@ function panelOn(cam: Camera, dx = 0, dy = 0) {
 }
 
 // What the shoot's frames show, of 255: the band on the canvas, the light panel behind it and the floor, each as bright as it reads
-// at its brightest in them at night; and under what a screen's pixel reads as near-black.
-const SHADE = { band: 11, panel: 155, floor: 75, black: 60 };
+// at its brightest in them at night, and at dusk and daybreak, when the panel and the floor are at their brightest; and under what
+// a screen's pixel reads as near-black. A brighter panel and floor break a thin line sooner, where its pixels meet corner to corner.
+const NIGHT = { band: 11, panel: 155, floor: 75, black: 60 }, DUSK = { ...NIGHT, panel: 200, floor: 120 };
+type Shade = typeof NIGHT;
 
 // The specks a device shows: the band drawn on the canvas over the panel or the floor, scaled to the screen as its browser scales it,
 // and the near-black pieces of 12 px or less there.
-function specks(tris: Tri[], cam: Camera, dx: number, dy: number) {
+function specks(tris: Tri[], cam: Camera, dx: number, dy: number, tone: Shade = NIGHT) {
   const { W, H, mask, box } = draw(tris, cam, dx, dy), k = cam.screen, lit = panelOn(cam, dx, dy);
-  const shade = (x: number, y: number) => (x >= 0 && y >= 0 && x < W && y < H && mask[y * W + x] ? SHADE.band : lit(x + 0.5, y + 0.5) ? SHADE.panel : SHADE.floor);
+  const shade = (x: number, y: number) => (x >= 0 && y >= 0 && x < W && y < H && mask[y * W + x] ? tone.band : lit(x + 0.5, y + 0.5) ? tone.panel : tone.floor);
   const sx0 = Math.floor((box.x0 - 1) * k), sy0 = Math.floor((box.y0 - 1) * k), sW = Math.ceil((box.x1 + 2) * k) - sx0, sH = Math.ceil((box.y1 + 2) * k) - sy0;
   const dark = new Uint8Array(sW * sH);
   for (let j = 0; j < sH; j++) for (let i = 0; i < sW; i++) {
     const u = (sx0 + i + 0.5) / k - 0.5, v = (sy0 + j + 0.5) / k - 0.5, u0 = Math.floor(u), v0 = Math.floor(v), fu = u - u0, fv = v - v0;
     const value = (1 - fu) * (1 - fv) * shade(u0, v0) + fu * (1 - fv) * shade(u0 + 1, v0) + (1 - fu) * fv * shade(u0, v0 + 1) + fu * fv * shade(u0 + 1, v0 + 1);
-    if (value < SHADE.black) dark[j * sW + i] = 1;
+    if (value < tone.black) dark[j * sW + i] = 1;
   }
   return pieces(sW, sH, (o) => dark[o] === 1).filter((piece) => piece.length <= 12).length;
 }
@@ -284,27 +286,37 @@ describe("the band's outlines, as the shoot's devices draw them", () => {
     }
   });
 
-  // Measured with the band as it is built, over these 80 frames: none on a desktop or from the front of the stage on a phone; from the
-  // back of the crowd on a phone, 0.42 and 0.61 a frame on the 390- and the 360-wide phone, two at worst on each, and none in 49 and
-  // 41 of the 80 frames: the tip of a guitar's or the bass's neck. The band before it, whose necks reached further and whose crashes'
-  // poles were not fitted to the canvas, 4.46 and 3.58 a frame, six at worst, and in every frame; the shoot's frames showed three of
-  // them. A move that holds at its ends (band.js MOVE) holds a part where it comes apart longer than one that eased
-  // through.
+  // Measured with the band as it is built, over these 80 frames: none on a desktop or from the front of the stage on a phone, at night
+  // or at dusk. From the back of the crowd on a phone, on the 390- and the 360-wide phone: at night 0.10 and 0.17 a frame, one at worst,
+  // and none in 72 and 66 of the 80 frames, the tip of the first guitar's neck; at dusk 0.47 and 0.30, two at worst, and none in 49
+  // and 58, the bass's and the first guitar's necks and the bass's fretting hand; and never at the shoot's own place of the grid
+  // (0, 0), where CI's stills are drawn. With heads 6 to 12 cm long and the bass's neck 4 cm longer, at night 0.42 and 0.61 a frame,
+  // and at that place the second guitar's head in four moments of five, as CI's stills showed it, and at dusk the bass's in three;
+  // with dc68304's necks, which reached further and whose crashes' poles were not fitted to the canvas, 4.46 and 3.58 a frame at
+  // night, six at worst, and in every frame. A move that holds at its ends (band.js MOVE) holds a part where it comes apart
+  // longer than one that eased through.
   it("comes apart nowhere on a desktop, nor on a phone at the front of the stage: no near-black speck of 12 px or less at any of 16 places of the pixel grid, at rest or through a bar", () => {
     const found: string[] = [];
     for (const cam of CAMERAS.filter((c) => !c.name.endsWith("crowd") || c.name.startsWith("desktop"))) {
-      drawn(cam).forEach((tris, t) => PHASES.forEach(([dx, dy]) => { const n = specks(tris, cam, dx, dy); if (n) found.push(`${cam.name} at ${MOMENTS[t]} s, ${dx},${dy}: ${n}`); }));
+      for (const shade of [NIGHT, DUSK]) {
+        drawn(cam).forEach((tris, t) => PHASES.forEach(([dx, dy]) => { const n = specks(tris, cam, dx, dy, shade); if (n) found.push(`${cam.name} at ${MOMENTS[t]} s, ${dx},${dy}, panel ${shade.panel}: ${n}`); }));
+      }
     }
     expect(found).toEqual([]);
   }, 120_000);
 
-  it("comes apart little on a phone from the back of the crowd: under 0.7 specks a frame, at most two in any, and none in two frames in five or more", () => {
+  it("comes apart little on a phone from the back of the crowd: at night under 0.3 specks a frame, at most one in any and none in three frames in four, at dusk under 0.6, at most two and none in three in five, and none at the shoot's own place of the grid", () => {
+    const bars = [{ shade: NIGHT, mean: 0.3, most: 1, none: 3 / 4 }, { shade: DUSK, mean: 0.6, most: 2, none: 3 / 5 }];
     for (const cam of CAMERAS.filter((c) => c.name.startsWith("phone") && c.name.endsWith("crowd"))) {
-      const counts = drawn(cam).flatMap((tris) => PHASES.map(([dx, dy]) => specks(tris, cam, dx, dy)));
-      const mean = counts.reduce((sum, n) => sum + n, 0) / counts.length;
-      expect([cam.name, mean < 0.7, Math.max(...counts) <= 2, counts.filter((n) => n === 0).length >= (2 * counts.length) / 5]).toEqual([cam.name, true, true, true]);
+      for (const bar of bars) {
+        const counts = drawn(cam).flatMap((tris) => PHASES.map(([dx, dy]) => specks(tris, cam, dx, dy, bar.shade)));
+        const mean = counts.reduce((sum, n) => sum + n, 0) / counts.length;
+        const own = drawn(cam).map((tris) => specks(tris, cam, 0, 0, bar.shade));
+        const seen = [cam.name, bar.shade.panel, mean < bar.mean, Math.max(...counts) <= bar.most, counts.filter((n) => n === 0).length >= bar.none * counts.length, own];
+        expect(seen).toEqual([cam.name, bar.shade.panel, true, true, true, own.map(() => 0)]);
+      }
     }
-  }, 60_000);
+  }, 120_000);
 
   it("keeps each player an outline of their own from every pose, at rest and through a bar: no piece of black holds two players' trunks, and none holds no trunk but a crash on its pole", () => {
     const merged: string[] = [], apart: string[] = [];

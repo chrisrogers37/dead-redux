@@ -238,31 +238,32 @@ function trunk({ hips: h, waist }, broad, hair, skirt = 0) {
    point `strum` along the strings put at `at`, the neck risen `rise` rad to the player's left and brought `yaw` rad forward, drawn
    `big` times its size, a little over life, so that its outline carries from the hill. `body` is the body's outline from the neck's
    joint round to the joint again; the neck runs from `joint` to `nut`, `neck` wide; the head is `head` long and `face` wide, a
-   paddle square at its end and no more than a quarter wider than the neck: pegs apart are teeth a pixel wide from the crowd, whose
-   tips counted 8 swings in a second at daybreak. The neck ends a hand or so past the fretting hand, and the head is short: from the
-   back of the crowd on a phone a neck is half a pixel wide, so what of it stands past the hand comes to the screen as a dot of its
-   own, and the shorter that is, the fewer the dots (band-outline.test.ts). Returns the parts and `on(x, y, z)`, a point of its frame
+   paddle square at its end, flared over 4 cm or its length, and no more than a quarter wider than the neck: pegs apart are teeth a
+   pixel wide from the crowd, whose tips counted 8 swings in a second at daybreak. The neck ends a hand or so past the fretting hand,
+   and the head is a stub: from the back of the crowd on a phone a neck is half a pixel wide, so what of it stands past the hand
+   comes to the screen as a dot of its own, as CI's frames showed a head 6 to 24 cm long at the shoot's own camera
+   (band-outline.test.ts). Returns the parts and `on(x, y, z)`, a point of its frame
    in the player's. */
 function axe({ at, rise, yaw, big, strum, body, joint, nut, neck, head, face }) {
   const hold = new THREE.Matrix4().makeTranslation(at.x, at.y, at.z).multiply(new THREE.Matrix4().makeRotationY(-yaw))
     .multiply(new THREE.Matrix4().makeRotationZ(rise)).multiply(new THREE.Matrix4().makeScale(big, big, big)).multiply(new THREE.Matrix4().makeTranslation(-strum, 0, 0));
-  const half = face / 2, tip = nut + head;
+  const half = face / 2, tip = nut + head, flare = Math.min(nut + 0.04, tip);
   const parts = [
     plate(body, 0.045),
     box(nut - joint + 0.04, neck, 0.028, (nut + joint - 0.04) / 2, 0, 0),
-    plate([[nut - 0.01, -neck / 2], [nut + 0.04, -half], [tip, -half], [tip, half], [nut + 0.04, half], [nut - 0.01, neck / 2]], 0.022, false),
+    plate([[nut - 0.01, -neck / 2], [flare, -half], [tip, -half], [tip, half], [flare, half], [nut - 0.01, neck / 2]], 0.022, false),
   ];
   return { parts: parts.map((p) => p.applyMatrix4(hold)), on: (x, y, z = 0) => V(x, y, z).applyMatrix4(hold) };
 }
-/* Three plain instruments: a guitar with two short horns, one with a single cutaway, and a bass, longer in the neck and the head. Each
-   neck ends 6 to 10 cm past where its player frets it (`fret`, below), and each head is 6 to 12 cm long. */
-const TWO_HORNS = { strum: 0.19, joint: 0.42, nut: 0.86, neck: 0.052, head: 0.06, face: 0.064,
+/* Three plain instruments: a guitar with two short horns, one with a single cutaway, and a bass, longer in the neck. Each
+   neck ends 6 to 8 cm past where its player frets it (`fret`, below), and each head is 3 cm long. */
+const TWO_HORNS = { strum: 0.19, joint: 0.42, nut: 0.86, neck: 0.052, head: 0.03, face: 0.064,
   body: [[0.42, 0.032], [0.455, 0.06], [0.47, 0.1], [0.4, 0.122], [0.32, 0.135], [0.24, 0.122], [0.15, 0.165], [0.07, 0.155], [0.012, 0.09], [0, 0],
     [0.012, -0.09], [0.06, -0.16], [0.14, -0.17], [0.24, -0.124], [0.33, -0.14], [0.42, -0.135], [0.49, -0.115], [0.46, -0.07], [0.42, -0.032]] };
-const ONE_CUT = { strum: 0.19, joint: 0.43, nut: 0.82, neck: 0.052, head: 0.08, face: 0.064,
+const ONE_CUT = { strum: 0.19, joint: 0.43, nut: 0.82, neck: 0.052, head: 0.03, face: 0.064,
   body: [[0.43, 0.032], [0.445, 0.08], [0.41, 0.125], [0.34, 0.146], [0.26, 0.13], [0.16, 0.176], [0.08, 0.17], [0.012, 0.1], [0, 0],
     [0.012, -0.1], [0.07, -0.166], [0.15, -0.176], [0.25, -0.126], [0.33, -0.142], [0.41, -0.146], [0.475, -0.12], [0.45, -0.075], [0.43, -0.032]] };
-const BASS = { strum: 0.2, joint: 0.47, nut: 1.06, neck: 0.058, head: 0.12, face: 0.07,
+const BASS = { strum: 0.2, joint: 0.47, nut: 1.02, neck: 0.058, head: 0.03, face: 0.07,
   body: [[0.47, 0.036], [0.55, 0.062], [0.58, 0.1], [0.46, 0.13], [0.36, 0.14], [0.27, 0.125], [0.17, 0.172], [0.08, 0.165], [0.012, 0.1], [0, 0],
     [0.012, -0.1], [0.07, -0.165], [0.17, -0.176], [0.27, -0.125], [0.37, -0.14], [0.46, -0.14], [0.54, -0.12], [0.5, -0.07], [0.47, -0.036]] };
 
