@@ -90,6 +90,24 @@ function held(band: Band, joint: Joint) {
   return at.applyMatrix4(p.g.matrix);
 }
 const gap = (a: Vec, b: Vec) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+// A drummer's stick lies along the forearm's carry from its tip back past the hand (band.js `span`), so its `a` end is the tip.
+const tipOf = (band: Band, k: number) => ends(band, k).a;
+const middleOf = (points: Vec[]) => points.reduce((sum, c) => sum.add(c), new THREE.Vector3()).divideScalar(points.length);
+// A player's microphone, on the stage: the middle of its stand's foot, which is a ring of corners all on the floor, and its head, the
+// middle of the end of its capsule (the bar of the stand that reaches highest), the end away from the foot. Neither is any one corner:
+// a bar ends in a ring, and a corner of the ring is off the bar's middle by its radius, up or down, and toward the face or away.
+function microphoneOf(band: Band, k: number) {
+  const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
+  const bars = (band.still.userData.parts as Part[]).filter((part) => part.of === "microphone" && part.by === k).map((part) => {
+    const out: Vec[] = [];
+    for (let i = part.from; i < part.from + part.count; i++) out.push(at.fromBufferAttribute(still, i).clone());
+    return out;
+  });
+  if (!bars.length) return null;
+  const all = bars.flat(), low = Math.min(...all.map((c) => c.y)), foot = middleOf(all.filter((c) => c.y < low + 0.001));
+  const capsule = bars.reduce((best, b) => (Math.max(...b.map((c) => c.y)) > Math.max(...best.map((c) => c.y)) ? b : best)), middle = middleOf(capsule);
+  return { foot, head: middleOf(capsule.filter((c) => gap(c, foot) > gap(middle, foot))) };
+}
 // The corners of a singer's head, which stands still among the still parts (band.js keepHead), on the stage; none for a drummer.
 function headOf(band: Band, k: number) {
   const still = band.still.geometry.getAttribute("position"), out: { x: number; y: number; z: number; applyMatrix4(m: unknown): Vec }[] = [];
@@ -280,27 +298,36 @@ describe("the band, as it is built", () => {
       if (p.plays !== "drums") return;
       const kit = cornersOf("kit", k);
       for (const name of ["left stick", "right stick"]) {
-        const tip = ends(band, boneNamed(band, k, name)).b;
+        const tip = tipOf(band, boneNamed(band, k, name));
         expect(Math.min(...kit.map((corner) => gap(corner, tip)))).toBeLessThan(0.3);
       }
     });
   });
 
-  it("hangs every limb from its own side, each elbow against the trunk: a left arm from the left shoulder, its elbow left of the body's middle and no farther out than the shoulder; a left leg from the left hip; and the right the same", () => {
-    const seen: string[] = [];
+  it("hangs every limb from its own side: a left arm from the left shoulder, its elbow left of the body's middle, against the trunk or, a drummer's, out from it with the bend behind it filled; a left leg from the left hip; and the right the same", () => {
+    stage.updateMatrixWorld(true);
+    const seen: string[] = [], at = new THREE.Vector3();
     band.bones.forEach((bone: Bone, k: number) => {
       if (!/^(left|right) (upper arm|forearm|thigh)$/.test(bone.name)) return;
       const side = bone.name.startsWith("left") ? 1 : -1, from = side * own(band, bone.of, ends(band, k).a).x;
-      // An upper arm and a thigh begin at the body, on their own side of it. A forearm begins at the elbow, which lies against the
-      // trunk: on its own side of the body's middle, and no farther out than a finger past its shoulder.
+      // An upper arm and a thigh begin at the body, on their own side of it. A forearm begins at the elbow: the keys' lies against
+      // the trunk, on its own side of the body's middle and no farther out than a finger past its shoulder; a drummer's stands out
+      // 10 to 25 cm past the shoulder, so the arm shows from the front, and the body reaches it, filling the bend behind it.
       const shoulder = bone.name.endsWith("forearm") ? side * own(band, bone.of, ends(band, boneNamed(band, bone.of, bone.name.replace("forearm", "upper arm"))).a).x : Infinity;
-      expect([bone.of, bone.name, bone.name.endsWith("forearm") ? from > 0.02 && from < shoulder + 0.03 : from > 0.05]).toEqual([bone.of, bone.name, true]);
+      const drums = band.players[bone.of].plays === "drums";
+      expect([bone.of, bone.name, !bone.name.endsWith("forearm") ? from > 0.05 : drums ? from > shoulder + 0.1 && from < shoulder + 0.25 : from > 0.02 && from < shoulder + 0.03]).toEqual([bone.of, bone.name, true]);
+      if (drums && bone.name.endsWith("forearm")) {
+        const elbow = ends(band, k).a, body = band.players[bone.of].body, corner = body.geometry.getAttribute("position");
+        let nearest = Infinity;
+        for (let i = 0; i < corner.count; i++) nearest = Math.min(nearest, gap(at.fromBufferAttribute(corner, i).applyMatrix4(body.matrixWorld), elbow));
+        expect([bone.of, bone.name, nearest / band.players[bone.of].g.scale.x < 0.02]).toEqual([bone.of, bone.name, true]);
+      }
       seen.push(bone.name.replace(/^\w+ /, ""));
     });
     // The keys and the drummers reach with both arms, and all but the drummers stand on legs that move.
     expect(seen.sort()).toEqual([...Array(6).fill("forearm"), ...Array(8).fill("thigh"), ...Array(6).fill("upper arm")]);
     // A drummer's legs stand still: a thigh and a shin for the left, then for the right, the top of each on its side.
-    const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
+    const still = band.still.geometry.getAttribute("position");
     band.players.forEach((p: { plays: string }, k: number) => {
       if (p.plays !== "drums") return;
       const legs: Part[] = band.still.userData.parts.filter((part: Part) => part.of === "drums leg" && part.by === k);
@@ -315,13 +342,11 @@ describe("the band, as it is built", () => {
 
   it("stands each microphone at its player's mouth: its head within 3 cm of the face's front at its height, as the body rests, upright or leaning, and its stand toward the crowd from there", () => {
     stage.updateMatrixWorld(true);
-    const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
+    const at = new THREE.Vector3();
     const gaps = band.players.flatMap((p: { plays: string; body: { matrixWorld: unknown; geometry: { getAttribute(name: string): { count: number } } } }, k: number) => {
-      // The microphone's head: the highest corner of the player's stand.
-      const top = new THREE.Vector3(0, -Infinity, 0);
-      for (const part of band.still.userData.parts as Part[]) if (part.of === "microphone" && part.by === k) for (let i = part.from; i < part.from + part.count; i++) if (still.getY(i) > top.y) top.fromBufferAttribute(still, i);
-      if (top.y < 0) return [];
-      const mic = own(band, k, top), body = p.body.geometry.getAttribute("position");
+      const found = microphoneOf(band, k);
+      if (!found) return [];
+      const mic = own(band, k, found.head), body = p.body.geometry.getAttribute("position");
       // The face's front at that height: the body's corners within 4 cm of it up and down and 6 cm to either side, in the player's metres.
       let face = -Infinity;
       const corners = [...headOf(band, k)];
@@ -335,15 +360,11 @@ describe("the band, as it is built", () => {
     expect(gaps.map(({ plays }: { plays: string }) => plays)).toEqual(["guitar", "bass", "guitar", "keys"]);
     // In the player's own metres: a head 0.027 across that stood off the face as it did, 0.065 before it, would fail this.
     for (const { plays, before } of gaps) expect([plays, before > -0.03 && before < 0.03]).toEqual([plays, true]);
-    // The stand's foot: the lowest corner of the stand. From the mouth it lies toward the crowd, +z on the stage, within 0.2 rad.
+    // From the microphone's head, its stand's foot lies toward the crowd, +z on the stage, within 0.2 rad.
     band.players.forEach((p: { plays: string; g: { matrix: unknown } }, k: number) => {
-      const stand: Part[] = band.still.userData.parts.filter((part: Part) => part.of === "microphone" && part.by === k);
-      if (!stand.length) return;
-      const foot = new THREE.Vector3(0, Infinity, 0), head = new THREE.Vector3(0, -Infinity, 0);
-      for (const part of stand) for (let i = part.from; i < part.from + part.count; i++) {
-        if (still.getY(i) < foot.y) foot.fromBufferAttribute(still, i);
-        if (still.getY(i) > head.y) head.fromBufferAttribute(still, i);
-      }
+      const found = microphoneOf(band, k);
+      if (!found) return;
+      const { foot, head } = found;
       expect([p.plays, Math.abs(Math.atan2(foot.x - head.x, foot.z - head.z)) < 0.2 + (p.plays === "keys" ? 0.15 : 0)]).toEqual([p.plays, true]);
     });
   });
@@ -448,7 +469,7 @@ describe("a drummer's kit", () => {
     for (const k of drummers) {
       const all = kitOf(k);
       for (const name of ["left stick", "right stick"]) {
-        const tip = own(band, k, ends(band, boneNamed(band, k, name)).b), heights: number[] = [];
+        const tip = own(band, k, tipOf(band, boneNamed(band, k, name))), heights: number[] = [];
         for (const part of all) for (let i = 0; i < part.length; i += 3) { const y = within(part, i, "x", "z", tip.x, tip.z, "y"); if (y !== null) heights.push(y); }
         const under = Math.max(...heights.filter((y) => y <= tip.y)), over = heights.filter((y) => y > tip.y && y < tip.y + 0.4);
         expect([name, tip.y - under > 0.005, tip.y - under < 0.05, over.length]).toEqual([name, true, true, 0]);
@@ -456,7 +477,7 @@ describe("a drummer's kit", () => {
     }
   });
 
-  it("stands the hi-hat and the cymbal on stout poles of their own, upright on a round foot and no tripod: each pole is one bar 8 to 9 cm across in the drummer's metres, a pixel and a third of a phone's frame from among the crowd, and each cymbal's middle is within 30 cm of one", () => {
+  it("stands the hi-hat and the cymbal on stout poles of their own, upright, with no foot and no tripod: each pole is one bar 8 to 9 cm across in the drummer's metres, a pixel and a third of a phone's frame from among the crowd, and each cymbal's middle is within 30 cm of one", () => {
     for (const k of drummers) {
       const poles = kitOf(k, "pole").map(box).filter((pole) => pole.tall > 0.45);
       expect(poles.length).toBe(2);
@@ -468,8 +489,7 @@ describe("a drummer's kit", () => {
     }
   });
 
-  it("shows one cymbal a kit, tipped to the crowd so it is an ellipse from the front: the first drummer's stands 35 cm or more from both drummers and from every drum, and the second's reaches 10 cm into its drummer's shoulder and 10 cm out of it", () => {
-    stage.updateMatrixWorld(true);
+  it("shows one cymbal a kit, tipped to the crowd so it is an ellipse from the front, and each stands 35 cm or more from every other part of the band, its own pole aside, from the front, at rest and through two and a half bars of playing", () => {
     const shown = drummers.map((k) => kitOf(k, "cymbal"));
     expect(shown.map((cymbals) => cymbals.length)).toEqual([1, 1]);
     for (const [cymbal] of shown) {
@@ -478,35 +498,41 @@ describe("a drummer's kit", () => {
       expect(size.tall).toBeGreaterThan(size.wide * Math.sin(0.2));
       expect(mean(cymbal.filter((c) => c.z > size.z + 0.05))).toBeLessThan(mean(cymbal.filter((c) => c.z < size.z - 0.05)) - 0.03);
     }
-    // The first's, from the front, in the stage's metres: across and up, against every corner of the band but its own pole's.
-    const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3(), crash: Vec[] = [], rest: Vec[] = [];
-    for (const part of band.still.userData.parts as Part[]) {
-      const mine = part.of === "kit" && part.by === drummers[0];
-      if (mine && part.as === "pole") continue;
-      for (let i = part.from; i < part.from + part.count; i++) (mine && part.as === "cymbal" ? crash : rest).push(at.fromBufferAttribute(still, i).clone());
-    }
-    for (const p of band.players) { const body = p.body.geometry.getAttribute("position"); for (let i = 0; i < body.count; i++) rest.push(at.fromBufferAttribute(body, i).applyMatrix4(p.body.matrixWorld).clone()); }
-    const limb = band.limbs.geometry.getAttribute("position");
-    band.bones.forEach((_: Bone, k: number) => { band.limbs.getMatrixAt(k, matrix); for (let i = 0; i < limb.count; i++) rest.push(at.fromBufferAttribute(limb, i).applyMatrix4(matrix).clone()); });
-    let nearest = Infinity;
-    for (const c of crash) for (const r of rest) nearest = Math.min(nearest, Math.hypot(c.x - r.x, c.y - r.y));
-    expect(crash.length).toBeGreaterThan(0);
-    expect(nearest).toBeGreaterThan(0.35);
-    // The second's, in its drummer's own metres: the drummer's edge at the cymbal's height is the shoulder's or the upper arm's.
-    const k = drummers[1], ride = box(shown[1][0]), body = band.players[k].body, corner = body.geometry.getAttribute("position");
-    let edge = -Infinity;
-    const reach = (c: Vec) => { if (c.y > ride.min.y && c.y < ride.max.y) edge = Math.max(edge, c.x); };
-    for (let i = 0; i < corner.count; i++) reach(own(band, k, at.fromBufferAttribute(corner, i).applyMatrix4(body.matrixWorld)));
-    band.bones.forEach((bone: Bone, n: number) => { if (bone.of !== k) return; band.limbs.getMatrixAt(n, matrix); for (let i = 0; i < limb.count; i++) reach(own(band, k, at.fromBufferAttribute(limb, i).applyMatrix4(matrix))); });
-    expect(edge).toBeGreaterThan(0.15);
-    expect([ride.min.x < edge - 0.1, ride.max.x > edge + 0.1]).toEqual([true, true]);
-  });
+    // From the front, in the stage's metres: across and up, each crash against every corner of the band but its own and its pole's.
+    // A cymbal a pixel or two off an arm or a shoulder leaves a gap that flickers; the sticks rise past the shoulders as they play.
+    const { band: playing, stage: on, play } = stand();
+    const still = playing.still.geometry.getAttribute("position"), limb = playing.limbs.geometry.getAttribute("position"), at = new THREE.Vector3();
+    const crashes = drummers.map((k) => {
+      const crash: Vec[] = [], rest: Vec[] = [];
+      for (const part of playing.still.userData.parts as Part[]) {
+        const mine = part.of === "kit" && part.by === k && ["cymbal", "pole"].includes(part.as);
+        if (mine && part.as === "pole") continue;
+        for (let i = part.from; i < part.from + part.count; i++) (mine ? crash : rest).push(at.fromBufferAttribute(still, i).clone());
+      }
+      return { crash, rest, nearest: Infinity };
+    });
+    const measure = () => {
+      on.updateMatrixWorld(true);
+      const moving: Vec[] = [];
+      for (const p of playing.players) { const body = p.body.geometry.getAttribute("position"); for (let i = 0; i < body.count; i++) moving.push(at.fromBufferAttribute(body, i).applyMatrix4(p.body.matrixWorld).clone()); }
+      playing.bones.forEach((_: Bone, n: number) => { playing.limbs.getMatrixAt(n, matrix); for (let i = 0; i < limb.count; i++) moving.push(at.fromBufferAttribute(limb, i).applyMatrix4(matrix).clone()); });
+      for (const c of crashes) for (const a of c.crash) for (const r of [...c.rest, ...moving]) c.nearest = Math.min(c.nearest, Math.hypot(a.x - r.x, a.y - r.y));
+    };
+    measure();
+    for (let sample = 0; sample < 25; sample++) { play(0.25, 96); measure(); }
+    // Measured 39 and 46 cm: the second's no longer rests on its drummer's shoulder, where it read as no cymbal.
+    for (const { nearest } of crashes) expect(nearest).toBeGreaterThan(0.35);
+  }, 60_000);
 
-  it("makes the two kits differ as the two drummers do: in the bass drum's, the rack toms' and the floor tom's sizes, and in how high the cymbal that shows is", () => {
+  it("makes the two kits differ as the two drummers do: in the bass drum's, the rack toms' and the floor tom's sizes, and in the crash's height, size and tip", () => {
     const sizes = (k: number, as: string) => kitOf(k, as).map((part) => Math.round(box(part).wide * 100)).sort().join(" ");
     for (const as of ["bass drum", "rack tom", "floor tom"]) expect([as, sizes(drummers[0], as) !== sizes(drummers[1], as)]).toEqual([as, true]);
     const [first, second] = drummers.map((k) => box(kitOf(k, "cymbal")[0]));
-    expect(Math.abs(first.y - second.y)).toBeGreaterThan(0.3);
+    // In the drummers' own metres: 5 cm or more apart in height and 2 cm in width, and one tipped further than the other, so the
+    // taller from the front for its width.
+    expect(Math.abs(first.y - second.y)).toBeGreaterThan(0.05);
+    expect(Math.abs(first.wide - second.wide)).toBeGreaterThan(0.02);
+    expect(Math.abs(first.tall / first.wide - second.tall / second.wide)).toBeGreaterThan(0.1);
   });
 });
 
@@ -555,7 +581,7 @@ describe("the band on the stage", () => {
     expect(new Set(standing.map(({ look }) => look.size)).size).toBe(4);
     expect(new Set(standing.map(({ look }) => look.broad)).size).toBe(4);
     // Two of them are in long skirts and one in a coat, in no order a band's front line has.
-    expect(standing.map(({ plays, look }) => `${plays} ${look.skirt}`)).toEqual(["guitar 0.5", "bass 0.8", "guitar 0.8", "keys 0"]);
+    expect(standing.map(({ plays, look }) => `${plays} ${look.skirt}`)).toEqual(["guitar 0.58", "bass 0.8", "guitar 0.8", "keys 0"]);
   });
 
   it("stands nothing under a jaw: between the shoulders and the chin, within the head's width, nothing of a body is further forward than the neck by more than 2 cm", () => {
@@ -700,7 +726,7 @@ describe("the band's outlines, from the front, through four counts of playing", 
     return { thin, pockets };
   }
 
-  it("leaves few gaps under 3 px with a moving part at their edge: from the hill no more than 27 thin pixels and 3 small pockets in any of 16 poses, and from the front of the crowd 80 and 3", () => {
+  it("leaves few gaps under 3 px with a moving part at their edge: from the hill no more than 36 thin pixels and 3 small pockets in any of 16 poses, and from the front of the crowd 45 and 3", () => {
     const built = stand();
     built.play(1.5, 96);
     const most = { far: { thin: 0, pockets: 0 }, near: { thin: 0, pockets: 0 } };
@@ -713,10 +739,13 @@ describe("the band's outlines, from the front, through four counts of playing", 
     }
     // Counted 26 and 3 from the hill and 77 and 2 from the front, with the kits built of drums that overlap. The first version of
     // the band, before its outlines were closed, counted 100 and 12, and 255 and 21; the closed band before the six were dealt
-    // again counted 34 and 4, and 160 and 4.
+    // again counted 34 and 4, and 160 and 4. Once each part held together on a phone (band.js), with the drummers' elbows out and
+    // the necks at 45 degrees, it counted 34 and 2, and 41 and 3: from the hill a wedge of light opens between each drummer's
+    // forearm, which now comes in from the side, and what is under it, near the hand, and the light between the first guitarist's
+    // boots stands over the floor in this view. With each move holding at its ends (band.js MOVE), 34 and 2, and 37 and 3.
     // Something is counted: a wedge's tip is thin wherever two parts part.
     expect(most.far.thin).toBeGreaterThan(10);
-    expect([most.far.thin <= 27, most.far.pockets <= 3, most.near.thin <= 80, most.near.pockets <= 3]).toEqual([true, true, true, true]);
+    expect([most.far.thin <= 36, most.far.pockets <= 3, most.near.thin <= 45, most.near.pockets <= 3]).toEqual([true, true, true, true]);
   });
 });
 
@@ -729,9 +758,9 @@ describe("the band's joints, through eight counts of playing", () => {
       checked += 1;
     });
     expect(checked).toBe(360);
-    // Every bone but a drummer's hand, which lies along its stick, is held at a joint; a shin at both ends.
+    // Every bone but a drummer's hand and stick, which lie along what the forearm carries, is held at a joint; a shin at both ends.
     const spans = band.bones.filter((bone: Bone) => bone.span !== null);
-    expect(spans.map((bone: Bone) => bone.name).sort()).toEqual(["left hand", "left hand", "right hand", "right hand"].sort());
+    expect(spans.map((bone: Bone) => bone.name).sort()).toEqual(["left hand", "left hand", "left stick", "left stick", "right hand", "right hand", "right stick", "right stick"]);
     expect(new Set((band.joints as Joint[]).map((joint) => joint.bone)).size).toBe(band.bones.length - spans.length);
     expect(worst).toBeLessThan(2e-4);
   });
@@ -757,17 +786,17 @@ describe("the band's playing", () => {
     const drummers = band.players.flatMap((p: { plays: string }, k: number) => (p.plays === "drums" ? [k] : []));
     expect(drummers).toHaveLength(2);
     const sticks = drummers.map((k: number) => ({ left: boneNamed(band, k, "left stick"), right: boneNamed(band, k, "right stick") }));
-    const rest = sticks.map(({ left, right }: { left: number; right: number }) => ({ left: ends(band, left).b.y, right: ends(band, right).b.y }));
+    const rest = sticks.map(({ left, right }: { left: number; right: number }) => ({ left: tipOf(band, left).y, right: tipOf(band, right).y }));
     // At 96 a minute the band's count is the figures' beat, so a frame's count is its beats.
     play(2, 96);
     const lift: { count: number; left: number; right: number }[][] = [[], []];
     play(10, 96, true, () => sticks.forEach(({ left, right }: { left: number; right: number }, d: number) =>
-      lift[d].push({ count: clock.beats, left: ends(band, left).b.y - rest[d].left, right: ends(band, right).b.y - rest[d].right })));
+      lift[d].push({ count: clock.beats, left: tipOf(band, left).y - rest[d].left, right: tipOf(band, right).y - rest[d].right })));
     for (const drummer of lift) {
       const top = { left: Math.max(...drummer.map((f) => f.left)), right: Math.max(...drummer.map((f) => f.right)) };
-      expect(Math.min(top.left, top.right)).toBeGreaterThan(0.1);
-      // A stick's tip rises 36 to 39 cm in a stroke, and no further.
-      expect(Math.max(top.left, top.right)).toBeLessThan(0.5);
+      // A stick's tip rises 42 to 69 cm in a stroke, out past the drummer's shoulder so it shows from the front, and no further.
+      expect(Math.min(top.left, top.right)).toBeGreaterThan(0.3);
+      expect(Math.max(top.left, top.right)).toBeLessThan(0.75);
       expect(drummer.some((f) => f.left > 0.9 * top.left && f.right < 0.01)).toBe(true);
       expect(drummer.some((f) => f.right > 0.9 * top.right && f.left < 0.01)).toBe(true);
       // Never both at the top at once.
@@ -802,8 +831,9 @@ describe("the band's playing", () => {
     play(10, 96, true, () => lift.push({ left: ends(band, left).b.y - rest.left, right: ends(band, right).b.y - rest.right }));
     const top = { left: Math.max(...lift.map((f) => f.left)), right: Math.max(...lift.map((f) => f.right)) };
     expect(Math.min(top.left, top.right)).toBeGreaterThan(0.05);
-    // A hand lifts 16 cm off its keys, and no further.
-    expect(Math.max(top.left, top.right)).toBeLessThan(0.22);
+    // A hand lifts 26 cm off its keys, so it shows from the crowd, and no further.
+    expect(Math.min(top.left, top.right)).toBeGreaterThan(0.2);
+    expect(Math.max(top.left, top.right)).toBeLessThan(0.3);
     expect(lift.some((f) => f.left > 0.9 * top.left && f.right < 0.001)).toBe(true);
     expect(lift.some((f) => f.right > 0.9 * top.right && f.left < 0.001)).toBe(true);
     expect(lift.filter((f) => f.left > 0.5 * top.left && f.right > 0.5 * top.right)).toEqual([]);
@@ -965,8 +995,8 @@ describe("the band's playing", () => {
     }
     expect(zigzags).toEqual([]);
     expect(shivers).toEqual([]);
-    // A frame's change of pace, in the stage's metres or in radians: the most is where a stick lands, 3 cm a frame at its tip; a
-    // band that stands only breathes and shifts its weight.
+    // A frame's change of pace, in the stage's metres or in radians: the most is where a stick sets off or stops, 3 cm a frame at its
+    // tip; a band that stands only breathes and shifts its weight.
     expect(sharpest).toBeGreaterThan(0.01);
     expect(sharpest).toBeLessThan(0.045);
     expect(sharpestAtRest).toBeLessThan(2e-5);
