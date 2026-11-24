@@ -3392,7 +3392,7 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
       expect(top, title).toBeCloseTo(WAS[title][1], 3);
     }
     keepsInside(batch);
-    // Three of them reach main's outline all round, to a tenth of a millimetre, so nothing that reads an outline (where a
+    // Three of them reach main's outline all round, to within 0.14 mm of it at the most, so nothing that reads an outline (where a
     // landmark stands, where the trees keep off it, how far back its near still stands) has changed for them: an outline
     // inside another that covers as much ground is that other. The eyes stand nearer each other than main's and the
     // terrapin's head is not where main's was, so those two cover less.
@@ -3462,15 +3462,17 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
 
   // This test stands the five's outlines at every second metre of the path: it has 20 s, not the usual 5.
   it("go into the ground as far as it can fall away under them: a footing, a stalk, a pole and a leg each goes on down to its landmark's depth, and no foot shows on any slope of the path", { timeout: 20000 }, () => {
-    // How far the ground falls under a foot of the lighthouse and of the terrapin, at the most, in metres; and how much
-    // deeper than that a broad landmark's foot may go: a hand, under 0.6 m.
-    const FALLS: Record<string, number> = { [LIGHT]: 2.006, [TERRAPIN]: 1.912 }, HAND = 0.6;
-    // What stands in the ground, of each, and how many: the lighthouse's footing, the eyes' two stalks, the bowl's footing,
-    // the banner's pole, and the terrapin's four legs. A leg's foot is cut square to its lean, so its corners are within
-    // 7 cm of its depth.
-    const FOOTED: Record<string, [number, number, number]> = { [LIGHT]: [STONE, 1, 0], [EYES]: [TIMBER, 2, 0], [MIRACLE]: [STONE, 1, 0], [BANNER]: [TIMBER, 1, 0], [TERRAPIN]: [HIDE, 4, 0.07] };
+    // How much deeper than the ground falls under it a broad landmark's foot may go: a hand, under 0.6 m.
+    const HAND = 0.6;
+    // What stands in the ground, of each, by its tone, and how many: the lighthouse's footing, the eyes' two stalks, the
+    // bowl's footing, the banner's pole, and the terrapin's four legs. A leg's foot is cut square to its lean, so its
+    // corners are within 7 cm of its depth: that is how far `aslant` a foot's corners may be.
+    const FOOTED: Record<string, { tone: number; count: number; aslant: number }> = {
+      [LIGHT]: { tone: STONE, count: 1, aslant: 0 }, [EYES]: { tone: TIMBER, count: 2, aslant: 0 }, [MIRACLE]: { tone: STONE, count: 1, aslant: 0 },
+      [BANNER]: { tone: TIMBER, count: 1, aslant: 0 }, [TERRAPIN]: { tone: HIDE, count: 4, aslant: 0.07 },
+    };
     tiers((b, title, phone, where) => {
-      const [tone, count, aslant] = FOOTED[title], feet = of(b, tone).filter((piece) => piece.low < -1);
+      const { tone, count, aslant } = FOOTED[title], feet = of(b, tone).filter((piece) => piece.low < -1);
       expect(feet, where).toHaveLength(count);
       // Each goes down to its landmark's depth: none ends between the ground and that depth, where a slope's lower side
       // would show daylight under it.
@@ -3484,16 +3486,18 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
       // (shallowestFoot).
       const corners = feet.flatMap((piece) => piece.corners), { covers } = shallowestFoot(along(title, phone), b.position, corners, SUNK[title], where, 4, aslant);
       // The eyes, the bowl and the banner go to the depth every slim landmark goes to. The lighthouse and the terrapin are
-      // broad, and are sunk by a measure, which their builders' comments give: stood at every quarter metre of the path,
-      // the lowest the ground lies under a corner of a foot, under the landmark's own ground. It is held here by a shorter
-      // sweep that gives the same, as the trestle's is: at every quarter metre within 2 m of the eight places where the
-      // sweep above found a foot covered least.
-      if (!(title in FALLS)) return;
+      // broad, and each has a depth of its own, which is how far the ground falls under a corner of its foot anywhere on
+      // the path, and a hand more; its builder's comment says how far that is. The rule is held here and not the figure:
+      // at every quarter metre within 2 m of the eight places where the sweep above found a foot covered least, every
+      // corner of a foot is covered still (shallowestFoot), and by under a hand. So a footing sunk no further than the
+      // slim ones' fails here as one a metre deeper than its slope asks does.
+      if (SUNK[title] === COMMON_SUNK) return;
       const worst = covers.map((cover, k) => [cover, k * SWEEP]).sort((p, q) => p[0] - q[0]).slice(0, 8).map(([, place]) => place);
       const { shallowest } = shallowestFoot(about(title, phone, worst, 0.25), b.position, corners, SUNK[title], where, 4, aslant);
-      expect(SUNK[title] - shallowest, where).toBeCloseTo(FALLS[title], 2);
       expect(shallowest, where).toBeLessThan(HAND);
     });
+    // Two of the five are sunk so: the lighthouse and the terrapin.
+    expect(FIVE.filter((title) => SUNK[title] !== COMMON_SUNK)).toEqual([LIGHT, TERRAPIN]);
   });
 
   it("build the same on every visit, corner for corner and colour for colour", () => {
@@ -3790,6 +3794,9 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
       const [shell] = having(terrapin, SEAM), plates = SCUTES.flatMap((hex) => of(terrapin, hex)), [mx, , mz] = midst(shell);
       // The shell is dark over its edge and pale under it, and stands back of the landmark's middle.
       expect([shell.high, mz > 0.5], where).toEqual([expect.closeTo(2.28, 5), true]);
+      // Its belly hangs under its edge, lowest at its middle: a belly turned up into the shell would leave it hollow from under.
+      const lowest = shell.corners.reduce((best, i) => (position.getY(i) < position.getY(best) ? i : best));
+      expect([shell.low < 0.9 - 0.25, Math.hypot(position.getX(lowest) - mx, position.getZ(lowest) - mz) < 1e-6], where).toEqual([true, true]);
       for (let n = 0; n < shell.corners.length; n += 3) {
         const y = (position.getY(shell.corners[n]) + position.getY(shell.corners[n + 1]) + position.getY(shell.corners[n + 2])) / 3;
         expect(isTone(color, shell.corners[n], y < 0.9 ? BELLY : SEAM), where).toBe(true);
@@ -3823,6 +3830,10 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
         expect(leg.high > 0.95 && leg.high < 1.3, where).toBe(true);
         for (const i of head) expect(((position.getX(i) - mx) / (wide(shell) / 2)) ** 2 + ((position.getZ(i) - mz) / (deep(shell) / 2)) ** 2, where).toBeLessThan(0.95);
         expect(pads.filter((pad) => meet(pad, leg)), where).toHaveLength(1);
+        // A leg is stout, and stouter at its foot than where it goes up into the shell: 8 cm broader, 2 m under the ground,
+        // than half a metre over it.
+        const through = (y: number) => { const cut = sliced(position, leg, y) as Span; return cut.x1 - cut.x0; };
+        expect(through(0.5) > 0.6 && through(-2) - through(0.5) > 0.07, `${where}: a leg ${through(0.5)} m through over the ground and ${through(-2)} m under it`).toBe(true);
       }
       expect(legs.map((leg) => Math.sign(midst(leg)[2] - mz)), where).toEqual([-1, -1, 1, 1]);
       // The claws: three before each forefoot on a desktop, pale, each against its foot; a phone has none.

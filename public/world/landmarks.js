@@ -772,9 +772,9 @@ export function makeBuilders(phone) {
     g.add(m);
     return m;
   };
-  /* A rod from one place to another, `r` thick, of `sides` flat sides, open at its ends unless `capped`. It is turned the
-     shortest way from upright, which is all a round thing asks. */
-  const rod = (g, mat, from, to, r, sides = 4, capped = false) => { laid(g, mat, from, to, (length) => new THREE.CylinderGeometry(r, r, length, sides, 1, !capped), (quaternion, way) => quaternion.setFromUnitVectors(UP, way)); };
+  /* A rod from one place to another, `r` thick, of `sides` flat sides, open at its ends unless `capped`; one that tapers is
+     `foot` thick where it begins. It is turned the shortest way from upright, which is all a round thing asks. */
+  const rod = (g, mat, from, to, r, sides = 4, capped = false, foot = r) => { laid(g, mat, from, to, (length) => new THREE.CylinderGeometry(r, foot, length, sides, 1, !capped), (quaternion, way) => quaternion.setFromUnitVectors(UP, way)); };
   /* A shape turned about the upright from a profile of [radius, height], foot first, with `sides` flat sides. Where the profile
      meets the upright it closes on a point, with no face of no area there. */
   const turned = (profile, sides) => {
@@ -1343,50 +1343,53 @@ export function makeBuilders(phone) {
      middle as the walker sees it. A phone's tower has eight sides, and six posts and six stanchions where a desktop has
      eight.
      The footing is 3.2 m across. Stood at every quarter metre of the path, as the trestle is, the ground under a corner of
-     its foot lies 2.01 m under the landmark's own ground at the lowest: so it goes LIGHT_SUNK down, 0.39 m into the ground
-     there. Its test holds the figure as the trestle's does. */
-  const TOWER = { foot: 0.75, top: 7.85, wide: [1.38, 1.02], hoops: 7, rail: 1.27, sill: 9, plate: 10.04, roof: 0.8, lamp: 9.5 };
+     its foot lies 2.01 m under the landmark's own ground at the lowest: so it goes LIGHT_SUNK down, which is that and a
+     hand more. Its test sweeps the path and holds the depth to covering the fall by no more than a hand. */
+  /* The lighthouse's heights: its footing's top, the tower's foot and its top, the lantern's sill, the roof's plate, how tall the
+     roof is, and the lamp's middle. And how far out each of its rings stands: the footing, the step and the tower's wall at
+     their feet and at their tops, and the rest all the way up. */
+  const TOWER = { footing: 0.5, foot: 0.75, top: 7.85, hoops: 7, sill: 9, plate: 10.04, roof: 0.8, lamp: 9.5 };
+  const TOWER_OUT = { footing: { foot: 1.6, top: 1.5 }, step: { foot: 1.46, top: 1.42 }, wall: { foot: 1.38, top: 1.02 }, corbel: 1.38, deck: 1.46, rail: 1.27, room: 0.98, sill: 1.04, posts: 0.9, plate: 1.06, roof: 1.14 };
   function lighthouse(g) {
-    const sides = phone ? 8 : 12, flat = Math.PI / sides, posts = phone ? 6 : 8, { foot, top, sill, plate } = TOWER, [wide, narrow] = TOWER.wide;
+    const sides = phone ? 8 : 12, flat = Math.PI / sides, posts = phone ? 6 : 8, { footing, foot, top, sill, plate } = TOWER, out = TOWER_OUT;
     const iron = tone(IRON, true), pale = tone(PALE_STONE, true), white = tone(SNOW, true);
     /* How far out the tower's wall is at a height, at a corner; and its flat toward the walker, at a part's foot, where the
        wall is furthest out under it. Each thing on the wall is set by that. */
-    const wall = (y) => wide - ((wide - narrow) * (y - foot)) / (top - foot), face = (y) => wall(y) * Math.cos(flat);
-    put(g, new THREE.CylinderGeometry(1.5, 1.6, 0.5 + LIGHT_SUNK, 8), stone, 0, (0.5 - LIGHT_SUNK) / 2, 0);
-    put(g, new THREE.CylinderGeometry(1.42, 1.46, foot - 0.5 + KEYED, sides).rotateY(flat), pale, 0, (foot + 0.5 - KEYED) / 2, 0);
+    const wall = (y) => out.wall.foot - ((out.wall.foot - out.wall.top) * (y - foot)) / (top - foot), face = (y) => wall(y) * Math.cos(flat);
+    put(g, new THREE.CylinderGeometry(out.footing.top, out.footing.foot, footing + LIGHT_SUNK, 8), stone, 0, (footing - LIGHT_SUNK) / 2, 0);
+    put(g, new THREE.CylinderGeometry(out.step.top, out.step.foot, foot - footing + KEYED, sides).rotateY(flat), pale, 0, (foot + footing - KEYED) / 2, 0);
     /* The tower's hoops are its own faces, painted: seven of them, the first and the last white. */
     const tall = top - foot + 2 * KEYED;
-    put(g, paint(new THREE.CylinderGeometry(narrow, wide, tall, sides, TOWER.hoops).rotateY(flat), (x, y) => (Math.floor(((y + tall / 2) / tall) * TOWER.hoops) % 2 ? SCARLET : SNOW)), painted, 0, (top + foot) / 2, 0);
+    put(g, paint(new THREE.CylinderGeometry(out.wall.top, out.wall.foot, tall, sides, TOWER.hoops).rotateY(flat), (x, y) => (Math.floor(((y + tall / 2) / tall) * TOWER.hoops) % 2 ? SCARLET : SNOW)), painted, 0, (top + foot) / 2, 0);
     /* A thing on the wall, from `y` up: a pale surround, 5 cm proud of the wall at its foot, and in it a dark leaf or pane,
        `rise` over the surround's foot and 3 cm proud of it. Both go 0.3 m back into the tower. The door's foot is half of
        KEYED into the step, between its surround's foot and the tower's: at one height with either, two feet would lie in
        one plane. */
     const set = (y, [across, high], [leaf, leafHigh], rise, dark) => {
-      const out = face(y);
-      put(g, new THREE.BoxGeometry(across, high, 0.3), pale, 0, y + high / 2, 0.1 - out);
-      put(g, new THREE.BoxGeometry(leaf, leafHigh, 0.3), tone(dark, true), 0, y + rise + leafHigh / 2, 0.07 - out);
+      const flush = face(y);
+      put(g, new THREE.BoxGeometry(across, high, 0.3), pale, 0, y + high / 2, 0.1 - flush);
+      put(g, new THREE.BoxGeometry(leaf, leafHigh, 0.3), tone(dark, true), 0, y + rise + leafHigh / 2, 0.07 - flush);
     };
     set(foot, [0.82, 1.6], [0.56, 1.44 + KEYED / 2], -KEYED / 2, DARK_TIMBER);
     for (const y of phone ? [4.9] : [3.0, 5.1]) set(y, [0.52, 0.8], [0.34, 0.6], 0.1, PIER_NICHE);
-    /* The corbel widens from the wall to the deck's underside; the deck; and on it the stanchions, half a step round from
-       the walker's line, and the rail that joins their heads. */
+    /* The corbel widens from the wall to the deck's underside; the deck; and on it the rail that joins the stanchions'
+       heads. */
     const deck = top + 0.18, rail = deck + 0.7;
-    put(g, new THREE.CylinderGeometry(1.38, wall(top - 0.4) + 0.005, 0.4 + KEYED, sides, 1, true).rotateY(flat), pale, 0, top - 0.2 + KEYED / 2, 0);
-    put(g, new THREE.CylinderGeometry(1.46, 1.46, deck - top, sides).rotateY(flat), iron, 0, (deck + top) / 2, 0);
+    put(g, new THREE.CylinderGeometry(out.corbel, wall(top - 0.4) + 0.005, 0.4 + KEYED, sides, 1, true).rotateY(flat), pale, 0, top - 0.2 + KEYED / 2, 0);
+    put(g, new THREE.CylinderGeometry(out.deck, out.deck, deck - top, sides).rotateY(flat), iron, 0, (deck + top) / 2, 0);
+    put(g, new THREE.TorusGeometry(out.rail, 0.08, 4, phone ? 12 : 16), iron, 0, rail, 0, Math.PI / 2);
+    /* The lantern room: its wall, the sill the lamp stands on, the roof's plate, the roof and its ball. */
+    put(g, new THREE.CylinderGeometry(out.room, out.room, sill - 0.08 - deck + KEYED, sides).rotateY(flat), white, 0, (sill - 0.08 + deck - KEYED) / 2, 0);
+    put(g, new THREE.CylinderGeometry(out.sill, out.sill, 0.1, sides).rotateY(flat), iron, 0, sill - 0.05, 0);
+    put(g, new THREE.CylinderGeometry(out.plate, out.plate, 0.12, sides).rotateY(flat), iron, 0, plate + 0.06, 0);
+    put(g, new THREE.ConeGeometry(out.roof, TOWER.roof, sides).rotateY(flat), tone(DEEP_RED, true), 0, plate + 0.11 + TOWER.roof / 2, 0);
+    /* The uprights, each half a step round from the walker's line: at every such place a stanchion of the gallery, from the
+       deck up into the rail, and a post of the lantern room, from the sill up into the plate. */
     for (let k = 0; k < posts; k++) {
-      const a = ((k + 0.5) / posts) * 2 * Math.PI;
-      put(g, new THREE.BoxGeometry(0.13, rail - deck, 0.13), iron, TOWER.rail * Math.sin(a), (rail + deck) / 2, TOWER.rail * Math.cos(a), 0, a, 0);
+      const a = ((k + 0.5) / posts) * 2 * Math.PI, sin = Math.sin(a), cos = Math.cos(a);
+      put(g, new THREE.BoxGeometry(0.13, rail - deck, 0.13), iron, out.rail * sin, (rail + deck) / 2, out.rail * cos, 0, a, 0);
+      put(g, new THREE.BoxGeometry(0.14, plate - sill + 2 * KEYED, 0.14), iron, out.posts * sin, (plate + sill) / 2, out.posts * cos, 0, a, 0);
     }
-    put(g, new THREE.TorusGeometry(TOWER.rail, 0.08, 4, phone ? 12 : 16), iron, 0, rail, 0, Math.PI / 2);
-    /* The lantern room: its wall, the sill the lamp stands on, the posts, the roof's plate, the roof and its ball. */
-    put(g, new THREE.CylinderGeometry(0.98, 0.98, sill - 0.08 - deck + KEYED, sides).rotateY(flat), white, 0, (sill - 0.08 + deck - KEYED) / 2, 0);
-    put(g, new THREE.CylinderGeometry(1.04, 1.04, 0.1, sides).rotateY(flat), iron, 0, sill - 0.05, 0);
-    for (let k = 0; k < posts; k++) {
-      const a = ((k + 0.5) / posts) * 2 * Math.PI;
-      put(g, new THREE.BoxGeometry(0.14, plate - sill + 2 * KEYED, 0.14), iron, 0.9 * Math.sin(a), (plate + sill) / 2, 0.9 * Math.cos(a), 0, a, 0);
-    }
-    put(g, new THREE.CylinderGeometry(1.06, 1.06, 0.12, sides).rotateY(flat), iron, 0, plate + 0.06, 0);
-    put(g, new THREE.ConeGeometry(1.14, TOWER.roof, sides).rotateY(flat), tone(DEEP_RED, true), 0, plate + 0.11 + TOWER.roof / 2, 0);
     put(g, new THREE.SphereGeometry(0.09, 6, 5), tone(BRASS), 0, plate + 0.11 + TOWER.roof + 0.04, 0);
     /* The lamp is main's: a box of a metre in the shared amber, turning. */
     const lamp = mesh(new THREE.BoxGeometry(1, 1, 1), amber, 0, TOWER.lamp, 0);
@@ -1429,9 +1432,10 @@ export function makeBuilders(phone) {
      and an eight-sided pillar; on the pillar a bowl with water in it; and round the bowl eight petals, one toward each corner
      of the outline, which is where they have room to open. The light is main's sphere in main's material, 4 m up and moved
      as main moves it: at its lowest its underside is 2.5 m up, and the petals' tips are 12 cm under that. */
-  const LOTUS = { rim: 2.27, water: 2.17, petal: [0.735, 1.97, 0.47, 0.54] };
+  /* The bowl's rim and its water; and a petal: how far out and how high its middle is, half its length, and its lean. */
+  const LOTUS = { rim: 2.27, water: 2.17, petal: { out: 0.735, at: 1.97, long: 0.47, lean: 0.54 } };
   function miracleBowl(g) {
-    const round = phone ? 8 : 12, { rim } = LOTUS;
+    const round = phone ? 8 : 12, { rim, petal } = LOTUS;
     put(g, new THREE.CylinderGeometry(0.9, 0.98, 0.35 + SUNK, 8), stone, 0, (0.35 - SUNK) / 2, 0);
     put(g, new THREE.CylinderGeometry(0.72, 0.78, 0.2 + KEYED, 8), tone(PALE_STONE, true), 0, 0.45 - KEYED / 2, 0);
     put(g, lathe([[0.5, 0.54], [0.5, 0.62], [0.36, 0.74], [0.3, 1.0], [0.3, 1.42], [0.36, 1.54], [0.4, 1.62]], 8), tone(GREY, true), 0, 0, 0);
@@ -1442,10 +1446,9 @@ export function makeBuilders(phone) {
     put(g, new THREE.CircleGeometry(0.6, round).rotateX(-Math.PI / 2), tone(WATER, true), 0, LOTUS.water, 0);
     /* The petals: each a long flat leaf that leans out from the pillar's head past the bowl's rim, its tip toward a corner
        of the outline. */
-    const [mid, high, long, lean] = LOTUS.petal;
     for (let k = 0; k < 8; k++) {
       const a = (k / 8) * 2 * Math.PI;
-      put(g, new THREE.SphereGeometry(1, phone ? 4 : 6, phone ? 3 : 4).scale(0.27, long, 0.085).rotateX(lean), tone(PALE_STONE), mid * Math.sin(a), high, mid * Math.cos(a), 0, a, 0);
+      put(g, new THREE.SphereGeometry(1, phone ? 4 : 6, phone ? 3 : 4).scale(0.27, petal.long, 0.085).rotateX(petal.lean), tone(PALE_STONE), petal.out * Math.sin(a), petal.at, petal.out * Math.cos(a), 0, a, 0);
     }
     const s = mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.9 }), 0, 4, 0);
     g.add(s);
@@ -1465,7 +1468,8 @@ export function makeBuilders(phone) {
     const { pole, yard, head, tall, wide, mid, layer } = FLAG, cols = phone ? 6 : 8, rows = phone ? 6 : 8, gold = tone(TRIM, true);
     put(g, lathe([[0.115, -SUNK], [0.115, 0.45], [0.095, 0.7], [0.085, 5.7], [0.112, 5.82], [0.112, 6.2], [0.085, 6.26]], 6), tone(TIMBER), pole, 0, 0);
     /* The collars are as broad as main's pole was, and six-sided as it was, and the yard's brass end is as thick as main's
-       board and ends where it ended, each less a tenth of a millimetre: the outline is main's, to that. */
+       board and ends where it ended, each less a tenth of a millimetre: so the outline is main's to within 0.09 mm at the
+       pole and 0.14 mm at the far end's two corners, and inside it. */
     for (const y of [0.58, 5.76]) put(g, new THREE.CylinderGeometry(0.1199, 0.1199, 0.1, 6, 1, true), tone(BRASS), pole, y, 0);
     put(g, turned([[0.085, 6.26], [0.118, 6.32], [0.07, 6.42], [0, 6.49]], 6), tone(BRASS, true), pole, 0, 0);
     put(g, new THREE.BoxGeometry(0.98 - pole, 0.12, CLOTH - 2 * FLAG.loop), tone(DARK_TIMBER, true), (0.98 + pole) / 2, yard, 0);
@@ -1513,15 +1517,23 @@ export function makeBuilders(phone) {
      of the landmark's middle, with the head before it inside those 1.6 m, and the shell's hind end and the tail lie where
      the plain head was. A phone's shell has eight plates to a ring, where a desktop's has twelve, and no claws.
      Stood at every quarter metre of the path, the ground under a corner of a leg's foot lies 1.91 m under the landmark's own
-     ground at the lowest: so the legs go TERRAPIN_SUNK down, their feet cut square to their lean, 0.42 m in the ground
-     there. Their test holds the figure as the trestle's does. */
-  const SHELL = { at: 0.55, long: 1.09, crown: 2.28, rings: [[0.5, 2.2], [1.02, 1.9], [1.31, 1.42], [1.4, 0.9]], under: [[1.14, 0.7], [0, 0.6]], proud: 0.05, inset: 0.1, keyed: 0.02, shades: [[1, 0], [2, 1], [0, 2]] };
+     ground at the lowest: so the legs go TERRAPIN_SUNK down, which is that and a hand more, their feet cut square to their
+     lean. Their test sweeps the path and holds the depth to covering the fall by no more than a hand. */
+  /* The shell: how far along the path its middle is, and how far it is drawn out along it; its crown's height; its rings, each
+     [how far out, how high], from the crown's plate down to its edge; under its edge, the ring its belly turns in at, and the
+     belly's lowest; how far a plate stands proud, is drawn in and goes into the shell; and each ring's two shades, turn
+     about round it, which are never the shades over them. */
+  const SHELL = { at: 0.55, long: 1.09, crown: 2.28, rings: [[0.5, 2.2], [1.02, 1.9], [1.31, 1.42], [1.4, 0.9]], under: [1.14, 0.7], belly: 0.6, proud: 0.05, inset: 0.1, keyed: 0.02, shades: [{ even: 1, odd: 0 }, { even: 2, odd: 1 }, { even: 0, odd: 2 }] };
+  /* The legs: how high a leg's head is, in the shell, and how thick it is there and at its foot; and for the fore pair and the
+     hind pair, how far across the path and along it a leg's head and its foot are. */
+  const LEG = { up: 1, head: 0.34, foot: 0.4 };
+  const LEGS = [{ fore: true, head: { across: 0.74, along: -0.2 }, foot: { across: 1.0, along: -0.75 } }, { fore: false, head: { across: 0.72, along: 1.2 }, foot: { across: 0.88, along: 1.35 } }];
   function terrapin(g) {
     const sectors = phone ? 8 : 12, { rings, crown, proud, inset } = SHELL, hide = tone(HIDE, true);
     /* A place on the shell, `r` out and `y` up at sector k's corner, drawn out along the path and set back as the shell is. */
     const at = ([r, y], k) => { const a = (k / sectors) * 2 * Math.PI; return new THREE.Vector3(r * Math.sin(a), y, r * Math.cos(a) * SHELL.long + SHELL.at); };
     /* The shell under the plates, one closed shape, dark over its edge and pale under it. */
-    const under = turned([[0, SHELL.under[1][1]], SHELL.under[0], ...[...rings].reverse(), [0, crown]], sectors).scale(1, 1, SHELL.long).translate(0, 0, SHELL.at);
+    const under = turned([[0, SHELL.belly], SHELL.under, ...[...rings].reverse(), [0, crown]], sectors).scale(1, 1, SHELL.long).translate(0, 0, SHELL.at);
     put(g, paint(under, (x, y) => (y < rings[rings.length - 1][1] ? BELLY : SEAM)), painted, 0, 0, 0);
     /* A plate over a facet of the shell, whose corners go round it anticlockwise as it is seen from outside: its top is the
        facet drawn in toward its middle and raised, and its sides go down into the shell. The crown's plate rises to a `tip`
@@ -1536,21 +1548,21 @@ export function makeBuilders(phone) {
       facet.forEach((_, i) => { const n = (i + 1) % facet.length; push(foot[i], foot[n], top[n], foot[i], top[n], top[i]); });
     };
     plate(2, Array.from({ length: sectors }, (_, k) => at(rings[0], k)), at([0, crown + proud], 0));
-    for (let band = 0; band + 1 < rings.length; band++) for (let k = 0; k < sectors; k++) plate(SHELL.shades[band][k % 2], [at(rings[band], k), at(rings[band + 1], k), at(rings[band + 1], k + 1), at(rings[band], k + 1)]);
+    for (let band = 0; band + 1 < rings.length; band++) for (let k = 0; k < sectors; k++) plate(SHELL.shades[band][k % 2 ? "odd" : "even"], [at(rings[band], k), at(rings[band + 1], k), at(rings[band + 1], k + 1), at(rings[band], k + 1)]);
     plates.forEach((corners, shade) => put(g, solid(corners), tone(SCUTES[shade], true), 0, 0, 0));
     /* The legs, each from its foot under the ground to its head inside the shell: they lean out as they go down, the fore ones
        forward and the hind ones back. A foot lies before each fore leg and behind each hind one, where the leg meets the
        ground, and each forefoot has three claws. */
-    for (const [across, along, out, on, fore] of [[0.74, -0.2, 1.0, -0.75, 1], [0.72, 1.2, 0.88, 1.35, -1]]) for (const side of [-1, 1]) {
-      const head = [side * across, 1, along], foot = [side * out, -TERRAPIN_SUNK, on], share = 1 / (1 + TERRAPIN_SUNK);
-      laid(g, hide, foot, head, (length) => new THREE.CylinderGeometry(0.34, 0.4, length, phone ? 5 : 7), (quaternion, way) => quaternion.setFromUnitVectors(UP, way));
+    for (const leg of LEGS) for (const side of [-1, 1]) {
+      const head = [side * leg.head.across, LEG.up, leg.head.along], foot = [side * leg.foot.across, -TERRAPIN_SUNK, leg.foot.along], share = LEG.up / (LEG.up + TERRAPIN_SUNK);
+      rod(g, hide, foot, head, LEG.head, phone ? 5 : 7, true, LEG.foot);
       /* Where the leg's middle meets the ground, and the foot's own middle, before it or behind it. */
-      const x = head[0] + (foot[0] - head[0]) * share, z = head[2] + (foot[2] - head[2]) * share - fore * 0.22, long = fore > 0 ? 1.25 : 1.1;
+      const x = head[0] + (foot[0] - head[0]) * share, z = head[2] + (foot[2] - head[2]) * share + (leg.fore ? -0.22 : 0.22), long = leg.fore ? 1.25 : 1.1;
       put(g, new THREE.SphereGeometry(0.4, phone ? 5 : 7, 4).scale(1, 0.38, long), tone(PAD, true), x * 1.04, 0.1, z);
-      if (fore > 0 && !phone) for (const off of [-0.2, 0, 0.2]) put(g, new THREE.ConeGeometry(0.085, 0.3, 4).rotateX(-Math.PI / 2), tone(CLAW, true), x * 1.04 + off, 0.11, z - 0.4 * long - 0.02 + 0.3 * Math.abs(off));
+      if (leg.fore && !phone) for (const off of [-0.2, 0, 0.2]) put(g, new THREE.ConeGeometry(0.085, 0.3, 4).rotateX(-Math.PI / 2), tone(CLAW, true), x * 1.04 + off, 0.11, z - 0.4 * long - 0.02 + 0.3 * Math.abs(off));
     }
     /* The neck, from inside the shell's front to inside the head; the head, its nose a little up; and its eyes. */
-    laid(g, hide, [0, 1.0, -0.55], [0, 1.64, -1.12], (length) => new THREE.CylinderGeometry(0.2, 0.26, length, phone ? 6 : 8), (quaternion, way) => quaternion.setFromUnitVectors(UP, way));
+    rod(g, hide, [0, 1.0, -0.55], [0, 1.64, -1.12], 0.2, phone ? 6 : 8, true, 0.26);
     put(g, new THREE.SphereGeometry(0.36, phone ? 6 : 8, phone ? 4 : 6).scale(0.84, 0.74, 1.12), hide, 0, 1.74, -1.17, 0.2, 0, 0);
     for (const x of [-0.21, 0.21]) put(g, new THREE.IcosahedronGeometry(0.07, 0), tone(PUPIL, true), x, 1.86, -1.37);
     put(g, new THREE.ConeGeometry(0.15, 0.5, 5).rotateX(Math.PI / 2 + 0.3), hide, 0, 0.84, SHELL.at + SHELL.long * rings[rings.length - 1][0] + 0.02);
