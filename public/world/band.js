@@ -231,8 +231,10 @@ function microphone(to, [x, z], boom) {
    to the side. A level cymbal is a line from the front of the crowd, a pixel thick, and a line comes and goes; tipped, it shows as
    an ellipse from the front and from the hill alike. */
 const cymbal = (c, r, tip, roll = 0) => drum(c, 0.03, r, 0.04, 14, tip, roll);
-/* A stout pole from the floor at [x, z] up to `top`, on a small round foot. No tripod: its legs would be a pixel wide at the best. */
-const pole = (x, z, top) => [bar(V(x, 0.02, z), V(x, top, z), 0.036, 0.03, 6), drum(V(x, 0.03, z), 0.07, 0.09, 0.06, 8)];
+/* A stout pole from the floor at [x, z] up to `top`, on a small round foot: 15 cm across as it stands on the stage, which is a
+   pixel and a third of a phone's frame from among the crowd, where a pole a pixel across or less breaks up and its cymbal floats.
+   No tripod: its legs would be a pixel wide at the best. */
+const pole = (x, z, top) => [bar(V(x, 0.02, z), V(x, top, z), 0.042, 0.042, 8), drum(V(x, 0.03, z), 0.07, 0.09, 0.06, 8)];
 /* A drum that reads as one in outline from every side: a shell `r` in radius and `deep`, upright about its own middle, its rims
    rounded and its heads flat to four fifths of the radius; or `rounder`, to three fifths. A plain cylinder is a box from the front
    and from the hill. */
@@ -516,8 +518,8 @@ export function buildBand(stage, floor) {
     hold: { ...TWO_HORNS, at: V(-0.13, 0.99, 0.18), rise: 0.5, yaw: 0.2, big: 1.1 }, mic: { reach: 0.26, boom: false } });
   strummer("bass", [-3.5, 1.5], 0.1, { size: 0.93, broad: 1.0, hair: "knot", skirt: 0.8, stance: 0.16, toes: 0.22, fret: 0.9, sway: -0.04, strum: 0.05, tap: 0.13, lag: 0,
     hold: { ...BASS, at: V(-0.1, 0.9, 0.18), rise: 0.9, yaw: 0.22, big: 1.08 }, mic: { reach: 0.28, boom: false } });
-  drummer([-1.25, -2.5], 0.06, { size: 0.99, broad: 1.04, hair: "tail", lag: 2, kick: 0.31, toms: { left: [-0.19, 0.19], right: [0.2, 0.21], deep: 0.22 }, tom: V(-0.19, 0.93, 0.58),
-    floor: { x: 0.54, r: 0.25 }, crash: { x: 0.74, y: 1.5, r: 0.23 } });
+  drummer([-1.25, -2.5], 0.06, { size: 0.99, broad: 1.04, hair: "tail", lag: 2, kick: 0.31, toms: { left: [-0.19, 0.19], right: [0.195, 0.205], deep: 0.22 }, tom: V(-0.19, 0.93, 0.58),
+    floor: { x: 0.54, r: 0.25 }, crash: { x: 0.735, y: 1.5, r: 0.23 } });
   drummer([1.3, -2.5], -0.06, { size: 1.02, broad: 1.0, hair: "long", lag: 3, kick: 0.3, toms: { left: [-0.17, 0.21], right: [0.21, 0.185], deep: 0.25 }, tom: V(-0.06, 0.93, 0.58),
     floor: { x: 0.33, r: 0.17 }, ride: Object.assign(V(0.27, 1.12, 0.1), { r: 0.24 }) });
   strummer("guitar", [3.35, 1.4], -0.12, { size: 1.0, broad: 1.06, hair: "bob", skirt: 0.8, stance: 0.16, toes: 0.25, fret: 0.68, sway: 0.045, strum: 0.13, tap: 0.11, lag: 2,

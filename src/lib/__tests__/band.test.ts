@@ -456,11 +456,11 @@ describe("a drummer's kit", () => {
     }
   });
 
-  it("stands the hi-hat and the cymbal on stout poles of their own, upright on a round foot and no tripod: each pole is one bar under 8 cm across, and each cymbal's middle is within 30 cm of one", () => {
+  it("stands the hi-hat and the cymbal on stout poles of their own, upright on a round foot and no tripod: each pole is one bar 8 to 9 cm across in the drummer's metres, a pixel and a third of a phone's frame from among the crowd, and each cymbal's middle is within 30 cm of one", () => {
     for (const k of drummers) {
       const poles = kitOf(k, "pole").map(box).filter((pole) => pole.tall > 0.45);
       expect(poles.length).toBe(2);
-      for (const pole of poles) expect([Math.max(pole.wide, pole.deep) < 0.08, pole.min.y < 0.05]).toEqual([true, true]);
+      for (const pole of poles) expect([Math.min(pole.wide, pole.deep) >= 0.077, Math.max(pole.wide, pole.deep) < 0.09, pole.min.y < 0.05]).toEqual([true, true, true]);
       // The hi-hat's two cymbals, under the drummer's hands, and the one that shows.
       const discs = [...kitOf(k, "hi-hat"), ...kitOf(k, "cymbal")].map(box);
       expect(discs.length).toBe(3);
