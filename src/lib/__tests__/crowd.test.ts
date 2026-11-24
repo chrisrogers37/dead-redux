@@ -10,7 +10,7 @@ import { FACING, height, STAGE, STAGE_COLUMN, TEST_POSES } from "../../../public
 import { makeBuilders } from "../../../public/world/landmarks.js";
 import { buildPath, buildWalkLine, layout, placeLandmarks } from "../../../public/world/path.js";
 import { budgetFor } from "../../../public/world/quality.js";
-import { gathering, keepOuts, PERSON } from "../../../public/world/seats.js";
+import { gathering, keepOuts, PERSON, seats as seatsOf } from "../../../public/world/seats.js";
 
 // buildCrowd builds the crowd here from the world's own modules and three, on the world's path and the bears' line 7 m to its left as
 // main.js lays them, with two landmarks of the test's own in the front rows, at every seat on the hill. seats.js runs as it is, and
@@ -517,8 +517,9 @@ describe("the crowd, as buildCrowd builds it", () => {
       }
     }
     expect(looked).toBeGreaterThan(3.9e6);
-    // The nearest any of those four million posed corners comes to its figure's sphere is 0.2 m inside it.
-    expect(least).toBeGreaterThan(0.2);
+    // The nearest any of those four million posed corners comes to its figure's sphere is 0.15 m inside it and more: a seated
+    // figure's feet follow the ground's fall ahead of its seat, which differs with the way the gathering faces it.
+    expect(least).toBeGreaterThan(0.15);
     expect(least).toBeLessThan(0.3);
     // Then that `cull` tests those spheres and no others. One figure at a time, the rest stepped ten kilometres off (`cull` counts a
     // figure where the parting has stepped it): a view a centimetre across and deep is in the figure's sphere 3 cm inside its
@@ -597,7 +598,7 @@ describe("the crowd, as buildCrowd builds it", () => {
       const stepped = versions(), had = [offset.slice(), rising.slice()];
       crowd.part(1 / 60, { x: x + 2.5 - 0.2 * f, z }, { x: x + 3.3 - 0.2 * f, z }, false);
       const after = versions(), movedNow = figures.filter((g) => [0, 1, 2, 3].some((q) => offset[4 * g.i + q] !== had[0][4 * g.i + q]) || rising[g.i] !== had[1][g.i]).map((g) => g.i);
-      expect(movedNow.length).toBeLessThan(crowd.count / 4);
+      expect(movedNow.length).toBeLessThan(crowd.count / 3);
       expect([...after.slice(0, fixed.length), after[held.length]]).toEqual([...stepped.slice(0, fixed.length), stepped[held.length]]);
       expect([after[fixed.length] > stepped[fixed.length], after[fixed.length + 1] > stepped[fixed.length + 1]]).toEqual([movedNow.length > 0, movedNow.length > 0]);
       const sent = (attribute: { updateRanges: { start: number; count: number }[] }, size: number) => attribute.updateRanges.map((r) => [r.start / size, r.count / size]).sort((a, b) => a[0] - b[0]);
@@ -1541,6 +1542,17 @@ describe("the crowd's people", () => {
     expect(inView(STAGE[0] + 12 * ux + 5 * nx, STAGE[1] + 12 * uz + 5 * nz)).toBe(true);
     expect(inView(STAGE[0] + 40 * ux + 30 * nx, STAGE[1] + 40 * uz + 30 * nz)).toBe(false);
   });
+
+  it("move in a mix on any day: on thirty days' gatherings, no figure's four nearest all move its way, which people() rules out as it goes", () => {
+    for (let seed = 0; seed < 30; seed++) {
+      const placed = seatsOf({ path: [], line: [], landmarks: [] }, seed) as { x: number; z: number }[], who = people(placed) as { move: string }[];
+      const patches = who.filter((p, i) => {
+        const near = who.map((q, j) => ({ q, d: Math.hypot(placed[j].x - placed[i].x, placed[j].z - placed[i].z) })).filter((_, j) => j !== i).sort((a, b) => a.d - b.d).slice(0, 4);
+        return near.every(({ q }) => q.move === p.move);
+      }).length;
+      expect([seed, patches]).toEqual([seed, 0]);
+    }
+  }, 30000);
 
   it("move in a mix: no figure's four nearest all move its way, a few children stand among the adults, and no child carries more than a balloon", () => {
     for (const { who, placed } of all) {

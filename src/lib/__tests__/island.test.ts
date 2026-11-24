@@ -10,6 +10,7 @@ import { BAND_RANGE, BAND_SIDE, bandAway, bandMask, buildPath, layout } from "..
 import { CAVES, height } from "../../../public/world/ground.js";
 import { BLANKET_TONES, gathering, intoCrowdGround, onAxes, onCrowdGround } from "../../../public/world/seats.js";
 import { lookAt, newLook } from "../../../public/world/night.js";
+import { COLOURS, MOST } from "../../../public/world/crowd.js";
 
 // A number as the shader's text has it, to four places. island.js writes its own with a helper of its own (`f`), which is not
 // imported here, on purpose: were the shader's numbers written to other places, the lines pinned below would say so.
@@ -379,7 +380,7 @@ describe("the crowd's trodden grass and its blankets", () => {
       if (want.edge > -BLANKET_REACH) expect([Math.min(Math.floor(read.b * tones), tones - 1), Math.min(Math.floor(read.a * tones), tones - 1)]).toEqual([want.cloth, want.rim]);
       for (const tussocks of [0, 0.5, 1]) apartLaid = Math.max(apartLaid, Math.abs(run.worn(want.trodden, tussocks) - wornAt(want.trodden, tussocks)));
       for (const covers of [0, 0.03, 0.1, 0.3, 2, 20]) apartLaid = Math.max(apartLaid, Math.abs(run.blanket(want.edge, covers) - blanketAt(want.edge, covers)), Math.abs(run.border(want.edge, covers) - borderAt(want.edge, covers)));
-      if (want.trodden > 0.9) trodden += 1; else if (want.trodden > 0) eased += 1; else turf += 1;
+      if (want.trodden > 0.8) trodden += 1; else if (want.trodden > 0) eased += 1; else turf += 1;
       const lies = blanketAt(want.edge);
       if (lies === 1) covered += 1; else if (lies > 0) edged += 1;
       if (borderAt(want.edge) === 1) bordered += 1;
@@ -393,14 +394,17 @@ describe("the crowd's trodden grass and its blankets", () => {
   });
 
   it("treads the grass under every one of the day's people, hardest where they stand thickest, in patches and not as one flat patch, and nowhere past the room the tufts keep", () => {
+    let fronts = 0, backs = 0;
     for (const { seed, g, mask } of days) {
-      // Under every seat.
+      // Under every seat, a seated straggler's on a lightly trodden patch among them.
       const under = g.seats.map((s) => crowdAt(mask, s.x, s.z).trodden);
-      expect([seed, Math.min(...under) > 0.15]).toEqual([seed, true]);
-      // Harder before the stage, where they stand thickest, than up the hill, where they thin out and sit.
+      expect([seed, Math.min(...under) > 0.08]).toEqual([seed, true]);
+      // Harder before the stage, where they stand thickest, than up the hill, where they thin out and sit: on every day, and by a
+      // tenth and more over the days, the broad patches falling where they may.
       const mean = (list: number[]) => list.reduce((sum, t) => sum + t, 0) / list.length;
       const front = mean(under.filter((_, i) => g.seats[i].r < 22)), back = mean(under.filter((_, i) => g.seats[i].r > 40));
-      expect([seed, front > 0.8, front > back + 0.15]).toEqual([seed, true, true]);
+      expect([seed, front > 0.6, front > back]).toEqual([seed, true, true]);
+      fronts += front; backs += back;
       // Not one flat patch: of the ground 2 m and more inside the crowd's ground, a tenth or more is hardly trodden at all, where no
       // one stands, and no more than a fifth is trodden its hardest.
       let deep = 0, bare = 0, hardest = 0;
@@ -429,6 +433,23 @@ describe("the crowd's trodden grass and its blankets", () => {
         expect([data[4 * (j * width + i)], data[4 * (j * width + i) + 1]]).toEqual([0, 0]);
       }
     }
+    expect(fronts / days.length).toBeGreaterThan(backs / days.length + 0.1);
+  });
+
+  it("treads the grass in broad patches, the packed front too: under people standing evenly 1.5 m apart, some of it under 0.65 trodden and some over 0.9, a metre and more from each other", () => {
+    // A gathering of people standing on a lattice over the crowd's ground 20 to 32 m out, with its aisle far off to one side.
+    const seats: { x: number; z: number; sit: boolean }[] = [];
+    for (let u = 20; u <= 32; u += 1.5) for (let v = -12; v <= 12; v += 1.5) { const [x, z] = onAxes(u, v) as number[]; seats.push({ x, z, sit: false }); }
+    const mask = crowdMask({ seats, blankets: [], aisle: [[11, 45, 2.5], [58, 45, 2.5]] }) as Mask;
+    const light: number[][] = [], hard: number[][] = [];
+    for (let u = 23; u <= 29; u += 0.25) for (let v = -9; v <= 9; v += 0.25) {
+      const [x, z] = onAxes(u, v) as number[], trodden = crowdAt(mask, x, z).trodden;
+      if (trodden < 0.65) light.push([x, z]); else if (trodden > 0.9) hard.push([x, z]);
+    }
+    expect(light.length).toBeGreaterThan(100);
+    expect(hard.length).toBeGreaterThan(100);
+    // Patches, not a speckle: no hard-trodden point within a metre of a light one.
+    expect(light.some(([x, z]) => hard.some(([a, b]) => Math.hypot(a - x, b - z) < 1))).toBe(false);
   });
 
   it("has no hard edge: no two neighbouring texels of the trodden grass differ by more than a fifth, so it eases from turf to trodden over 2 m or more, on every day", () => {
@@ -489,18 +510,45 @@ describe("the crowd's trodden grass and its blankets", () => {
     // The stage's glow is nearly all red, so it is the light that holds a brown or a red darkest.
     const brighter = (rgb: number[], most: number) => lights.map(([name, light]) => [name, lit(rgb, light) / lit(mean, light)] as const).filter(([, by]) => by > most);
     expect(brighter(bare, 1.02)).toEqual([]);
-    // And the grass not so dark that a figure is lost on it: no less than four fifths of the turf's brightness by daylight.
-    expect(lit(bare, [1, 1, 1]) / lit(mean, [1, 1, 1])).toBeGreaterThan(0.8);
+    // And darker than the turf by daylight, three quarters of its brightness at the most: a tan as bright as the turf read as sand
+    // under the evening's light, where matted grass reads as trodden. But not so dark that a figure is lost on it: three fifths of
+    // the turf's brightness at the least, where the figures' brightest clothes are a fifth of it (crowd.js MOST).
+    expect(lit(bare, [1, 1, 1]) / lit(mean, [1, 1, 1])).toBeLessThan(0.75);
+    expect(lit(bare, [1, 1, 1]) / lit(mean, [1, 1, 1])).toBeGreaterThan(0.6);
     // The blankets, one colour to each of the gathering's tones, no two alike: each no brighter than the turf under any light, and
-    // a third of it at the least by daylight, so a blanket reads as dyed cloth and not as a hole in the hill.
+    // a sixth of it at the least by daylight, as bright as the clothes go, so a blanket reads as cloth and not as a hole in the hill.
     const cloth = BLANKET_COLOURS as number[];
     expect(cloth).toHaveLength(tones);
     expect(new Set(cloth).size).toBe(tones);
     for (const hex of cloth) {
       const c = new THREE.Color(hex), rgb = [c.r, c.g, c.b];
       expect([hex.toString(16), brighter(rgb, 1)]).toEqual([hex.toString(16), []]);
-      expect([hex.toString(16), lit(rgb, [1, 1, 1]) / lit(mean, [1, 1, 1]) > 1 / 3]).toEqual([hex.toString(16), true]);
+      expect([hex.toString(16), lit(rgb, [1, 1, 1]) / lit(mean, [1, 1, 1]) > 1 / 6]).toEqual([hex.toString(16), true]);
     }
+    // The worn grass is browner than the turf and greyer, as sRGB has them: WORN's hue 56° or less, nearer orange than the turf's
+    // near 76°, but no tan, 40° or more, and as saturated as three quarters of the turf at the most; and so the ground where it is
+    // worn hardest.
+    const hsl = (rgb: number[]) => { const out = { h: 0, s: 0, l: 0 }; new THREE.Color().setRGB(rgb[0], rgb[1], rgb[2]).getHSL(out, THREE.SRGBColorSpace); return out; };
+    expect(hsl([worn.r, worn.g, worn.b]).h).toBeLessThan(56 / 360);
+    expect(hsl([worn.r, worn.g, worn.b]).h).toBeGreaterThan(40 / 360);
+    expect(hsl([worn.r, worn.g, worn.b]).s).toBeLessThan(0.75 * hsl(mean).s);
+    expect(hsl(bare).h).toBeLessThan(hsl(mean).h - 0.03);
+    expect(hsl(bare).s).toBeLessThan(hsl(mean).s);
+  });
+
+  it("dyes the blankets in faded cloth: none brighter than the brightest of the people's clothes, each a dull grey of its hue, and their hues spread round the wheel", () => {
+    const luma = (c: { r: number; g: number; b: number }) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    const clothes = Math.max(...(Object.values(COLOURS) as number[][]).flat().map((hex) => luma(new THREE.Color(hex))));
+    const hues = new Set<number>();
+    for (const hex of BLANKET_COLOURS as number[]) {
+      const c = new THREE.Color(hex), hsl = { h: 0, s: 0, l: 0 };
+      expect([hex.toString(16), luma(c) <= clothes, Math.max(c.r, c.g, c.b) <= MOST]).toEqual([hex.toString(16), true, true]);
+      // Muted, as sRGB has it (getHSL reads the colour as it is written).
+      c.getHSL(hsl, THREE.SRGBColorSpace);
+      expect([hex.toString(16), hsl.s < 0.3]).toEqual([hex.toString(16), true]);
+      hues.add(Math.floor(hsl.h * 6));
+    }
+    expect(hues.size).toBeGreaterThanOrEqual(5);
   });
 
   it("lays each blanket under those who sit on it, in its own colours wherever it is drawn, and nowhere else", () => {

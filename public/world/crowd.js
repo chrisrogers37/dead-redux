@@ -413,23 +413,31 @@ export const movingAlike = (a, b) => a.move === b.move && a.legs === b.legs && a
    within NEAR m of it, nearer ones counting for more; never one whose outline another figure has, on a desktop or a phone, so every
    figure of a crowd is a different person; and, drawing on until it finds one, never one that shares more than SHARE[1] of the
    OUTLINE with a figure within NEAR m, or more than SHARE[0] with one within CLOSE m, or that is dressed or moves like one that
-   close. */
+   close, or that moves as all four of its nearest so far do, or as all four of another's would with it among them. */
 const TRIES = 20, NEAR = 8, CLOSE = 4;
 export const SHARE = [4, 5];
 export function people(placed) {
   const out = [], taken = new Set();
   const due = [];
+  /* Each figure's four nearest of those placed so far, nearest first, as [distance, index]. */
+  const nearest = [], fourth = (list) => (list.length < 4 ? Infinity : list[3][0]);
+  const closer = (list, d, j) => [...list, [d, j]].sort((a, b) => a[0] - b[0]).slice(0, 4);
   placed.forEach((seat, i) => {
     if (i % PROP_EVERY === PROP_EVERY - 1) due.push(PROPS[Math.floor(i / PROP_EVERY) % PROPS.length]);
     /* The next prop due goes to the first figure that can carry it: one that stands, and, for what stands over a head, out of the test
        poses' view of the band. */
     const k = due.findIndex((prop) => !(seat.sit && prop !== "stand" && prop !== "finger") && !(OVERHEAD.includes(prop) && inView(seat.x, seat.z)));
     const prop = k < 0 ? "none" : due.splice(k, 1)[0];
-    const near = [];
+    const near = [], joins = [];
+    let own = [];
     for (let j = 0; j < i; j++) {
       const d = Math.hypot(placed[j].x - seat.x, placed[j].z - seat.z);
       if (d < NEAR) near.push([out[j], 1 / (1 + d), SHARE[d < CLOSE ? 0 : 1]]);
+      if (d < fourth(own)) own = closer(own, d, j);
+      if (d < fourth(nearest[j])) joins.push([j, closer(nearest[j], d, i)]);
     }
+    const patch = (move) => (own.length === 4 && own.every(([, j]) => out[j].move === move) ? 1 : 0)
+      + joins.filter(([j, list]) => list.length === 4 && out[j].move === move && list.every(([, k]) => k === i || out[k].move === move)).length;
     const r = stream(0x9e3779b1 * (i + 1));
     /* A child holds a balloon or nothing, and half the balloons are children's. */
     const drawn = choose(r, CHOICES.stature);
@@ -445,10 +453,13 @@ export function people(placed) {
         const a = alike(p, other);
         score += weight * a * a;
       }
+      clashes += patch(p.move);
       if (clashes < fewest || (clashes === fewest && score < least)) { fewest = clashes; least = score; best = p; }
     }
     taken.add(outlineOf(plainly(best)));
     out.push(best);
+    nearest.push(own);
+    for (const [j, list] of joins) nearest[j] = list;
   });
   return out;
 }

@@ -54,29 +54,34 @@ const GRAIN_EVEN = 0.5;
 /* The day's gathering on the ground (seats.js gathering): the grass worn where its people stand, and its blankets. Both are drawn in
    the ground's own shader, as the tracks are, from one mask of the gathering that the shader reads once a pixel (crowdMask), so
    they cost no mesh and no draw call, and lie on the ground wherever it goes.
-   The grass is trodden, not worn through: WEAR is how far the ground takes WORN's colour where it is trodden hardest, and WORN a
-   flattened, dry olive, no brighter than the crowd's turf is, taken together, under any light of the show, the stage's glow among
-   them, which is nearly all red and lights a brown more than it does turf. A figure dancing against paler ground swings more blocks
-   of the frame than it does against turf: counted with scripts/flash, an earth a quarter brighter than the turf took the blocks at 5
-   swings or more in a second from 1,048 to 1,370 through the seeks, the whole frame from behind the crowd. */
-export const WEAR = 0.75, WORN = 0x6a6646;
+   The grass is trodden, not worn through: WEAR is how far the ground takes WORN's colour where it is trodden hardest, and WORN
+   matted grass, browner, greyer and darker than the turf, no brighter than the crowd's turf is, taken together, under any light of
+   the show, the stage's glow among them, which is nearly all red and lights a brown more than it does turf. A figure dancing
+   against paler ground swings more blocks of the frame than it does against turf: counted with scripts/flash, an earth a quarter
+   brighter than the turf took the blocks at 5 swings or more in a second from 1,048 to 1,370 through the seeks, the whole frame
+   from behind the crowd. A tan as bright as the turf reads as sand under the evening's light; a darker olive brown reads as grass
+   trodden flat. */
+export const WEAR = 0.75, WORN = 0x55523c;
 /* How hard the ground is trodden, from 0, turf, to 1. Each person treads the ground round their seat as a soft mound `spread` m wide
    (its standard deviation), one seated `sit` of what one standing does; the mounds are summed, and a sum `s` is trodden 1 - e^(-hard
    s), so ground many stand on is trodden hard and none more than 1, and a straggler's ground a little. The aisle the gathering leaves
    is walked up its middle, `aisle` hard within `walked[0]` m of it and not at all by `walked[1]` (seats.js AISLE). All of it is
    eased in from none at `rim[0]` m into the crowd's ground, which lies outside it and inside the CROWD_ROOM where no tuft grows, to
    the whole of it at `rim[1]` m. Every step of it is eased over two metres or more, so the trodden grass fades into the hill as the
-   gathering thins out, with no edge of its own: no two neighbouring texels of the mask differ by more than a fifth. And where the
-   turf is thin it is trodden first: the tussock grain moves the wear by `patchy` of itself either way from the even grain's, as far
-   one way as the other, so a pixel that cannot hold the grain shows the mean, and nothing dithers. */
-export const TREAD = { spread: 2.2, sit: 0.6, hard: 0.35, aisle: 0.7, walked: [0.5, 2.8], rim: [-4.2, -0.6], patchy: 0.6 };
+   gathering thins out, with no edge of its own: no two neighbouring texels of the mask differ by more than a fifth. The people's
+   treading comes and goes in broad patches some 8 m across, down to `broad` less than its own where it is lightest, so the grass
+   shows through between patches worn browner, under the packed front as well. And where the turf is thin it is trodden first: the tussock grain moves the wear by `patchy` of itself
+   either way from the even grain's, as far one way as the other, so a pixel that cannot hold the grain shows the mean, and nothing
+   dithers. */
+export const TREAD = { spread: 2.2, sit: 0.6, hard: 0.35, aisle: 0.7, walked: [0.5, 2.8], rim: [-4.2, -0.6], broad: 0.5, patchy: 0.6 };
 /* A blanket lies on the ground as a cloth of one of BLANKET_COLOURS (seats.js gives each its colour, and its border's, the same for
    one with no border), with its border from BLANKET_RIM[0] to BLANKET_RIM[1] m in from its edge. Its edge is eased across what a
    pixel takes in of the ground, BLANKET_SOFT m at the least and the most, so it neither shimmers nor steps; its border, too narrow to
-   hold far off, is drawn only while a pixel takes in less than BLANKET_HELD[1] m. The colours are dyed cloth, each no brighter than
-   the crowd's turf under any light of the show, as the worn grass is, and the mask holds how far a point lies inside the nearest
-   blanket out to BLANKET_REACH m either side of its edge. */
-export const BLANKET_COLOURS = [0x7a3328, 0x34467a, 0x6a5c26, 0x2e6058, 0x5e3a6a, 0x763f22, 0x6e2e48];
+   hold far off, is drawn only while a pixel takes in less than BLANKET_HELD[1] m. The colours are dyed cloth faded in the sun, each a
+   different hue gone dull and greyed, and none brighter than the brightest of the people's clothes (crowd.js COLOURS), so a blanket
+   never outshines those sitting on it; and the mask holds how far a point lies inside the nearest blanket out to BLANKET_REACH m
+   either side of its edge. */
+export const BLANKET_COLOURS = [0x3b2b28, 0x28303a, 0x332f20, 0x24322e, 0x382b39, 0x3c2a30, 0x312d3e];
 export const BLANKET_RIM = [0.12, 0.32], BLANKET_SOFT = [0.02, 0.4], BLANKET_HELD = [0.05, 0.15], BLANKET_REACH = 1;
 /* The mask: texels CROWD_CELL m a side in the stage's own frame, across its axis from -CROWD_SIDE to CROWD_SIDE m (seats.js across) and
    out along it from 0 to CROWD_OUT m, which takes in all the crowd's ground and its CROWD_ROOM: so its edge's texels, which the
@@ -120,7 +125,8 @@ export function crowdMask({ seats, blankets, aisle }) {
   for (let j = 0; j < long; j++) for (let i = 0; i < wide; i++) {
     const k = j * wide + i, [x, z] = onAxes(outOf(j), sideOf(i));
     const walked = TREAD.aisle * (1 - ease(TREAD.walked[0], TREAD.walked[1], fromMiddle(aisle, outOf(j), sideOf(i))));
-    const trodden = Math.max(1 - Math.exp(-TREAD.hard * sum[k]), walked) * ease(TREAD.rim[0], TREAD.rim[1], intoCrowdGround(x, z));
+    const stood = (1 - Math.exp(-TREAD.hard * sum[k])) * (1 - TREAD.broad * ease(0.4, 0.8, field(x, z, 6)));
+    const trodden = Math.max(stood, walked) * ease(TREAD.rim[0], TREAD.rim[1], intoCrowdGround(x, z));
     data[4 * k] = Math.round(255 * clamp01(trodden));
     data[4 * k + 1] = Math.round(255 * clamp01(0.5 + inside[k] / (2 * BLANKET_REACH)));
     data[4 * k + 2] = tone[k];

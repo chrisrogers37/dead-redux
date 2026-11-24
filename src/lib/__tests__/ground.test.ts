@@ -157,10 +157,11 @@ describe("?pose=crowd", () => {
 
 describe("?pose=among", () => {
   it("stands among the crowd, off its aisle, with figures within 3 m, within the walk's bound, facing the stage and looking down", () => {
-    // On each of twenty days and the fixed day (seed 800): someone within 3 m, and the pose off that day's winding aisle.
+    // On each of 150 days and the fixed day (seed 800), and three more where the day's outline would leave the pose out but that it
+    // always takes the pose's ground in (seats.js thicknessOf): someone within 3 m, and the pose off that day's winding aisle.
     const [ax, az] = [Math.sin(FACING), Math.cos(FACING)];
     const along = (AMONG_POSE.x - STAGE[0]) * ax + (AMONG_POSE.z - STAGE[1]) * az, side = across(AMONG_POSE.x, AMONG_POSE.z) as number;
-    for (const seed of [800, ...Array.from({ length: 20 }, (_, k) => k)]) {
+    for (const seed of [800, 511, 830, 846, ...Array.from({ length: 150 }, (_, k) => k)]) {
       const near = (seats({ path: [], line: [], landmarks: [] }, seed) as { x: number; z: number }[]).filter((s) => Math.hypot(s.x - AMONG_POSE.x, s.z - AMONG_POSE.z) < 3);
       expect([seed, near.length > 0]).toEqual([seed, true]);
       expect([seed, intoAisle((gathering(seed) as { aisle: number[][] }).aisle, along, side) < 0]).toEqual([seed, true]);
@@ -170,7 +171,7 @@ describe("?pose=among", () => {
     expect(offHeading(AMONG_POSE)).toBeLessThan(0.1);
     expect(AMONG_POSE.pitch).toBeLessThan(0);
     expect(TEST_POSES.among).toBe(AMONG_POSE);
-  });
+  }, 60000);
 });
 
 describe("?pose=path", () => {

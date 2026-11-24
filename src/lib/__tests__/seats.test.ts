@@ -221,7 +221,7 @@ describe("the gathering", () => {
     }
   });
 
-  it("stands thickest before the stage and thins up the hill to a ragged edge, which leaves a third or more of its ground's outer rim empty on each side", () => {
+  it("stands thickest before the stage and thins up the hill to a ragged edge, which leaves three tenths or more of its ground's outer rim empty", () => {
     // The crowd's ground, every half metre, by bands out from the stage.
     const ground: Point[] = [];
     for (let x = -10; x <= 140; x += 0.5) for (let z = -130; z <= 10; z += 0.5) if (onCrowdGround(x, z)) ground.push([x, z]);
@@ -233,19 +233,70 @@ describe("the gathering", () => {
     for (const { seed, g } of days) {
       const thick = BANDS.map(([a, b], k) => g.seats.filter((s) => s.r >= a && s.r < b).length / area[k]);
       thick.forEach((t, k) => { sums[k] += t; });
-      // Thicker at the front than anywhere else, thicker in each band than two bands further out, and a third as thick at the back.
-      for (let k = 1; k < BANDS.length; k++) expect([seed, k, thick[0] > thick[k]]).toEqual([seed, k, true]);
-      for (let k = 2; k < BANDS.length; k++) expect([seed, k, thick[k - 2] > thick[k]]).toEqual([seed, k, true]);
-      expect([seed, thick[4] < thick[0] / 3]).toEqual([seed, true]);
-      // The rim: of the outer rim on each side of the axis, a third or more lies 3 m and more from anyone.
+      // Thicker at the front than anywhere from 28 m out, and at the back under 0.6 as thick. Between, a knot of the gathering may
+      // stand as thick as its front on a day: it is patchy, at tens of metres, as well as lopsided.
+      for (let k = 2; k < BANDS.length; k++) expect([seed, k, thick[0] > thick[k]]).toEqual([seed, k, true]);
+      expect([seed, thick[4] < 0.6 * thick[0]]).toEqual([seed, true]);
+      // The rim: three tenths or more of it lies 3 m and more from anyone, and some on each side of the axis, the side the gathering
+      // spills round to as well.
+      const empty = (own: Point[]) => own.filter(([x, z]) => !g.seats.some((s) => Math.hypot(s.x - x, s.z - z) < 3)).length;
+      expect([seed, empty(rim) > 0.3 * rim.length]).toEqual([seed, true]);
       for (const side of [1, -1]) {
         const own = rim.filter(([x, z]) => Math.sign(across(x, z)) === side);
-        const empty = own.filter(([x, z]) => !g.seats.some((s) => Math.abs(s.x - x) < 3 && Math.abs(s.z - z) < 3 && Math.hypot(s.x - x, s.z - z) < 3)).length;
-        expect([seed, side, empty > own.length / 3]).toEqual([seed, side, true]);
+        expect([seed, side, empty(own) > own.length / 20]).toEqual([seed, side, true]);
       }
     }
     // Over the days, each band thinner than the one before by 15 % and more.
     for (let k = 1; k < BANDS.length; k++) expect([k, sums[k] < 0.85 * sums[k - 1]]).toEqual([k, true]);
+  });
+
+  it("is lopsided: one side of the stage's axis holds half as many again as the other, and at 8 m squares a quarter of its people have no one where their mirror images would stand", () => {
+    for (const { seed, g } of days) {
+      const right = g.seats.filter((s) => across(s.x, s.z) >= 0).length, left = g.seats.length - right;
+      expect([seed, Math.max(left, right) >= 1.4 * Math.min(left, right)]).toEqual([seed, true]);
+      // Those in each 8 m square of the stage's frame, against those in its mirror image across the axis.
+      const square = new Map<string, number>(), key = (a: number, b: number) => `${a},${b}`;
+      for (const s of g.seats) {
+        const [u, v] = frame(s.x, s.z), k = key(Math.floor(u / 8), Math.floor(v / 8));
+        square.set(k, (square.get(k) ?? 0) + 1);
+      }
+      let unmirrored = 0;
+      for (const [k, n] of square) {
+        const [a, b] = k.split(",").map(Number);
+        unmirrored += Math.max(0, n - (square.get(key(a, -b - 1)) ?? 0));
+      }
+      expect([seed, unmirrored >= 0.25 * COUNT]).toEqual([seed, true]);
+    }
+  });
+
+  it("bends its aisle well off the stage's axis: somewhere up the hill its middle strays 5 m and more to one side", () => {
+    for (const { seed, g } of days) expect([seed, Math.max(...g.aisle.map(([, middle]) => Math.abs(middle))) >= 5]).toEqual([seed, true]);
+  });
+
+  it("stands some apart, with grass between: three knots and more of two to twelve 4 m and more from anyone else, the drum circle and the sack ring among them; and leaves clearings in it several metres across", () => {
+    for (const { seed, g } of days) {
+      // Knots: those who stand within 4 m of each other, one to the next.
+      const knot = g.seats.map((_, i) => i), root = (i: number): number => (knot[i] === i ? i : (knot[i] = root(knot[i])));
+      for (let i = 0; i < g.seats.length; i++) for (let j = i + 1; j < g.seats.length; j++) {
+        if (Math.hypot(g.seats[i].x - g.seats[j].x, g.seats[i].z - g.seats[j].z) < 4) knot[root(i)] = root(j);
+      }
+      const size = new Map<number, number>();
+      g.seats.forEach((_, i) => size.set(root(i), (size.get(root(i)) ?? 0) + 1));
+      expect([seed, [...size.values()].filter((n) => n >= 2 && n <= 12).length >= 3]).toEqual([seed, true]);
+      for (const ring of g.groups.filter((group) => group.kind === "drums" || group.kind === "sack")) {
+        expect([seed, ring.kind, size.get(root(ring.seats[0]))]).toEqual([seed, ring.kind, ring.seats.length]);
+        for (const i of ring.seats) expect(root(i)).toBe(root(ring.seats[0]));
+      }
+      // Clearings: spots 20 to 45 m out with no one within 3 m and someone within 8 m on every side, 6 m and more apart.
+      const clearings: Point[] = [];
+      for (let u = 20; u <= 45; u += 1) for (let v = -35; v <= 35; v += 1) {
+        const [x, z] = onAxes(u, v) as Point;
+        if (!onCrowdGround(x, z) || g.seats.some((s) => Math.hypot(s.x - x, s.z - z) < 3)) continue;
+        const sides = new Set(g.seats.filter((s) => Math.hypot(s.x - x, s.z - z) < 8).map((s) => (s.x >= x ? 1 : 0) + (s.z >= z ? 2 : 0)));
+        if (sides.size === 4 && clearings.every(([a, b]) => Math.hypot(a - x, b - z) > 6)) clearings.push([x, z]);
+      }
+      expect([seed, clearings.length >= 5]).toEqual([seed, true]);
+    }
   });
 
   it("sits groups on blankets: two to five on each, facing its way, on the crowd's ground and off the aisle, apart from the others, with no one standing on one", () => {
