@@ -17,7 +17,7 @@ import {
   TEST_POSES,
 } from "../../../public/world/ground.js";
 import { RING, SHORE } from "../../../public/world/island.js";
-import { seats } from "../../../public/world/seats.js";
+import { across, gathering, intoAisle, onCrowdGround, seats, SPANS } from "../../../public/world/seats.js";
 import { PANEL } from "../../../public/world/stage.js";
 
 // The longest walk to the platform's edge that the desktop-stage recording's hold has time for (.github/screenshots/recordings.mjs):
@@ -143,8 +143,11 @@ describe("?pose=slope", () => {
 });
 
 describe("?pose=crowd", () => {
-  it("stands behind the crowd's last row, within the walk's bound, facing the stage's centre and looking down", () => {
-    const lastRow = Math.max(...seats({ path: [], line: [], landmarks: [] }).map((s) => s.r));
+  it("stands behind the crowd's ground, and so behind every day's last row, within the walk's bound, facing the stage's centre and looking down", () => {
+    // Every seat of every day stands on the crowd's ground (seats.test.ts), which reaches no further from the stage than its spans.
+    expect(fromStage(CROWD_POSE)).toBeGreaterThan(Math.max(...(SPANS as number[][]).map(([, r1]) => r1)));
+    expect(onCrowdGround(CROWD_POSE.x, CROWD_POSE.z)).toBe(false);
+    const lastRow = Math.max(...(seats({ path: [], line: [], landmarks: [] }, 800) as { r: number }[]).map((s) => s.r));
     expect(fromStage(CROWD_POSE)).toBeGreaterThan(lastRow);
     expect(Math.hypot(CROWD_POSE.x, CROWD_POSE.z)).toBeLessThan(BOUND);
     expect(offHeading(CROWD_POSE)).toBeLessThan(0.1);
@@ -154,8 +157,14 @@ describe("?pose=crowd", () => {
 
 describe("?pose=among", () => {
   it("stands among the crowd, off its aisle, with figures within 3 m, within the walk's bound, facing the stage and looking down", () => {
-    const near = seats({ path: [], line: [], landmarks: [] }).filter((s) => Math.hypot(s.x - AMONG_POSE.x, s.z - AMONG_POSE.z) < 3);
-    expect(near.length).toBeGreaterThan(0);
+    // On each of twenty days and the fixed day (seed 800): someone within 3 m, and the pose off that day's winding aisle.
+    const [ax, az] = [Math.sin(FACING), Math.cos(FACING)];
+    const along = (AMONG_POSE.x - STAGE[0]) * ax + (AMONG_POSE.z - STAGE[1]) * az, side = across(AMONG_POSE.x, AMONG_POSE.z) as number;
+    for (const seed of [800, ...Array.from({ length: 20 }, (_, k) => k)]) {
+      const near = (seats({ path: [], line: [], landmarks: [] }, seed) as { x: number; z: number }[]).filter((s) => Math.hypot(s.x - AMONG_POSE.x, s.z - AMONG_POSE.z) < 3);
+      expect([seed, near.length > 0]).toEqual([seed, true]);
+      expect([seed, intoAisle((gathering(seed) as { aisle: number[][] }).aisle, along, side) < 0]).toEqual([seed, true]);
+    }
     expect(fromStage(AMONG_POSE) * Math.sin((offFront(AMONG_POSE.x, AMONG_POSE.z) * Math.PI) / 180)).toBeGreaterThan(3);
     expect(Math.hypot(AMONG_POSE.x, AMONG_POSE.z)).toBeLessThan(BOUND);
     expect(offHeading(AMONG_POSE)).toBeLessThan(0.1);

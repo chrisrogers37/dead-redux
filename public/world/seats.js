@@ -1,5 +1,5 @@
 /* eslint-disable */
-import { FACING, height, STAGE } from "./ground.js";
+import { FACING, height, STAGE, STAGE_POSE } from "./ground.js";
 
 /* Where the crowd on the hill stands (crowd.js draws it), and what it does through the show, as plain numbers: no three import, so the
    unit tests load it. */
@@ -7,15 +7,15 @@ import { FACING, height, STAGE } from "./ground.js";
 /* A figure stands this tall: the band's height on the stage (stage.js), so the bears' 4.85 m is about one and a half people. */
 export const PERSON = 3.15;
 
-/* The crowd's sections, in rings round the stage's centre: `r0` to `r1` metres out, and `a0` to `a1` radians either side of its axis
-   (from 0, one span across the axis). A section's rows stand `gap` metres apart, and its figures about as far apart along a row; the
-   front stands closest. Up the hill they sit. */
+/* The crowd's ground, in rings round the stage's centre: `r0` to `r1` metres out, and `a0` to `a1` radians either side of its axis
+   (from 0, one span across the axis). The gathering stands on it (below); the land grows nothing there that a figure would stand or
+   sit in (island.js), and a tree keeps its distance from it (trees.js). */
 const SECTIONS = [
-  { r0: 13.5, r1: 28, a0: 0, a1: 0.7, gap: 1.6 },
-  { r0: 28, r1: 42, a0: 0, a1: 0.85, gap: 2.6 },
-  { r0: 42, r1: 55, a0: 0, a1: 0.85, gap: 3.8, sit: true },
-  { r0: 16, r1: 28, a0: 0.7, a1: 1, gap: 5.2 },
-  { r0: 28, r1: 44, a0: 0.85, a1: 1, gap: 5.2 },
+  { r0: 13.5, r1: 28, a0: 0, a1: 0.7 },
+  { r0: 28, r1: 42, a0: 0, a1: 0.85 },
+  { r0: 42, r1: 55, a0: 0, a1: 0.85 },
+  { r0: 16, r1: 28, a0: 0.7, a1: 1 },
+  { r0: 28, r1: 44, a0: 0.85, a1: 1 },
 ];
 /* The stage's axis as a way along the ground, [x, z]: the way the stage faces. */
 export const AXIS = [Math.sin(FACING), Math.cos(FACING)];
@@ -27,6 +27,11 @@ export function offAxis(x, z) {
   const dx = x - STAGE[0], dz = z - STAGE[1], along = dx * AXIS[0] + dz * AXIS[1], aside = Math.abs(dx * AXIS[1] - dz * AXIS[0]);
   return { r: Math.hypot(dx, dz), along, aside, off: Math.atan2(aside, along) };
 }
+/* How far a point lies to one side of the stage's axis, in metres: the side `aside` (offAxis) does not tell, the right as one looks
+   out from the stage less than nothing. */
+export const across = (x, z) => (x - STAGE[0]) * AXIS[1] - (z - STAGE[1]) * AXIS[0];
+/* A point `along` metres out along the stage's axis and `side` metres to one side of it (across), as [x, z]. */
+export const onAxes = (along, side) => [STAGE[0] + along * AXIS[0] + side * AXIS[1], STAGE[1] + along * AXIS[1] - side * AXIS[0]];
 /* Whether a point lies on the crowd's ground: in one of its sections, or within `room` metres of one. The land grows nothing there
    that a figure would stand or sit in (island.js). */
 export function onCrowdGround(x, z, room = 0) {
@@ -43,21 +48,17 @@ export const SPANS = [...new Set(SECTIONS.map(({ r0, r1, a1 }) => {
   }
   return `${r0},${r1},${a1}`;
 }))].map((span) => span.split(",").map(Number));
-/* The walks between the rings of sections, in metres from the stage: where one ring of the crowd ends on the stage's axis and the
-   next begins. */
-export const WALKS = SECTIONS.filter((a) => a.a0 === 0 && SECTIONS.some((b) => b.a0 === 0 && b.r0 === a.r1)).map((a) => a.r1);
 /* How far into the crowd's ground a point lies, in metres: the least of its distances from a span's two rings and its two sides, the
-   greatest over the spans (they overlap), and less than nothing outside the ground. The land is worn to earth by it (island.js). */
+   greatest over the spans (they overlap), and less than nothing outside the ground. */
 export function intoCrowdGround(x, z) {
   const { r, off } = offAxis(x, z);
   return Math.max(...SPANS.map(([r0, r1, a1]) => Math.min(r - r0, r1 - r, (a1 - off) * r)));
 }
-/* How near the sections come to the stage's centre, and how far they reach from it. */
+/* How near the crowd's ground comes to the stage's centre, and how far it reaches from it. */
 const NEAR = Math.min(...SECTIONS.map((s) => s.r0)), FAR = Math.max(...SECTIONS.map((s) => s.r1));
 
-/* How far a figure's place keeps from the path, from the bears' line, from a landmark's bounds, and to either side of the stage's axis,
-   which leaves an aisle up the middle of the crowd for the walk down to the stage, in metres. */
-const KEEP = { path: 4, line: 4, landmark: 1.5, aisle: 3 };
+/* How far a figure's place keeps from the path, from the bears' line and from a landmark's bounds, in metres. */
+const KEEP = { path: 4, line: 4, landmark: 1.5 };
 
 /* What a figure keeps clear of, each [x, z, distance]: the points of `path` and `line` ([x, z] each) and `landmarks`, each a circle
    [x, z, radius] round one, those near the crowd. */
@@ -69,30 +70,322 @@ export function keepOuts({ path, line, landmarks }) {
   ].filter(([x, z, d]) => Math.hypot(x - STAGE[0], z - STAGE[1]) < FAR + d);
 }
 
-/* The seats, front first: each { x, z, r, sit }, `r` metres from the stage's centre. Rows of each section, jittered the same way every
-   day, keep clear of the aisle and of what keepOuts names. Front first with a random spread, so any count of the first seats keeps the
-   crowd's shape and thins the back of the hill first. */
-export function seats(around) {
-  let s = 49297;
-  const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
-  const keeps = keepOuts(around);
-  const clear = (x, z) => keeps.every(([kx, kz, d]) => Math.hypot(x - kx, z - kz) >= d);
-  const out = [];
-  for (const { r0, r1, a0, a1, gap, sit = false } of SECTIONS) {
-    const spans = a0 === 0 ? [[-a1, a1]] : [[a0, a1], [-a1, -a0]];
-    for (let row = r0 + gap / 2; row < r1; row += gap) {
-      for (const [lo, hi] of spans) {
-        const n = Math.max(1, Math.floor(((hi - lo) * row) / gap));
-        for (let k = 0; k < n; k++) {
-          const r = row + (rnd() - 0.5) * 0.7 * gap, th = lo + ((k + 0.5) * (hi - lo)) / n + ((rnd() - 0.5) * 0.7 * gap) / row;
-          const [x, z] = fromStage(r, th);
-          const key = rnd() * (0.4 + (r - NEAR) / (FAR - NEAR));
-          if (Math.abs(r * Math.sin(th)) >= KEEP.aisle && clear(x, z)) out.push({ x, z, r, sit, key });
-        }
+/* ---------- the gathering ---------- */
+
+/* How many seats the gathering has: as many as the crowd's rows of seats held before it, so each tier draws as many figures as it did
+   (quality.js), and a desktop all of them. */
+export const COUNT = 292;
+/* How near two people may be: no two seats nearer than APART m, twice a standing figure's reach with its arms hanging (crowd.js HANG,
+   0.666 m at the largest figure's size), so no two standing still pass through each other. A seated figure's feet rest LEGS m ahead
+   of its seat at the most (crowd.js FEET), and no other seat stands within half of APART of the line out to them. */
+export const APART = 1.34, LEGS = 1.04;
+/* How far up the hill a figure may face. Seated, as everyone is in Space, its feet follow the ground ahead of its seat up a rise of
+   0.12 of its height at the most (crowd.js DROP), and they reach 0.36 of its height ahead, a little more on the broadest: a rise of
+   0.317 m a metre. So no figure faces up a rise of more than RISE m a metre, read at RISE_AT m ahead of its seat, wherever it turns. */
+export const RISE = 0.28, RISE_AT = [0.35, 0.7];
+/* The aisle: a way up through the crowd from the stage's front to past its back, which no seat stands within `half` m of its middle.
+   It winds. Its middle bows to one side of the stage's axis between AISLE.from m out along the axis and ?pose=stage, which stands on
+   the axis in it (ground.js), and to the other side up the hill from there to AISLE.to m, each by as much as the day's seed says,
+   between `front` (m, the least and the most) and `back`; and the room kept clear, `half`, widens and narrows along it, between its
+   least and most. The front's bow is the smaller, so the stage's axis keeps within the aisle down to the stage: the walk from
+   ?pose=stage to the stage's edge passes no seat nearer than half of APART. */
+export const AISLE = { from: 11, to: 58, front: [0.9, 1.5], back: [2.2, 3.6], half: [2.5, 3.2] };
+/* How far off the aisle each seat and each blanket's edge keeps, in metres: intoAisle reads the half-width at the middle's nearest
+   point, and where the half-width widens along it a point a few millimetres outside by that lies inside by the half-width a little
+   further along. */
+const AISLE_CLEAR = 0.1;
+/* A group's members stand on a ring round its middle, or in a line, each NEXT m from the next (the least and the most): nearer than
+   the parting's `space` (crowd.js partingOptions, 1.4 m), so a group steps aside and back as one (parting), and no nearer than
+   APART. Anyone of another group stands GROUPS_APART m off at the least: the first number before the stage, out to GROUPS_FROM m from
+   its centre, widening to the second by GROUPS_TO m, so the crowd packs in at the front and loosens up the hill. */
+export const NEXT = [1.345, 1.385], GROUPS_APART = [1.5, 1.8], GROUPS_FROM = 20, GROUPS_TO = 34;
+/* A ring of people facing its middle: a drum circle of DRUMS people, and a hacky-sack ring of SACK. */
+const DRUMS = [7, 9], SACK = [4, 5];
+/* A blanket, BLANKET m across and as deep (each the least and the most), which two to five sit on, and no nearer another blanket than
+   BLANKET_APART m: island.js draws them on the ground, each to its edge, from a mask that holds for each place the nearest one. */
+const BLANKET = { wide: [2.7, 3.6], deep: [2.0, 2.5] }, BLANKET_APART = 2.2;
+/* The colours a blanket may be (island.js draws them), as many as BLANKET_TONES. */
+export const BLANKET_TONES = 7;
+
+/* A stream of numbers from 0 to 1 for a seed. */
+function stream(seed) {
+  let a = (seed * 2654435761) >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const ease = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+/* An angle brought to -pi to pi. */
+const wrap = (a) => a - 2 * Math.PI * Math.round(a / (2 * Math.PI));
+/* The way a figure at a point turns to face the stage's centre, as crowd.js turns it (its +z to (sin, cos) of the turn). */
+export const toStage = (x, z) => Math.atan2(STAGE[0] - x, STAGE[1] - z);
+/* How steeply the ground rises ahead of a figure at a point facing `face`, in metres a metre: the most of it read at RISE_AT. */
+export function riseAhead(x, z, face) {
+  const h = height(x, z);
+  return Math.max(...RISE_AT.map((d) => (height(x + d * Math.sin(face), z + d * Math.cos(face)) - h) / d));
+}
+/* A way to face as near `face` as the hill lets a figure at a point face: turned, a little at a time, toward the way the hill falls
+   until the ground ahead rises no more than RISE. With how far it was turned. */
+function downhillOf(x, z, face) {
+  if (riseAhead(x, z, face) <= RISE) return { face, turned: 0 };
+  const fall = Math.atan2(height(x - 0.5, z) - height(x + 0.5, z), height(x, z - 0.5) - height(x, z + 0.5)), by = Math.sign(wrap(fall - face)) || 1;
+  for (let turned = 0.05; turned <= Math.PI; turned += 0.05) if (riseAhead(x, z, face + by * turned) <= RISE) return { face: wrap(face + by * turned), turned };
+  return { face: fall, turned: Math.PI };
+}
+
+/* The aisle's middle for a stream `rnd`, as points every half metre along the stage's axis, each [along, side, half] (across). */
+function aisleOf(rnd) {
+  const pose = offAxis(STAGE_POSE.x, STAGE_POSE.z).along, side = rnd() < 0.5 ? 1 : -1;
+  const pick = ([least, most]) => least + (most - least) * rnd();
+  const front = pick(AISLE.front), back = pick(AISLE.back), phase = 2 * Math.PI * rnd(), [h0, h1] = AISLE.half;
+  const line = [];
+  for (let u = AISLE.from; u <= AISLE.to + 1e-9; u += 0.5) {
+    const mid = u <= pose ? side * front * Math.sin((Math.PI * (u - AISLE.from)) / (pose - AISLE.from)) : -side * back * Math.sin((Math.PI * (u - pose)) / (AISLE.to - pose));
+    line.push([u, mid, h0 + (h1 - h0) * (0.5 + 0.5 * Math.sin(u / 3.7 + phase))]);
+  }
+  return line;
+}
+/* How far a point (along, side) lies inside the aisle, in metres: its half-width less its distance from the middle, nearest along it;
+   less than nothing outside. From the stretch of the middle level with the point outward each way, as far as a stretch could still
+   come nearer: the middle bows no further to a side than AISLE.back's most, and its half-width is AISLE.half's most at the widest. */
+export function intoAisle(line, along, side) {
+  const last = line.length - 2, at = Math.max(0, Math.min(last, Math.floor((along - line[0][0]) / (line[1][0] - line[0][0]))));
+  const aside = Math.max(0, Math.abs(side) - AISLE.back[1]);
+  let most = -Infinity;
+  for (let k = at, way = 1; k >= 0; k += way) {
+    if (k > last || AISLE.half[1] - Math.hypot(Math.max(0, way > 0 ? line[k][0] - along : along - line[k + 1][0]), aside) <= most) {
+      if (way < 0) break;
+      way = -1; k = at;
+      continue;
+    }
+    const a = line[k], b = line[k + 1], du = b[0] - a[0], ds = b[1] - a[1];
+    const t = Math.max(0, Math.min(1, ((along - a[0]) * du + (side - a[1]) * ds) / (du * du + ds * ds)));
+    most = Math.max(most, a[2] + (b[2] - a[2]) * t - Math.hypot(along - a[0] - t * du, side - a[1] - t * ds));
+  }
+  return most;
+}
+
+/* How thick the gathering stands at a point for a stream `rnd`, 0 to 1: thickest at the stage's front and thinning up the hill, more
+   on one side of the axis than the other, in broad patches, and out to a ragged edge on each side and up the hill, past which only
+   stragglers stand. Each of these by the day's own numbers. */
+function thicknessOf(rnd) {
+  const lean = rnd() < 0.5 ? 1 : -1, by = 0.2 + 0.25 * rnd();
+  const wide = [0.8 + 0.12 * rnd(), 0.6 + 0.16 * rnd()], back = 45 + 6 * rnd(), ph = Array.from({ length: 9 }, () => 2 * Math.PI * rnd());
+  return (x, z) => {
+    const { r, off } = offAxis(x, z), side = across(x, z) >= 0 ? 1 : -1;
+    const edge = (side === lean ? wide[0] : wide[1]) + 0.07 * Math.sin(r / 4.1 + ph[side > 0 ? 0 : 1]) + 0.05 * Math.sin(r / 1.7 + ph[2]);
+    const top = back + 4 * Math.sin(2.3 * off * side + ph[3]) + 2.5 * Math.sin(6.1 * off * side + ph[4]);
+    const front = Math.exp(-(r - NEAR) / 13), leaning = 1 + by * lean * Math.tanh(across(x, z) / 10);
+    const patch = 1 + 0.35 * Math.sin(0.29 * x + ph[5]) * Math.cos(0.33 * z + ph[6]) + 0.2 * Math.sin(0.21 * (x - z) + ph[7]);
+    const inside = ease(0, 0.12, edge - off) * ease(0, 4, top - r);
+    return (front * leaning * patch * (0.03 + 0.97 * inside)) / 1.7;
+  };
+}
+
+/* The gathering for a seed: where each of its COUNT people stands, which way they face, who sits, and the groups they stand in; the
+   blankets under those who sit; and the aisle. Not rows: groups of two to six friends turned toward each other, a drum circle and a
+   hacky-sack ring facing in, people alone and in lines facing the stage, a few turned away, and groups sitting on blankets up the hill,
+   all as thick as the gathering stands there (thicknessOf), and off the aisle. Each group is tried at a place drawn at random on the
+   crowd's ground, kept as the gathering's thickness there says, and kept only where every one of its people stands on that ground,
+   AISLE_CLEAR off the aisle, no nearer one of its own than APART and anyone else than GROUPS_APART, out of a seated figure's legs
+   (LEGS), and facing no further up the hill than RISE lets them (each turned toward the hill's fall as far as it must be, a ring's
+   people hardly at all), and where its people hold together (NEXT), so it steps aside and back as one (parting).
+   The seats come front first with a random spread, a group's together: so any count of the first seats keeps the crowd's shape and
+   its groups, and thins the back of the hill first. Each seat is { x, z, r, sit, face, group, blanket }: `r` metres from the stage's
+   centre, `face` the way it faces (crowd.js turns its figure so), `group` its group's index in `groups` and `blanket` the index of the
+   blanket it sits on in `blankets`, or -1. A group is { kind, seats } (the indices of its seats), a blanket { x, z, face, wide, deep,
+   tone, rim }: its middle, the way its sitters face, its size across and along that way, and its colour and its border's (the same
+   for none), each one of BLANKET_TONES. `aisle` is aisleOf's. The same for the same seed every time; the last seed's is kept, and is
+   not to be changed. */
+let kept = null;
+export function gathering(seed = 0) {
+  if (kept && kept.seed === seed) return kept;
+  const rnd = stream(seed + 1), aisle = aisleOf(rnd), thick = thicknessOf(rnd);
+  /* The seats placed, by cells of CELL m, as wide as the farthest two groups stand apart. */
+  const placed = [], blankets = [], groups = [], CELL = GROUPS_APART[1], grid = new Map(), cell = (v) => Math.floor(v / CELL);
+  /* The line of a seated figure's legs, out to its feet, and how near a point comes to it. */
+  const legsFrom = (x, z, face, d) => {
+    const t = Math.max(0, Math.min(LEGS, (d[0] - x) * Math.sin(face) + (d[1] - z) * Math.cos(face)));
+    return Math.hypot(d[0] - x - t * Math.sin(face), d[1] - z - t * Math.cos(face));
+  };
+  /* How far a point lies inside a blanket, in metres: less than nothing outside it. */
+  const inBlanket = (b, x, z) => {
+    const dx = x - b.x, dz = z - b.z, side = dx * Math.cos(b.face) - dz * Math.sin(b.face), fore = dx * Math.sin(b.face) + dz * Math.cos(b.face);
+    return Math.min(b.wide / 2 - Math.abs(side), b.deep / 2 - Math.abs(fore));
+  };
+  /* How far apart two groups stand, `r` m from the stage's centre. */
+  const apartAt = (r) => GROUPS_APART[0] + (GROUPS_APART[1] - GROUPS_APART[0]) * Math.max(0, Math.min(1, (r - GROUPS_FROM) / (GROUPS_TO - GROUPS_FROM)));
+  /* Whether a seat may stand at a point among those placed and those of its own group already taken: on the crowd's ground, off the
+     aisle and off any blanket but its own, no nearer one of its own than APART or anyone else than apartAt there, and out of a seated
+     figure's legs, as it keeps out of its. */
+  const crowds = (o, s, least) => Math.hypot(o.x - s.x, o.z - s.z) < least
+    || (o.sit && legsFrom(o.x, o.z, o.face, [s.x, s.z]) < APART / 2) || (s.sit && legsFrom(s.x, s.z, s.face, [o.x, o.z]) < APART / 2);
+  const fits = (s, taken, own) => {
+    const others = apartAt(offAxis(s.x, s.z).r);
+    for (let i = cell(s.x) - 1; i <= cell(s.x) + 1; i++) for (let j = cell(s.z) - 1; j <= cell(s.z) + 1; j++)
+      for (const k of grid.get(i * 4096 + j) ?? []) if (crowds(placed[k], s, others)) return false;
+    if (taken.some((o) => crowds(o, s, APART))) return false;
+    if (!onCrowdGround(s.x, s.z) || intoCrowdGround(s.x, s.z) < 0.4) return false;
+    if (intoAisle(aisle, (s.x - STAGE[0]) * AXIS[0] + (s.z - STAGE[1]) * AXIS[1], across(s.x, s.z)) > -AISLE_CLEAR) return false;
+    return !blankets.some((b) => b !== own && inBlanket(b, s.x, s.z) > -0.3);
+  };
+  /* Whether a blanket fits: on the crowd's ground and AISLE_CLEAR off the aisle at its corners, over no one placed, and no nearer
+     another blanket than BLANKET_APART. The aisle bends too gently for a side between two corners clear of it to reach into it. */
+  const corners = (b) => [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, j]) => [
+    b.x + (i * b.wide * Math.cos(b.face)) / 2 + (j * b.deep * Math.sin(b.face)) / 2, b.z - (i * b.wide * Math.sin(b.face)) / 2 + (j * b.deep * Math.cos(b.face)) / 2]);
+  const blanketFits = (b) => corners(b).every(([x, z]) => onCrowdGround(x, z)
+      && intoAisle(aisle, (x - STAGE[0]) * AXIS[0] + (z - STAGE[1]) * AXIS[1], across(x, z)) < -AISLE_CLEAR)
+    && placed.every((s) => inBlanket(b, s.x, s.z) < -0.3)
+    && blankets.every((o) => Math.hypot(o.x - b.x, o.z - b.z) > (Math.hypot(o.wide, o.deep) + Math.hypot(b.wide, b.deep)) / 2 + BLANKET_APART);
+  /* Faces a seat as near `face` as the hill lets it, no further turned than `most`; false where it would be turned further. */
+  const facing = (s, face, most) => {
+    const { face: f, turned } = downhillOf(s.x, s.z, face);
+    if (turned > most) return false;
+    s.face = f;
+    return true;
+  };
+  const pick = ([least, most]) => least + (most - least) * rnd(), whole = ([least, most]) => least + Math.floor((most - least + 1) * rnd());
+  const at = (x, z, sit = false) => ({ x, z, sit, face: 0 });
+
+  /* A group of `n` round (cx, cz), each member facing the stage turned toward the group's middle by `inward` (0 to 1), or a ring of
+     them facing its middle; or `n` side by side across the way to the stage, facing it. */
+  function standing(kind, n, cx, cz) {
+    const stage = toStage(cx, cz), out = [];
+    if (kind === "line") {
+      const gap = pick(NEXT);
+      for (let k = 0; k < n; k++) {
+        const o = (k - (n - 1) / 2) * gap, s = at(cx + o * Math.cos(stage), cz - o * Math.sin(stage));
+        if (!facing(s, stage + 0.12 * (rnd() - 0.5) - 0.15 * Math.sign(o), 0.6)) return null;
+        out.push(s);
       }
+      return out;
+    }
+    const ring = kind === "drums" || kind === "sack", inward = ring ? 1 : kind === "pit" ? 0.15 + 0.3 * rnd() : 0.35 + 0.5 * rnd();
+    const radius = pick(NEXT) / (2 * Math.sin(Math.PI / n));
+    /* A pair stands across the slope more often than along it. */
+    const start = n === 2 ? stage + Math.PI / 2 + 0.9 * (rnd() - 0.5) : 2 * Math.PI * rnd();
+    for (let k = 0; k < n; k++) {
+      const a = start + (2 * Math.PI * k) / n + (ring ? 0.02 : 0.1) * (rnd() - 0.5), d = radius * (ring ? 1 : 0.98 + 0.04 * rnd());
+      const s = at(cx + d * Math.sin(a), cz + d * Math.cos(a)), mid = Math.atan2(cx - s.x, cz - s.z), own = toStage(s.x, s.z);
+      if (!facing(s, own + inward * wrap(mid - own) + (ring ? 0 : 0.2 * (rnd() - 0.5)), ring ? 0.3 : 1.1)) return null;
+      out.push(s);
+    }
+    return out;
+  }
+  /* One alone, mostly facing the stage, a few turned well away from it, as far as the hill lets them; seated or not. */
+  function alone(cx, cz, sit) {
+    const s = at(cx, cz, sit), stage = toStage(cx, cz), away = rnd() < 0.12;
+    const face = away ? stage + (rnd() < 0.5 ? 1 : -1) * (1.3 + 1.6 * rnd()) : stage + 0.5 * (rnd() - 0.5);
+    return facing(s, face, away ? Math.PI : 0.9) ? [s] : null;
+  }
+  /* Two to five seated on a blanket, facing the way it does, toward the stage: a row along its back and any more before them, between
+     them; or two at its ends facing each other across it, one a little ahead of the other, so neither's legs reach the other. */
+  function onBlanket(n, cx, cz) {
+    const face = toStage(cx, cz) + 0.5 * (rnd() - 0.5), b = { x: cx, z: cz, face, wide: pick(BLANKET.wide), deep: pick(BLANKET.deep) };
+    if (!blanketFits(b)) return null;
+    const right = [Math.cos(face), -Math.sin(face)], ahead = [Math.sin(face), Math.cos(face)], out = [];
+    const put = (side, fore, turn) => {
+      const s = at(cx + side * right[0] + fore * ahead[0], cz + side * right[1] + fore * ahead[1], true);
+      if (!facing(s, face + turn, 0.5)) return false;
+      out.push(s);
+      return true;
+    };
+    if (n === 2 && rnd() < 0.4) {
+      const end = b.wide / 2 - 0.45, by = rnd() < 0.5 ? 1 : -1;
+      if (!put(end, by * 0.37, -Math.PI / 2 + 0.2 * (rnd() - 0.5)) || !put(-end, -by * 0.37, Math.PI / 2 + 0.2 * (rnd() - 0.5))) return null;
+    } else {
+      const row = Math.min(n, Math.max(2, Math.floor(1 + (b.wide - 0.9) / APART))), gap = (b.wide - 0.9) / Math.max(1, row - 1);
+      for (let k = 0; k < row; k++) if (!put((k - (row - 1) / 2) * gap, -b.deep / 2 + 0.45, 0.25 * (rnd() - 0.5))) return null;
+      for (let k = row; k < n; k++) if (!put((k - row + 0.5 - (n - row) / 2) * gap, -b.deep / 2 + 1.6, 0.25 * (rnd() - 0.5))) return null;
+    }
+    b.tone = Math.floor(rnd() * BLANKET_TONES);
+    b.rim = rnd() < 0.55 ? (b.tone + 1 + Math.floor(rnd() * (BLANKET_TONES - 1))) % BLANKET_TONES : b.tone;
+    return { members: out, blanket: b };
+  }
+
+  /* Whether a group's members hold together: each within NEXT's most of another, and so of all the rest, one by one. */
+  const joined = (members) => {
+    const reached = [members[0]];
+    for (let k = 0; k < reached.length; k++) for (const s of members)
+      if (!reached.includes(s) && Math.hypot(s.x - reached[k].x, s.z - reached[k].z) < 1.4) reached.push(s);
+    return reached.length === members.length;
+  };
+  /* Takes a group's members, those that fit (all of them for a ring or a blanket), or none: none too where the count has no room for
+     them all, or where those that fit do not hold together (joined). */
+  function take(kind, members, blanket = null, all = false) {
+    if (!members) return false;
+    const taken = [];
+    for (const s of members) if (fits(s, taken, blanket)) taken.push(s); else if (all) return false;
+    if (taken.length === 0 || (members.length > 1 && taken.length < 2 && kind !== "pit")) return false;
+    if (taken.length > COUNT - placed.length || (!blanket && !joined(taken))) return false;
+    const g = groups.length;
+    const { r } = offAxis(taken[0].x, taken[0].z), key = rnd() * (0.4 + (r - NEAR) / (FAR - NEAR));
+    if (blanket) blankets.push(blanket);
+    for (const [k, s] of taken.entries()) {
+      Object.assign(s, { r: offAxis(s.x, s.z).r, group: g, blanket: blanket ? blankets.length - 1 : -1, key: key + k * 1e-9 });
+      grid.set(cell(s.x) * 4096 + cell(s.z), [...(grid.get(cell(s.x) * 4096 + cell(s.z)) ?? []), placed.length]);
+      placed.push(s);
+    }
+    groups.push({ kind });
+    return true;
+  }
+  /* A place on the crowd's ground, at random over it, for a group to be tried at: within `r` metres of the stage, `side` of its axis. */
+  const place = (most = FAR, side = 0) => {
+    for (;;) {
+      const r = NEAR + (most - NEAR) * rnd(), th = (rnd() * 2 - 1) * 1.05, [x, z] = fromStage(r, th);
+      if (onCrowdGround(x, z) && (side === 0 || Math.sign(across(x, z)) === side)) return [x, z];
+    }
+  };
+
+  /* The rings first, where the ground is level enough for a ring to face in: a drum circle on one side of the aisle and a hacky-sack
+     ring on the other, and now and then a second. */
+  const drumSide = rnd() < 0.5 ? 1 : -1;
+  for (const [kind, sizes, side] of [["drums", DRUMS, drumSide], ["sack", SACK, -drumSide], ...(rnd() < 0.4 ? [["sack", SACK, drumSide]] : [])]) {
+    for (let t = 0; t < 400; t++) {
+      const [x, z] = place(36, side);
+      if (take(kind, standing(kind, whole(sizes), x, z), null, true)) break;
     }
   }
-  return out.sort((a, b) => a.key - b.key).map(({ key, ...seat }) => seat);
+  /* Then the rest, group by group, until there are COUNT. Near the stage they stand alone and in twos and threes, packed and facing
+     it; further up in groups of friends; and up the hill many sit, on blankets and alone. */
+  for (let t = 0; placed.length < COUNT && t < 200000; t++) {
+    const [x, z] = place();
+    if (rnd() > thick(x, z)) continue;
+    const { r } = offAxis(x, z), q = rnd();
+    if (r < 22) {
+      if (q < 0.15) take("alone", alone(x, z, false));
+      else if (q < 0.4) take("line", standing("line", whole([3, 5]), x, z));
+      else take("pit", standing("pit", whole([3, 6]), x, z));
+    } else if (r < 34) {
+      if (q < 0.2) take("alone", alone(x, z, false));
+      else if (q < 0.3) take("line", standing("line", whole([2, 3]), x, z));
+      else if (q < (r < 28 ? 0.95 : 0.82)) take("clump", standing("clump", whole([2, 6]), x, z));
+      else { const b = onBlanket(whole([2, 4]), x, z); take("blanket", b?.members, b?.blanket, true); }
+    } else {
+      if (q < 0.6) { const b = onBlanket(whole([2, 4]), x, z); take("blanket", b?.members, b?.blanket, true); }
+      else if (q < 0.8) take("alone", alone(x, z, rnd() < 0.6));
+      else take("clump", standing("clump", whole([2, 5]), x, z));
+    }
+  }
+  /* Front first, a group's together; each group's seats and each blanket's index as they then stand. */
+  const order = placed.map((s, k) => k).sort((a, b) => placed[a].key - placed[b].key), where = new Int32Array(placed.length);
+  order.forEach((k, i) => { where[k] = i; });
+  const seats = order.map((k) => { const { x, z, r, sit, face, group, blanket } = placed[k]; return { x, z, r, sit, face, group, blanket }; });
+  const members = groups.map(() => []);
+  seats.forEach((s, i) => members[s.group].push(i));
+  kept = { seed, seats, blankets, aisle, groups: groups.map(({ kind }, g) => ({ kind, seats: members[g] })) };
+  return kept;
+}
+
+/* The seats of the day's gathering (seed), front first, each { x, z, r, sit, face, blanket } (gathering), but for those that stand
+   within what keepOuts names, which are left out and move no one else. */
+export function seats(around, seed = 0) {
+  const keeps = keepOuts(around);
+  const clear = (x, z) => keeps.every(([kx, kz, d]) => Math.hypot(x - kx, z - kz) >= d);
+  return gathering(seed).seats.filter((s) => clear(s.x, s.z)).map(({ x, z, r, sit, face, blanket }) => ({ x, z, r, sit, face, blanket }));
 }
 
 /* Whether the room reached a group late or in time (parting). */
@@ -186,12 +479,13 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
   /* Each group's side of the visitor's way where it crosses to the far one (0 while it keeps to its own), and the frame the visitor's
      reach pushed it, or pushed a group that pushed it. */
   const sideOf = new Int8Array(groups), pushedAt = new Uint32Array(groups);
-  /* Each group's own step this frame, toward where it would stand, which gives way first when the cap is reached; and whether the room
+  /* Each group's own step this frame, toward where it would stand, which gives way first when the cap is reached; whether the room
      reached it late (LATE), already within half its lead of the visitor, as a turn brings it, or in time (ON_TIME), until it no longer
-     needs room. A group's own step starts each frame at nothing, as the frame first visits it. */
-  const ownX = new Float64Array(groups), ownZ = new Float64Array(groups), late = new Uint8Array(groups);
+     needs room; and whether it needs room this frame (needy). A group's own step starts each frame at nothing, and its need at none, as
+     the frame first visits it. */
+  const ownX = new Float64Array(groups), ownZ = new Float64Array(groups), late = new Uint8Array(groups), needy = new Uint8Array(groups);
   const visit = (g) => {
-    if (seen[g] !== stamp) { seen[g] = stamp; near[count++] = g; qx[g] = gx[g]; qz[g] = gz[g]; ownX[g] = 0; ownZ[g] = 0; }
+    if (seen[g] !== stamp) { seen[g] = stamp; near[count++] = g; qx[g] = gx[g]; qz[g] = gz[g]; ownX[g] = 0; ownZ[g] = 0; needy[g] = 0; }
   };
   /* Of those, the groups that move this frame: off their seats or making room, and any they push (`act`, in the order they joined). */
   const acting = new Uint32Array(groups), act = new Int32Array(groups), order = new Int32Array(groups);
@@ -220,7 +514,9 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
   let parted = 0, moved = false;
   const farthest = new Float64Array(1), at = Float64Array.of(NaN, NaN, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0), probe = new Float64Array(2);
   /* Keeps figure i and figure j, of another group, `space` m apart where they stand nearer. The group farther out of the visitor's way
-     gives way, so the room is never pressed back into it; two as far out share it. How far out of the way a figure stands: from the line
+     gives way, so the room is never pressed back into it; two as far out share it. Where neither needs room this frame (needy), the
+     nearer its seats gives way, so one walking back is never held off by one at its seat that stands nearer the visitor, which would
+     leave both where they stand; two as far from theirs share it. How far out of the way a figure stands: from the line
      of it ahead of the visitor's middle (along it, `a`, and across it, `b`), from their middle behind it. */
   function apart(i, j) {
     const g = groupOf[i], h = groupOf[j];
@@ -231,7 +527,11 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
     const mx = at[0], mz = at[1], wx = at[4], wz = at[5];
     const ai = (xi - mx) * wx + (zi - mz) * wz, bi = (zi - mz) * wx - (xi - mx) * wz, oi = ai >= 0 ? Math.abs(bi) : Math.sqrt(ai * ai + bi * bi);
     const aj = (xj - mx) * wx + (zj - mz) * wz, bj = (zj - mz) * wx - (xj - mx) * wz, oj = aj >= 0 ? Math.abs(bj) : Math.sqrt(aj * aj + bj * bj);
-    const t = Math.min(1, Math.max(0, 0.5 + (oj - oi) / 0.2));
+    let t = Math.min(1, Math.max(0, 0.5 + (oj - oi) / 0.2));
+    if (needy[g] === 0 && needy[h] === 0) {
+      const dg = Math.sqrt(gx[g] * gx[g] + gz[g] * gz[g]), dh = Math.sqrt(gx[h] * gx[h] + gz[h] * gz[h]);
+      t = Math.min(1, Math.max(0, 0.5 + (dg - dh) / 0.2));
+    }
     gx[g] += ux * gap * (1 - t); gz[g] += uz * gap * (1 - t); gx[h] -= ux * gap * t; gz[h] -= uz * gap * t;
     if (pushedAt[g] === stamp) pushedAt[h] = stamp; else if (pushedAt[h] === stamp) pushedAt[g] = stamp;
     return true;
@@ -366,6 +666,7 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
         if (u > need) { need = u; tx = ux; tz = uz; }
       }
       sideOf[g] = need > 0 && side !== own ? side : 0;
+      needy[g] = need > 0 ? 1 : 0;
       if (soon === Infinity) late[g] = 0; else if (need > 0 && late[g] === 0) late[g] = soon < keep + (ahead - keep) / 2 ? LATE : ON_TIME;
       if (need === 0 && gx[g] === 0 && gz[g] === 0) continue;
       join(g);

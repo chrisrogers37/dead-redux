@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { height, STAGE, STAGE_COLUMN, TEST_POSES } from "./ground.js";
-import { keepOuts, parting, PERSON, seats } from "./seats.js";
+import { gathering, keepOuts, parting, PERSON, seats } from "./seats.js";
 
 /* The crowd on the hill: a few hundred people, no two of them alike, faceless and dark like the band's silhouettes, on the slope in
    front of the stage (seats.js). One merged mesh on a Lambert material, so the crowd keeps the island's light and fog and costs one
@@ -219,7 +219,7 @@ export function pieces(figure, bit) {
    (the bob, which is counted in the height a leg has left once it has folded to FOLD of its own). A figure sits on the ground with its
    knees up: its hips SEAT above the ground and its feet FOOT ([forward, up]) from where it stood, lower or higher by as much as the
    ground falls or rises that far ahead of its seat (aFig.w), and tipped along that slope, so they rest on the hill. Seated, its arms
-   hang, its hands at the ground beside it, and a skirt lies over its knees and on the ground. The sitters' section sits (aFig.x = 1);
+   hang, its hands at the ground beside it, and a skirt lies over its knees and on the ground. Those the gathering seats sit (aFig.x = 1);
    the rest of the crowd sits as `sit` rises, each figure in its turn, the last STAGGER behind the first. */
 export const FOLD = 0.18, STAGGER = 0.5, SEAT = 0.075, FOOT = [0.36, 0.03];
 /* The ground's fall or rise ahead of a seat that a seated figure's feet follow, in the figure's own units, at the most. */
@@ -250,7 +250,7 @@ const BOB = 0.12, ARM_SWING = 0.5, SWAY = 0.08, JITTER = 0.12;
 /* The beats the phase is kept to: the longest move's cycle, the turn's, which every other divides. */
 export const CYCLE = 8;
 /* The rise before a peak: a figure stands, its arms go up to ARM_UP rad and its knees bend on every beat and twice as deep, as
-   `rise` passes from RISE_FROM to RISE_FROM + RISE_W at the front rows and RISE_SPAN later at the back (aFig.z, 0 at the front and 1
+   `rise` passes from RISE_FROM to RISE_FROM + RISE_W at the crowd's front and RISE_SPAN later at its back (aFig.z, 0 at the front and 1
    at the back), so the rise ripples outward from the stage and the whole crowd is up at the peak, but for the hands that hold
    something. */
 const ARM_UP = 2.7, RISE_FROM = 0.3, RISE_SPAN = 0.6, RISE_W = 0.1;
@@ -737,13 +737,16 @@ float putX = aPlace.x + aSize.z * wide + aSize.w * deep + aPart.x, putY = aPlace
 vec4 mvPosition = modelViewMatrix * vec4(putX, putY, putZ, 1.0);
 gl_Position = projectionMatrix * mvPosition;`;
 
-/* Builds the crowd: at most `count` figures on the first seats, kept clear of the path, the bears' line and a circle round each
-   landmark's bounds. It reads those bounds, so it runs before the landmarks merge (landmarks.js) empties them. Each figure faces the
-   stage, turned a little, and is its own person (people): the standard figure stands PERSON tall, a child a little over half that and
-   the tallest 8 % more, each as broad as its build and what it wears let it be inside the reaches above. `plain` builds plain figures,
+/* Builds the crowd: at most `count` figures on the first seats of the day's gathering (`seed`, seats.js), kept clear of the path,
+   the bears' line and a circle round each landmark's bounds. It reads those bounds, so it runs before the landmarks merge
+   (landmarks.js) empties them. Each figure faces the way its seat does, and is its own person (people): the standard figure stands
+   PERSON tall, a child a little over half that and the tallest 8 % more, each as broad as its build and what it wears let it be
+   inside the reaches above. `plain` builds plain figures,
    as a phone and a TV draw. `count` is how many it seated; `each` holds every figure's own numbers, a figure to a row, `figure` the
-   geometry of one whole figure, and `corners` and `faces` where each figure's corners and faces begin in the mesh. */
-export function buildCrowd(scene, { count, path, line, landmarks, plain = false }) {
+   geometry of one whole figure, and `corners` and `faces` where each figure's corners and faces begin in the mesh; `ground` the
+   gathering as these figures stand it, for the island to wear (island.js crowdMask): their seats, the blankets any of them sits on,
+   and the aisle. */
+export function buildCrowd(scene, { count, path, line, landmarks, plain = false, seed = 0 }) {
   /* A point every 2 m along `length` metres of the path or the line. */
   const along = (length, at) => Array.from({ length: Math.ceil(length / 2) }, (_, i) => { const p = at(i * 2); return [p.x, p.z]; });
   const box = new THREE.Box3(), mid = new THREE.Vector3();
@@ -755,7 +758,8 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false 
       return [mid.x, mid.z, Math.hypot(box.max.x - box.min.x, box.max.z - box.min.z) / 2];
     }),
   };
-  const placed = seats(around).slice(0, count);
+  const placed = seats(around, seed).slice(0, count), gathered = gathering(seed);
+  const ground = { seats: placed, blankets: gathered.blankets.filter((_, k) => placed.some((p) => p.blanket === k)), aisle: gathered.aisle };
   const n = placed.length;
   const figure = figureGeometry(plain);
   const scale = PERSON / TALL, big = scale * 1.08;
@@ -785,7 +789,7 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false 
   placed.forEach((p, i) => {
     const one = plain ? plainly(who[i]) : who[i], worn = wearing(one), { out, top, feet } = reaches(one, worn);
     dummy.position.set(p.x, height(p.x, p.z), p.z);
-    dummy.rotation.set(0, Math.atan2(STAGE[0] - p.x, STAGE[1] - p.z) + (i % 7 - 3) * 0.08, 0);
+    dummy.rotation.set(0, p.face, 0);
     /* As tall as it is, its head's top that share of PERSON over its feet whatever its legs' length, and no taller than TOP lets what
        it holds up stand; and as broad as its build, and no broader than HANG lets what it wears reach, or FEET its seated feet, which
        also keeps it no broader than the largest figure the reaches are for. */
@@ -921,6 +925,6 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false 
     return seen;
   }
 
-  return { mesh, each, figure, corners, faces, count: n, get shown() { return shown; }, pose, part, show, cull, over: parts.over, ahead: parts.ahead, hold: parts.hold,
+  return { mesh, each, figure, corners, faces, count: n, ground, get shown() { return shown; }, pose, part, show, cull, over: parts.over, ahead: parts.ahead, hold: parts.hold,
     get parted() { return parts.parted; } };
 }

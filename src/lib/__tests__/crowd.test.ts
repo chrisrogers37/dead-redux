@@ -10,26 +10,26 @@ import { FACING, height, STAGE, STAGE_COLUMN, TEST_POSES } from "../../../public
 import { makeBuilders } from "../../../public/world/landmarks.js";
 import { buildPath, buildWalkLine, layout, placeLandmarks } from "../../../public/world/path.js";
 import { budgetFor } from "../../../public/world/quality.js";
-import { keepOuts, PERSON } from "../../../public/world/seats.js";
+import { gathering, keepOuts, PERSON } from "../../../public/world/seats.js";
 
 // buildCrowd builds the crowd here from the world's own modules and three, on the world's path and the bears' line 7 m to its left as
 // main.js lays them, with two landmarks of the test's own in the front rows, at every seat on the hill. seats.js runs as it is, and
 // pass-through mocks keep what buildCrowd hands seats() and parting().
 
 type Around = { path: number[][]; line: number[][]; landmarks: number[][] };
-type Seat = { x: number; z: number; r: number; sit: boolean };
+type Seat = { x: number; z: number; r: number; sit: boolean; face: number; blanket: number };
 const kept = vi.hoisted(() => ({ around: [] as Around[], options: [] as Record<string, unknown>[], placed: [] as Seat[][], idle: false }));
 
 vi.mock("../../../public/world/seats.js", async (original) => {
   const seats = await original<{
-    seats: (around: Around) => Seat[];
+    seats: (around: Around, seed?: number) => Seat[];
     parting: (placed: Seat[], options: Record<string, unknown>) => unknown;
   }>();
   return {
     ...seats,
-    seats: (around: Around) => {
+    seats: (around: Around, seed?: number) => {
       kept.around.push(around);
-      return seats.seats(around);
+      return seats.seats(around, seed);
     },
     parting: (placed: Seat[], options: Record<string, unknown>) => {
       kept.options.push(options);
@@ -333,6 +333,35 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect(off).toBeLessThan(1e-5);
   });
 
+  it("turns each figure the way its seat faces, and hands the island the ground its figures stand: their seats, the blankets they sit on and the aisle", () => {
+    // A figure faces +z in its own units: its matrix turns that to (sin, cos) of its seat's `face`, to friends, a ring's middle or away.
+    for (const c of [crowd, phone, ...SHOWS.map((s) => s.desktop)]) {
+      const placed = c === crowd || c === phone ? placedOf.get(c)! : null;
+      for (let i = 0; i < c.count; i++) {
+        matrix.fromArray(c.each.matrix, 16 * i);
+        const turn = Math.atan2(c.each.matrix[16 * i + 8], c.each.matrix[16 * i + 10]), seat = c.ground.seats[i] as Seat;
+        expect(Math.abs(Math.atan2(Math.sin(turn - seat.face), Math.cos(turn - seat.face)))).toBeLessThan(1e-5);
+        if (placed) expect(seat).toBe(placed[i]);
+      }
+    }
+    // The fixed day's own gathering on a desktop, and on a phone, which seats the first 150: the blankets any of them sits on and no
+    // other, and the day's aisle.
+    for (const c of [crowd, phone]) {
+      const day = gathering(0) as { blankets: unknown[]; aisle: number[][] }, ground = c.ground as { seats: Seat[]; blankets: unknown[]; aisle: number[][] };
+      expect(ground.seats.length).toBe(c.count);
+      expect(ground.aisle).toBe(day.aisle);
+      expect(ground.blankets).toEqual(day.blankets.filter((_, k) => ground.seats.some((s) => s.blanket === k)));
+      expect(ground.blankets.length).toBeGreaterThan(0);
+    }
+    expect(phone.ground.blankets.length).toBeLessThan(crowd.ground.blankets.length);
+    // Another day's (main.js gives buildCrowd the day's seed): its own gathering, its seats and its aisle.
+    const other = buildCrowd(new THREE.Scene(), { count: 150, path, line, landmarks, plain: true, seed: 7 });
+    expect(other.ground.aisle).toBe((gathering(7) as { aisle: number[][] }).aisle);
+    expect(other.ground.aisle).not.toEqual(crowd.ground.aisle);
+    expect(other.ground.seats).toEqual(kept.placed[kept.placed.length - 1]);
+    expect((other.ground.seats as Seat[]).every((s) => (gathering(7) as { seats: Seat[] }).seats.some((t) => t.x === s.x && t.z === s.z))).toBe(true);
+  });
+
   it("draws the front of the crowd when asked for fewer figures, and is left out of a frame that has none of its figures in view", () => {
     // The seats run front first, so the first figures are the front rows: the quality ladder's half crowd (main.js) is the
     // mesh's first faces, up to the last of the figure that ends the half.
@@ -487,8 +516,8 @@ describe("the crowd, as buildCrowd builds it", () => {
         least = Math.min(least, ball[b + 3] - Math.sqrt(far));
       }
     }
-    expect(looked).toBeGreaterThan(4e6);
-    // The nearest any of those four million posed corners comes to its figure's sphere is 0.22 m inside it.
+    expect(looked).toBeGreaterThan(3.9e6);
+    // The nearest any of those four million posed corners comes to its figure's sphere is 0.2 m inside it.
     expect(least).toBeGreaterThan(0.2);
     expect(least).toBeLessThan(0.3);
     // Then that `cull` tests those spheres and no others. One figure at a time, the rest stepped ten kilometres off (`cull` counts a
@@ -515,13 +544,16 @@ describe("the crowd, as buildCrowd builds it", () => {
     // And a camera as a visitor has it, that takes in only the edge of one figure, draws the crowd: one that looks level past the
     // one who holds a flag, with the top 5 cm of the flag at the foot of its view and nothing else of the figure in it; and one with
     // the soles of the figure's shoes at the top of its view. Half a sphere would miss the shoes, and a sphere round the feet the flag.
+    // The lens is a narrow one, 10 degrees tall, so that whichever way the figure is turned (its seat faces it), what lies a little
+    // beyond the edge in depth stays out of the view: a figure turned away from the stage, its shoes' uppers 0.6 m past the soles in
+    // depth, stood 17 cm into a 30 degree lens's view.
     alone(flagged.i);
     const where = new THREE.Vector3(), corners = rich.filter((v) => wears(flagged, v)).map((v) => {
       const p = put(flagged, v, { beat: 0, dance: 0 });
       return where.set(p.x, p.y, p.z).applyMatrix4(matrix.fromArray(c.each.matrix, 16 * flagged.i)).clone();
     });
     const top = corners.reduce((a, b2) => (b2.y > a.y ? b2 : a)), sole = corners.reduce((a, b2) => (b2.y < a.y ? b2 : a));
-    const lens = new THREE.PerspectiveCamera(30, 1.6, 0.3, 600), frustum = new THREE.Frustum(), half = Math.tan((15 * Math.PI) / 180);
+    const lens = new THREE.PerspectiveCamera(10, 1.6, 0.3, 600), frustum = new THREE.Frustum(), half = Math.tan((5 * Math.PI) / 180);
     const middle = new THREE.Vector3(ball[4 * flagged.i], ball[4 * flagged.i + 1], ball[4 * flagged.i + 2]);
     for (const [edge, lift] of [[top, 4 * half - 0.05], [sole, 0.05 - 4 * half]] as const) {
       lens.position.set(edge.x - 4, edge.y + lift, edge.z);
@@ -856,12 +888,13 @@ describe("the crowd's shader", () => {
         reach({ ...pose, beat }, (out, up) => { most.wide = Math.max(most.wide, out); most.top = Math.max(most.top, up); });
       if (f.fig.x === 0) for (const beat of [0, 1.7, 4.4]) reach({ beat, dance: 1.6, rise: 1, still: 1, rising: 0 }, (out, up) => { most.hang = Math.max(most.hang, out); most.top = Math.max(most.top, up); });
       // Seated and fully still, a figure's feet and knees reach further, as they did: FEET out at the largest's size, along the
-      // ground; nothing higher than a skirt over a seated figure's knees, 0.65 units up, reaches past its hanging arms. A bear's
+      // ground; nothing higher than a skirt over a seated figure's knees, 0.65 units up, reaches past its hanging arms by more than a
+      // millimetre (a bedroll on a seated figure's back, where its fit to HANG binds, stands on that reach, and 0.66 units up). A bear's
       // reach is its snout, far over that: its belly reaches 1.3 m from its middle (ground.js), which the parting keeps the bear's
       // reach and HANG away, so 0.68 m and HANG clear of the figure's axis.
       reach({ beat: 0.9, dance: 1.6, sit: 1, still: 1, rising: 0 }, (out, up) => {
         most.sat = Math.max(most.sat, out);
-        if (out > HANG * BIG + 1e-4) most.satHigh = Math.max(most.satHigh, up);
+        if (out > HANG * BIG + 1e-3) most.satHigh = Math.max(most.satHigh, up);
       });
     }
     expect(looked).toBeGreaterThan(2e6);
@@ -1158,12 +1191,12 @@ describe("the crowd's shader", () => {
   });
 
   it("keeps every figure that carries something inside the parting's reaches whichever way it moves, on three shows' hills", () => {
-    // The reaches are held for each figure of two crowds as its own way of moving has it. Here the 35 figures that carry something
+    // The reaches are held for each figure of two crowds as its own way of moving has it. Here the 36 figures that carry something
     // on each of 1986-07-04, 1970-08-30 and 1990-12-09, each made to move every one of the seven ways in turn, at its own fitted
     // size: a rider's carrier's hands, kept at the child's legs while the parting holds it still, first reached past its hanging
     // arms here and on no figure of the two crowds.
     const carriers = SHOWS.flatMap(({ desktop }) => figuresOf(desktop).filter((f) => rich.some((v) => v.mark.y >= (PART.POLE as number) && wears(f, v))));
-    expect(carriers.length).toBe(3 * 35);
+    expect(carriers.length).toBe(3 * 36);
     const most = { wide: 0, top: 0, hang: 0, sat: 0 };
     for (const own2 of carriers) for (const move of MOVES as string[]) {
       const f = { ...own2, wear: { ...own2.wear, y: own2.wear.y - (own2.wear.y % 8) + MOVES.indexOf(move) } }, worn = rich.filter((v) => wears(f, v));
@@ -1172,8 +1205,11 @@ describe("the crowd's shader", () => {
           const p = put(f, v, { ...pose, beat });
           most.wide = Math.max(most.wide, f.across * Math.hypot(p.x, p.z)); most.top = Math.max(most.top, f.up * p.y);
         }
-        const still = put(f, v, { beat: 1.7, dance: 1.6, rise: 1, still: 1, rising: 0 });
-        most.hang = Math.max(most.hang, f.across * Math.hypot(still.x, still.z)); most.top = Math.max(most.top, f.up * still.y);
+        // Held still, its arms hang, as one standing does; one that sits where it is seated (aFig.x) sits still with its feet out
+        // before it, as far as the seated feet's reach (FEET) lets them, and never stands to hang its arms.
+        const still = put(f, v, { beat: 1.7, dance: 1.6, rise: 1, still: 1, rising: 0 }), held = f.across * Math.hypot(still.x, still.z);
+        if (own2.fig.x === 1) most.sat = Math.max(most.sat, held); else most.hang = Math.max(most.hang, held);
+        most.top = Math.max(most.top, f.up * still.y);
         const sat = put(f, v, { beat: 0.9, dance: 1.6, sit: 1, still: 1, rising: 0 });
         most.sat = Math.max(most.sat, f.across * Math.hypot(sat.x, sat.z));
       }

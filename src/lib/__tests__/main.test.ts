@@ -98,6 +98,12 @@ const fake = vi.hoisted(() => {
     mask: null as object | null,
     masksAsked: [] as { path: unknown; tracks: { title: string; segueOut?: boolean }[]; landmarkU: number[]; size: number }[],
     bands: undefined as { map: { value: unknown }; glow: { value: number } } | null | undefined,
+    // The crowd: the seed it was built for, whether the island was built yet, the ground it handed back; and what the island was given
+    // to wear of it.
+    crowdSeed: undefined as unknown,
+    crowdBeforeIsland: false,
+    crowdGround: undefined as unknown,
+    islandCrowd: undefined as unknown,
     nearAsks: [] as number[][],
     trunkAsks: [] as number[][],
     treeReads: new Set<string>(),
@@ -232,10 +238,11 @@ const fake = vi.hoisted(() => {
     // The island draws the night's look on its sea and its ground itself (island.js), which the frames here do not read.
     island: {
       BAND_GLOW,
-      buildIsland: (_scene: unknown, _grid: number, _phone: boolean, _loop: unknown, trunks: unknown, bands: typeof world.bands) => {
+      buildIsland: (_scene: unknown, _grid: number, _phone: boolean, _loop: unknown, trunks: unknown, bands: typeof world.bands, crowd: unknown) => {
         world.made.push("island");
         world.trunks = trunks;
         world.bands = bands;
+        world.islandCrowd = crowd;
         return { caves: [], shade: (_look: unknown, time: number, calm: number) => { world.tide = time; world.calm = calm; }, flora: { thin: (half: boolean) => { world.thinned = half; }, sparse: () => { world.sparse = true; } }, lit: LIT };
       },
     },
@@ -402,9 +409,12 @@ const fake = vi.hoisted(() => {
     crowd: {
       // As many figures as the tier asks for, of which the downgrade may have only the first half drawn, the pose each frame gives
       // them, its parting, and its own word on whether a camera has a figure in view.
-      buildCrowd: (_scene: Scene, { count, plain }: { count: number; plain: boolean }) => {
+      buildCrowd: (_scene: Scene, { count, plain, seed }: { count: number; plain: boolean; seed: number }) => {
         let shown = count;
+        world.crowdSeed = seed;
+        world.crowdBeforeIsland = !world.made.includes("island");
         return {
+        ground: (world.crowdGround = { seed }),
         mesh: (world.crowd = ((world.crowdPlain = plain), {})),
         count,
         get shown() {
@@ -611,6 +621,10 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
   fake.world.waysAsked = [];
   fake.world.treesBuilt = [];
   fake.world.made = [];
+  fake.world.crowdSeed = undefined;
+  fake.world.crowdBeforeIsland = false;
+  fake.world.crowdGround = undefined;
+  fake.world.islandCrowd = undefined;
   fake.world.mask = mask;
   fake.world.masksAsked = [];
   fake.world.bands = undefined;
@@ -823,6 +837,11 @@ describe("main.js's frames", () => {
       expect(fake.world.waysAsked[0].marks).toBe(asked.landmarks);
       expect(fake.world.waysAsked[0].phone).toBe(false);
       expect(fake.world.waysAsked[0].bears).toEqual([5, 3, 1]);
+      // The crowd is the day's gathering, its show's seed's, built before the island, which wears the ground it hands back: its seats,
+      // its blankets and its aisle.
+      expect(fake.world.crowdSeed).toBe(7);
+      expect(fake.world.crowdBeforeIsland).toBe(true);
+      expect(fake.world.islandCrowd).toBe(fake.world.crowdGround);
       // The island is given the placing's own word on whether a trunk stands within TRUNK_ROOM of a place, and the trees take its
       // light; a desktop's are not a phone's.
       const trunks = fake.world.trunks as (x: number, z: number) => boolean;

@@ -161,15 +161,17 @@ function start(gl) {
      recording, whose one stand-in track runs into nothing: no show needs telling apart here. */
   const mask = bandMask(path, tracks, landmarkU, phone ? 256 : 512);
   const bands = mask ? { map: { value: mask }, glow: { value: BAND_GLOW } } : null;
+
+  /* ---------- the crowd ---------- */
+  /* The day's gathering (seats.js), before the ground, which wears it: the grass its people tread and the blankets they sit on. */
+  const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks, plain: tier !== "desktop", seed: data.seed });
+
   /* Nothing grows or lies within TRUNK_ROOM of a trunk. */
-  const { caves, shade, flora, lit } = buildIsland(scene, budget.grid, phone, loop, (x, z) => placed.near(x, z, TRUNK_ROOM), bands);
+  const { caves, shade, flora, lit } = buildIsland(scene, budget.grid, phone, loop, (x, z) => placed.near(x, z, TRUNK_ROOM), bands, crowd.ground);
   const trees = buildTrees(scene, placed.spots, { lit, phone });
 
   /* ---------- the bears ---------- */
   const bears = buildBears(scene, budget.bears);
-
-  /* ---------- the crowd ---------- */
-  const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks, plain: tier !== "desktop" });
 
   /* ---------- the visitor's bear ---------- */
   /* The walk's camera keeps out of the landmarks and the stage's column, climbs over the crowd, and among the trees slides round a
