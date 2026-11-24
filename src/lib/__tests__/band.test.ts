@@ -30,7 +30,7 @@ vi.mock("three", async (original) => {
 type Vec = { x: number; y: number; z: number };
 type Bone = { of: number; name: string; pads: [number, number]; span: [number, number] | null; at: number };
 type Joint = { bone: number; end: 0 | 1; of: number; on?: boolean; at?: unknown; to?: number };
-type Part = { of: string; by: number | null; from: number; count: number };
+type Part = { of: string; as: string; by: number | null; from: number; count: number };
 type Band = ReturnType<typeof buildBand>;
 
 // A band of the test's own, in its own group, and what plays it: `play` runs frames of 1/60 s at a tempo, as main.js's frame does,
@@ -347,27 +347,166 @@ describe("the band, as it is built", () => {
       expect([p.plays, Math.abs(Math.atan2(foot.x - head.x, foot.z - head.z)) < 0.2 + (p.plays === "keys" ? 0.15 : 0)]).toEqual([p.plays, true]);
     });
   });
+});
 
-  it("stands a kit's poles upright, each cymbal within reach of one: a piece over 45 cm tall and thin is under 8 cm across, and every disc's middle is within 30 cm of a pole, in the drummer's metres", () => {
-    const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
-    band.players.forEach((p: { plays: string }, k: number) => {
-      if (p.plays !== "drums") return;
-      const poles: { x: number; z: number; across: number }[] = [], discs: { x: number; z: number }[] = [];
+// A drummer's kit (band.js `drummer`): full masses that overlap, so that its outline is a drum kit's and no light shows through it.
+describe("a drummer's kit", () => {
+  const built = stand(), { band, stage } = built;
+  const drummers: number[] = band.players.flatMap((p: { plays: string }, k: number) => (p.plays === "drums" ? [k] : []));
+  // A kit's parts of one name (band.js names each `as`), or all of them: each as its corners in the drummer's own frame and metres.
+  const kitOf = (k: number, as?: string) => {
+    const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3(), out: Vec[][] = [];
+    for (const part of band.still.userData.parts as Part[]) {
+      if (part.of !== "kit" || part.by !== k || (as !== undefined && part.as !== as)) continue;
+      const corners: Vec[] = [];
+      for (let i = part.from; i < part.from + part.count; i++) corners.push(own(band, k, at.fromBufferAttribute(still, i)));
+      out.push(corners);
+    }
+    return out;
+  };
+  const box = (corners: Vec[]) => {
+    const b = { min: { x: Infinity, y: Infinity, z: Infinity }, max: { x: -Infinity, y: -Infinity, z: -Infinity } };
+    for (const c of corners) for (const axis of ["x", "y", "z"] as const) { b.min[axis] = Math.min(b.min[axis], c[axis]); b.max[axis] = Math.max(b.max[axis], c[axis]); }
+    return { ...b, wide: b.max.x - b.min.x, tall: b.max.y - b.min.y, deep: b.max.z - b.min.z, x: (b.max.x + b.min.x) / 2, y: (b.max.y + b.min.y) / 2, z: (b.max.z + b.min.z) / 2 };
+  };
+  // Whether a point is inside a triangle, on two of the axes, and where the triangle is on the third there.
+  const within = (part: Vec[], i: number, u: "x" | "z", v: "y" | "z", pu: number, pv: number, w: "x" | "y" | "z") => {
+    const a = part[i], b = part[i + 1], c = part[i + 2], area = (b[u] - a[u]) * (c[v] - a[v]) - (b[v] - a[v]) * (c[u] - a[u]);
+    if (Math.abs(area) < 1e-12) return null;
+    const e0 = ((b[u] - a[u]) * (pv - a[v]) - (b[v] - a[v]) * (pu - a[u])) / area, e1 = ((c[u] - b[u]) * (pv - b[v]) - (c[v] - b[v]) * (pu - b[u])) / area, e2 = ((a[u] - c[u]) * (pv - c[v]) - (a[v] - c[v]) * (pu - c[u])) / area;
+    return e0 >= 0 && e1 >= 0 && e2 >= 0 ? e1 * a[w] + e2 * b[w] + e0 * c[w] : null;
+  };
+
+  it("builds each kit round a bass drum that faces the crowd: a full disc of 20 sides or more, on the floor in front of the drummer, and the widest drum or cymbal in the kit", () => {
+    expect(drummers.length).toBe(2);
+    for (const k of drummers) {
+      const drums = kitOf(k, "bass drum");
+      expect(drums.length).toBe(1);
+      const size = box(drums[0]);
+      expect(size.wide).toBeGreaterThan(0.55);
+      expect(Math.abs(size.wide - size.tall)).toBeLessThan(0.01);
+      // Round: every corner off the drum's axis is one radius from it, and they stand at 20 places round it or more.
+      const off = (c: Vec) => Math.hypot(c.x - size.x, c.y - size.y), rim = drums[0].filter((c) => off(c) > 0.01);
+      for (const c of rim) expect(Math.abs(off(c) - size.wide / 2)).toBeLessThan(0.005);
+      expect(new Set(rim.map((c) => Math.round(Math.atan2(c.y - size.y, c.x - size.x) * 100))).size).toBeGreaterThanOrEqual(20);
+      expect(size.min.y).toBeLessThan(0.03);
+      expect(size.min.z).toBeGreaterThan(0.5);
+      for (const as of ["rack tom", "floor tom", "snare", "hi-hat", "cymbal"]) for (const part of kitOf(k, as)) expect([as, box(part).wide < size.wide - 0.05]).toEqual([as, true]);
+      // And the drummer's feet are behind it: no cuff and no shoe shows beside it from the front.
+      const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
+      let feet = 0;
       for (const part of band.still.userData.parts as Part[]) {
-        if (part.of !== "kit" || part.by !== k) continue;
-        const box = new THREE.Box3();
-        for (let i = part.from; i < part.from + part.count; i++) box.expandByPoint(own(band, k, at.fromBufferAttribute(still, i)));
-        const across = [box.max.x - box.min.x, box.max.z - box.min.z], tall = box.max.y - box.min.y, middle = { x: (box.max.x + box.min.x) / 2, z: (box.max.z + box.min.z) / 2 };
-        if (tall > 0.45 && Math.min(...across) < 0.1) poles.push({ ...middle, across: Math.max(...across) });
-        // A cymbal: a disc, level and thin, over the height of the drummer's knees.
-        if (tall < 0.12 && Math.min(...across) > 0.25 && box.min.y > 0.65) discs.push(middle);
+        if (part.by !== k || !["drums cuff", "drums shoe"].includes(part.of)) continue;
+        feet += 1;
+        for (let i = part.from; i < part.from + part.count; i++) expect([part.of, Math.abs(own(band, k, at.fromBufferAttribute(still, i)).x - size.x) < size.wide / 2]).toEqual([part.of, true]);
       }
-      // The snare's stand and a cymbal's pole at the least; a hi-hat's two cymbals, a ride and, for the first drummer, a crash.
-      expect(poles.length).toBeGreaterThanOrEqual(2);
-      expect(Math.max(...poles.map((pole) => pole.across))).toBeLessThan(0.08);
-      expect(discs.length).toBe(k === 2 ? 4 : 3);
+      expect(feet).toBe(4);
+    }
+  });
+
+  it("rides two rack toms on the bass drum and stands a floor tom against it, with no light between them from the front: every point on the lines between their middles is covered by the kit", () => {
+    for (const k of drummers) {
+      const all = kitOf(k), [kick] = kitOf(k, "bass drum").map(box), racks = kitOf(k, "rack tom").map(box), floors = kitOf(k, "floor tom").map(box);
+      expect([racks.length, floors.length]).toEqual([2, 1]);
+      const covered = (x: number, y: number) => all.some((part) => { for (let i = 0; i < part.length; i += 3) if (within(part, i, "x", "y", x, y, "z") !== null) return true; return false; });
+      for (const [a, b] of [[kick, racks[0]], [kick, racks[1]], [racks[0], racks[1]], [kick, floors[0]]]) {
+        for (let s = 0; s <= 40; s++) {
+          const x = a.x + ((b.x - a.x) * s) / 40, y = a.y + ((b.y - a.y) * s) / 40;
+          expect([k, x.toFixed(3), y.toFixed(3), covered(x, y)]).toEqual([k, x.toFixed(3), y.toFixed(3), true]);
+        }
+      }
+      // The rack toms are over the bass drum, one to each side of its middle; the floor tom stands on the floor, shorter than the bass drum.
+      for (const rack of racks) expect(rack.y).toBeGreaterThan(kick.max.y);
+      expect(racks[0].x * racks[1].x).toBeLessThan(0);
+      expect(floors[0].min.y).toBeLessThan(0.03);
+      expect(floors[0].max.y).toBeLessThan(kick.max.y - 0.05);
+      // The drummer rises behind, clear of the toms' tops: the head's top is 30 cm over them or more.
+      stage.updateMatrixWorld(true);
+      const top = own(band, k, new THREE.Vector3(0, new THREE.Box3().setFromObject(band.players[k].body).max.y, 0)).y;
+      expect(top - Math.max(...racks.map((rack) => rack.max.y))).toBeGreaterThan(0.3);
+    }
+  });
+
+  it("rounds every tom's rims: a rack tom's and a floor tom's heads are a tenth narrower than its middle or more, so it is a drum and no box from the front or from the hill", () => {
+    for (const k of drummers) for (const as of ["rack tom", "floor tom"]) for (const part of kitOf(k, as)) {
+      // The drum's axis runs between the middles of its two heads: the two corners most of its triangles share.
+      const seen = new Map<string, { at: Vec; n: number }>();
+      for (const c of part) { const key = `${c.x.toFixed(4)} ${c.y.toFixed(4)} ${c.z.toFixed(4)}`, got = seen.get(key) ?? { at: c, n: 0 }; got.n += 1; seen.set(key, got); }
+      const [a, b] = [...seen.values()].sort((p, q) => q.n - p.n).map((v) => v.at);
+      const deep = gap(a, b), axis = { x: (b.x - a.x) / deep, y: (b.y - a.y) / deep, z: (b.z - a.z) / deep };
+      let middle = 0, head = 0;
+      for (const c of part) {
+        const along = (c.x - a.x) * axis.x + (c.y - a.y) * axis.y + (c.z - a.z) * axis.z, off = Math.sqrt(Math.max(0, gap(c, a) ** 2 - along ** 2));
+        middle = Math.max(middle, off);
+        if (along < 0.001 || along > deep - 0.001) head = Math.max(head, off);
+      }
+      expect([as, deep > 0.2, head > 0.1, head < middle * 0.9]).toEqual([as, true, true, true]);
+    }
+  });
+
+  it("lands each stick on a drum's head: the kit's highest surface straight under a stick's tip is within 5 cm of it, and nothing of the kit is over it, so no stroke ends inside a block", () => {
+    for (const k of drummers) {
+      const all = kitOf(k);
+      for (const name of ["left stick", "right stick"]) {
+        const tip = own(band, k, ends(band, boneNamed(band, k, name)).b), heights: number[] = [];
+        for (const part of all) for (let i = 0; i < part.length; i += 3) { const y = within(part, i, "x", "z", tip.x, tip.z, "y"); if (y !== null) heights.push(y); }
+        const under = Math.max(...heights.filter((y) => y <= tip.y)), over = heights.filter((y) => y > tip.y && y < tip.y + 0.4);
+        expect([name, tip.y - under > 0.005, tip.y - under < 0.05, over.length]).toEqual([name, true, true, 0]);
+      }
+    }
+  });
+
+  it("stands the hi-hat and the cymbal on stout poles of their own, upright on a round foot and no tripod: each pole is one bar under 8 cm across, and each cymbal's middle is within 30 cm of one", () => {
+    for (const k of drummers) {
+      const poles = kitOf(k, "pole").map(box).filter((pole) => pole.tall > 0.45);
+      expect(poles.length).toBe(2);
+      for (const pole of poles) expect([Math.max(pole.wide, pole.deep) < 0.08, pole.min.y < 0.05]).toEqual([true, true]);
+      // The hi-hat's two cymbals, under the drummer's hands, and the one that shows.
+      const discs = [...kitOf(k, "hi-hat"), ...kitOf(k, "cymbal")].map(box);
+      expect(discs.length).toBe(3);
       for (const disc of discs) expect(Math.min(...poles.map((pole) => Math.hypot(pole.x - disc.x, pole.z - disc.z)))).toBeLessThan(0.3);
-    });
+    }
+  });
+
+  it("shows one cymbal a kit, tipped to the crowd so it is an ellipse from the front: the first drummer's stands 35 cm or more from both drummers and from every drum, and the second's reaches 10 cm into its drummer's shoulder and 10 cm out of it", () => {
+    stage.updateMatrixWorld(true);
+    const shown = drummers.map((k) => kitOf(k, "cymbal"));
+    expect(shown.map((cymbals) => cymbals.length)).toEqual([1, 1]);
+    for (const [cymbal] of shown) {
+      const size = box(cymbal), mean = (of: Vec[]) => of.reduce((sum, c) => sum + c.y, 0) / of.length;
+      // Tipped a fifth of a radian or more, its crowd's side the lower.
+      expect(size.tall).toBeGreaterThan(size.wide * Math.sin(0.2));
+      expect(mean(cymbal.filter((c) => c.z > size.z + 0.05))).toBeLessThan(mean(cymbal.filter((c) => c.z < size.z - 0.05)) - 0.03);
+    }
+    // The first's, from the front, in the stage's metres: across and up, against every corner of the band but its own pole's.
+    const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3(), crash: Vec[] = [], rest: Vec[] = [];
+    for (const part of band.still.userData.parts as Part[]) {
+      const mine = part.of === "kit" && part.by === drummers[0];
+      if (mine && part.as === "pole") continue;
+      for (let i = part.from; i < part.from + part.count; i++) (mine && part.as === "cymbal" ? crash : rest).push(at.fromBufferAttribute(still, i).clone());
+    }
+    for (const p of band.players) { const body = p.body.geometry.getAttribute("position"); for (let i = 0; i < body.count; i++) rest.push(at.fromBufferAttribute(body, i).applyMatrix4(p.body.matrixWorld).clone()); }
+    const limb = band.limbs.geometry.getAttribute("position");
+    band.bones.forEach((_: Bone, k: number) => { band.limbs.getMatrixAt(k, matrix); for (let i = 0; i < limb.count; i++) rest.push(at.fromBufferAttribute(limb, i).applyMatrix4(matrix).clone()); });
+    let nearest = Infinity;
+    for (const c of crash) for (const r of rest) nearest = Math.min(nearest, Math.hypot(c.x - r.x, c.y - r.y));
+    expect(crash.length).toBeGreaterThan(0);
+    expect(nearest).toBeGreaterThan(0.35);
+    // The second's, in its drummer's own metres: the drummer's edge at the cymbal's height is the shoulder's or the upper arm's.
+    const k = drummers[1], ride = box(shown[1][0]), body = band.players[k].body, corner = body.geometry.getAttribute("position");
+    let edge = -Infinity;
+    const reach = (c: Vec) => { if (c.y > ride.min.y && c.y < ride.max.y) edge = Math.max(edge, c.x); };
+    for (let i = 0; i < corner.count; i++) reach(own(band, k, at.fromBufferAttribute(corner, i).applyMatrix4(body.matrixWorld)));
+    band.bones.forEach((bone: Bone, n: number) => { if (bone.of !== k) return; band.limbs.getMatrixAt(n, matrix); for (let i = 0; i < limb.count; i++) reach(own(band, k, at.fromBufferAttribute(limb, i).applyMatrix4(matrix))); });
+    expect(edge).toBeGreaterThan(0.15);
+    expect([ride.min.x < edge - 0.1, ride.max.x > edge + 0.1]).toEqual([true, true]);
+  });
+
+  it("makes the two kits differ as the two drummers do: in the bass drum's, the rack toms' and the floor tom's sizes, and in how high the cymbal that shows is", () => {
+    const sizes = (k: number, as: string) => kitOf(k, as).map((part) => Math.round(box(part).wide * 100)).sort().join(" ");
+    for (const as of ["bass drum", "rack tom", "floor tom"]) expect([as, sizes(drummers[0], as) !== sizes(drummers[1], as)]).toEqual([as, true]);
+    const [first, second] = drummers.map((k) => box(kitOf(k, "cymbal")[0]));
+    expect(Math.abs(first.y - second.y)).toBeGreaterThan(0.3);
   });
 });
 
@@ -561,7 +700,7 @@ describe("the band's outlines, from the front, through four counts of playing", 
     return { thin, pockets };
   }
 
-  it("leaves few gaps under 3 px with a moving part at their edge: from the hill no more than 27 thin pixels and 3 small pockets in any of 16 poses, and from the front of the crowd 90 and 3", () => {
+  it("leaves few gaps under 3 px with a moving part at their edge: from the hill no more than 27 thin pixels and 3 small pockets in any of 16 poses, and from the front of the crowd 80 and 3", () => {
     const built = stand();
     built.play(1.5, 96);
     const most = { far: { thin: 0, pockets: 0 }, near: { thin: 0, pockets: 0 } };
@@ -572,11 +711,12 @@ describe("the band's outlines, from the front, through four counts of playing", 
         most[view] = { thin: Math.max(most[view].thin, found.thin), pockets: Math.max(most[view].pockets, found.pockets) };
       }
     }
-    // Counted 25 and 3 from the hill and 86 and 1 from the front. The first version of the band, before its outlines were closed,
-    // counted 100 and 12, and 255 and 21; the closed band before the six were dealt again counted 34 and 4, and 160 and 4.
+    // Counted 26 and 3 from the hill and 77 and 2 from the front, with the kits built of drums that overlap. The first version of
+    // the band, before its outlines were closed, counted 100 and 12, and 255 and 21; the closed band before the six were dealt
+    // again counted 34 and 4, and 160 and 4.
     // Something is counted: a wedge's tip is thin wherever two parts part.
     expect(most.far.thin).toBeGreaterThan(10);
-    expect([most.far.thin <= 27, most.far.pockets <= 3, most.near.thin <= 90, most.near.pockets <= 3]).toEqual([true, true, true, true]);
+    expect([most.far.thin <= 27, most.far.pockets <= 3, most.near.thin <= 80, most.near.pockets <= 3]).toEqual([true, true, true, true]);
   });
 });
 
