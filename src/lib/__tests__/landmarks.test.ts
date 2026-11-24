@@ -3372,8 +3372,8 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
     expect(LIGHTS[MIRACLE].at[1] - 0.5 - 1).toBe(2.5);
   });
 
-  it("builds Smokestack Lightning and Lazy Lightnin' as Lovelight is built, corner for corner", () => {
-    for (const phone of [false, true]) for (const title of ["Smokestack Lightning", "Lazy Lightnin'"]) {
+  it("builds Smokestack Lightning, Lazy Lightnin' and every map's spelling of Love Light as Lovelight is built, corner for corner", () => {
+    for (const phone of [false, true]) for (const title of ["Smokestack Lightning", "Lazy Lightnin'", "Turn on Your Love Light", "Turn On Your Love Light", "Turn on Your Lovelight"]) {
       expect(ruleOf(title), title).toBe(ruleOf(LIGHT));
       const { parts } = landmark(title, phone), { position } = built(LIGHT, phone);
       expect(parts, title).toHaveLength(2);
@@ -3514,6 +3514,38 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
     }
     expect(FIVE.reduce((sum, title) => sum + COST[title][0], 0)).toBeLessThan(4700);
     expect(FIVE.reduce((sum, title) => sum + COST[title][1], 0)).toBeLessThan(3300);
+  });
+
+  it("draws no post, rail, stalk or pole thinner than 13 cm, two pixels of a desktop's frame from 50 m: the gallery's stanchions and rail, the lantern's posts, the eyes' stalks, the banner's pole and its yard", () => {
+    // An upright's least breadth across the path and along it, at every 5 cm of its height over its landmark's ground, up to
+    // its top or to a height given: the renderer does not smooth an edge, so a part thinner than a pixel breaks into specks
+    // that come and go as the eye moves.
+    const least = (position: Corners, piece: Piece, top = piece.high) => {
+      let narrowest = Infinity;
+      for (let y = 0.025; y < top; y += 0.05) {
+        const across = sliced(position, piece, y), along = sliced(position, piece, y, "z");
+        if (across && along) narrowest = Math.min(narrowest, across.x1 - across.x0, along.x1 - along.x0);
+      }
+      return narrowest;
+    };
+    for (const phone of [false, true]) {
+      const where = phone ? "on a phone" : "on a desktop", posts = phone ? 6 : 8;
+      const light = built(LIGHT, phone), eyes = built(EYES, phone), banner = built(BANNER, phone);
+      // The lighthouse: a stanchion and a lantern's post at each place round it, and the gallery's rail, which lies level.
+      const uprights = of(light, IRON).filter((piece) => wide(piece) < 0.3 && deep(piece) < 0.3 && tall(piece) > 0.5);
+      const [rail] = of(light, IRON).filter((piece) => wide(piece) > 2.5 && piece.low > 8.5 && piece.high < 8.9);
+      expect(uprights, where).toHaveLength(2 * posts);
+      for (const upright of uprights) expect(least(light.position, upright), where).toBeGreaterThanOrEqual(0.13 - 1e-6);
+      expect(tall(rail), where).toBeGreaterThanOrEqual(0.13);
+      // The eyes' two stalks, from the ground to their cups, and the banner's pole to the foot of its brass head, which is
+      // turned to a point as main's was not, and is no pole.
+      const stalks = of(eyes, TIMBER), [pole] = of(banner, TIMBER), [yard] = of(banner, DARK_TIMBER);
+      expect(stalks, where).toHaveLength(2);
+      for (const stalk of stalks) expect(least(eyes.position, stalk), where).toBeGreaterThanOrEqual(0.13 - 1e-6);
+      expect(least(banner.position, pole, 6.26), where).toBeGreaterThanOrEqual(0.13 - 1e-6);
+      // The yard lies level, so it is its height that the walker sees: as deep as the cloth lets it be, and 13 cm tall.
+      expect(tall(yard), where).toBeGreaterThanOrEqual(0.13 - 1e-6);
+    }
   });
 
   it("closes each shape that is made corner by corner, with its faces outward: the eyes' lids, the bowl, the shell under the terrapin's plates, and each plate but for its foot, which is in the shell", () => {

@@ -1458,12 +1458,12 @@ export function makeBuilders(phone) {
   /* Scarlet Begonias: a banner of begonias, where the plain red board hung beside its pole. Seen from above the plain shape
      was a pole of six sides and a board 6 cm through, and that is all the room there is: 12 cm either way at the pole, and
      3 cm at the board's far edge. So the pole is main's own six sides, turned, with brass collars and a brass head; a yard
-     runs from it, thinner than the cloth; and the banner hangs from the yard by loops of gold cloth, broad face to the walker.
+     runs from it, 13 cm tall and thinner than the cloth; and the banner hangs from the yard by loops of gold cloth, broad face to the walker.
      It is scarlet, with a gold band at its head and a dark one over its foot, and its foot is cut to tongues, a brass drop
      hung from each. The begonias are sewn on both its faces: each a ring of five pale petals round a gold heart, with two
      leaves under it. A layer lies 4 mm proud of the one under it, which is as much as the outline leaves at the blossoms'
      far side. A phone's banner has three tongues and two blossoms, where a desktop's has four and three. */
-  const FLAG = { pole: -1.1, yard: 6.08, head: 5.9, tall: 2.8, wide: 1.86, mid: 0.05, cut: 0.3, layer: 0.004, loop: 0.007 };
+  const FLAG = { pole: -1.1, yard: 6.08, spar: 0.13, head: 5.9, tall: 2.8, wide: 1.86, mid: 0.05, cut: 0.3, layer: 0.004, loop: 0.007 };
   function scarletBanner(g) {
     const { pole, yard, head, tall, wide, mid, layer } = FLAG, cols = phone ? 6 : 8, rows = phone ? 6 : 8, gold = tone(TRIM, true);
     put(g, lathe([[0.115, -SUNK], [0.115, 0.45], [0.095, 0.7], [0.085, 5.7], [0.112, 5.82], [0.112, 6.2], [0.085, 6.26]], 6), tone(TIMBER), pole, 0, 0);
@@ -1472,13 +1472,14 @@ export function makeBuilders(phone) {
        pole and 0.14 mm at the far end's two corners, and inside it. */
     for (const y of [0.58, 5.76]) put(g, new THREE.CylinderGeometry(0.1199, 0.1199, 0.1, 6, 1, true), tone(BRASS), pole, y, 0);
     put(g, turned([[0.085, 6.26], [0.118, 6.32], [0.07, 6.42], [0, 6.49]], 6), tone(BRASS, true), pole, 0, 0);
-    put(g, new THREE.BoxGeometry(0.98 - pole, 0.12, CLOTH - 2 * FLAG.loop), tone(DARK_TIMBER, true), (0.98 + pole) / 2, yard, 0);
+    put(g, new THREE.BoxGeometry(0.98 - pole, FLAG.spar, CLOTH - 2 * FLAG.loop), tone(DARK_TIMBER, true), (0.98 + pole) / 2, yard, 0);
     put(g, new THREE.BoxGeometry(0.06, 0.16, 0.0598), tone(BRASS, true), 0.9699, yard, 0);
     /* The loops go over the yard, 2 cm over its top, and are the cloth's own thickness: so the yard is FLAG.loop thinner than
        the cloth before and behind, and a loop is proud of it by that, with no step where it meets the cloth's head. A loop
        thicker than the cloth showed its underside there as a dark dash, a pixel thick, that came and went. */
     const loops = phone ? 4 : 5;
-    for (let k = 0; k < loops; k++) put(g, new THREE.BoxGeometry(0.18, yard + 0.08 - head + 0.04, CLOTH), gold, mid + (wide - 0.3) * (k / (loops - 1) - 0.5), (yard + 0.08 + head - 0.04) / 2, 0);
+    const over = yard + FLAG.spar / 2 + 0.02;
+    for (let k = 0; k < loops; k++) put(g, new THREE.BoxGeometry(0.18, over - head + 0.04, CLOTH), gold, mid + (wide - 0.3) * (k / (loops - 1) - 0.5), (over + head - 0.04) / 2, 0);
     /* The cloth: a slab of cells. Along its foot every other corner is lifted, so the ones between hang as tongues. It has no
        underside: along the tongues' slanting edges that showed from the path as dark specks, a pixel each, that came and
        went, and without it the sky shows there, as it does beside the cloth. */
