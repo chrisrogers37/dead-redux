@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { DROP, FEET, FOOT, HANG, partingOptions, TALL } from "../../../public/world/crowd.js";
-import { FACING, height, STAGE, STAGE_COLUMN, STAGE_POSE } from "../../../public/world/ground.js";
+import { AMONG_POSE, FACING, height, STAGE, STAGE_COLUMN, STAGE_POSE } from "../../../public/world/ground.js";
+import { budgetFor } from "../../../public/world/quality.js";
 import {
-  across, AISLE, APART, BLANKET_TONES, COUNT, crowdPlan, fromStage, gathering, GROUPS_APART, GROUPS_FROM, GROUPS_TO, intoAisle, intoCrowdGround,
-  isBetweenSongs, isDrums, isNotASong, isSpace, isTuning, LEGS, NEXT, offAxis, onAxes, onCrowdGround, parting, PERSON, RISE, RISE_AT, riseAhead, seats,
-  songsOf, SPANS, toStage,
+  across, AISLE, AMONG_KEEP, APART, BANDS, BLANKET_TONES, CLEARING, COUNT, crowdPlan, FULL, fromStage, gathering, GROUPS_APART, GROUPS_FROM, GROUPS_TO,
+  intoAisle, intoCrowdGround, isBetweenSongs, isDrums, isNotASong, isSpace, isTuning, LATTICE, LEGS, NEXT, OFF, offAxis, onAxes, onCrowdGround, parting,
+  PERSON, RISE, RISE_AT, riseAhead, seats, songsOf, SPANS, THIN, toStage, wholeGroups,
 } from "../../../public/world/seats.js";
 
-type Seat = { x: number; z: number; r: number; sit: boolean; face: number; blanket: number };
+type Seat = { x: number; z: number; r: number; sit: boolean; face: number; blanket: number; group: number };
 type Blanket = { x: number; z: number; face: number; wide: number; deep: number; tone: number; rim: number };
 type Gathered = { seats: Seat[]; blankets: Blanket[]; aisle: number[][]; groups: { kind: string; seats: number[] }[] };
 type Plan = { dance: boolean; sit: boolean };
@@ -19,7 +20,7 @@ const at = fromStage as (r: number, th: number) => Point;
 const nearest = (seat: Seat, points: Point[]) => Math.min(...points.map(([x, z]) => Math.hypot(seat.x - x, seat.z - z)));
 
 describe("seats", () => {
-  it("leaves out just the seats within 4 m of the path or the bears' line, or 1.5 m of a landmark's circle", () => {
+  it("leaves out whole every group any of whose people stand within 4 m of the path or the bears' line, or 1.5 m of a landmark's circle, and no one else", () => {
     // The path runs up the crowd's axis and the bears' line across its middle, both every half metre, and a landmark's circle 6 m round
     // stands among the sitters.
     const path = Array.from({ length: 101 }, (_, i) => at(10 + i / 2, 0));
@@ -28,13 +29,32 @@ describe("seats", () => {
     for (const seed of [0, 800]) {
       const kept = seats({ path, line, landmarks: [[...landmark, 6]] }, seed);
       const clear = (s: Seat) => nearest(s, path) >= 4 && nearest(s, line) >= 4 && nearest(s, [landmark]) >= 7.5;
-      expect(kept.length).toBeLessThan(seats(none, seed).length);
-      expect(kept).toEqual(seats(none, seed).filter(clear));
+      const all = seats(none, seed) as Seat[], cut = new Set(all.filter((s) => !clear(s)).map((s) => s.group));
+      expect(cut.size).toBeGreaterThan(0);
+      // Some of a cut group stood clear: the whole group goes, those too.
+      expect(all.some((s) => cut.has(s.group) && clear(s))).toBe(true);
+      expect(kept).toEqual(all.filter((s) => !cut.has(s.group)));
     }
   });
 
+  it("takes whole groups for a smaller crowd, in the gathering's order: the most of its first seats that are whole groups and no more than asked", () => {
+    for (const seed of [0, 800]) {
+      const all = seats(none, seed) as Seat[], sizes = new Map<number, number>();
+      for (const s of all) sizes.set(s.group, (sizes.get(s.group) ?? 0) + 1);
+      for (let count = 0; count <= COUNT + 5; count++) {
+        const some = seats(none, seed, count) as Seat[], held = new Map<number, number>();
+        for (const s of some) held.set(s.group, (held.get(s.group) ?? 0) + 1);
+        // The first of the day's seats, no more than asked, every group of them whole, and the next group would not have fitted.
+        expect(some).toEqual(all.slice(0, some.length));
+        expect([seed, count, some.length <= count, [...held].every(([g, n]) => n === sizes.get(g))]).toEqual([seed, count, true, true]);
+        if (some.length < all.length) expect([seed, count, some.length + sizes.get(all[some.length].group)! > count]).toEqual([seed, count, true]);
+        expect(wholeGroups(all, count)).toBe(some.length);
+      }
+    }
+  }, 30000);
+
   it("are the day's gathering, each seat as it stands there, the same for a day every time and another the next day", () => {
-    const strip = ({ x, z, r, sit, face, blanket }: Seat) => ({ x, z, r, sit, face, blanket });
+    const strip = ({ x, z, r, sit, face, blanket, group }: Seat) => ({ x, z, r, sit, face, blanket, group });
     expect(seats(none, 800)).toEqual((gathering(800) as Gathered).seats.map(strip));
     expect(seats(none)).toEqual(seats(none, 0));
     // The same seed, asked again after another, gives the same gathering.
@@ -50,6 +70,14 @@ describe("seats", () => {
 describe("the gathering", () => {
   // Fifty days' gatherings and the fixed day's (seed 800).
   const days = [...Array.from({ length: 50 }, (_, k) => k), 800].map((seed) => ({ seed, g: gathering(seed) as Gathered }));
+  // And each as every tier draws it: all COUNT on a desktop, and whole groups of the first a TV's and a phone's crowd take (crowd.js
+  // seats(), quality.js BUDGETS), as `n`. The shape, the rings and ?pose=among's company hold at each.
+  const TIERS = [COUNT as number, ...["tv", "phone"].map((tier) => (budgetFor(tier) as { crowd: number }).crowd)];
+  const tierOf = (g: Gathered, n: number): Gathered => {
+    const k = wholeGroups(g.seats, n) as number;
+    return { ...g, seats: g.seats.slice(0, k), groups: g.groups.filter((group) => group.seats[0] < k) };
+  };
+  const tiers = days.flatMap(({ seed, g }) => TIERS.map((n) => ({ seed, n, g: tierOf(g, n) })));
   const frame = (x: number, z: number): Point => [(x - STAGE[0]) * Math.sin(FACING) + (z - STAGE[1]) * Math.cos(FACING), across(x, z) as number];
   const wrap = (a: number) => a - 2 * Math.PI * Math.round(a / (2 * Math.PI));
   const middleOf = (list: Seat[]) => [list.reduce((sum, s) => sum + s.x, 0) / list.length, list.reduce((sum, s) => sum + s.z, 0) / list.length];
@@ -58,6 +86,15 @@ describe("the gathering", () => {
     const dx = x - b.x, dz = z - b.z;
     return Math.min(b.wide / 2 - Math.abs(dx * Math.cos(b.face) - dz * Math.sin(b.face)), b.deep / 2 - Math.abs(dx * Math.sin(b.face) + dz * Math.cos(b.face)));
   };
+
+  // The tests below read some of these and hold the gathering to what they make of them; these hold the values themselves.
+  it("keeps the values its look was judged at, by the frames and the flash counts: a change to any is a change to the look, to be shot and counted again", () => {
+    expect({ COUNT, APART, LEGS, NEXT, GROUPS_APART, GROUPS_FROM, GROUPS_TO, RISE, RISE_AT, OFF, CLEARING, AMONG_KEEP, BANDS, THIN, LATTICE, FULL, BLANKET_TONES }).toEqual({
+      COUNT: 292, APART: 1.34, LEGS: 1.04, NEXT: [1.345, 1.385], GROUPS_APART: [1.5, 1.8], GROUPS_FROM: 20, GROUPS_TO: 34, RISE: 0.28, RISE_AT: [0.35, 0.7],
+      OFF: 4.5, CLEARING: [5, 8], AMONG_KEEP: [3, 3], BANDS: [22, 28, 34, 40, Infinity], THIN: 12, LATTICE: 1, FULL: 8, BLANKET_TONES: 7,
+    });
+    expect(AISLE).toEqual({ from: 11, to: 58, front: [0.9, 1.5], back: [5.5, 8], half: [2.5, 3.2] });
+  });
 
   it("seats COUNT people every day, each on the crowd's ground, 40 cm in from its rim or more, and off the aisle", () => {
     for (const { seed, g } of days) {
@@ -141,16 +178,16 @@ describe("the gathering", () => {
     }
   });
 
-  it("gathers in groups, not rows: clumps of two to six turned toward each other, a drum circle and a hacky-sack ring facing in on either side of the aisle, and some turned away from the stage", () => {
+  it("gathers in groups, not rows: clumps of two to six turned toward each other, a drum circle and a hacky-sack ring facing in on either side of the aisle, and some turned away from the stage, as every tier draws it", () => {
     let inClumps = 0, turnedIn = 0;
-    for (const { seed, g } of days) {
+    for (const { seed, n, g } of tiers) {
       const of = (kind: string) => g.groups.filter((group) => group.kind === kind);
       // Every seat is in one group, and each group's people come one after another.
       expect(g.groups.flatMap((group) => group.seats).sort((a, b) => a - b)).toEqual(g.seats.map((_, i) => i));
       for (const group of g.groups) group.seats.forEach((i, k) => expect(i).toBe(group.seats[0] + k));
-      // Clumps of two to six, many of them, each within a couple of metres of its middle; and in those of three or more, each
-      // turned from the stage toward the clump's middle.
-      expect([seed, of("clump").length >= 30]).toEqual([seed, true]);
+      // Clumps of two to six, many of them (a tenth as many as the tier's people), each within a couple of metres of its middle; and
+      // in those of three or more, each turned from the stage toward the clump's middle.
+      expect([seed, n, of("clump").length >= n / 10]).toEqual([seed, n, true]);
       for (const clump of of("clump")) {
         const people = clump.seats.map((i) => g.seats[i]), [mx, mz] = middleOf(people);
         expect([seed, people.length >= 2 && people.length <= 6]).toEqual([seed, true]);
@@ -165,7 +202,7 @@ describe("the gathering", () => {
       // One drum circle of seven to nine, and one or two hacky-sack rings of four or five, each a ring facing its middle, its people
       // evenly round it; the drums on one side of the stage's axis and a sack ring on the other.
       const rings = [...of("drums"), ...of("sack")].map((ring) => ({ kind: ring.kind, people: ring.seats.map((i) => g.seats[i]) }));
-      expect([seed, of("drums").length, of("sack").length >= 1 && of("sack").length <= 2]).toEqual([seed, 1, true]);
+      expect([seed, n, of("drums").length, of("sack").length >= 1 && of("sack").length <= 2]).toEqual([seed, n, 1, true]);
       for (const { kind, people } of rings) {
         const [mx, mz] = middleOf(people), radii = people.map((s) => Math.hypot(s.x - mx, s.z - mz));
         expect([seed, kind, kind === "drums" ? people.length >= 7 && people.length <= 9 : people.length >= 4 && people.length <= 5]).toEqual([seed, kind, true]);
@@ -174,13 +211,13 @@ describe("the gathering", () => {
       }
       const sideOf = (people: Seat[]) => Math.sign(across(...middleOf(people)));
       const drums = rings.find((ring) => ring.kind === "drums")!;
-      expect([seed, rings.some((ring) => ring.kind === "sack" && sideOf(ring.people) === -sideOf(drums.people))]).toEqual([seed, true]);
+      expect([seed, n, rings.some((ring) => ring.kind === "sack" && sideOf(ring.people) === -sideOf(drums.people))]).toEqual([seed, n, true]);
       // Some face more than a right angle away from the stage, a ring's far side among them, and most do not.
       const away = g.seats.filter((s) => Math.abs(wrap(s.face - toStage(s.x, s.z))) > Math.PI / 2).length;
-      expect([seed, away >= 10, away <= 0.2 * COUNT]).toEqual([seed, true, true]);
+      expect([seed, n, away >= 10, away <= 0.2 * n]).toEqual([seed, n, true, true]);
     }
     expect(turnedIn).toBeGreaterThan(0.8 * inClumps);
-  });
+  }, 30000);
 
   it("stands each group's people together, each within the parting's space of another, so it parts as one, and other groups off: GROUPS_APART at the front, wider up the hill", () => {
     const { space } = partingOptions(PERSON / TALL) as { space: number };
@@ -211,49 +248,49 @@ describe("the gathering", () => {
     }
   });
 
-  it("is no mirror image of itself across the stage's axis: hardly any seat has a twin where its mirror image would stand", () => {
-    for (const { seed, g } of days) {
+  it("is no mirror image of itself across the stage's axis: hardly any seat has a twin where its mirror image would stand, at every tier", () => {
+    for (const { seed, n, g } of tiers) {
       const twins = g.seats.filter((s) => {
         const [u, side] = frame(s.x, s.z), [mx, mz] = onAxes(u, -side) as Point;
         return g.seats.some((t) => Math.hypot(t.x - mx, t.z - mz) < 0.3);
       }).length;
-      expect([seed, twins < 0.15 * COUNT]).toEqual([seed, true]);
+      expect([seed, n, twins < 0.15 * n]).toEqual([seed, n, true]);
     }
-  });
+  }, 30000);
 
-  it("stands thickest before the stage and thins up the hill to a ragged edge, which leaves three tenths or more of its ground's outer rim empty", () => {
+  it("stands thickest before the stage and thins up the hill to a ragged edge, which leaves three tenths or more of its ground's outer rim empty, at every tier", () => {
     // The crowd's ground, every half metre, by bands out from the stage.
     const ground: Point[] = [];
     for (let x = -10; x <= 140; x += 0.5) for (let z = -130; z <= 10; z += 0.5) if (onCrowdGround(x, z)) ground.push([x, z]);
-    const BANDS = [[13.5, 22], [22, 28], [28, 34], [34, 40], [40, 55]], far = (x: number, z: number) => Math.hypot(x - STAGE[0], z - STAGE[1]);
-    const area = BANDS.map(([a, b]) => ground.filter(([x, z]) => far(x, z) >= a && far(x, z) < b).length * 0.25);
+    const OUT = [[13.5, 22], [22, 28], [28, 34], [34, 40], [40, 55]], far = (x: number, z: number) => Math.hypot(x - STAGE[0], z - STAGE[1]);
+    const area = OUT.map(([a, b]) => ground.filter(([x, z]) => far(x, z) >= a && far(x, z) < b).length * 0.25);
     // The outer rim: the ground within 3 m of its edge, but for the front, which the crowd packs up to, from 22 m out.
     const rim = ground.filter(([x, z]) => intoCrowdGround(x, z) < 3 && far(x, z) >= 22);
-    const sums = BANDS.map(() => 0);
-    for (const { seed, g } of days) {
-      const thick = BANDS.map(([a, b], k) => g.seats.filter((s) => s.r >= a && s.r < b).length / area[k]);
-      thick.forEach((t, k) => { sums[k] += t; });
+    const sums = new Map(TIERS.map((n) => [n, OUT.map(() => 0)]));
+    for (const { seed, n, g } of tiers) {
+      const thick = OUT.map(([a, b], k) => g.seats.filter((s) => s.r >= a && s.r < b).length / area[k]);
+      thick.forEach((t, k) => { sums.get(n)![k] += t; });
       // Thicker at the front than anywhere from 28 m out, and at the back under 0.6 as thick. Between, a knot of the gathering may
       // stand as thick as its front on a day: it is patchy, at tens of metres, as well as lopsided.
-      for (let k = 2; k < BANDS.length; k++) expect([seed, k, thick[0] > thick[k]]).toEqual([seed, k, true]);
-      expect([seed, thick[4] < 0.6 * thick[0]]).toEqual([seed, true]);
+      for (let k = 2; k < OUT.length; k++) expect([seed, n, k, thick[0] > thick[k]]).toEqual([seed, n, k, true]);
+      expect([seed, n, thick[4] < 0.6 * thick[0]]).toEqual([seed, n, true]);
       // The rim: three tenths or more of it lies 3 m and more from anyone, and some on each side of the axis, the side the gathering
       // spills round to as well.
       const empty = (own: Point[]) => own.filter(([x, z]) => !g.seats.some((s) => Math.hypot(s.x - x, s.z - z) < 3)).length;
-      expect([seed, empty(rim) > 0.3 * rim.length]).toEqual([seed, true]);
+      expect([seed, n, empty(rim) > 0.3 * rim.length]).toEqual([seed, n, true]);
       for (const side of [1, -1]) {
         const own = rim.filter(([x, z]) => Math.sign(across(x, z)) === side);
-        expect([seed, side, empty(own) > own.length / 20]).toEqual([seed, side, true]);
+        expect([seed, n, side, empty(own) > own.length / 20]).toEqual([seed, n, side, true]);
       }
     }
-    // Over the days, each band thinner than the one before by 15 % and more.
-    for (let k = 1; k < BANDS.length; k++) expect([k, sums[k] < 0.85 * sums[k - 1]]).toEqual([k, true]);
-  });
+    // Over the days, each band thinner than the one before by 15 % and more, at each tier.
+    for (const [n, sum] of sums) for (let k = 1; k < OUT.length; k++) expect([n, k, sum[k] < 0.85 * sum[k - 1]]).toEqual([n, k, true]);
+  }, 60000);
 
-  it("is lopsided: one side of the stage's axis holds half as many again as the other, and at 8 m squares a quarter of its people have no one where their mirror images would stand", () => {
-    for (const { seed, g } of days) {
+  it("is lopsided: one side of the stage's axis holds half as many again as the other, and at 8 m squares a quarter of its people have no one where their mirror images would stand, at every tier", () => {
+    for (const { seed, n, g } of tiers) {
       const right = g.seats.filter((s) => across(s.x, s.z) >= 0).length, left = g.seats.length - right;
-      expect([seed, Math.max(left, right) >= 1.4 * Math.min(left, right)]).toEqual([seed, true]);
+      expect([seed, n, Math.max(left, right) >= 1.5 * Math.min(left, right)]).toEqual([seed, n, true]);
       // Those in each 8 m square of the stage's frame, against those in its mirror image across the axis.
       const square = new Map<string, number>(), key = (a: number, b: number) => `${a},${b}`;
       for (const s of g.seats) {
@@ -265,16 +302,17 @@ describe("the gathering", () => {
         const [a, b] = k.split(",").map(Number);
         unmirrored += Math.max(0, n - (square.get(key(a, -b - 1)) ?? 0));
       }
-      expect([seed, unmirrored >= 0.25 * COUNT]).toEqual([seed, true]);
+      expect([seed, n, unmirrored >= 0.25 * n]).toEqual([seed, n, true]);
     }
+  }, 30000);
+
+  it("bends its aisle well off the stage's axis: somewhere up the hill its middle strays 5 m and more to one side, the same aisle at every tier", () => {
+    // Every tier treads the day's whole aisle into the grass (crowd.js hands the island the gathering's aisle, whatever it draws).
+    for (const { seed, g } of tiers) expect([seed, Math.max(...g.aisle.map(([, middle]) => Math.abs(middle))) >= 5]).toEqual([seed, true]);
   });
 
-  it("bends its aisle well off the stage's axis: somewhere up the hill its middle strays 5 m and more to one side", () => {
-    for (const { seed, g } of days) expect([seed, Math.max(...g.aisle.map(([, middle]) => Math.abs(middle))) >= 5]).toEqual([seed, true]);
-  });
-
-  it("stands some apart, with grass between: three knots and more of two to twelve 4 m and more from anyone else, the drum circle and the sack ring among them; and leaves clearings in it several metres across", () => {
-    for (const { seed, g } of days) {
+  it("stands some apart, with grass between: three knots and more of two to twelve 4 m and more from anyone else, the drum circle and the sack ring among them; and leaves clearings in it several metres across, at every tier", () => {
+    for (const { seed, n, g } of tiers) {
       // Knots: those who stand within 4 m of each other, one to the next.
       const knot = g.seats.map((_, i) => i), root = (i: number): number => (knot[i] === i ? i : (knot[i] = root(knot[i])));
       for (let i = 0; i < g.seats.length; i++) for (let j = i + 1; j < g.seats.length; j++) {
@@ -282,9 +320,11 @@ describe("the gathering", () => {
       }
       const size = new Map<number, number>();
       g.seats.forEach((_, i) => size.set(root(i), (size.get(root(i)) ?? 0) + 1));
-      expect([seed, [...size.values()].filter((n) => n >= 2 && n <= 12).length >= 3]).toEqual([seed, true]);
-      for (const ring of g.groups.filter((group) => group.kind === "drums" || group.kind === "sack")) {
-        expect([seed, ring.kind, size.get(root(ring.seats[0]))]).toEqual([seed, ring.kind, ring.seats.length]);
+      expect([seed, n, [...size.values()].filter((m) => m >= 2 && m <= 12).length >= 3]).toEqual([seed, n, true]);
+      const rings = g.groups.filter((group) => group.kind === "drums" || group.kind === "sack");
+      expect([seed, n, rings.map((ring) => ring.kind).sort()]).toEqual([seed, n, ["drums", "sack"]]);
+      for (const ring of rings) {
+        expect([seed, n, ring.kind, size.get(root(ring.seats[0]))]).toEqual([seed, n, ring.kind, ring.seats.length]);
         for (const i of ring.seats) expect(root(i)).toBe(root(ring.seats[0]));
       }
       // Clearings: spots 20 to 45 m out with no one within 3 m and someone within 8 m on every side, 6 m and more apart.
@@ -295,9 +335,9 @@ describe("the gathering", () => {
         const sides = new Set(g.seats.filter((s) => Math.hypot(s.x - x, s.z - z) < 8).map((s) => (s.x >= x ? 1 : 0) + (s.z >= z ? 2 : 0)));
         if (sides.size === 4 && clearings.every(([a, b]) => Math.hypot(a - x, b - z) > 6)) clearings.push([x, z]);
       }
-      expect([seed, clearings.length >= 5]).toEqual([seed, true]);
+      expect([seed, n, clearings.length >= 5]).toEqual([seed, n, true]);
     }
-  });
+  }, 60000);
 
   it("sits groups on blankets: two to five on each, facing its way, on the crowd's ground and off the aisle, apart from the others, with no one standing on one", () => {
     let sitting = 0;
@@ -335,29 +375,47 @@ describe("the gathering", () => {
     expect(sitting).toBeGreaterThan(20 * days.length);
   }, 30000);
 
-  it("faces no one up a rise steeper than RISE, which a seated figure's feet follow, and most down the hill toward the stage", () => {
+  it("faces no one up a rise steeper than RISE, which a seated figure's feet follow, and most down the hill toward the stage, at every tier", () => {
     // A seated figure's feet reach 0.36 of its height ahead and follow the ground there up a rise of 0.12 of its height at the most
     // (crowd.js FOOT and DROP): RISE is under that, read out to past its feet.
     expect(RISE).toBeLessThan(-(DROP as number[])[0] / (FOOT as number[])[0]);
     expect(Math.max(...(RISE_AT as number[]))).toBeGreaterThanOrEqual((FOOT as number[])[0] * 1.08 * (PERSON / TALL));
-    for (const { seed, g } of days) {
-      for (const s of g.seats) expect([seed, riseAhead(s.x, s.z, s.face) <= RISE + 1e-12]).toEqual([seed, true]);
+    for (const { seed, g } of days) for (const s of g.seats) expect([seed, riseAhead(s.x, s.z, s.face) <= RISE + 1e-12]).toEqual([seed, true]);
+    for (const { seed, n, g } of tiers) {
       const down = g.seats.filter((s) => height(s.x + 0.7 * Math.sin(s.face), s.z + 0.7 * Math.cos(s.face)) < height(s.x, s.z) - 0.014).length;
-      expect([seed, down > COUNT / 2]).toEqual([seed, true]);
+      expect([seed, n, down > g.seats.length / 2]).toEqual([seed, n, true]);
     }
-  });
+  }, 30000);
 
-  it("comes front first, a group's people together, so any count of the first seats keeps the front: the first half keeps more of the front than of the middle or the back, and over the days more of the middle than of the back", () => {
-    const FRONT = (s: Seat) => s.r < 28, MIDDLE = (s: Seat) => s.r >= 28 && s.r < 40, BACK = (s: Seat) => s.r >= 40;
-    let middleKept = 0, middleAll = 0, backKept = 0, backAll = 0;
+  it("thins a group at a time: the drum circle and the sack ring first, then ?pose=among's company, then the rest so that a tier's crowd, and half of it, keeps about as much of each side of the stage's axis and of each band out from it as of the whole", () => {
+    const fromPose = (s: Seat) => Math.hypot(s.x - AMONG_POSE.x, s.z - AMONG_POSE.z);
     for (const { seed, g } of days) {
-      const half = g.seats.slice(0, COUNT / 2), share = (keep: (s: Seat) => boolean) => half.filter(keep).length / g.seats.filter(keep).length;
-      expect([seed, share(FRONT) > share(MIDDLE), share(FRONT) > share(BACK)]).toEqual([seed, true, true]);
-      middleKept += half.filter(MIDDLE).length; middleAll += g.seats.filter(MIDDLE).length;
-      backKept += half.filter(BACK).length; backAll += g.seats.filter(BACK).length;
+      // The groups in the order they come.
+      const order = [...g.groups.keys()].sort((a, b) => Math.min(...g.groups[a].seats) - Math.min(...g.groups[b].seats));
+      for (const k of order) expect(g.groups[k].seats).toEqual(g.groups[k].seats.map((_, i) => g.groups[k].seats[0] + i));
+      expect([seed, order.slice(0, 2).map((k) => g.groups[k].kind).sort()]).toEqual([seed, ["drums", "sack"]]);
+      // The company: the groups of the people nearest ?pose=among, the nearest first, until AMONG_KEEP[0] of them stand within
+      // AMONG_KEEP[1] m of it. Those not rings come next, in any order.
+      const company = new Set<number>();
+      for (const s of [...g.seats].sort((a, b) => fromPose(a) - fromPose(b))) {
+        if (g.seats.filter((o) => company.has(o.group) && fromPose(o) < AMONG_KEEP[1]).length >= AMONG_KEEP[0]) break;
+        company.add(s.group);
+      }
+      const next = [...company].filter((k) => !["drums", "sack"].includes(g.groups[k].kind));
+      expect([seed, new Set(order.slice(2, 2 + next.length))]).toEqual([seed, new Set(next)]);
+      // Then each side and each band (BANDS) keeps a share of its people within a twentieth and an eighth of the share kept of all
+      // at a tier, and within a twentieth and a fifth at half of one. Bands of fewer than ten are too few to share.
+      for (const n of [...TIERS.slice(1), ...TIERS.map((m) => Math.ceil(wholeGroups(g.seats, m) / 2))]) {
+        const k = wholeGroups(g.seats, n) as number, kept = g.seats.slice(0, k), whole = k / g.seats.length, half = !TIERS.slice(1).includes(n);
+        const share = (part: (s: Seat) => boolean) => kept.filter(part).length / g.seats.filter(part).length;
+        for (const side of [1, -1]) expect([seed, n, side, Math.abs(share((s) => Math.sign(across(s.x, s.z) || 1) === side) - whole) <= 0.05]).toEqual([seed, n, side, true]);
+        (BANDS as number[]).forEach((b, i) => {
+          const part = (s: Seat) => s.r >= (i ? (BANDS as number[])[i - 1] : 0) && s.r < b;
+          if (g.seats.filter(part).length >= 10) expect([seed, n, i, Math.abs(share(part) - whole) <= (half ? 0.2 : 0.125)]).toEqual([seed, n, i, true]);
+        });
+      }
     }
-    expect(middleKept / middleAll).toBeGreaterThan(backKept / backAll);
-  });
+  }, 30000);
 });
 
 describe("the title rule", () => {
@@ -608,7 +666,7 @@ describe("parting", () => {
     for (const i of all) if (off(i) === 0 && from(i, moved) >= 2.85 && middle(i) >= OPTS.reach + 1) expect(still(i)).toBe(0);
   });
 
-  it("makes room through a turn across the front rows: no step past the visitor's own, none in what it keeps clear of, out of reach", () => {
+  it("makes room through a turn across the front rows: no step past the visitor's own, or the pace it steps aside at where a figure holds the visitor back; none in what it keeps clear of, out of reach", () => {
     // Along the front, 17 m from the stage's centre, at 12 m/s, the stage's solids and a hand kept clear, as buildCrowd keeps them, the
     // walker held as main.js holds it.
     const kept = STAGE_COLUMN.r + OPTS.wide, p = parting(placed, { ...OPTS, keeps: [[STAGE[0], STAGE[1], kept]] });
@@ -626,7 +684,7 @@ describe("parting", () => {
       const visitorStep = Math.hypot(mx - lx, mz - lz);
       for (let i = 0; i < n; i++) {
         const [x, z] = where(p, i), d = Math.hypot(x - mx, z - mz);
-        worst = Math.max(worst, Math.hypot(p.offset[4 * i] - last[4 * i], p.offset[4 * i + 2] - last[4 * i + 2]) - visitorStep);
+        worst = Math.max(worst, Math.hypot(p.offset[4 * i] - last[4 * i], p.offset[4 * i + 2] - last[4 * i + 2]) - Math.max(visitorStep, OPTS.step / 60));
         if (p.offset[4 * i] === 0 && p.offset[4 * i + 2] === 0) continue;
         moved += 1;
         inside = Math.max(inside, kept - Math.hypot(x - STAGE[0], z - STAGE[1]));

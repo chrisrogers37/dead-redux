@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { height, STAGE, STAGE_COLUMN, TEST_POSES } from "./ground.js";
-import { gathering, keepOuts, parting, PERSON, seats } from "./seats.js";
+import { gathering, keepOuts, parting, PERSON, seats, wholeGroups } from "./seats.js";
 
 /* The crowd on the hill: a few hundred people, no two of them alike, faceless and dark like the band's silhouettes, on the slope in
    front of the stage (seats.js). One merged mesh on a Lambert material, so the crowd keeps the island's light and fog and costs one
@@ -317,6 +317,8 @@ const CHOICES = {
    of them that stand over a head, which no one in the way of a test pose's view of the band carries (inView). */
 export const PROPS = ["flag", "stand", "balloon", "finger", "hoop", "rider", "drum"], PROP_EVERY = 8;
 const OVERHEAD = ["flag", "stand", "balloon", "rider"];
+/* The one way of moving each of these props leaves its holder (person); any other prop leaves it to sway or to watch. */
+const MOVES_HOLDING = { stand: ["watch"], rider: ["sway"], hoop: ["sway"], drum: ["bob"] };
 /* What makes a figure's outline, which no two figures of a crowd share (people). */
 export const OUTLINE = ["stature", "build", "legs", "top", "hair", "beard", "head", "back", "prop"];
 /* A person as a plain figure shows them: without what its geometry leaves out, a wreath a band, braids one tail, a bedroll a pack. */
@@ -362,10 +364,9 @@ function person(r, sits, prop, stature) {
   const p = { prop, stature };
   const child = p.stature === "child", small = child || p.stature === "teen";
   p.build = child ? choose(r, only(CHOICES.build, ["slight", "average"])) : choose(r, CHOICES.build);
-  p.move = prop === "stand" ? "watch" : prop === "rider" || prop === "hoop" ? "sway" : prop === "drum" ? "bob"
-    : prop !== "none" ? choose(r, only(CHOICES.move, ["sway", "watch"]))
+  p.move = MOVES_HOLDING[prop]?.[0] ?? (prop !== "none" ? choose(r, only(CHOICES.move, ["sway", "watch"]))
     : sits ? choose(r, only(CHOICES.move, ["bob", "sway", "nod", "watch"]))
-    : child ? choose(r, only(CHOICES.move, ["bob", "wave", "spin", "clap"])) : choose(r, CHOICES.move);
+    : child ? choose(r, only(CHOICES.move, ["bob", "wave", "spin", "clap"])) : choose(r, CHOICES.move));
   p.legs = p.move === "spin" && r() < 0.85 ? choose(r, only(CHOICES.legs, ["maxi", "dress"]))
     : prop === "stand" ? choose(r, without(CHOICES.legs, ["maxi"])) : choose(r, CHOICES.legs);
   p.top = prop === "hoop" || prop === "drum" || prop === "stand" ? choose(r, only(CHOICES.top, ["shirt", "tee"])) : choose(r, CHOICES.top);
@@ -424,10 +425,6 @@ export function people(placed) {
   const closer = (list, d, j) => [...list, [d, j]].sort((a, b) => a[0] - b[0]).slice(0, 4);
   placed.forEach((seat, i) => {
     if (i % PROP_EVERY === PROP_EVERY - 1) due.push(PROPS[Math.floor(i / PROP_EVERY) % PROPS.length]);
-    /* The next prop due goes to the first figure that can carry it: one that stands, and, for what stands over a head, out of the test
-       poses' view of the band. */
-    const k = due.findIndex((prop) => !(seat.sit && prop !== "stand" && prop !== "finger") && !(OVERHEAD.includes(prop) && inView(seat.x, seat.z)));
-    const prop = k < 0 ? "none" : due.splice(k, 1)[0];
     const near = [], joins = [];
     let own = [];
     for (let j = 0; j < i; j++) {
@@ -438,6 +435,11 @@ export function people(placed) {
     }
     const patch = (move) => (own.length === 4 && own.every(([, j]) => out[j].move === move) ? 1 : 0)
       + joins.filter(([j, list]) => list.length === 4 && out[j].move === move && list.every(([, k]) => k === i || out[k].move === move)).length;
+    /* The next prop due goes to the first figure that can carry it: one that stands, for what stands over a head out of the test poses'
+       view of the band, and that can move a way the prop leaves it (person) as neither its four nearest nor another's would. */
+    const k = due.findIndex((prop) => !(seat.sit && prop !== "stand" && prop !== "finger") && !(OVERHEAD.includes(prop) && inView(seat.x, seat.z))
+      && (MOVES_HOLDING[prop] ?? ["sway", "watch"]).some((move) => patch(move) === 0));
+    const prop = k < 0 ? "none" : due.splice(k, 1)[0];
     const r = stream(0x9e3779b1 * (i + 1));
     /* A child holds a balloon or nothing, and half the balloons are children's. */
     const drawn = choose(r, CHOICES.stature);
@@ -748,8 +750,8 @@ float putX = aPlace.x + aSize.z * wide + aSize.w * deep + aPart.x, putY = aPlace
 vec4 mvPosition = modelViewMatrix * vec4(putX, putY, putZ, 1.0);
 gl_Position = projectionMatrix * mvPosition;`;
 
-/* Builds the crowd: at most `count` figures on the first seats of the day's gathering (`seed`, seats.js), kept clear of the path,
-   the bears' line and a circle round each landmark's bounds. It reads those bounds, so it runs before the landmarks merge
+/* Builds the crowd: at most `count` figures, on whole groups of the day's gathering (`seed`, seats.js) in the order it thins them,
+   none of a group cut by the path, the bears' line or a circle round each landmark's bounds. It reads those bounds, so it runs before the landmarks merge
    (landmarks.js) empties them. Each figure faces the way its seat does, and is its own person (people): the standard figure stands
    PERSON tall, a child a little over half that and the tallest 8 % more, each as broad as its build and what it wears let it be
    inside the reaches above. `plain` builds plain figures,
@@ -769,7 +771,7 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
       return [mid.x, mid.z, Math.hypot(box.max.x - box.min.x, box.max.z - box.min.z) / 2];
     }),
   };
-  const placed = seats(around, seed).slice(0, count), gathered = gathering(seed);
+  const placed = seats(around, seed, count), gathered = gathering(seed);
   const ground = { seats: placed, blankets: gathered.blankets.filter((_, k) => placed.some((p) => p.blanket === k)), aisle: gathered.aisle };
   const n = placed.length;
   const figure = figureGeometry(plain);
@@ -912,10 +914,12 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     geo.boundingSphere.radius = rest + parts.farthest[0];
   }
 
-  /* Draws the first `some` figures, which the seats' order makes the front of the crowd; `shown` is how many are drawn. */
+  /* Draws the first `some` figures, or as many fewer as the last whole group among them leaves (wholeGroups): the seats' order keeps
+     both rings and the company round ?pose=among first and thins the rest in step all over the gathering. `shown` is how many are
+     drawn. */
   let shown = n;
   function show(some) {
-    shown = Math.max(0, Math.min(n, some));
+    shown = wholeGroups(placed, Math.max(0, Math.min(n, some)));
     geo.setDrawRange(0, faces[shown]);
   }
 

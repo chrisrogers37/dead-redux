@@ -491,7 +491,7 @@ function start(gl) {
     bearSpots.length = bears.length;
     sun.castShadow = quality.shadows;
     stage.light.visible = quality.stageLight;
-    /* The seats run front first, so half the crowd is its front half. */
+    /* The seats come in the order the gathering thins, so half the crowd is the gathering thinned again, by whole groups (seats.js). */
     crowd.show(quality.fullCrowd ? crowd.count : Math.ceil(crowd.count / 2));
     /* The land's tufts and fireflies are the first thing a slow device loses half of: at the ladder's first rung, with the render scale. */
     flora.thin(quality.scale < budget.scale);
@@ -547,7 +547,7 @@ function start(gl) {
     /* Under ?pose=near-K, the song whose landmark the visitor stands by, the title its landmark is built for, and whether no other
        landmark stands in the view of it. */
     near: stat(() => (nearAt === null ? null : { index: nearAt, title: landmarkTitle(nearAt), clear: nearClear })),
-    /* The crowd: how many figures it draws (the tier's, or the front-weighted half of them once the downgrade halves it), how far it
+    /* The crowd: how many figures it draws (the tier's, or about half of them in whole groups once the downgrade halves it), how far it
        dances, the music's factor in, how far it sits, and how many figures stand off their seats for the visitor. */
     crowd: stat(() => ({ drawn: crowd.shown, dance: r3(dancing * layer2.dance), sit: r3(sitting), parted: crowd.parted })),
     /* The rig: how far it is lit; how far its beams are gathered, following the build-up as it rises and opening again over RIG_OPEN_S

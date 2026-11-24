@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import {
   BAND_AMBER, BAND_BLUR, BAND_CORE, BAND_FRAY, BAND_GLOW, BAND_HELD, BAND_LAY, BAND_REACH, BAND_TONE, bandAt, BLANKET_COLOURS, BLANKET_HELD,
-  BLANKET_REACH, BLANKET_RIM, BLANKET_SOFT, blanketAt, blanketEdgeOf, BOLT, BOLT_HALF, borderAt, buildIsland, CROWD_CELL, crowdAt, crowdMask,
+  BLANKET_REACH, BLANKET_RIM, BLANKET_SOFT, blanketAt, blanketEdgeOf, BOLT, BOLT_HALF, borderAt, buildIsland, CROWD_CELL, CROWD_OUT, CROWD_SIDE, crowdAt, crowdMask,
   FEATHER, grained, landColour, offTracks, pixelAngle, RING, SHORE, surfaceOf, takesPool, TRACK, tracksAt, TREAD, WEAR, wornAt, WORN,
 } from "../../../public/world/island.js";
 import { BAND_RANGE, BAND_SIDE, bandAway, bandMask, buildPath, layout } from "../../../public/world/path.js";
@@ -419,13 +419,13 @@ describe("the crowd's trodden grass and its blankets", () => {
       }
       expect(some(pastRoom)).toEqual([]);
       expect([seed, bare > 0.1 * deep, hardest < 0.2 * deep]).toEqual([seed, true, true]);
-      // Up the aisle's middle, where the visitor walks, trodden TREAD.aisle or more wherever it crosses the crowd's ground, every 20 cm.
+      // Up the aisle's middle, where the visitor walks, trodden 0.68 or more wherever it crosses the crowd's ground, every 20 cm.
       let walked = Infinity;
       for (let k = 0; k + 1 < g.aisle.length; k++) for (let t = 0; t < 1; t += 0.2 / Math.hypot(g.aisle[k + 1][0] - g.aisle[k][0], g.aisle[k + 1][1] - g.aisle[k][1])) {
         const [x, z] = onAxes(g.aisle[k][0] + (g.aisle[k + 1][0] - g.aisle[k][0]) * t, g.aisle[k][1] + (g.aisle[k + 1][1] - g.aisle[k][1]) * t) as number[];
         if (onCrowdGround(x, z)) walked = Math.min(walked, crowdAt(mask, x, z).trodden);
       }
-      expect([seed, walked >= TREAD.aisle - 0.02]).toEqual([seed, true]);
+      expect([seed, walked >= 0.68]).toEqual([seed, true]);
       // The mask's edge, which all the ground past it reads, is untrodden turf with no blanket near.
       const { data, width, height } = mask.image;
       for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) {
@@ -450,6 +450,15 @@ describe("the crowd's trodden grass and its blankets", () => {
     expect(hard.length).toBeGreaterThan(100);
     // Patches, not a speckle: no hard-trodden point within a metre of a light one.
     expect(light.some(([x, z]) => hard.some(([a, b]) => Math.hypot(a - x, b - z) < 1))).toBe(false);
+  });
+
+  // The tests here read some of these and hold the ground to what they make of them; this holds the values themselves.
+  it("keeps the values the trodden grass and the blankets were judged at, by the frames and the flash counts: a change to any is a change to the look, to be shot and counted again", () => {
+    expect({ WEAR, WORN, TREAD, BLANKET_COLOURS, BLANKET_RIM, BLANKET_SOFT, BLANKET_HELD, BLANKET_REACH, CROWD_CELL, CROWD_SIDE, CROWD_OUT }).toEqual({
+      WEAR: 0.75, WORN: 0x55523c, TREAD: { spread: 2.2, sit: 0.6, hard: 0.35, aisle: 0.7, walked: [0.5, 2.8], rim: [-4.2, -0.6], broad: 0.5, patchy: 0.6 },
+      BLANKET_COLOURS: [0x3b2b28, 0x28303a, 0x332f20, 0x24322e, 0x382b39, 0x3c2a30, 0x312d3e], BLANKET_RIM: [0.12, 0.32], BLANKET_SOFT: [0.02, 0.4],
+      BLANKET_HELD: [0.05, 0.15], BLANKET_REACH: 1, CROWD_CELL: 0.4, CROWD_SIDE: 51.2, CROWD_OUT: 64,
+    });
   });
 
   it("has no hard edge: no two neighbouring texels of the trodden grass differ by more than a fifth, so it eases from turf to trodden over 2 m or more, on every day", () => {

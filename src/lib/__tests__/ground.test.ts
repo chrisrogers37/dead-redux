@@ -17,7 +17,8 @@ import {
   TEST_POSES,
 } from "../../../public/world/ground.js";
 import { RING, SHORE } from "../../../public/world/island.js";
-import { across, gathering, intoAisle, onCrowdGround, seats, SPANS } from "../../../public/world/seats.js";
+import { budgetFor } from "../../../public/world/quality.js";
+import { across, COUNT, gathering, intoAisle, onCrowdGround, seats, SPANS, wholeGroups } from "../../../public/world/seats.js";
 import { PANEL } from "../../../public/world/stage.js";
 
 // The longest walk to the platform's edge that the desktop-stage recording's hold has time for (.github/screenshots/recordings.mjs):
@@ -156,14 +157,21 @@ describe("?pose=crowd", () => {
 });
 
 describe("?pose=among", () => {
-  it("stands among the crowd, off its aisle, with figures within 3 m, within the walk's bound, facing the stage and looking down", () => {
+  it("stands among the crowd, off its aisle, with two figures and more within 3 m and one within 2.23 m at every tier and half of one, within the walk's bound, facing the stage and looking down", () => {
     // On each of 150 days and the fixed day (seed 800), and three more where the day's outline would leave the pose out but that it
-    // always takes the pose's ground in (seats.js thicknessOf): someone within 3 m, and the pose off that day's winding aisle.
-    const [ax, az] = [Math.sin(FACING), Math.cos(FACING)];
+    // always takes the pose's ground in (seats.js thicknessOf): the pose off that day's winding aisle, and as close company as a
+    // phone had there before the gathering, two within 3 m and the nearest 2.23 m off, in the crowd each tier draws (crowd.js,
+    // quality.js BUDGETS) and in the half the quality ladder leaves of it (main.js).
+    const [ax, az] = [Math.sin(FACING), Math.cos(FACING)], tiers = [COUNT as number, ...["tv", "phone"].map((tier) => (budgetFor(tier) as { crowd: number }).crowd)];
     const along = (AMONG_POSE.x - STAGE[0]) * ax + (AMONG_POSE.z - STAGE[1]) * az, side = across(AMONG_POSE.x, AMONG_POSE.z) as number;
     for (const seed of [800, 511, 830, 846, ...Array.from({ length: 150 }, (_, k) => k)]) {
-      const near = (seats({ path: [], line: [], landmarks: [] }, seed) as { x: number; z: number }[]).filter((s) => Math.hypot(s.x - AMONG_POSE.x, s.z - AMONG_POSE.z) < 3);
-      expect([seed, near.length > 0]).toEqual([seed, true]);
+      for (const n of tiers) {
+        const drawn = seats({ path: [], line: [], landmarks: [] }, seed, n) as { x: number; z: number; group: number }[];
+        for (const list of [drawn, drawn.slice(0, wholeGroups(drawn, Math.ceil(drawn.length / 2)))]) {
+          const far = list.map((s) => Math.hypot(s.x - AMONG_POSE.x, s.z - AMONG_POSE.z));
+          expect([seed, n, list.length, far.filter((d) => d < 3).length >= 2, Math.min(...far) <= 2.23]).toEqual([seed, n, list.length, true, true]);
+        }
+      }
       expect([seed, intoAisle((gathering(seed) as { aisle: number[][] }).aisle, along, side) < 0]).toEqual([seed, true]);
     }
     expect(fromStage(AMONG_POSE) * Math.sin((offFront(AMONG_POSE.x, AMONG_POSE.z) * Math.PI) / 180)).toBeGreaterThan(3);

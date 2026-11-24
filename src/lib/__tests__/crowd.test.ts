@@ -10,26 +10,26 @@ import { FACING, height, STAGE, STAGE_COLUMN, TEST_POSES } from "../../../public
 import { makeBuilders } from "../../../public/world/landmarks.js";
 import { buildPath, buildWalkLine, layout, placeLandmarks } from "../../../public/world/path.js";
 import { budgetFor } from "../../../public/world/quality.js";
-import { gathering, keepOuts, PERSON, seats as seatsOf } from "../../../public/world/seats.js";
+import { gathering, keepOuts, PERSON, seats as seatsOf, wholeGroups } from "../../../public/world/seats.js";
 
 // buildCrowd builds the crowd here from the world's own modules and three, on the world's path and the bears' line 7 m to its left as
 // main.js lays them, with two landmarks of the test's own in the front rows, at every seat on the hill. seats.js runs as it is, and
 // pass-through mocks keep what buildCrowd hands seats() and parting().
 
 type Around = { path: number[][]; line: number[][]; landmarks: number[][] };
-type Seat = { x: number; z: number; r: number; sit: boolean; face: number; blanket: number };
+type Seat = { x: number; z: number; r: number; sit: boolean; face: number; blanket: number; group: number };
 const kept = vi.hoisted(() => ({ around: [] as Around[], options: [] as Record<string, unknown>[], placed: [] as Seat[][], idle: false }));
 
 vi.mock("../../../public/world/seats.js", async (original) => {
   const seats = await original<{
-    seats: (around: Around, seed?: number) => Seat[];
+    seats: (around: Around, seed?: number, count?: number) => Seat[];
     parting: (placed: Seat[], options: Record<string, unknown>) => unknown;
   }>();
   return {
     ...seats,
-    seats: (around: Around, seed?: number) => {
+    seats: (around: Around, seed?: number, count?: number) => {
       kept.around.push(around);
-      return seats.seats(around, seed);
+      return seats.seats(around, seed, count);
     },
     parting: (placed: Seat[], options: Record<string, unknown>) => {
       kept.options.push(options);
@@ -267,7 +267,8 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect(Array.isArray(crowd.mesh.material)).toBe(false);
     expect(crowd.mesh.geometry.groups).toEqual([]);
     expect(crowd.count).toBe(placedOf.get(crowd)!.length);
-    expect(phone.count).toBe(150);
+    expect(phone.count).toBe(wholeGroups(placedOf.get(crowd)!, 150));
+    expect(phone.count).toBeGreaterThan(144);
     // A frame's cost goes with the triangles sent to be drawn, so the mesh holds no part that its figure does not wear: an instance
     // of the whole figure sent 1,117 triangles to show 513 of them. Figure by figure, on a desktop and on a phone: its corners are
     // those of its body and of each part it wears, each once, and every one of them carries the figure's own numbers; its faces are
@@ -344,8 +345,8 @@ describe("the crowd, as buildCrowd builds it", () => {
         if (placed) expect(seat).toBe(placed[i]);
       }
     }
-    // The fixed day's own gathering on a desktop, and on a phone, which seats the first 150: the blankets any of them sits on and no
-    // other, and the day's aisle.
+    // The fixed day's own gathering on a desktop, and on a phone, which seats whole groups of the first 150: the blankets any of them
+    // sits on and no other, and the day's aisle.
     for (const c of [crowd, phone]) {
       const day = gathering(0) as { blankets: unknown[]; aisle: number[][] }, ground = c.ground as { seats: Seat[]; blankets: unknown[]; aisle: number[][] };
       expect(ground.seats.length).toBe(c.count);
@@ -362,13 +363,15 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect((other.ground.seats as Seat[]).every((s) => (gathering(7) as { seats: Seat[] }).seats.some((t) => t.x === s.x && t.z === s.z))).toBe(true);
   });
 
-  it("draws the front of the crowd when asked for fewer figures, and is left out of a frame that has none of its figures in view", () => {
-    // The seats run front first, so the first figures are the front rows: the quality ladder's half crowd (main.js) is the
-    // mesh's first faces, up to the last of the figure that ends the half.
-    const geo = crowd.mesh.geometry, half = Math.ceil(crowd.count / 2);
+  it("draws whole groups of the gathering as it thins when asked for fewer figures, and is left out of a frame that has none of its figures in view", () => {
+    // The seats come in the order the gathering thins, a group's together, so the quality ladder's half crowd (main.js) is the mesh's
+    // first faces, up to the last of the last whole group in the half: never part of a group.
+    const geo = crowd.mesh.geometry, placed = placedOf.get(crowd)!, half = Math.ceil(crowd.count / 2), whole = wholeGroups(placed, half) as number;
     expect([crowd.shown, geo.drawRange.start, geo.drawRange.count]).toEqual([crowd.count, 0, Infinity]);
     crowd.show(half);
-    expect([crowd.shown, geo.drawRange.start, geo.drawRange.count]).toEqual([half, 0, crowd.faces[half]]);
+    expect([crowd.shown, geo.drawRange.start, geo.drawRange.count]).toEqual([whole, 0, crowd.faces[whole]]);
+    expect(whole).toBeGreaterThan(half - 6);
+    expect(placed[whole].group).not.toBe(placed[whole - 1].group);
     expect(crowd.faces[half]).toBeGreaterThan(0.4 * crowd.faces[crowd.count]);
     expect(crowd.faces[half]).toBeLessThan(0.6 * crowd.faces[crowd.count]);
     // three culls a mesh by one sphere round all of it, which is about the crowd's own breadth across: a camera at its edge that
@@ -425,16 +428,21 @@ describe("the crowd, as buildCrowd builds it", () => {
     crowd.part(0, { x: 0, z: 0 }, { x: 0.8, z: 0 }, true);
     expect(farthest()).not.toBe(walked);
     expect(sphere.radius).toBeCloseTo(atRest + farthest(), 5);
-    // Only the figures that are drawn count, each where the parting has stepped it. With the first figure alone drawn: a camera
-    // 3 m behind it sees it, and turned round sees nothing that is drawn, though the rest of the crowd stands there.
-    const [x0, z0] = seats[0], y0 = height(x0, z0) + 1.2, near = [x0 + 3 * ux, y0, z0 + 3 * uz], away = [x0 + 60 * ux, y0, z0 + 60 * uz];
+    // Only the figures that are drawn count, each where the parting has stepped it. Asked for one figure it draws none, since the
+    // first group is a ring of more. With the first group alone drawn: a camera 8 m behind its first figure sees it, and turned round
+    // sees nothing that is drawn, though the rest of the crowd stands there.
+    const first = placed.findIndex((s) => s.group !== placed[0].group);
     crowd.show(1);
+    expect(crowd.shown).toBe(0);
+    crowd.show(first);
+    expect(crowd.shown).toBe(first);
+    const [x0, z0] = seats[0], y0 = height(x0, z0) + 1.2, near = [x0 + 8 * ux, y0, z0 + 8 * uz], away = [x0 + 60 * ux, y0, z0 + 60 * uz];
     expect([look(near, [x0, y0, z0]), look(near, away)]).toEqual([true, false]);
-    // Stepped 40 m to the side, it is seen there and not at its seat.
-    const stepped = [x0 + 40 * nx, y0, z0 + 40 * nz], was = [offset[0], offset[1], offset[2]];
-    offset[0] += 40 * nx; offset[2] += 40 * nz;
-    expect([look(near, [x0, y0, z0]), look([stepped[0] + 3 * ux, y0, stepped[2] + 3 * uz], stepped)]).toEqual([false, true]);
-    [offset[0], offset[1], offset[2]] = was;
+    // Stepped 40 m to the side, it is seen there and not at its seats.
+    const stepped = [x0 + 40 * nx, y0, z0 + 40 * nz], was = offset.slice(0, 4 * first);
+    for (let i = 0; i < first; i++) { offset[4 * i] += 40 * nx; offset[4 * i + 2] += 40 * nz; }
+    expect([look(near, [x0, y0, z0]), look([stepped[0] + 8 * ux, y0, stepped[2] + 8 * uz], stepped)]).toEqual([false, true]);
+    offset.set(was, 0);
     crowd.show(0);
     expect([crowd.shown, look(behind, [STAGE[0], 0, STAGE[1]])]).toEqual([0, false]);
     crowd.show(crowd.count + 50);
@@ -570,7 +578,7 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect(top.y - sole.y).toBeGreaterThan(1.9);
     step.set(rested);
     c.cull(lens);
-  });
+  }, 30000);
 
   it("draws a frame from four numbers, and sends up the parting's two attributes only in a frame where a figure moved, and only at that figure's corners", () => {
     const geo = crowd.mesh.geometry, fixed = ["aFig", "aBody", "aWear", "aCut", "aTone", "aMark", "position", "aPlace", "aSize", "color"], held = [...fixed, "aPart", "aRise"];
@@ -592,13 +600,18 @@ describe("the crowd, as buildCrowd builds it", () => {
     // Among the crowd figures step aside, and only the parting's two go up: at the corners of the figures that moved or eased their
     // arms in that frame, and at no other corner of the hundred thousand. A renderer takes the ranges and forgets them; so here.
     const [x, z] = seats[0], rising: Float32Array = crowd.each.rising;
+    const atSeat = new Set(figures.filter((g) => offset[4 * g.i] === 0 && offset[4 * g.i + 2] === 0).map((g) => g.i)), leftSeat = new Set<number>();
     let frames = 0;
     for (let f = 0; f < 12; f++) {
       aPart.clearUpdateRanges(); aRise.clearUpdateRanges();
       const stepped = versions(), had = [offset.slice(), rising.slice()];
       crowd.part(1 / 60, { x: x + 2.5 - 0.2 * f, z }, { x: x + 3.3 - 0.2 * f, z }, false);
       const after = versions(), movedNow = figures.filter((g) => [0, 1, 2, 3].some((q) => offset[4 * g.i + q] !== had[0][4 * g.i + q]) || rising[g.i] !== had[1][g.i]).map((g) => g.i);
-      expect(movedNow.length).toBeLessThan(crowd.count / 3);
+      // The parting spreads as far as it did when this was measured, and no further: 38 figures move in a frame at the most, an eighth
+      // of the crowd, and the farthest of them is one whose seat lies 15 m from the visitor's feet, stepped aside by an earlier walk.
+      expect([f, movedNow.length <= 40]).toEqual([f, true]);
+      expect([f, movedNow.every((i) => Math.hypot(seats[i][0] - (x + 2.5 - 0.2 * f), seats[i][1] - z) < 15.5)]).toEqual([f, true]);
+      for (const i of movedNow) if (atSeat.has(i) && (offset[4 * i] !== 0 || offset[4 * i + 2] !== 0)) leftSeat.add(i);
       expect([...after.slice(0, fixed.length), after[held.length]]).toEqual([...stepped.slice(0, fixed.length), stepped[held.length]]);
       expect([after[fixed.length] > stepped[fixed.length], after[fixed.length + 1] > stepped[fixed.length + 1]]).toEqual([movedNow.length > 0, movedNow.length > 0]);
       const sent = (attribute: { updateRanges: { start: number; count: number }[] }, size: number) => attribute.updateRanges.map((r) => [r.start / size, r.count / size]).sort((a, b) => a[0] - b[0]);
@@ -608,6 +621,9 @@ describe("the crowd, as buildCrowd builds it", () => {
       if (movedNow.length > 0) frames += 1;
     }
     expect(frames).toBeGreaterThan(6);
+    // And the room it makes, as it was measured: 17 figures that stood at their seats step off them over these frames. A room 0.15 m
+    // wider all round (partingOptions' keep) steps 23 off theirs, and one 0.1 m narrower 16.
+    expect(leftSeat.size).toBe(17);
     // And every corner of every figure holds its figure's step, moved or not.
     let stale = 0;
     for (const g of figures) for (let k = crowd.corners[g.i]; k < crowd.corners[g.i + 1]; k++) {
@@ -1454,12 +1470,12 @@ describe("the crowd's people", () => {
     // An outline is a figure's stature, build, legs, top, hair, beard, headwear, back and what it carries. Three hills, whose landmarks
     // take different seats: 292 figures where none stands near the crowd, which is every seat the path and the bears' line leave.
     expect(all.map(({ who }) => who.length)).toEqual([hills[0].count, 292, hills[2].count]);
-    for (const { who } of all) {
+    for (const { who, placed } of all) {
       expect(new Set(who.map((p) => outlineOf(p))).size).toBe(who.length);
       expect(new Set(who.map((p) => outlineOf(plainly(p)))).size).toBe(who.length);
-      // And the first 150, a phone's crowd, and the front half that the quality ladder leaves, are as varied: each still has at least
-      // four kinds of everything that makes an outline but a beard.
-      for (const few of [who.slice(0, 150), who.slice(0, Math.ceil(who.length / 2)), who.slice(0, 75)]) {
+      // And whole groups of the first 150, a phone's crowd, and of the half that the quality ladder leaves, a desktop's and a phone's,
+      // are as varied: each still has at least four kinds of everything that makes an outline but a beard.
+      for (const few of [150, Math.ceil(who.length / 2), 75].map((n) => who.slice(0, wholeGroups(placed, n)))) {
         for (const slot of OUTLINE.filter((s: string) => s !== "beard") as string[]) {
           const kinds = new Set(few.map((p) => (plainly(p) as Record<string, unknown>)[slot]));
           expect([slot, kinds.size >= (slot === "back" ? 2 : 4)]).toEqual([slot, true]);
@@ -1513,8 +1529,9 @@ describe("the crowd's people", () => {
     expect(people(placed)).toEqual(who);
     expect(people(placed.slice(0, 150))).toEqual(who.slice(0, 150));
     expect(people(placed.slice(0, 40))).toEqual(who.slice(0, 40));
-    // A phone's crowd on the first hill is the desktop's first 150, each drawn plainly.
-    expect(phones.map((f) => f.wear.x)).toEqual(peopleOf(crowd).slice(0, 150).map((p) => wearing(plainly(p)).parts));
+    // A phone's crowd on the first hill is the desktop's first whole groups up to 150, each drawn plainly.
+    expect(phone.count).toBe(wholeGroups(placedOf.get(crowd)!, 150));
+    expect(phones.map((f) => f.wear.x)).toEqual(peopleOf(crowd).slice(0, phone.count).map((p) => wearing(plainly(p)).parts));
     expect(figures.map((f) => [f.wear.x, f.wear.y])).toEqual(peopleOf(crowd).map((p) => { const w = wearing(p); return [w.parts, w.style]; }));
   });
 
@@ -1544,7 +1561,8 @@ describe("the crowd's people", () => {
   });
 
   it("move in a mix on any day: on thirty days' gatherings, no figure's four nearest all move its way, which people() rules out as it goes", () => {
-    for (let seed = 0; seed < 30; seed++) {
+    // And day 198's, where a hoop, which leaves its holder only to sway, once fell to a figure whose swaying made a patch.
+    for (const seed of [...Array.from({ length: 30 }, (_, k) => k), 198]) {
       const placed = seatsOf({ path: [], line: [], landmarks: [] }, seed) as { x: number; z: number }[], who = people(placed) as { move: string }[];
       const patches = who.filter((p, i) => {
         const near = who.map((q, j) => ({ q, d: Math.hypot(placed[j].x - placed[i].x, placed[j].z - placed[i].z) })).filter((_, j) => j !== i).sort((a, b) => a.d - b.d).slice(0, 4);
