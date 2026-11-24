@@ -4,17 +4,20 @@ import * as THREE from "three";
 import { BAND_POSE, BAND_POSE_PHONE } from "../../../.github/screenshots/band.mjs";
 import { buildBand } from "../../../public/world/band.js";
 import { FACING, FIRST_EYE, height, SHELF_Y, STAGE, TEST_POSES } from "../../../public/world/ground.js";
-import { budgetFor } from "../../../public/world/quality.js";
-import { FLOOR, PANEL } from "../../../public/world/stage.js";
+import { budgetFor, stepDown } from "../../../public/world/quality.js";
+import { buildStage, FLOOR, PANEL } from "../../../public/world/stage.js";
 
 // The band as the shoot's devices show it (band.js): nothing in the world is antialiased, so a part of a player is drawn a whole pixel
 // at a time, black where the pixel's middle is inside one of its triangles. A phone draws its canvas at 0.85 of its pixels
 // (quality.js) and its browser scales that up to the screen, mixing the four pixels round each of the screen's (bilinear). The
-// screenshot review reads a pixel of the band as near-black where it is 95 % band or more, and a piece of near-black of 12 px or
-// less, 8-connected, as a speck: a part that came apart from its player.
+// screenshot review reads a pixel as near-black where it is under 60 of 255, and a piece of near-black of 12 px or less,
+// 8-connected, as a speck: a part that came apart from its player. In the shoot's frames the band is 11 on the canvas, the light
+// panel behind it 150 to 166 and the floor 40 to 74 at night, so a screen pixel of the band reads near-black where it is two thirds
+// band or more over the panel, and a quarter or more over the floor.
 //
 // Here the band stands where stage.js builds it and is drawn from the shoot's own cameras at the stage's poses, at 16 places of the
-// pixel grid under it (a quarter of a pixel apart each way), at rest and through a bar of playing.
+// pixel grid under it (a quarter of a pixel apart each way), at rest and through a bar of playing, with what main.js fits to the
+// canvas fitted to each camera's (band.js `fit`).
 
 type Vec = { x: number; y: number; z: number };
 type Camera = { name: string; pose: string; at: number[]; look: number[]; fov: number; aspect: number; cols: number; rows: number; screen: number };
@@ -40,38 +43,52 @@ const CAMERAS: Camera[] = [
 const FLASH_CAMERAS: Camera[] = [
   { name: "phone stage", pose: "stage", at: [34.634, 24.776, -30.111], look: [0.6872, -0.41303, -0.59763], fov: 75, aspect: 0.46209, cols: 332, rows: 717, screen: 780 / 332 },
 ];
+// The canvas's pixel, in rad of the view's height at its middle, which main.js fits the band to (band.js `fit`).
+const pixelOf = (cam: Camera) => (2 * Math.tan((cam.fov * Math.PI) / 360)) / cam.rows;
+// A phone's cameras at each render scale its quality steps down through (quality.js stepDown), to half its pixels from rung 3 on,
+// where the crashes stood alone in the air without their poles from the back of the crowd: the same view on a smaller canvas, which
+// the browser scales up the more.
+const LADDER: number[] = [];
+for (let q = budgetFor("phone"); q && !LADDER.includes(q.scale); q = stepDown(q)) LADDER.push(q.scale);
+const RUNGS: Camera[] = LADDER.slice(1).flatMap((scale, k) => [...CAMERAS.filter((c) => c.name.startsWith("phone")), ...FLASH_CAMERAS].map((c) => {
+  const [wide, high] = c.name.startsWith("phone-360") ? [360, 740] : [390, 844], cols = Math.round(wide * scale);
+  return { ...c, name: `${c.name} at rung ${k + 1}`, cols, rows: Math.round(high * scale), screen: (wide * 2) / cols };
+}));
 // The band's poses, first person, as the walk's own view has them (main.js placeWalker), and the named test poses (ground.js).
 const POSES: Record<string, { x: number; z: number; heading: number; pitch: number }> = { ...TEST_POSES, band: BAND_POSE, "band phone": BAND_POSE_PHONE };
 
-// The band on the stage, played `seconds` at 96 a minute from its rest, and each of its triangles in the world: its three corners, the
-// player it is of (6 for the monitors, which are no one's), whether it is of a player's trunk (the body and the head), and whether it
-// is of a drummer's cymbal or pole.
-function band(seconds: number) {
+// The band on the stage, fitted to a canvas whose pixel is `perPx` rad (none, as built), played `seconds` at 96 a minute from its rest,
+// and each of its triangles in the world: its three corners, the player it is of (6 for the monitors, which are no one's), whether it
+// is of a player's trunk (the body and the head), whether it is of a drummer's cymbal or pole ("cymbal" or "pole", else ""), and the
+// name of the bone it is of ("" for none).
+type Tri = { at: Vec[]; owner: number; trunk: boolean; crash: string; bone: string };
+function band(seconds: number, perPx = 0) {
   const stage = new THREE.Group();
   stage.position.set(STAGE[0], SHELF_Y, STAGE[1]);
   stage.rotation.y = FACING;
   const built = buildBand(stage, FLOOR);
+  built.fit(perPx);
   let beats = 0;
   for (let frame = 1; frame <= Math.round(seconds * 60); frame++) built.move(1 / 60, frame / 60, (beats += 96 / 3600), true);
   stage.updateMatrixWorld(true);
-  const tris: { at: Vec[]; owner: number; trunk: boolean; crash: boolean }[] = [];
-  const push = (corner: { count: number }, m: unknown, owner: number, trunk: boolean, crash = false, from = 0, count = corner.count) => {
-    for (let i = from; i < from + count; i += 3) tris.push({ at: [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(corner, i + k).applyMatrix4(m)), owner, trunk, crash });
+  const tris: Tri[] = [];
+  const push = (corner: { count: number }, m: unknown, owner: number, trunk: boolean, crash = "", bone = "", from = 0, count = corner.count) => {
+    for (let i = from; i < from + count; i += 3) tris.push({ at: [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(corner, i + k).applyMatrix4(m)), owner, trunk, crash, bone });
   };
   const still = built.still.geometry.getAttribute("position");
-  for (const part of built.still.userData.parts) push(still, built.still.matrixWorld, part.by ?? 6, part.of === "head", part.of === "kit" && ["cymbal", "pole"].includes(part.as), part.from, part.count);
+  for (const part of built.still.userData.parts) push(still, built.still.matrixWorld, part.by ?? 6, part.of === "head", part.of === "kit" && ["cymbal", "pole"].includes(part.as) ? part.as : "", "", part.from, part.count);
   built.players.forEach((p: { body: { geometry: { getAttribute(name: string): { count: number } }; matrixWorld: unknown } }, k: number) => push(p.body.geometry.getAttribute("position"), p.body.matrixWorld, k, true));
   const limb = built.limbs.geometry.getAttribute("position"), m = new THREE.Matrix4();
-  built.bones.forEach((bone: { of: number }, k: number) => {
+  built.bones.forEach((bone: { of: number; name: string }, k: number) => {
     built.limbs.getMatrixAt(k, m);
-    push(limb, m.clone().premultiply(stage.matrixWorld), bone.of, false);
+    push(limb, m.clone().premultiply(stage.matrixWorld), bone.of, false, "", bone.name);
   });
   return tris;
 }
 
 // The canvas's pixels the band covers, from a camera, with the grid shifted `dx`, `dy` of a pixel: for each, the players whose parts
-// cover it and the players whose trunks do, one bit a player; and whether a cymbal or a pole of a kit covers it.
-function draw(tris: ReturnType<typeof band>, cam: Camera, dx = 0, dy = 0) {
+// cover it and the players whose trunks do, one bit a player; and whether a cymbal (1) or a pole (2) of a kit covers it.
+function draw(tris: Tri[], cam: Camera, dx = 0, dy = 0) {
   const W = cam.cols, H = cam.rows, camera = new THREE.PerspectiveCamera(cam.fov, cam.aspect, 0.5, 900);
   camera.position.fromArray(cam.at);
   camera.lookAt(new THREE.Vector3().fromArray(cam.at).add(new THREE.Vector3().fromArray(cam.look)));
@@ -91,7 +108,7 @@ function draw(tris: ReturnType<typeof band>, cam: Camera, dx = 0, dy = 0) {
       if (((p[0][0] - p[2][0]) * (qy - p[2][1]) - (p[0][1] - p[2][1]) * (qx - p[2][0])) / area < 0) continue;
       mask[y * W + x] |= 1 << owner;
       if (trunk) trunks[y * W + x] |= 1 << owner;
-      if (crash) crashes[y * W + x] = 1;
+      if (crash) crashes[y * W + x] |= crash === "cymbal" ? 1 : 2;
       box.x0 = Math.min(box.x0, x); box.x1 = Math.max(box.x1, x); box.y0 = Math.min(box.y0, y); box.y1 = Math.max(box.y1, y);
     }
   }
@@ -117,26 +134,127 @@ function pieces(W: number, H: number, on: (o: number) => boolean) {
   return out;
 }
 
-// The specks a device shows: the band drawn on the canvas, scaled to the screen as its browser scales it, and the near-black pieces
-// of 12 px or less there.
-function specks(tris: ReturnType<typeof band>, cam: Camera, dx: number, dy: number) {
-  const { W, H, mask, box } = draw(tris, cam, dx, dy), k = cam.screen;
-  const covered = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= H || !mask[y * W + x] ? 0 : 1);
+// A camera as three has it.
+function lens(cam: Camera) {
+  const camera = new THREE.PerspectiveCamera(cam.fov, cam.aspect, 0.5, 900);
+  camera.position.fromArray(cam.at);
+  camera.lookAt(new THREE.Vector3().fromArray(cam.at).add(new THREE.Vector3().fromArray(cam.look)));
+  camera.updateMatrixWorld(true);
+  return camera;
+}
+
+// The light panel on a camera's canvas, with the grid shifted `dx`, `dy` of a pixel: whether a point of the canvas is inside it.
+function panelOn(cam: Camera, dx = 0, dy = 0) {
+  const camera = lens(cam), q = new THREE.Vector3();
+  const corners = [[-1, 0], [1, 0], [1, 1], [-1, 1]].map(([sx, sy]) => {
+    q.set((sx * PANEL.w) / 2, PANEL.y - PANEL.h / 2 + sy * PANEL.h, PANEL.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), FACING).add(new THREE.Vector3(STAGE[0], SHELF_Y, STAGE[1])).project(camera);
+    return [((q.x + 1) / 2) * cam.cols + dx, ((1 - q.y) / 2) * cam.rows + dy];
+  });
+  return (x: number, y: number) => corners.every(([ax, ay], i) => { const [bx, by] = corners[(i + 1) % 4]; return (bx - ax) * (y - ay) - (by - ay) * (x - ax) <= 0; }) ||
+    corners.every(([ax, ay], i) => { const [bx, by] = corners[(i + 1) % 4]; return (bx - ax) * (y - ay) - (by - ay) * (x - ax) >= 0; });
+}
+
+// What the shoot's frames show, of 255: the band on the canvas, the light panel behind it and the floor, each as bright as it reads
+// at its brightest in them at night; and under what a screen's pixel reads as near-black.
+const SHADE = { band: 11, panel: 155, floor: 75, black: 60 };
+
+// The specks a device shows: the band drawn on the canvas over the panel or the floor, scaled to the screen as its browser scales it,
+// and the near-black pieces of 12 px or less there.
+function specks(tris: Tri[], cam: Camera, dx: number, dy: number) {
+  const { W, H, mask, box } = draw(tris, cam, dx, dy), k = cam.screen, lit = panelOn(cam, dx, dy);
+  const shade = (x: number, y: number) => (x >= 0 && y >= 0 && x < W && y < H && mask[y * W + x] ? SHADE.band : lit(x + 0.5, y + 0.5) ? SHADE.panel : SHADE.floor);
   const sx0 = Math.floor((box.x0 - 1) * k), sy0 = Math.floor((box.y0 - 1) * k), sW = Math.ceil((box.x1 + 2) * k) - sx0, sH = Math.ceil((box.y1 + 2) * k) - sy0;
   const dark = new Uint8Array(sW * sH);
   for (let j = 0; j < sH; j++) for (let i = 0; i < sW; i++) {
     const u = (sx0 + i + 0.5) / k - 0.5, v = (sy0 + j + 0.5) / k - 0.5, u0 = Math.floor(u), v0 = Math.floor(v), fu = u - u0, fv = v - v0;
-    const share = (1 - fu) * (1 - fv) * covered(u0, v0) + fu * (1 - fv) * covered(u0 + 1, v0) + (1 - fu) * fv * covered(u0, v0 + 1) + fu * fv * covered(u0 + 1, v0 + 1);
-    if (share >= 0.95) dark[j * sW + i] = 1;
+    const value = (1 - fu) * (1 - fv) * shade(u0, v0) + fu * (1 - fv) * shade(u0 + 1, v0) + (1 - fu) * fv * shade(u0, v0 + 1) + fu * fv * shade(u0 + 1, v0 + 1);
+    if (value < SHADE.black) dark[j * sW + i] = 1;
   }
   return pieces(sW, sH, (o) => dark[o] === 1).filter((piece) => piece.length <= 12).length;
 }
 
+// The stage's own parts as stage.js builds them, as triangles in the world, each with what it shows as: the stage's black, as dark as
+// the band (the roof, the back wall and the PA stacks), the light panel, or the rest of what stands between a camera and what is
+// behind it (the platform and the posts).
+function stageParts() {
+  const scene = new THREE.Scene();
+  const built = buildStage(scene, null, false, new THREE.MeshBasicMaterial(), { uC0: { value: null }, uC1: { value: null } });
+  scene.updateMatrixWorld(true);
+  const out: { at: Vec[]; shows: number }[] = [];
+  type Part = { isMesh?: boolean; matrixWorld: unknown; geometry: { index: unknown; toNonIndexed(): Part["geometry"]; getAttribute(name: string): { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number } | undefined } };
+  const push = (o: Part, shows: (i: number) => number) => {
+    const geometry = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry, corner = geometry.getAttribute("position")!;
+    for (let i = 0; i < corner.count; i += 3) out.push({ at: [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(corner, i + k).applyMatrix4(o.matrixWorld)), shows: shows(i) });
+  };
+  // The stage's still parts are one mesh, coloured by its vertices (landmarks.js mergeStill); its black is the darkest of them.
+  built.group.traverse((o: Part) => {
+    const colour = o.isMesh ? o.geometry.getAttribute("color") : undefined;
+    if (colour) push(o, (i) => (Math.max(colour.getX(i), colour.getY(i), colour.getZ(i)) < 0.05 ? STAGE_BLACK : STAGE_ELSE));
+  });
+  push(built.panel, () => STAGE_PANEL);
+  return out;
+}
+// The band and the stage drawn together from a camera, nearest first: for each pixel of the canvas, the player whose part shows there
+// (6 the monitors), or NONE, or what of the stage shows there (STAGE_BLACK, STAGE_PANEL or STAGE_ELSE); and, where the band shows,
+// its triangle.
+const NONE = -1, STAGE_BLACK = -2, STAGE_PANEL = -3, STAGE_ELSE = -4;
+const STAGE_PARTS = stageParts();
+function drawWithStage(tris: Tri[], cam: Camera) {
+  const W = cam.cols, H = cam.rows, e = new THREE.Matrix4().multiplyMatrices(lens(cam).projectionMatrix, lens(cam).matrixWorldInverse).elements;
+  const depth = new Float32Array(W * H).fill(Infinity), shows = new Int8Array(W * H).fill(NONE), whose: (Tri | null)[] = new Array(W * H).fill(null);
+  const p = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  const fill = (at: Vec[], tag: number, tri: Tri | null) => {
+    for (let k = 0; k < 3; k++) {
+      const v = at[k], w = e[3] * v.x + e[7] * v.y + e[11] * v.z + e[15];
+      if (w <= 0.5) return;
+      p[k][0] = (((e[0] * v.x + e[4] * v.y + e[8] * v.z + e[12]) / w + 1) / 2) * W;
+      p[k][1] = ((1 - (e[1] * v.x + e[5] * v.y + e[9] * v.z + e[13]) / w) / 2) * H;
+      p[k][2] = 1 / w;
+    }
+    const area = (p[1][0] - p[0][0]) * (p[2][1] - p[0][1]) - (p[1][1] - p[0][1]) * (p[2][0] - p[0][0]);
+    if (area === 0) return;
+    const minx = Math.max(0, Math.ceil(Math.min(p[0][0], p[1][0], p[2][0]) - 0.5)), maxx = Math.min(W - 1, Math.floor(Math.max(p[0][0], p[1][0], p[2][0]) - 0.5));
+    const miny = Math.max(0, Math.ceil(Math.min(p[0][1], p[1][1], p[2][1]) - 0.5)), maxy = Math.min(H - 1, Math.floor(Math.max(p[0][1], p[1][1], p[2][1]) - 0.5));
+    for (let y = miny; y <= maxy; y++) for (let x = minx; x <= maxx; x++) {
+      const qx = x + 0.5, qy = y + 0.5;
+      const l0 = ((p[2][0] - p[1][0]) * (qy - p[1][1]) - (p[2][1] - p[1][1]) * (qx - p[1][0])) / area;
+      const l1 = ((p[0][0] - p[2][0]) * (qy - p[2][1]) - (p[0][1] - p[2][1]) * (qx - p[2][0])) / area;
+      const l2 = 1 - l0 - l1;
+      if (l0 < 0 || l1 < 0 || l2 < 0) continue;
+      const d = 1 / (l0 * p[0][2] + l1 * p[1][2] + l2 * p[2][2]), o = y * W + x;
+      if (d < depth[o]) { depth[o] = d; shows[o] = tag; whose[o] = tri; }
+    }
+  };
+  for (const t of STAGE_PARTS) fill(t.at, t.shows, null);
+  for (const t of tris) fill(t.at, t.owner, t);
+  return { W, H, shows, whose };
+}
+
 // At rest, as the band is built (and as a visitor who asks for reduced motion sees it), and at four moments through a bar at 96 a
-// minute: each stick at its top once, the keys' hands and the strumming arms at both ends of their swings.
+// minute: each stick at its top once, the strumming arms at both ends of their swings, and each of the keys' hands at the top of
+// its lift, the left at 1.25 s and the right at 2.5 s.
 const MOMENTS = [0, 0.6, 1.25, 1.9, 2.5];
 const PHASES = [0, 0.25, 0.5, 0.75].flatMap((dx) => [0, 0.25, 0.5, 0.75].map((dy) => [dx, dy]));
-const drawn = MOMENTS.map((seconds) => band(seconds));
+// The band at those moments, fitted to a camera's canvas as main.js fits it, made once a canvas.
+const films = new Map<number, Tri[][]>();
+function drawn(cam: Camera) {
+  const perPx = pixelOf(cam);
+  if (!films.has(perPx)) films.set(perPx, MOMENTS.map((seconds) => band(seconds, perPx)));
+  return films.get(perPx)!;
+}
+
+// The least of the keys player that shows at the top of each lift, in the canvas's pixels: the forearm and the hand against the panel,
+// and the body below the shoulders' line. Measured with the band as it is built, the left lift and the right: from the stage pose 33
+// and 32, and 103 and 70, on a desktop, and 13 and 14, and 15 and 9, on a phone; from the front of the crowd 174 and 165, and 437 and
+// 424, on a desktop, and 71 and 69, and 72 and 63, on a phone. The band before it lifted a hand 26 cm, over its trunk from the front,
+// and with its organ as high as it stood (the lower keys at 0.9 m), the body showed 252 and 242 from the front of the crowd on a
+// desktop, 70 and 52 from the stage pose, and 42 and 47 from the front on a phone.
+const LIFT_LEAST: Record<string, { arm: number; body: number }> = {
+  "desktop stage": { arm: 25, body: 56 },
+  "desktop band": { arm: 130, body: 340 },
+  "phone band": { arm: 55, body: 50 },
+  "phone stage": { arm: 10, body: 7 },
+};
 
 beforeAll(() => {
   // quality.js reads the device's pixel ratio for a desktop's budget.
@@ -167,32 +285,31 @@ describe("the band's outlines, as the shoot's devices draw them", () => {
   });
 
   // Measured with the band as it is built, over these 80 frames: none on a desktop or from the front of the stage on a phone; from the
-  // back of the crowd on a phone, 0.68 and 0.55 a frame on the 390- and the 360-wide phone, three at worst on each, and none in 41 and
-  // 49 of the 80 frames. Over 288 frames (18 moments 0.3 s apart) it was 0.64 and 0.54 a frame there, four and three at worst, none in
-  // 53 % and 60 % of them; main's band, before this one, 1.43 and 0.79, five and two at worst, none in 32 % and 41 %; the first build
-  // of this one 8.2 and 6.1, twelve and nine at worst, and none on a desktop from the hill only one frame in four. A move that holds
-  // at its ends (band.js MOVE) holds a part where it comes apart longer than one that eased through: with the moves eased, 0.59 and
-  // 0.48 over the 288.
+  // back of the crowd on a phone, 0.42 and 0.61 a frame on the 390- and the 360-wide phone, two at worst on each, and none in 49 and
+  // 41 of the 80 frames: the tip of a guitar's or the bass's neck. The band before it, whose necks reached further and whose crashes'
+  // poles were not fitted to the canvas, 4.46 and 3.58 a frame, six at worst, and in every frame; the shoot's frames showed three of
+  // them. A move that holds at its ends (band.js MOVE) holds a part where it comes apart longer than one that eased
+  // through.
   it("comes apart nowhere on a desktop, nor on a phone at the front of the stage: no near-black speck of 12 px or less at any of 16 places of the pixel grid, at rest or through a bar", () => {
     const found: string[] = [];
     for (const cam of CAMERAS.filter((c) => !c.name.endsWith("crowd") || c.name.startsWith("desktop"))) {
-      drawn.forEach((tris, t) => PHASES.forEach(([dx, dy]) => { const n = specks(tris, cam, dx, dy); if (n) found.push(`${cam.name} at ${MOMENTS[t]} s, ${dx},${dy}: ${n}`); }));
+      drawn(cam).forEach((tris, t) => PHASES.forEach(([dx, dy]) => { const n = specks(tris, cam, dx, dy); if (n) found.push(`${cam.name} at ${MOMENTS[t]} s, ${dx},${dy}: ${n}`); }));
     }
     expect(found).toEqual([]);
   }, 120_000);
 
-  it("comes apart little on a phone from the back of the crowd: under 0.8 specks a frame, at most four in any, and none in two frames in five or more", () => {
+  it("comes apart little on a phone from the back of the crowd: under 0.7 specks a frame, at most two in any, and none in two frames in five or more", () => {
     for (const cam of CAMERAS.filter((c) => c.name.startsWith("phone") && c.name.endsWith("crowd"))) {
-      const counts = drawn.flatMap((tris) => PHASES.map(([dx, dy]) => specks(tris, cam, dx, dy)));
+      const counts = drawn(cam).flatMap((tris) => PHASES.map(([dx, dy]) => specks(tris, cam, dx, dy)));
       const mean = counts.reduce((sum, n) => sum + n, 0) / counts.length;
-      expect([cam.name, mean < 0.8, Math.max(...counts) <= 4, counts.filter((n) => n === 0).length >= (2 * counts.length) / 5]).toEqual([cam.name, true, true, true]);
+      expect([cam.name, mean < 0.7, Math.max(...counts) <= 2, counts.filter((n) => n === 0).length >= (2 * counts.length) / 5]).toEqual([cam.name, true, true, true]);
     }
   }, 60_000);
 
   it("keeps each player an outline of their own from every pose, at rest and through a bar: no piece of black holds two players' trunks, and none holds no trunk but a crash on its pole", () => {
     const merged: string[] = [], apart: string[] = [];
     for (const cam of CAMERAS) {
-      drawn.forEach((tris, t) => {
+      drawn(cam).forEach((tris, t) => {
         const { W, H, mask, trunks, crashes } = draw(tris, cam);
         for (const piece of pieces(W, H, (o) => mask[o] !== 0)) {
           let trunk = 0, owners = 0;
@@ -208,6 +325,69 @@ describe("the band's outlines, as the shoot's devices draw them", () => {
     // that it reads as a cymbal (the first's stands on its kit's floor tom), and a monitor at the stage's lip, which is no one's.
     expect([...new Set(apart)].sort()).toEqual(["3 crash", "6"]);
   }, 60_000);
+
+  // Measured with the band as it is built: four pixels at the closest, from among the crowd on a desktop (the first guitar, by the
+  // left PA stack) and from the back of the crowd at half a phone's pixels (the keys player, by the right of the back wall). In the
+  // band before it the keys' cabinet ran into the back wall's black from the front of the crowd.
+  it("keeps the band clear of the stage's own black from every camera and at every rung of a phone's: two pixels of something else at the least between any part of the band and the roof, the back wall or a PA stack", () => {
+    const near = new Set<string>();
+    for (const cam of [...CAMERAS, ...FLASH_CAMERAS, ...RUNGS]) {
+      drawn(cam).forEach((tris, t) => {
+        const { W, H, shows } = drawWithStage(tris, cam);
+        for (let o = 0; o < W * H; o++) {
+          if (shows[o] < 0) continue;
+          const x = o % W, y = (o - x) / W;
+          for (let Y = Math.max(0, y - 2); Y <= Math.min(H - 1, y + 2); Y++) for (let X = Math.max(0, x - 2); X <= Math.min(W - 1, x + 2); X++) {
+            if (shows[Y * W + X] === STAGE_BLACK) near.add(`${cam.name} at ${MOMENTS[t]} s: ${shows[o]}`);
+          }
+        }
+      });
+    }
+    expect([...near]).toEqual([]);
+  }, 120_000);
+
+  it("shows the keys player playing from the front of the crowd and from the stage pose, on a desktop and on a phone: at the top of each lift the forearm and the hand stand against the panel, and the body shows from below the shoulders", () => {
+    const built = buildBand(new THREE.Group(), FLOOR), keys = built.players.findIndex((p: { plays: string }) => p.plays === "keys");
+    for (const cam of [...CAMERAS.filter((c) => c.pose.startsWith("band") || c.pose === "stage"), ...FLASH_CAMERAS]) {
+      const least = LIFT_LEAST[cam.name];
+      for (const [side, t] of [["left", 2], ["right", 4]] as [string, number][]) {
+        const tris = drawn(cam)[t], arm = new RegExp(`^${side} (upper arm|forearm|hand)$`);
+        const full = drawWithStage(tris, cam), bare = drawWithStage(tris.filter((x) => !(x.owner === keys && arm.test(x.bone))), cam);
+        // The forearm and the hand where, without the arm, the panel shows.
+        let lifted = 0;
+        for (let o = 0; o < full.W * full.H; o++) {
+          const tri = full.whose[o];
+          if (tri && tri.owner === keys && (tri.bone === `${side} forearm` || tri.bone === `${side} hand`) && bare.shows[o] === STAGE_PANEL) lifted++;
+        }
+        // The body where it shows below the shoulders' line, which is the upper arms' tops on the canvas.
+        const tops = tris.filter((x) => x.owner === keys && / upper arm$/.test(x.bone)).flatMap((x) => x.at.map((v) => new THREE.Vector3().copy(v).project(lens(cam)).y));
+        const shoulders = ((1 - Math.max(...tops)) / 2) * full.H + 0.15 * (((Math.max(...tops) - Math.min(...tops)) / 2) * full.H);
+        let body = 0;
+        for (let o = 0; o < full.W * full.H; o++) { const tri = full.whose[o]; if (tri && tri.owner === keys && tri.trunk && Math.floor(o / full.W) > shoulders) body++; }
+        expect([cam.name, side, lifted >= least.arm, body >= least.body]).toEqual([cam.name, side, true, true]);
+      }
+    }
+  }, 60_000);
+
+  // CI's phone at rung 5, half its pixels, from the back of the crowd at daybreak: each crash stood alone in the air, its pole under
+  // half a pixel (band.js `fit`).
+  it("keeps every part on its player at every rung a phone steps down to, from every pose: no piece of black holds no trunk but a monitor, or a crash on its pole", () => {
+    const apart = new Set<string>();
+    for (const cam of [...CAMERAS.filter((c) => c.name.startsWith("phone")), ...FLASH_CAMERAS, ...RUNGS]) {
+      drawn(cam).forEach((tris, t) => PHASES.forEach(([dx, dy]) => {
+        const { W, H, mask, trunks, crashes } = draw(tris, cam, dx, dy);
+        for (const piece of pieces(W, H, (o) => mask[o] !== 0)) {
+          let trunk = 0, owners = 0, kit = 0;
+          for (const o of piece) { trunk |= trunks[o]; owners |= mask[o]; kit |= crashes[o]; }
+          if (trunk || owners === 1 << 6) continue;
+          // A crash on its pole: its cymbal and its pole, and nothing else.
+          if (kit === 3 && piece.every((o) => crashes[o])) continue;
+          apart.add(`${cam.name} at ${MOMENTS[t]} s: ${[0, 1, 2, 3, 4, 5, 6].filter((k) => owners & (1 << k)).join(" and ")}${kit ? ` (${["", "cymbal", "pole", "cymbal and pole"][kit]})` : ""}`);
+        }
+      }));
+    }
+    expect([...apart]).toEqual([]);
+  }, 120_000);
 });
 
 // The band's own flicker (CLAUDE.md, "Motion and flashes"), as a GPU draws it: with no antialiasing, and each corner of a triangle put
@@ -219,13 +399,14 @@ describe("the band's outlines, as the shoot's devices draw them", () => {
 // counter's traces, and anything else 0.05. Only the phone's tier is read: a desktop draws a pixel to a pixel, and one pixel of a
 // 2x2 block that flips changes its luminance by 0.07 at the most.
 type Frame = Float64Array;
-// The band's triangles' corners in the world, frame by frame: played from rest at `bpm` for `lead` seconds unrecorded, then each frame
-// of `seconds` more, at `then` a minute.
+// The band's triangles' corners in the world, frame by frame, fitted to a phone's canvas at its own scale: played from rest at `bpm` for
+// `lead` seconds unrecorded, then each frame of `seconds` more, at `then` a minute.
 function frames(bpm: number, lead: number, then: number, seconds: number) {
   const stage = new THREE.Group();
   stage.position.set(STAGE[0], SHELF_Y, STAGE[1]);
   stage.rotation.y = FACING;
   const built = buildBand(stage, FLOOR), m = new THREE.Matrix4(), v = new THREE.Vector3(), out: Frame[] = [];
+  built.fit(pixelOf(FLASH_CAMERAS[0]));
   let beats = 0, frame = 0;
   const step = (rate: number) => built.move(1 / 60, ++frame / 60, (beats += rate / 3600), true);
   for (let i = 0; i < lead * 60; i++) step(bpm);
@@ -320,8 +501,9 @@ function flicker(film: Frame[], cam: Camera, dx: number, dy: number) {
 }
 
 describe("the band's own flicker, as a GPU draws it", () => {
-  // Measured with the band as it is built: four at the most, at 96 a minute and at the slowest count, over these cameras and grids.
-  // With its moves eased to a stop and away again, 10 and 22; as the screenshot review saw it, 4 and 6.
+  // Measured with the band as it is built: five at the most, at 96 a minute and at the slowest count, over these cameras and grids;
+  // with the keys' hands lifting a quarter of the way, four. With its moves eased to a stop and away again, 10 and 22; as the
+  // screenshot review saw it, 4 and 6.
   it("swings no block of a phone's screen more than five times in a second, from the stage pose and the back of the crowd, at 96 a minute and at the slowest count", () => {
     const found: string[] = [];
     // At 96 a minute the count is the beat, 1.6 a second; at 91 after 150 the count keeps half time, 0.76 a second, as slow as it

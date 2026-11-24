@@ -821,22 +821,32 @@ describe("the band's playing", () => {
     expect(after(first[0], second)).toBeCloseTo(1, 1);
   });
 
-  it("lifts the keys' hands in turn: each is on the keys while the other is at its top, and the two are never both over halfway up", () => {
+  it("lifts the keys' hands in turn, each from its keys to beside the head: each is on the keys while the other is at its top, and the two are never both much over halfway up", () => {
     const { band, play } = stand();
     const keys = band.players.findIndex((p: { plays: string }) => p.plays === "keys");
     const left = boneNamed(band, keys, "left hand"), right = boneNamed(band, keys, "right hand");
-    const rest = { left: ends(band, left).b.y, right: ends(band, right).b.y };
+    const rest = { left: ends(band, left).b.y, right: ends(band, right).b.y }, shoulder = ends(band, boneNamed(band, keys, "left upper arm")).a.y;
+    const still = band.still.geometry.getAttribute("position");
+    let crown = -Infinity;
+    for (const part of band.still.userData.parts) if (part.of === "head" && part.by === keys) for (let i = part.from; i < part.from + part.count; i++) crown = Math.max(crown, still.getY(i));
     play(2, 96);
-    const lift: { left: number; right: number }[] = [];
-    play(10, 96, true, () => lift.push({ left: ends(band, left).b.y - rest.left, right: ends(band, right).b.y - rest.right }));
+    const lift: { left: number; right: number }[] = [], wrist = { left: -Infinity, right: -Infinity }, tip = { left: -Infinity, right: -Infinity };
+    play(10, 96, true, () => {
+      lift.push({ left: ends(band, left).b.y - rest.left, right: ends(band, right).b.y - rest.right });
+      for (const [name, k] of [["left", left], ["right", right]] as ["left" | "right", number][]) { wrist[name] = Math.max(wrist[name], ends(band, k).a.y); tip[name] = Math.max(tip[name], ends(band, k).b.y); }
+    });
     const top = { left: Math.max(...lift.map((f) => f.left)), right: Math.max(...lift.map((f) => f.right)) };
-    expect(Math.min(top.left, top.right)).toBeGreaterThan(0.05);
-    // A hand lifts 26 cm off its keys, so it shows from the crowd, and no further.
-    expect(Math.min(top.left, top.right)).toBeGreaterThan(0.2);
-    expect(Math.max(top.left, top.right)).toBeLessThan(0.3);
+    // A hand lifts off its keys to beside the head, over a metre of the stage, so that from the front and from the hill the forearm and
+    // the hand stand against the panel over the organ (band-outline.test.ts): the wrist over the shoulder, the fingertips under the
+    // crown.
+    expect(Math.min(top.left, top.right)).toBeGreaterThan(1);
+    expect(Math.min(wrist.left, wrist.right)).toBeGreaterThan(shoulder + 0.2);
+    expect(Math.max(tip.left, tip.right)).toBeLessThan(crown - 0.1);
     expect(lift.some((f) => f.left > 0.9 * top.left && f.right < 0.001)).toBe(true);
     expect(lift.some((f) => f.right > 0.9 * top.right && f.left < 0.001)).toBe(true);
-    expect(lift.filter((f) => f.left > 0.5 * top.left && f.right > 0.5 * top.right)).toEqual([]);
+    // The two cross on the way, one up and one down: an arm's joints turn at an even pace, so a hand is a little over halfway up
+    // halfway through its move, and the two pass each other there.
+    expect(lift.filter((f) => f.left > 0.6 * top.left && f.right > 0.6 * top.right)).toEqual([]);
   });
 
   it("rocks each drummer about their seat: what sits on the stool moves under a third as far as the top of the head, which moves 3 cm or more", () => {

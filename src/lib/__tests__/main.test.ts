@@ -61,6 +61,7 @@ const fake = vi.hoisted(() => {
     light: { visible: boolean; intensity: number };
     rig: { show: Float32Array; mesh: { visible: boolean; renderOrder?: number } };
     move: (dt: number, t: number, beats: number) => void;
+    fit: (perPx: number) => void;
   };
   type CrowdMesh = { renderOrder?: number };
   type Sky = { uniforms: Record<string, { value: number | Vec }> };
@@ -149,6 +150,8 @@ const fake = vi.hoisted(() => {
     // how high in the frame it was asked to keep the visitor's bear.
     drawn: 0,
     tilted: [] as number[],
+    // The canvas's pixel, in rad of the view's height, the stage last fitted the band's crash poles to (band.js).
+    perPx: NaN,
   };
   class Scene {
     shown = new Set<unknown>();
@@ -166,9 +169,11 @@ const fake = vi.hoisted(() => {
     position = new Vec();
     // Where it last looked.
     target = new Vec();
-    // Its near plane, from the arguments it is made with: field of view, aspect, near and far.
+    // Its field of view and near plane, from the arguments it is made with: field of view, aspect, near and far.
+    fov: number;
     near: number;
-    constructor(_fov?: number, _aspect?: number, near = NaN) {
+    constructor(fov = NaN, _aspect?: number, near = NaN) {
+      this.fov = fov;
       this.near = near;
       world.camera = this;
     }
@@ -393,6 +398,10 @@ const fake = vi.hoisted(() => {
           rig: { show: new Float32Array(5), mesh: { visible: false } },
           move: (_dt, _t, beats) => {
             world.beats = beats;
+          },
+          // The canvas's pixel, in rad of the view's height, the band's crash poles are fitted to.
+          fit: (perPx: number) => {
+            world.perPx = perPx;
           },
         };
         return world.stage;
@@ -1456,6 +1465,20 @@ describe("main.js's frames", () => {
     expect(hill().rung).toBe(1);
     expect(fake.world.thinned).toBe(true);
     expect(hill().crowd.drawn).toBe(made);
+  });
+
+  it("fits the band's crash poles to the canvas's pixel once the stage is built, and again as each rung shrinks the canvas", async () => {
+    // A pixel of the canvas, in rad of the view's height at its middle: the view's height at 1 m over the canvas's rows, which are
+    // the frame's at the render scale (desktop: a 60° view, a 720-px frame and a pixel ratio of 1).
+    const pixel = (scale: number) => (2 * Math.tan(Math.PI / 6)) / Math.round(720 * scale);
+    const page = await startWorld();
+    expect(fake.world.perPx).toBeCloseTo(pixel(1), 12);
+    page.run(DESCENT_S, { ms: 50 });
+    for (const scale of [0.8, 0.64, 0.512, 0.5]) {
+      for (let k = 0; k < 30 && hill().scale !== scale; k++) page.run((WINDOW * 50) / 1000, { ms: 50 });
+      expect(hill().scale).toBe(scale);
+      expect(fake.world.perPx).toBeCloseTo(pixel(scale), 12);
+    }
   });
 
   it("turns off the sun's shadow and the stage light on the way down the downgrade's ladder: at its foot neither is left", async () => {
