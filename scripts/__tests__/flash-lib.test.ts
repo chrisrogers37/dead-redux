@@ -169,8 +169,9 @@ describe("windows.json", () => {
       }
     }
     // The jobs that count beside a landmark stand the visitor by the song's own landmark (pose=near-K), so K is the window's
-    // track: Lovelight's lighthouse, the miracle's light and the two eyes.
+    // track: Lovelight's lighthouse, the miracle's light, the two eyes, the wheel, the fingerpost's lantern and the dew's drop.
     expect([titles["2026-10-20 L"], titles["2026-10-20 M"], titles["2026-11-25 E"]]).toEqual(["Turn On Your Lovelight", "I Need A Miracle ->", "Eyes Of The World ->"]);
+    expect([titles["2026-10-20 W"], titles["2026-11-27 N"], titles["2026-11-24 P"]]).toEqual(["The Wheel ->", "One More Saturday Night", "Morning Dew"]);
     const [beside] = parseJobs("branch L pose=near-17 still=1", WINDOWS);
     expect([beside.pose, WINDOWS.L.track, jobUrl("http://127.0.0.1:3000", DAY, beside)]).toEqual(["near-17", 17, "http://127.0.0.1:3000/2026-10-20?drive=map&pose=near-17&still=1"]);
   });

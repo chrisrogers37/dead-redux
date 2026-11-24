@@ -7,9 +7,11 @@ import { FIRST_EYE, height } from "../../../public/world/ground.js";
 import { makeBuilders, mergeLandmarks, mergeStill, mesh, songKey, STONE_KINDS, stoneKind, titleHash } from "../../../public/world/landmarks.js";
 // The builders' own depths and tones, which the newest five's tests read and do not state again.
 import { BAND_SUNK, BOW_TONES, BRASS, COPPER, CREAM, DARK_TIMBER, GREY, HANDRAIL, IRON, KITE_TONES, PALE_STONE, PIER_NICHE, PIER_PLINTH, PLANK_TONES, PLAQUE, POST, SIGN_DARK, SIGN_YELLOW, STONE, STRING, SUNK as COMMON_SUNK, TIMBER, TRESTLE_SUNK } from "../../../public/world/landmarks.js";
-// And the lighthouse's, the eyes', the lotus bowl's, the banner's and the terrapin's.
-import { BEGONIA, BEGONIA_LEAF, BELLY, BOWL_PALE, CLAW, DEEP_RED, HEART, HIDE, IRIS, LIGHT_SUNK, PAD, PUPIL, SCARLET, SCUTES, SEAM, SNOW, TERRAPIN_SUNK, TRIM, WATER } from "../../../public/world/landmarks.js";
-import { layout, placeLandmarks } from "../../../public/world/path.js";
+// And the lighthouse's, the eyes', the lotus bowl's, the banner's and the terrapin's; and the box of rain's, the dew's leaf's, the
+// fingerpost's and the pool's.
+import { CLOUD, CLOUD_OVER, CLOUD_UNDER, FINGER_BOARD, FINGER_BORDER, LEAF_FACE, LEAF_RIB, LEAF_RIM, LEAF_UNDER, POOL_SUNK, POOL_WATER, RAIN, RAIN_PLANKS, RAIN_SUNK, RAIN_WATER, RIPPLE } from "../../../public/world/landmarks.js";
+import { BANNER_FOLD, BANNER_RED, BEGONIA, BEGONIA_LEAF, BELLY, BOWL_PALE, CLAW, DEEP_RED, HEART, HIDE, IRIS, LIGHT_SUNK, LOTUS_PALE, PAD, PUPIL, SCARLET, SCUTES, SEAM, SNOW, TERRAPIN_SUNK, TRIM, WATER } from "../../../public/world/landmarks.js";
+import { layout, outline, placeLandmarks } from "../../../public/world/path.js";
 import { readdirSync } from "fs";
 import { type Avatar, landmarksOf, line, MAPS, pace, path, tracksOf, walkCamera } from "./world-walks";
 
@@ -3506,7 +3508,7 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
 
   it("cost what they are said to: at most 2,000 triangles each on a desktop and 1,300 on a phone, a phone's fewer than a desktop's, and under 4,700 and 3,300 between them", () => {
     // Each one's triangles on a desktop and on a phone, with its light's: the lamp's 12, the two eyes' 160, the miracle's 80.
-    const COST: Record<string, [number, number]> = { [LIGHT]: [964, 700], [EYES]: [864, 704], [MIRACLE]: [732, 504], [BANNER]: [958, 642], [TERRAPIN]: [1006, 654] };
+    const COST: Record<string, [number, number]> = { [LIGHT]: [940, 700], [EYES]: [864, 704], [MIRACLE]: [892, 536], [BANNER]: [958, 642], [TERRAPIN]: [1006, 654] };
     for (const title of FIVE) {
       const [desktop, phone] = COST[title];
       expect([triangles(built(title).parts), triangles(built(title, true).parts)], title).toEqual([desktop, phone]);
@@ -3531,10 +3533,10 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
     for (const phone of [false, true]) {
       const where = phone ? "on a phone" : "on a desktop", posts = phone ? 6 : 8;
       const light = built(LIGHT, phone), eyes = built(EYES, phone), banner = built(BANNER, phone);
-      // The lighthouse: a stanchion and a lantern's post at each place round it, and the gallery's rail, which lies level.
+      // The lighthouse: a stanchion at each place round it, the lantern's six posts, and the gallery's rail, which lies level.
       const uprights = of(light, IRON).filter((piece) => wide(piece) < 0.3 && deep(piece) < 0.3 && tall(piece) > 0.5);
       const [rail] = of(light, IRON).filter((piece) => wide(piece) > 2.5 && piece.low > 8.5 && piece.high < 8.9);
-      expect(uprights, where).toHaveLength(2 * posts);
+      expect(uprights, where).toHaveLength(posts + 6);
       for (const upright of uprights) expect(least(light.position, upright), where).toBeGreaterThanOrEqual(0.13 - 1e-6);
       expect(tall(rail), where).toBeGreaterThanOrEqual(0.13);
       // The eyes' two stalks, from the ground to their cups, and the banner's pole to the foot of its brass head, which is
@@ -3631,14 +3633,20 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
         expect(Math.abs(midst(stanchion)[0]), where).toBeGreaterThan(0.3);
       }
       expect(tall(rail), where).toBeGreaterThanOrEqual(0.13);
-      // The lantern room: a sill, as many posts as stanchions from the sill to the roof's plate, and the roof. The lamp is
-      // main's box, a metre each way, which turns: its corners go round 0.707 m out. It stands on the sill and ends under
+      // The lantern room: a low wall, a pedestal in it, six posts from the wall to the roof's plate, and the roof. The lamp is
+      // main's box, a metre each way, which turns: its corners go round 0.707 m out. It stands on the pedestal and ends under
       // the plate, and every post stands 10 cm or more outside its turning, so it turns clear of them; and no post stands
       // before its middle as the walker sees it, where one would cut the light in two.
       const lamp = litOf(light), turning = Math.hypot(0.5, 0.5);
-      const [sill] = iron.filter((piece) => Math.abs(piece.high - 9) < 1e-4), [plate] = iron.filter((piece) => Math.abs(piece.low - 10.04) < 1e-4 && wide(piece) > 1.5);
+      const [sill] = iron.filter((piece) => Math.abs(piece.high - 9) < 1e-4), [plate] = iron.filter((piece) => piece.low > lamp.position.y + 0.5 && wide(piece) > 1.5 && tall(piece) < 0.2);
       const bars = iron.filter((piece) => piece.low < sill.high && piece.high > plate.low && wide(piece) < 0.3);
-      expect(bars, where).toHaveLength(posts);
+      expect(bars, where).toHaveLength(6);
+      // From the path, a line up at 30 degrees past the room wall's top meets the lamp's near face over its foot, and the
+      // pedestal is narrower than the lamp: so the lamp shows whole over them, where #196's showed 62 % of main's from its near
+      // still, its foot hidden behind a sill broader than it.
+      const [room] = of(light, SNOW).filter((piece) => piece.low > 7.8);
+      expect(room.high + (wide(room) / 2 - 0.5) * Math.tan(Math.PI / 6), where).toBeLessThan(sill.high);
+      expect(wide(sill), where).toBeLessThan(1.2);
       expect([lamp.position.y - 0.5, lamp.position.y + 0.5 < plate.low], where).toEqual([expect.closeTo(sill.high, 5), true]);
       for (const bar of bars) {
         expect(Math.min(...bar.corners.map(from)), where).toBeGreaterThan(turning + 0.1);
@@ -3646,10 +3654,13 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
         expect(Math.abs(midst(bar)[0]), where).toBeGreaterThan(0.3);
       }
       const turns = bars.map((bar) => Math.atan2(midst(bar)[0], midst(bar)[2])).sort((p, q) => p - q);
-      turns.forEach((turn, k) => expect((turns[(k + 1) % turns.length] - turn + 2 * Math.PI) % (2 * Math.PI), where).toBeCloseTo((2 * Math.PI) / posts, 3));
+      turns.forEach((turn, k) => expect((turns[(k + 1) % turns.length] - turn + 2 * Math.PI) % (2 * Math.PI), where).toBeCloseTo((2 * Math.PI) / 6, 3));
       // The roof is over the lamp and broader than it turns, with the brass ball on its point, under the plain tower's top.
+      // From over it, as the walker comes down onto the island at night, a line down at 45 degrees past the roof's edge
+      // meets the lamp's near face within 15 cm of its top: #196's broad roof, low over the lamp, hid half of it so.
       const [roof] = of(light, DEEP_RED), [ball] = of(light, BRASS);
-      expect(roof.low > lamp.position.y + 0.5 && wide(roof) > 2 * turning + 0.5 && tall(roof) > 0.7, where).toBe(true);
+      expect(roof.low > lamp.position.y + 0.5 && wide(roof) > 2 * turning + 0.5 && tall(roof) > 0.5, where).toBe(true);
+      expect(roof.low - (wide(roof) / 2 - 0.5), where).toBeGreaterThan(lamp.position.y + 0.5 - 0.15);
       expect(ball.low < roof.high && ball.high > roof.high + 0.05 && ball.high <= 11.1, where).toBe(true);
     }
   });
@@ -3688,7 +3699,11 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
         expect(wide(lid) <= 2 * EYE.r && deep(lid) <= 2 * EYE.r, where).toBe(true);
         expect(lid.low - pupil.high, where).toBeGreaterThanOrEqual(0.05);
         expect(lid.low, where).toBeGreaterThanOrEqual(iris.high);
-        expect(lid.low, where).toBeLessThan(EYE.at + EYE.r - 0.2);
+        expect(lid.low, where).toBeLessThan(EYE.at + EYE.r - 0.14);
+        // And they leave the ball's glow showing all round the iris, where #196's eyes showed a third of main's amber: the
+        // lid's edge is a hand or more over the iris's top, and the cup's rim 30 cm or more under the ball's middle.
+        expect(lid.low - iris.high, where).toBeGreaterThanOrEqual(0.1);
+        expect(EYE.at - stalk.high, where).toBeGreaterThanOrEqual(0.3);
       });
     }
   });
@@ -3725,8 +3740,19 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
       // The petals: eight, one toward each corner of the outline, each from the pillar's head out past the bowl's rim and
       // up over it. Its tip is the furthest out of it, within 3 cm of the outline's corner, and 10 cm or more under the
       // light's underside at its lowest: a petal that reached the light would cut it as it came down.
-      const petals = of(lotus, PALE_STONE).filter((piece) => piece.high > rim);
-      expect(petals, where).toHaveLength(8);
+      // Each petal is two tones, pale stone at its foot and paler toward its tip: #196's, all of one stone, read from the path as
+      // a brown stone font. Between each two, on a desktop, a shorter one leans out toward the outline's side.
+      const all = having(lotus, LOTUS_PALE), petals = all.filter((piece) => Math.max(...piece.corners.map(from)) > 0.9);
+      expect([petals.length, all.length - petals.length], where).toEqual([8, phone ? 0 : 8]);
+      for (const petal of all) expect(petal.corners.some((i) => isTone(color, i, PALE_STONE)) && petal.high > rim, where).toBe(true);
+      const tipsUp = all.filter((petal) => petal.corners.filter((i) => position.getY(i) > petal.high - 0.05).every((i) => isTone(color, i, LOTUS_PALE)));
+      expect(tipsUp, where).toHaveLength(all.length);
+      const sides = all.filter((petal) => !petals.includes(petal)).map((petal) => {
+        const tip = petal.corners.reduce((best, i) => (position.getY(i) > position.getY(best) ? i : best));
+        expect(position.getY(tip) <= LOWEST - 0.1 && from(tip) < 0.92, where).toBe(true);
+        return (Math.atan2(position.getX(tip), position.getZ(tip)) / (Math.PI / 4) + 8.5) % 8;
+      }).sort((p, q) => p - q);
+      sides.forEach((turn, k) => expect(Math.abs(turn - k - 1) < 1e-3 || Math.abs(turn - k) < 1e-3, where).toBe(true));
       const turns = petals.map((petal) => {
         const tip = petal.corners.reduce((best, i) => (position.getY(i) > position.getY(best) ? i : best));
         expect([position.getY(tip) > rim + 0.05, position.getY(tip) <= LOWEST - 0.1, from(tip) > 0.95, from(tip) < 1], `${where}: a petal's tip ${position.getY(tip)} m up and ${from(tip)} m out`).toEqual([true, true, true, true]);
@@ -3743,7 +3769,12 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
     for (const phone of [false, true]) {
       const banner = built(BANNER, phone), { position } = banner, where = phone ? "on a phone" : "on a desktop", tongues = phone ? 3 : 4, blossoms = phone ? 2 : 3;
       // The pole is main's own six sides, at the collars, and goes on down; its brass head ends under the plain pole's top.
-      const [pole] = of(banner, TIMBER), [yard] = of(banner, DARK_TIMBER), [cloth] = having(banner, SCARLET);
+      const [pole] = of(banner, TIMBER), [yard] = of(banner, DARK_TIMBER), [cloth] = having(banner, BANNER_RED);
+      // The cloth is the banner's own red, not the lighthouse's scarlet, which against the crimson dusk read as the sky: it is
+      // brighter, and more orange than red.
+      expect(having(banner, SCARLET), where).toHaveLength(0);
+      const red = colourOf(BANNER_RED), scarlet = colourOf(SCARLET);
+      expect(bright(red.r, red.g, red.b) > bright(scarlet.r, scarlet.g, scarlet.b) * 1.3 && red.g / red.r > 1.15 * (scarlet.g / scarlet.r), where).toBe(true);
       expect([pole.low, pole.high > 6.4, pole.high <= 6.5, midst(pole)[0]], where).toEqual([expect.closeTo(-COMMON_SUNK, 5), true, true, expect.closeTo(-1.1, 3)]);
       expect(wide(pole) > 0.2 && deep(pole) > 0.2 && deep(pole) <= 0.24, where).toBe(true);
       // The yard runs from the pole's middle to within 5 cm of where the plain board ended, and the cloth hangs under it: the
@@ -3777,6 +3808,24 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
         face(position, cloth.corners, n);
         expect(b.clone().sub(a).cross(c.clone().sub(a)).normalize().y, where).toBeGreaterThan(-0.1);
       }
+      // The cloth hangs in folds, one to a tongue: under its gold head, each tongue is lit on one half and in the fold's shade on
+      // the other, all the way up, where #196's cloth was one flat red and read as a board. The head is one gold: the loops lie
+      // flush on it, and a loop's gold on a gold in shade would flicker.
+      const { color } = banner, folded = (hex: number) => [16, 8, 0].reduce((sum, bit) => sum | (Math.min(255, Math.round(((hex >> bit) & 255) * BANNER_FOLD)) << bit), 0);
+      const cols = 2 * tongues, across = wide(cloth) / cols, headRow = tall(cloth) / (phone ? 6 : 8), lit = [TRIM, DEEP_RED, BANNER_RED];
+      expect(BANNER_FOLD > 0.6 && BANNER_FOLD < 0.9, where).toBe(true);
+      let seen = 0;
+      for (let n = 0; n < cloth.corners.length; n += 3) {
+        face(position, cloth.corners, n);
+        const x = (a.x + b.x + c.x) / 3, y = (a.y + b.y + c.y) / 3, at = (x - cloth.x0) / across;
+        // A face on a line between two columns (the cloth's two edges) belongs to neither.
+        if (Math.abs(at - Math.round(at)) < 1e-3) continue;
+        const col = Math.floor(at), head = y > cloth.high - headRow, tones = head ? [TRIM] : col % 2 ? lit.map(folded) : lit;
+        if (!tones.some((hex) => isTone(color, cloth.corners[n], hex))) expect.fail(`${where}: a face of the cloth at ${x.toFixed(2)}, ${y.toFixed(2)}, in column ${col}, is not ${head ? "the head's gold" : col % 2 ? "in a fold's shade" : "lit"}`);
+        seen += 1;
+      }
+      expect(seen, where).toBeGreaterThan(cols * 10);
+      expect(having(banner, folded(BANNER_RED)), where).toEqual([cloth]);
       // A brass drop hangs from each tongue's tip, its head a few centimetres into the cloth, in the cloth's own thickness.
       const drops = of(banner, BRASS).filter((piece) => piece.high < cloth.low + 0.1 && piece.x0 > cloth.x0).sort((p, q) => p.x0 - q.x0);
       expect(drops, where).toHaveLength(tongues);
@@ -3883,6 +3932,438 @@ describe("the lighthouse, the eyes on stalks, the lotus bowl, the banner of bego
       for (const eye of eyes) expect(meet(eye, head) && Math.abs(midst(eye)[0]) > 0.15 && midst(eye)[2] < midst(head)[2] && midst(eye)[1] > midst(head)[1], where).toBe(true);
       // The tail hangs behind, from inside the shell's hind end, within the plain head's reach.
       expect(tail.z0 < shell.z1 && tail.z1 > shell.z1 + 0.2 && tail.z1 < 2.45 && tail.high < 1.1, where).toBe(true);
+    }
+  });
+});
+
+describe("the box of rain, the wheel, the dark star, the dewdrop, the fingerpost and the still pool", () => {
+  // The six, by a title of each.
+  const RAINBOX = "Box Of Rain", WHEEL = "The Wheel", STAR = "Dark Star", DEW = "Morning Dew", SATURDAY = "One More Saturday Night", POOL = "Ripple";
+  const SIX = [RAINBOX, WHEEL, STAR, DEW, SATURDAY, POOL];
+  // Main's builders for the six, as main had them, its wheel turning as main.js turns it: what each replaced. Their outlines,
+  // as path.js reads them, a part that turns as the circle it goes round, and their tops.
+  const plainLook = new THREE.MeshLambertMaterial();
+  type Group = { add(...parts: unknown[]): void };
+  const MAIN: Record<string, (g: Group, moving: { obj: unknown; kind: string }[]) => void> = {
+    [RAINBOX]: (g) => {
+      for (const z of [-1.5, 1.5]) g.add(mesh(new THREE.BoxGeometry(3.2, 2.6, 0.2), plainLook, 0, 1.3, z));
+      for (const x of [-1.5, 1.5]) g.add(mesh(new THREE.BoxGeometry(0.2, 2.6, 2.8), plainLook, x, 1.3, 0));
+    },
+    [WHEEL]: (g, moving) => { const w = mesh(new THREE.TorusGeometry(3.2, 0.4, 6, 16), plainLook, 0, 3.6, 0); g.add(w); moving.push({ obj: w, kind: "spin" }); },
+    [STAR]: (g) => g.add(mesh(new THREE.BoxGeometry(2, 1.2, 2), plainLook, 0, 0.6, 0), mesh(new THREE.SphereGeometry(1.4, 12, 8), plainLook, 0, 2.6, 0)),
+    [DEW]: (g) => g.add(mesh(new THREE.DodecahedronGeometry(2.2), plainLook, 0, 1.8, 0)),
+    [SATURDAY]: (g) => {
+      g.add(mesh(new THREE.CylinderGeometry(0.15, 0.15, 5, 6), plainLook, 0, 2.5, 0));
+      for (const [x, y, ry] of [[0.9, 4.2, 0.4], [-0.9, 3.5, -0.5]]) { const board = mesh(new THREE.BoxGeometry(2.2, 0.5, 0.1), plainLook, x, y, 0); board.rotation.y = ry; g.add(board); }
+    },
+    [POOL]: (g) => {
+      g.add(mesh(new THREE.CircleGeometry(3, 24).rotateX(-Math.PI / 2), plainLook, 0, 0.12, 0));
+      const ring = mesh(new THREE.TorusGeometry(3.2, 0.15, 6, 32), plainLook, 0, 0.15, 0);
+      ring.rotation.x = -Math.PI / 2;
+      g.add(ring);
+    },
+  };
+  const main = (title: string) => {
+    const g = new THREE.Group(), moving: { obj: unknown; kind: string }[] = [];
+    MAIN[title](g, moving);
+    return { outline: outline(g, moving) as number[][], top: bounds(g).max.y as number, corners: (g as unknown as { children: unknown[] }).children.flatMap(cornersOf) };
+  };
+  // Corners laid end to end, three to a face, read as a mesh's corners are.
+  const asCorners = (list: number[][]): Corners => ({ count: list.length, getX: (i) => list[i][0], getY: (i) => list[i][1], getZ: (i) => list[i][2] });
+  const only = (position: Corners, corners: number[]): Corners => ({ count: corners.length, getX: (i) => position.getX(corners[i]), getY: (i) => position.getY(corners[i]), getZ: (i) => position.getZ(corners[i]) });
+  // One of the six as path.js builds it: its parts; what main.js moves; its still mesh, and that mesh's corners in the
+  // landmark's frame, their colours and its pieces; its parts but the still mesh, each with its corners in that frame; and its
+  // outline as path.js reads it.
+  type Own = { part: Part & { position: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number }; material: Record<string, unknown> & { color: { getHex(): number } } }; position: Corners; pieces: Piece[] };
+  type Six = { g: unknown; parts: Part[]; moving: { obj: unknown; kind?: string }[]; still: Part; position: Corners; color: Corners; pieces: Piece[]; own: Own[]; outline: number[][] };
+  const sixes = new Map<string, Six>();
+  const six = (title: string, phone = false): Six => {
+    const key = `${phone}:${title}`;
+    if (!sixes.has(key)) {
+      const { g, parts, moving } = landmark(title, phone), moved = (part: Part) => moving.some((m) => m.obj === part);
+      const still = parts.find((part) => !moved(part) && (part.material as { isMeshLambertMaterial?: boolean }).isMeshLambertMaterial && part.material.emissive.getHex() === 0) as Part;
+      const position = asCorners(cornersOf(still)), framed = (part: Part) => { const corners = asCorners(cornersOf(part)); return { part, position: corners, pieces: piecesOf(corners) } as Own; };
+      sixes.set(key, { g, parts, moving, still, position, color: still.geometry.attributes.color, pieces: piecesOf(position), own: parts.filter((part) => part !== still).map(framed), outline: outline(g, moving) });
+    }
+    return sixes.get(key) as Six;
+  };
+  const tiers = (visit: (s: Six, title: string, phone: boolean, where: string) => void) => { for (const phone of [false, true]) for (const title of SIX) visit(six(title, phone), title, phone, `${title}${phone ? " on a phone" : ""}`); };
+  // A still mesh's pieces of a tone, by a piece's first corner.
+  const toned = ({ color, pieces }: Six, ...hexes: number[]) => pieces.filter((piece) => hexes.some((hex) => isTone(color, piece.corners[0], hex)));
+  const wide = (piece: Piece) => piece.x1 - piece.x0, deep = (piece: Piece) => piece.z1 - piece.z0, midst = (piece: Piece) => [(piece.x0 + piece.x1) / 2, (piece.low + piece.high) / 2, (piece.z0 + piece.z1) / 2];
+  const meet = (p: Piece, q: Piece, slack = 1e-4) => p.x0 <= q.x1 + slack && q.x0 <= p.x1 + slack && p.low <= q.high + slack && q.low <= p.high + slack && p.z0 <= q.z1 + slack && q.z0 <= p.z1 + slack;
+  // A closed piece's volume, over nought when its faces look outward.
+  const volumeOf = (position: Corners, piece: Piece) => {
+    let volume = 0;
+    for (let n = 0; n < piece.corners.length; n += 3) { face(position, piece.corners, n); volume += a.dot(b.clone().cross(c)) / 6; }
+    return volume;
+  };
+  // Where the upright line through (x, z) meets a piece's faces, at its highest.
+  const topAt = (position: Corners, piece: Piece, x: number, z: number) => {
+    let best = -Infinity;
+    for (let n = 0; n < piece.corners.length; n += 3) {
+      face(position, piece.corners, n);
+      const w0 = (b.x - x) * (c.z - z) - (c.x - x) * (b.z - z), w1 = (c.x - x) * (a.z - z) - (a.x - x) * (c.z - z), w2 = (a.x - x) * (b.z - z) - (b.x - x) * (a.z - z), w = w0 + w1 + w2;
+      if (Math.abs(w) < 1e-12 || ((w0 < 0 || w1 < 0 || w2 < 0) && (w0 > 0 || w1 > 0 || w2 > 0))) continue;
+      best = Math.max(best, (w0 * a.y + w1 * b.y + w2 * c.y) / w);
+    }
+    return best;
+  };
+  // An upright's least breadth across the path and along it, at every 5 cm of its height from `from` to `to`.
+  const least = (position: Corners, piece: Piece, from = 0, to = piece.high) => {
+    let narrowest = Infinity;
+    for (let y = from + 0.025; y < to; y += 0.05) {
+      const across = sliced(position, piece, y), along = sliced(position, piece, y, "z");
+      if (across && along) narrowest = Math.min(narrowest, across.x1 - across.x0, along.x1 - along.x0);
+    }
+    return narrowest;
+  };
+
+  it("are each one still mesh, with main's own turning wheel, its unlit star and its shiny dew besides, and the fingerpost's lantern, which glows and does not move", () => {
+    tiers(({ parts, moving, still, own }, title, phone, where) => {
+      // The still parts are one mesh in the path's one draw call: a second, or a part in another material, would cost one.
+      expect(parts.every((part) => part.isMesh), where).toBe(true);
+      expect([still.material.vertexColors, still.material.emissive.getHex()], where).toEqual([true, 0]);
+      expect(own, where).toHaveLength(title === RAINBOX || title === POOL ? 0 : 1);
+      const other = own[0]?.part, material = other?.material;
+      // The wheel is main's turning, the one thing of these six that moves, about the upright through its middle 3.6 m up, as
+      // main's did; a wheel left still, or merged with its stand, would not turn.
+      if (title === WHEEL) {
+        expect(moving, where).toEqual([{ obj: other, kind: "spin" }]);
+        expect([other.position.x, other.position.y, other.position.z, other.rotation.x, other.rotation.y, other.rotation.z], where).toEqual([0, 3.6, 0, 0, 0, 0]);
+        expect([material.isMeshLambertMaterial, (material.emissive as { getHex(): number }).getHex()], where).toEqual([true, 0]);
+      } else expect(moving, where).toEqual([]);
+      // The star is main's unlit near-black and the dew main's shiny grey, as main drew them.
+      if (title === STAR) expect([material.type, material.color.getHex()], where).toEqual(["MeshBasicMaterial", 0x0b0b0d]);
+      if (title === DEW) expect([material.type, material.color.getHex(), (material.specular as { getHex(): number }).getHex(), material.shininess, material.flatShading], where).toEqual(["MeshPhongMaterial", 0x7d7a74, 0xffffff, 80, true]);
+      // The lantern glows in the shared amber, as the lamp and the eyes do, and does not pulse or move.
+      if (title === SATURDAY) expect([material.isMeshLambertMaterial, material.color.getHex(), (material.emissive as { getHex(): number }).getHex(), material.emissiveIntensity], where).toEqual([true, 0xe8b04b, 0xe8b04b, 0.6]);
+    });
+  });
+
+  it("keep inside main's outlines seen from above, as path.js reads them, the wheel's and main's each the circle it turns through, and under main's tops", () => {
+    // Main's: how far each outline reaches from its middle, and how high each stood.
+    const WAS: Record<string, [number, number]> = { [RAINBOX]: [2.263, 2.6], [WHEEL]: [3.6, 7.2], [STAR]: [1.414, 4], [DEW]: [2.2, 3.855], [SATURDAY]: [1.97, 5], [POOL]: [3.35, 0.28] };
+    tiers(({ g, outline: now }, title, phone, where) => {
+      const was = main(title);
+      expect([Math.max(...was.outline.map(([x, z]) => Math.hypot(x, z))), was.top], title).toEqual([expect.closeTo(WAS[title][0], 3), expect.closeTo(WAS[title][1], 3)]);
+      const out = Math.max(...now.map(([x, z]) => outside(was.outline, x, z))), top = bounds(g).max.y;
+      if (out > 1e-6 || top > was.top + 1e-6) expect.fail(`${where}: ${out} m outside main's outline, ${top} m up where main's stood ${was.top}`);
+    });
+  });
+
+  it("hold the walker's view: seen from where a near still stands, each covers what it is said to of main's shape's silhouette, and is not much the smaller", () => {
+    // What each covers of main's shape's silhouette, at the least, on a desktop and on a phone, from 14 m back as ?pose=near-K
+    // stands; and the least its own silhouette may be of main's. The wheel and the pool are main's shapes made over, and
+    // cover most of them. The box's walls are 0.75 m where main's were 2.6 m, so that a cloud stands over it under main's top
+    // and rain shows between them; the star's body is under its spikes, where main's ball was round to its edge; the dew's drop
+    // is 2.2 m across where main's boulder was 4.4 m; and the fingerpost's boards point along the path where main's two stood
+    // off its middle, each one way, so it covers half of where those stood and is as large. A shape that kept inside its outline
+    // by shrinking, or stood elsewhere in it, would cover less.
+    const LEAST: Record<string, [number, number]> = { [RAINBOX]: [0.62, 0.58], [WHEEL]: [0.79, 0.76], [STAR]: [0.63, 0.61], [DEW]: [0.49, 0.49], [SATURDAY]: [0.46, 0.46], [POOL]: [0.94, 0.92] };
+    const SIZE: Record<string, [number, number]> = { [RAINBOX]: [0.62, 0.58], [WHEEL]: [1.09, 1.06], [STAR]: [0.63, 0.61], [DEW]: [0.6, 0.59], [SATURDAY]: [1.03, 1.03], [POOL]: [0.96, 0.93] };
+    tiers(({ parts }, title, phone, where) => {
+      const was = silhouette(main(title).corners), now = silhouette(parts.flatMap(cornersOf)), covers = sharedBy(was, now) / areaOf(was), size = areaOf(now) / areaOf(was);
+      if (covers < LEAST[title][phone ? 1 : 0] - 1e-9 || size < SIZE[title][phone ? 1 : 0]) expect.fail(`${where}: covers ${covers} of main's silhouette and is ${size} of its size`);
+    });
+  });
+
+  it("stand in no show further from their songs' points than main's shapes did, and the fingerpost on its point in the show that has two of them", () => {
+    const rules = builders(false).table, ruleOf = (title: string) => rules.find(([re]) => re.test(title));
+    // 1973-03-30 has Box Of Rain and One More Saturday Night; the fingerpost stands on its song's point, on both tiers.
+    const tracks = tracksOf("1973-03-30"), u = layout(tracks, null, path);
+    expect(tracks.map((_, i) => i).filter((i) => SIX.some((title) => ruleOf(title) === ruleOf(tracks[i].title)))).toEqual([5, 25]);
+    for (const phone of [false, true]) expect(standAt(u[25], six(SATURDAY, phone).outline).off).toBeCloseTo(0, 3);
+    // And in every show there is a map of, each song of the six's stands no further from its point than main's shape would.
+    let found = 0;
+    for (const { show, tracks: songs } of shows) {
+      const at = layout(songs, null, path);
+      songs.forEach((track, i) => {
+        const title = SIX.find((one) => ruleOf(one) === ruleOf(track.title));
+        if (!title) return;
+        found += 1;
+        const was: number = standAt(at[i], main(title).outline).off;
+        for (const phone of [false, true]) {
+          const now: number = standAt(at[i], six(title, phone).outline).off;
+          if (now > was + 0.001) expect.fail(`${show}, song ${i}, "${track.title}"${phone ? " on a phone" : ""}: ${now} m from its song's point, where main's stood ${was} m`);
+        }
+      });
+    }
+    expect(found).toBeGreaterThan(20);
+  });
+
+  // This test stands the six's outlines at every second metre of the path: it has 30 s, not the usual 5.
+  it("go on down into the ground as far as it can fall away under them, and 5 cm more at the most; and nothing else ends under the ground but the stones laid on the pool's kerb", { timeout: 30000 }, () => {
+    // How far under its own ground each one's feet go, and how many parts of each stand in the ground: the box's four walls,
+    // four posts and its water; the wheel's footing; the star's plinth; the dew's leaf; the fingerpost's post; the pool and its
+    // kerb. How much deeper than the ground falls under it a broad landmark's foot may go: a hand, under 0.6 m.
+    const SUNK: Record<string, number> = { [RAINBOX]: RAIN_SUNK, [WHEEL]: COMMON_SUNK, [STAR]: COMMON_SUNK, [DEW]: COMMON_SUNK, [SATURDAY]: COMMON_SUNK, [POOL]: POOL_SUNK };
+    const FEET: Record<string, number> = { [RAINBOX]: 9, [WHEEL]: 1, [STAR]: 1, [DEW]: 1, [SATURDAY]: 1, [POOL]: 2 }, HAND = 0.6;
+    const sweeps = new Map<string, Stand[]>(), along = (outline: number[][], step = SWEEP, places?: number[]) => {
+      const key = `${step}:${places}:${JSON.stringify(outline)}`;
+      if (!sweeps.has(key)) {
+        const at = places ? [...new Set(places.flatMap((place) => Array.from({ length: Math.round((2 * SWEEP) / step) + 1 }, (_, n) => Math.round((place - SWEEP) / step + n) * step)))] : Array.from({ length: Math.ceil(path.curveLength / step) }, (_, n) => n * step);
+        sweeps.set(key, at.map((d) => standAt(d / path.curveLength, outline)));
+      }
+      return sweeps.get(key) as Stand[];
+    };
+    tiers(({ position, color, pieces, outline: own }, title, phone, where) => {
+      const sunk = SUNK[title], feet = pieces.filter((piece) => piece.low < -1);
+      expect(feet, where).toHaveLength(FEET[title]);
+      for (const piece of feet) expect(piece.low <= -sunk + 1e-6 && piece.low >= -sunk - 0.05 - 1e-6, `${where}: a foot ${piece.low} m down`).toBe(true);
+      // A part that ended between the ground and that depth would show daylight under it on a slope. The pool's kerb has
+      // stones laid on it, a loose stone's way, each in the kerb.
+      const shallow = pieces.filter((piece) => piece.low < 0 && !feet.includes(piece)), [kerb] = toned(six(POOL, phone), STONE);
+      expect(shallow.length, where).toBe(title === POOL ? (phone ? 8 : 10) : 0);
+      for (const piece of shallow) expect(piece.low > -0.2 && meet(piece, kerb) && isTone(color, piece.corners[0], GREY) !== isTone(color, piece.corners[0], PALE_STONE), where).toBe(true);
+      // That depth is enough anywhere on the path, under every corner of a foot (shallowestFoot). The box and the pool are
+      // broad and have each a depth of their own, which is how far the ground falls under a corner of its foot anywhere on the
+      // path and a hand more: at every quarter metre within 2 m of the eight places where the sweep found a foot covered
+      // least, every corner of a foot is covered still, and by under a hand.
+      const corners = feet.flatMap((piece) => piece.corners), { covers } = shallowestFoot(along(own), position, corners, sunk, where, 4, 0.05);
+      if (sunk === COMMON_SUNK) return;
+      const worst = covers.map((cover, k) => [cover, k * SWEEP]).sort((p, q) => p[0] - q[0]).slice(0, 8).map(([, place]) => place);
+      expect(shallowestFoot(along(own, 0.25, worst), position, corners, sunk, where, 4, 0.05).shallowest, where).toBeLessThan(HAND);
+    });
+    // Two of the six are sunk so: the box and the pool.
+    expect(SIX.filter((title) => SUNK[title] !== COMMON_SUNK)).toEqual([RAINBOX, POOL]);
+  });
+
+  it("build the same on every visit, corner for corner and colour for colour", () => {
+    tiers(({ parts }, title, phone, where) => {
+      const again = landmark(title, phone).parts;
+      expect(again, where).toHaveLength(parts.length);
+      parts.forEach((part, k) => {
+        const [one, other] = [part, again[k]].map((p) => asCorners(cornersOf(p))), [hue, hue2] = [part, again[k]].map((p) => p.geometry.attributes.color);
+        expect(other.count, where).toBe(one.count);
+        for (let i = 0; i < one.count; i++) if (cornerKey(one, i) !== cornerKey(other, i) || (hue && cornerKey(hue, i) !== cornerKey(hue2, i))) expect.fail(`${where}: part ${k}, corner ${i} differs on a second build`);
+      });
+    });
+  });
+
+  it("cost what they are said to: at most 2,000 triangles each on a desktop and 1,300 on a phone, a phone's fewer, and under 4,800 and 2,800 between them", () => {
+    const COST: Record<string, [number, number]> = { [RAINBOX]: [1184, 764], [WHEEL]: [636, 444], [STAR]: [442, 242], [DEW]: [812, 356], [SATURDAY]: [540, 452], [POOL]: [920, 520] };
+    for (const title of SIX) {
+      const [desktop, phone] = COST[title];
+      expect([triangles(six(title).parts), triangles(six(title, true).parts)], title).toEqual([desktop, phone]);
+      expect(desktop <= 2000 && phone <= 1300 && phone < desktop, title).toBe(true);
+    }
+    expect(SIX.reduce((sum, title) => sum + COST[title][0], 0)).toBeLessThan(4800);
+    expect(SIX.reduce((sum, title) => sum + COST[title][1], 0)).toBeLessThan(2800);
+  });
+
+  it("draw no post, spoke or streak of rain thinner than 13 cm, two pixels of a desktop's frame from 50 m: the fingerpost's post, the wheel's ten spokes and the rain", () => {
+    for (const phone of [false, true]) {
+      const where = phone ? "on a phone" : "on a desktop", post = six(SATURDAY, phone), [shaft] = toned(post, TIMBER), rain = toned(six(RAINBOX, phone), RAIN);
+      expect(least(post.position, shaft), where).toBeGreaterThanOrEqual(0.13 - 1e-6);
+      // Each streak is cut level at every 5 cm of its length: it leans, so it is broader so cut than it is through.
+      expect(rain.length, where).toBeGreaterThan(phone ? 6 : 10);
+      for (const streak of rain) expect(least(six(RAINBOX, phone).position, streak, streak.low + 0.01, streak.high - 0.035), where).toBeGreaterThanOrEqual(0.13 - 1e-6);
+      // A spoke is a beam: the shortest of the edges of its corners is its breadth.
+      const wheel = six(WHEEL, phone).own[0], spokes = wheel.pieces.filter((piece) => piece.corners.length === 36);
+      expect(spokes, where).toHaveLength(10);
+      for (const spoke of spokes) {
+        const corners = [...new Set(spoke.corners.map((i) => cornerKey(wheel.position, i)))].map((key) => key.split(",").map(Number));
+        const edges = corners.flatMap((p, i) => corners.slice(i + 1).map((q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])));
+        expect([corners.length, Math.min(...edges)], where).toEqual([8, expect.closeTo(0.16, 3)]);
+      }
+    }
+  });
+
+  it("close each part, edge for edge, with its faces outward", () => {
+    tiers(({ parts }, title, phone, where) => {
+      parts.forEach((part, k) => {
+        const position = asCorners(cornersOf(part));
+        for (const piece of piecesOf(position)) {
+          const open = openEdges(only(position, piece.corners)), volume = volumeOf(position, piece);
+          if (open.length || !(volume > 0)) expect.fail(`${where}: part ${k}, a piece from ${piece.low} m to ${piece.high} m has ${open.length} open edges and ${volume} cubic metres`);
+        }
+      });
+    });
+  });
+
+  it("build the box of rain: a box of planks, no two that meet of one tone, on four posts, with its water under its brim; and a cloud over it, pale over and grey under, that rains into it", () => {
+    for (const phone of [false, true]) {
+      const box = six(RAINBOX, phone), { position, color } = box, where = phone ? "on a phone" : "on a desktop";
+      const walls = toned(box, ...RAIN_PLANKS), posts = toned(box, DARK_TIMBER), [water] = toned(box, RAIN_WATER), streaks = toned(box, RAIN);
+      const puffs = box.pieces.filter((piece) => piece.corners.some((i) => isTone(color, i, CLOUD) || isTone(color, i, CLOUD_OVER) || isTone(color, i, CLOUD_UNDER)));
+      // Four walls of three courses, the bottom one going on down. A wall's courses are three tones, none the one under it;
+      // and where two walls meet at a corner, no course is the tone of the course beside it.
+      expect(walls, where).toHaveLength(4);
+      const courses = walls.map((wall) => {
+        const tones: Set<string>[] = [new Set(), new Set(), new Set()];
+        for (let n = 0; n < wall.corners.length; n += 3) {
+          face(position, wall.corners, n);
+          if (Math.max(a.y, b.y, c.y) - Math.min(a.y, b.y, c.y) < 1e-6) continue;
+          tones[Math.max(0, Math.min(2, Math.floor((a.y + b.y + c.y) / 3 / 0.25)))].add(RAIN_PLANKS.find((hex) => isTone(color, wall.corners[n], hex))!.toString(16));
+        }
+        expect(tones.map((set) => set.size), where).toEqual([1, 1, 1]);
+        return tones.map((set) => [...set][0]);
+      });
+      expect(new Set(courses.flat()).size, where).toBeGreaterThanOrEqual(3);
+      for (const course of courses) expect(course[0] !== course[1] && course[1] !== course[2], where).toBe(true);
+      for (const [p, q] of [[0, 1], [0, 2], [3, 1], [3, 2]]) for (let k = 0; k < 3; k++) expect(courses[p][k] !== courses[q][k] || !meet(walls[p], walls[q], 0.1), where).toBe(true);
+      // The posts stand at the corners, a hand proud of the walls; the walls' outer faces are inside the posts'.
+      const brim = Math.max(...walls.map((wall) => wall.high));
+      expect(posts, where).toHaveLength(4);
+      for (const post of posts) expect(post.high - brim > 0.05 && Math.abs(midst(post)[0]) > 1.3 && Math.abs(midst(post)[2]) > 1.3, where).toBe(true);
+      // The water lies level a little under the brim, from wall to wall.
+      expect([water.high, brim - water.high > 0.15, wide(water) > 2.8, deep(water) > 2.8], where).toEqual([expect.closeTo(0.55, 5), true, true, true]);
+      // The cloud: its puffs pale where they look up and grey where they look down, its top under main's walls' top.
+      expect(puffs, where).toHaveLength(phone ? 4 : 7);
+      for (const puff of puffs) {
+        expect(puff.corners.filter((i) => position.getY(i) > puff.high - 1e-4).every((i) => isTone(color, i, CLOUD_OVER)), where).toBe(true);
+        expect(puff.corners.filter((i) => position.getY(i) < puff.low + 1e-4).every((i) => isTone(color, i, CLOUD_UNDER)), where).toBe(true);
+      }
+      // The rain: streaks inside the walls, each under the cloud, in columns that fall into the water; a streak beside the
+      // cloud, or one that ended over the water or passed through a wall, would be rain from nowhere or rain leaking.
+      const columns = new Map<number, Piece[]>();
+      for (const streak of streaks) {
+        expect(Math.max(...streak.corners.map((i) => Math.max(Math.abs(position.getX(i)), Math.abs(position.getZ(i))))), where).toBeLessThan(water.x1 - 0.01);
+        const top = streak.corners.reduce((best, i) => (position.getY(i) > position.getY(best) ? i : best)), [x, z] = [position.getX(top), position.getZ(top)];
+        expect(puffs.some((puff) => x > puff.x0 && x < puff.x1 && z > puff.z0 && z < puff.z1 && puff.high > streak.high), `${where}: a streak at ${x}, ${z}`).toBe(true);
+        const key = Math.round(midst(streak)[2] * 100);
+        columns.set(key, [...(columns.get(key) ?? []), streak]);
+      }
+      expect(columns.size, where).toBe(phone ? 4 : 7);
+      // A metre of rain shows between the brim and the cloud, and every column falls through it: from the path the near wall
+      // hides what falls inside the box, and under a cloud over walls a metre tall the rain showed as stubs.
+      const under = Math.min(...puffs.map((puff) => puff.low));
+      expect(under - brim, where).toBeGreaterThanOrEqual(1);
+      for (const column of columns.values()) expect(column.some((streak) => streak.low > brim && streak.high < under), where).toBe(true);
+      for (const column of columns.values()) {
+        const lowest = column.reduce((p, q) => (q.low < p.low ? q : p));
+        expect(lowest.low < water.high && lowest.low > water.high - 0.1, where).toBe(true);
+      }
+    }
+  });
+
+  it("build the wheel: ten spokes from inside the hub to inside the tyre, none upright, an iron rim, all of it turning as one 3.6 m up; and under it a footing a hand short of its rim, with a pivot whose tip is in the rim", () => {
+    for (const phone of [false, true]) {
+      const { own, pieces, color } = six(WHEEL, phone), [wheel] = own, where = phone ? "on a phone" : "on a desktop", at = (i: number) => [wheel.position.getX(i), wheel.position.getY(i) - 3.6, wheel.position.getZ(i)];
+      const spokes = wheel.pieces.filter((piece) => piece.corners.length === 36);
+      expect(spokes, where).toHaveLength(10);
+      const turns = spokes.map((spoke) => {
+        const out = spoke.corners.map((i) => Math.hypot(at(i)[0], at(i)[1]));
+        // Each from inside the hub, 0.46 m round, to inside the tyre, 2.95 to 3.3 m out.
+        expect(Math.min(...out) < 0.46 && Math.max(...out) > 2.96 && Math.max(...out) < 3.28, where).toBe(true);
+        const [x, y] = [(spoke.x0 + spoke.x1) / 2, midst(spoke)[1] - 3.6];
+        return ((Math.atan2(x, y) * 180) / Math.PI + 360) % 360;
+      }).sort((p, q) => p - q);
+      turns.forEach((turn, k) => expect(turn, where).toBeCloseTo(18 + 36 * k, 3));
+      // Nothing of it is further than the rim's 3.45 m from the axle, or more than 35 cm from the wheel's plane.
+      const corners = Array.from({ length: wheel.position.count }, (_, i) => at(i));
+      expect(Math.max(...corners.map(([x, y]) => Math.hypot(x, y))), where).toBeLessThanOrEqual(3.45 + 1e-6);
+      expect(Math.max(...corners.map(([, , z]) => Math.abs(z))), where).toBeLessThanOrEqual(0.35);
+      // The tyre is in felloes of two tones, turn about, under an iron rim.
+      const tyre = wheel.pieces.filter((piece) => piece.corners.length > 36 && wide(piece) > 6);
+      expect(tyre, where).toHaveLength(2);
+      // The footing stands under the rim's foot, 1 to 10 cm short of it, and the brass pivot on it reaches up into the rim.
+      const [footing] = pieces.filter((piece) => isTone(color, piece.corners[0], STONE)), [pivot] = pieces.filter((piece) => isTone(color, piece.corners[0], BRASS));
+      const foot = 3.6 - 3.45;
+      expect(foot - footing.high > 0.01 && foot - footing.high < 0.1 && footing.low <= -COMMON_SUNK + 1e-6, where).toBe(true);
+      expect(pivot.low < footing.high + 1e-6 && pivot.high > foot + 0.03 && pivot.high < 3.6 - 3.28, where).toBe(true);
+      expect(Math.hypot(midst(pivot)[0], midst(pivot)[2]), where).toBeLessThan(1e-6);
+    }
+  });
+
+  it("build the dark star: a ball with a spike from each of its twelve corners and, on a desktop, a shorter one from each of its twenty faces, rooted in it; resting on one, a hand into a rough plinth", () => {
+    for (const phone of [false, true]) {
+      const { own, pieces } = six(STAR, phone), [star] = own, where = phone ? "on a phone" : "on a desktop", [plinth] = pieces;
+      const at = (i: number) => new THREE.Vector3(star.position.getX(i), star.position.getY(i) - 2.5, star.position.getZ(i));
+      // Every corner is the ball's, 0.9 m out, a spike's root, inside the ball, or a spike's tip, 1.4 m or 1.15 m out: no
+      // spike stands off the ball, and none is longer or shorter than the others of its kind.
+      const RINGS = [0.8, Math.hypot(0.8, 0.22), 0.9, 1.4, ...(phone ? [] : [Math.hypot(0.8, 0.16), 1.15])];
+      for (let i = 0; i < star.position.count; i++) if (!RINGS.some((r) => Math.abs(at(i).length() - r) < 1e-4)) expect.fail(`${where}: a corner ${at(i).length()} m out`);
+      const tipsAt = (r: number) => [...new Map(Array.from({ length: star.position.count }, (_, i) => at(i)).filter((v) => Math.abs(v.length() - r) < 1e-4).map((v) => [v.toArray().map((n: number) => n.toFixed(4)).join(), v])).values()];
+      const long = tipsAt(1.4), short = tipsAt(1.15);
+      expect([long.length, short.length], where).toEqual([12, phone ? 0 : 20]);
+      // The long ones point to an icosahedron's corners: each has its nearest five at 63.4 degrees, and one points down.
+      for (const tip of long) {
+        const near = long.filter((other) => other !== tip).map((other) => tip.dot(other) / 1.96).sort((p, q) => q - p);
+        expect(near.slice(0, 5).every((cos) => Math.abs(cos - 1 / Math.sqrt(5)) < 1e-4) && near[5] < 0.4, where).toBe(true);
+      }
+      expect(long.some((tip) => tip.y < -1.4 + 1e-4), where).toBe(true);
+      // A short one points to the middle of a face: three long ones are each 37.4 degrees from it.
+      for (const tip of short) expect(long.filter((other) => Math.abs(tip.dot(other) / (1.15 * 1.4) - 0.7947) < 1e-3), where).toHaveLength(3);
+      // The lowest tip is 5 to 15 cm into the plinth's top.
+      expect(plinth.high - (2.5 - 1.4), where).toBeGreaterThan(0.05);
+      expect(plinth.high - (2.5 - 1.4), where).toBeLessThan(0.15);
+    }
+  });
+
+  it("build the dewdrop: a great drop and two small ones, each standing a few centimetres into a broad leaf, all of the drops over the leaf, which is green with a pale midrib", () => {
+    for (const phone of [false, true]) {
+      const dew = six(DEW, phone), { own, pieces, position, color } = dew, [drops] = own, where = phone ? "on a phone" : "on a desktop", [leaf] = pieces;
+      expect(pieces, where).toHaveLength(1);
+      for (const tone of [LEAF_FACE, LEAF_RIM, LEAF_RIB, LEAF_UNDER]) expect(leaf.corners.some((i) => isTone(color, i, tone)), where).toBe(true);
+      const edge = hull(leaf.corners.filter((i) => position.getY(i) > 0).map((i) => [position.getX(i), position.getZ(i)]));
+      expect(drops.pieces, where).toHaveLength(3);
+      for (const drop of drops.pieces) {
+        // Its lowest corner, and the leaf's face under it: the drop stands into the leaf by 6 cm at the most.
+        const foot = drop.corners.reduce((best, i) => (drops.position.getY(i) < drops.position.getY(best) ? i : best));
+        const under = topAt(position, leaf, drops.position.getX(foot), drops.position.getZ(foot));
+        expect(under - drop.low > 0.01 && under - drop.low < 0.06, `${where}: a drop ${under - drop.low} m into the leaf`).toBe(true);
+        expect(Math.max(...drop.corners.map((i) => outside(edge, drops.position.getX(i), drops.position.getZ(i)))), where).toBeLessThan(-0.005);
+      }
+      const [great, ...small] = [...drops.pieces].sort((p, q) => q.high - p.high);
+      expect(great.high - great.low > 3 && Math.hypot(midst(great)[0], midst(great)[2]) < 1e-3, where).toBe(true);
+      // The great drop is broad across the path, as the walker sees it, and narrower along it, where the leaf is narrow: drawn as
+      // round as the leaf let it be, it read from the path as a grey spire. The small ones stand clear of it.
+      expect([wide(great) > 2.1, wide(great) > 1.1 * deep(great)], where).toEqual([true, true]);
+      for (const drop of small) expect(meet(drop, great), where).toBe(false);
+    }
+  });
+
+  it("build the fingerpost: a turned post with a lantern on its head and two boards under it that point their two ways, each held in an iron collar, with a pale band along it on both its faces", () => {
+    for (const phone of [false, true]) {
+      const post = six(SATURDAY, phone), { own, position } = post, where = phone ? "on a phone" : "on a desktop", [lantern] = own;
+      const [shaft] = toned(post, TIMBER), boards = toned(post, FINGER_BOARD), bands = toned(post, FINGER_BORDER), [glass] = lantern.pieces;
+      const [px, , pz] = midst(shaft), axis = (i: number) => Math.hypot(position.getX(i) - px, position.getZ(i) - pz);
+      // The lantern stands on the post's head, on its iron foot, its glass on the post's axis.
+      expect([midst(glass)[0], midst(glass)[2]], where).toEqual([expect.closeTo(px, 5), expect.closeTo(pz, 5)]);
+      expect(glass.low - shaft.high > 0.02 && glass.low - shaft.high < 0.12, where).toBe(true);
+      const iron = toned(post, IRON), [foot] = iron.filter((piece) => piece.low < shaft.high && piece.low > shaft.high - 0.02 && Math.abs(piece.high - glass.low) < 1e-4), cap = iron.filter((piece) => piece.low >= glass.high - 1e-4);
+      expect(foot && cap.length === 2 && cap.every((piece) => wide(piece) > wide(glass)), where).toBe(true);
+      // The boards: each from inside the post to its tip, one each way, under the lantern by 10 cm and more; each in a
+      // collar, with two pale bands along it.
+      expect([boards.length, bands.length], where).toEqual([2, 4]);
+      const tips = boards.map((board) => {
+        expect(Math.min(...board.corners.map(axis)), where).toBeLessThan(0.13);
+        expect(glass.low - board.high, where).toBeGreaterThan(0.1);
+        expect(bands.filter((band) => meet(band, board)), where).toHaveLength(2);
+        expect(iron.filter((piece) => meet(piece, board) && piece.low < board.low && piece.high > board.high), where).toHaveLength(1);
+        return board.corners.reduce((best, i) => (axis(i) > axis(best) ? i : best));
+      });
+      expect(tips.map((i) => Math.sign(position.getX(i))).sort(), where).toEqual([-1, 1]);
+      for (const tip of tips) expect(axis(tip) > 1.6, where).toBe(true);
+    }
+  });
+
+  it("build the still pool: dark water in a kerb, and on it three ripples about its middle, each smaller and lower than the one round it, their crests up", () => {
+    for (const phone of [false, true]) {
+      const pool = six(POOL, phone), { position } = pool, where = phone ? "on a phone" : "on a desktop", [water] = toned(pool, POOL_WATER), [kerb] = toned(pool, STONE);
+      const ridges = toned(pool, RIPPLE).sort((p, q) => q.x1 - p.x1);
+      expect([water.high, kerb.high], where).toEqual([expect.closeTo(0.08, 5), expect.closeTo(0.2, 5)]);
+      expect(ridges, where).toHaveLength(3);
+      // The ripples are pale on the dark water, rings that catch the sky: as dark as the water's own, they read from the path as
+      // black rings, a spiral. And the kerb stands 12 cm over the water, where at 2 cm it showed only in slivers.
+      const ripple = colourOf(RIPPLE), dark = colourOf(POOL_WATER);
+      expect(bright(ripple.r, ripple.g, ripple.b), where).toBeGreaterThan(0.1);
+      expect(bright(ripple.r, ripple.g, ripple.b), where).toBeGreaterThan(10 * bright(dark.r, dark.g, dark.b));
+      ridges.forEach((ridge, k) => {
+        const crest = ridge.corners.filter((i) => position.getY(i) > ridge.high - 1e-6), out = crest.map((i) => Math.hypot(position.getX(i), position.getZ(i)));
+        expect([midst(ridge)[0], midst(ridge)[2]].map((v) => Math.abs(v) < 1e-3), where).toEqual([true, true]);
+        for (const r of out) expect(r, where).toBeCloseTo([2.1, 1.45, 0.8][k], 3);
+        expect([ridge.low, ridge.high], where).toEqual([expect.closeTo(0.08, 5), expect.closeTo([0.2, 0.17, 0.14][k], 5)]);
+        // Each face at the crest looks up: a profile drawn the wrong way round looks down into the water.
+        for (let n = 0; n < ridge.corners.length; n += 3) {
+          face(position, ridge.corners, n);
+          if (Math.max(a.y, b.y, c.y) < ridge.high - 1e-6) continue;
+          const look = b.clone().sub(a).cross(c.clone().sub(a));
+          if (look.length() > 1e-9) expect(look.normalize().y, where).toBeGreaterThan(0.5);
+        }
+      });
     }
   });
 });

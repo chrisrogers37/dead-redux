@@ -87,14 +87,25 @@ export const GREY = 0x7d7a74, PALE_STONE = 0xa9a59c, MOSS = 0x55663f, SNOW = 0xe
    is), and their tones. */
 export const TRESTLE_SUNK = 7.4, BAND_SUNK = 4.4;
 /* The lighthouse's footing and the terrapin's legs, the same way (their builders say how far the ground falls under them). */
-export const LIGHT_SUNK = 2.4, TERRAPIN_SUNK = 2.4;
+export const LIGHT_SUNK = 2.4, TERRAPIN_SUNK = 2.4, RAIN_SUNK = 2.4, POOL_SUNK = 3.95;
 export const SIGN_YELLOW = 0xd4a056, SIGN_DARK = 0x3a2a1e, PLAQUE = 0xe0d9c4, POST = 0x7a5230, HANDRAIL = 0xa98a5c, PLANK_TONES = [DARK_TIMBER, 0x5a4128, 0x3d2b1a];
 export const KITE_TONES = [0xd4607a, 0xe8b04b], BOW_TONES = [0x5b8fb5, 0xf0dba0];
 export const PIER_PLINTH = 0x6f6a63, PIER_NICHE = 0x2a2622, CREAM = 0xd8d2c4, COPPER = [0x5f8f7f, 0x4e7a6c];
 /* The lighthouse's, the eyes', the lotus bowl's, the banner's and the terrapin's own tones. */
 export const SCARLET = 0xb8333a, DEEP_RED = 0x8f2630, IRIS = 0x2f6f6a, PUPIL = 0x15110d, WATER = 0xbfe3ea, BOWL_PALE = 0xd9d2b8;
+/* The lotus's petals' pale tips, and the banner's own red: a vermilion, brighter and more orange than the lighthouse's scarlet,
+   which against the crimson dusk read as the sky's own colour. */
+export const LOTUS_PALE = 0xf1ece2, BANNER_RED = 0xe0472a;
+/* How much darker the banner's cloth is in a fold: each tongue is folded down its middle, one half lit and the other in the
+   fold's shade, all the way up the cloth. */
+export const BANNER_FOLD = 0.78;
 export const TRIM = 0xc89a3c, BEGONIA = 0xf2b7ae, HEART = 0xf0c860, BEGONIA_LEAF = 0x538550;
 export const SEAM = 0x2e3524, SCUTES = [0x5d6b3a, 0x8a8548, 0x8f7440], BELLY = 0xcdbf8a, HIDE = 0x86946a, PAD = 0x6b7850, CLAW = 0xcfc4a2;
+/* Box Of Rain's, the dew's leaf's, the fingerpost's and the pool's own tones, and how thick a streak of rain is round. */
+export const RAIN_PLANKS = [0x6b4e2e, 0x7d5c39, 0x5a4128, 0x86643f], RAIN = 0xb4cbdb, RAIN_WATER = 0x5f7a8c, CLOUD = 0xc9cdd3, CLOUD_OVER = 0xeef0f3, CLOUD_UNDER = 0x9ca1aa, RAIN_STREAK = 0.08;
+export const WHEEL_PALE = 0x8a6a44, WHEEL_SPOKE = 0xa08058;
+export const LEAF_FACE = 0x4f7d3f, LEAF_RIM = 0x6b9a4f, LEAF_RIB = 0x9cc07a, LEAF_VEIN = 0x62904c, LEAF_UNDER = 0x2c4a2a;
+export const FINGER_BOARD = 0x3d2b1a, FINGER_BORDER = 0xe6d8a8, POOL_WATER = 0x0e1014, RIPPLE = 0x5e7187;
 
 /* The builders table: a title rule and the landmark it builds; a song no rule matches gets one of eight standing stones, by its title. */
 export function makeBuilders(phone) {
@@ -395,15 +406,15 @@ export function makeBuilders(phone) {
     [/playin/i, kitePost],
     [/truckin/i, roadSign],
     [/sugar magnolia|sugaree/i, magnolia],
-    [/ripple/i, (g) => { g.add(mesh(new THREE.CircleGeometry(3, 24).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x0e1014 }), 0, 0.12, 0)); const r = mesh(new THREE.TorusGeometry(3.2, 0.15, 6, 32), stone, 0, 0.15, 0); r.rotation.x = -Math.PI / 2; g.add(r); }],
+    [/ripple/i, stillWater],
     [/eyes/i, eyes],
     [/scarlet/i, scarletBanner],
     [/terrapin/i, terrapin],
-    [/dark star/i, (g) => { g.add(mesh(new THREE.BoxGeometry(2, 1.2, 2), stone, 0, 0.6, 0), mesh(new THREE.SphereGeometry(1.4, 12, 8), new THREE.MeshBasicMaterial({ color: 0x0b0b0d }), 0, 2.6, 0)); }],
-    [/morning dew/i, (g) => { g.add(mesh(new THREE.DodecahedronGeometry(2.2), new THREE.MeshPhongMaterial({ color: 0x7d7a74, specular: 0xffffff, shininess: 80, flatShading: true }), 0, 1.8, 0)); }],
-    [/box of rain/i, (g) => { for (const z of [-1.5, 1.5]) g.add(mesh(new THREE.BoxGeometry(3.2, 2.6, 0.2), stone, 0, 1.3, z)); for (const x of [-1.5, 1.5]) g.add(mesh(new THREE.BoxGeometry(0.2, 2.6, 2.8), stone, x, 1.3, 0)); }],
+    [/dark star/i, darkStar],
+    [/morning dew/i, dewdrop],
+    [/box of rain/i, rainBox],
     [/not fade/i, stonePillar],
-    [/one more saturday/i, (g) => { g.add(mesh(new THREE.CylinderGeometry(0.15, 0.15, 5, 6), wood, 0, 2.5, 0)); for (const [x, y, ry] of [[0.9, 4.2, 0.4], [-0.9, 3.5, -0.5]]) { const b = mesh(new THREE.BoxGeometry(2.2, 0.5, 0.1), wood, x, y, 0); b.rotation.y = ry; g.add(b); } }],
+    [/one more saturday/i, fingerpost],
     [/straw/i, strawBales],
     [/diamond/i, cutDiamond],
     [/rider/i, hitchingRail],
@@ -414,7 +425,7 @@ export function makeBuilders(phone) {
     /* The flame stands on the mountain's top, 5 m up, with its base at its own origin, so a swell grows it up and out from there. */
     [/fire/i, fireMountain],
     [/samson/i, templePillars],
-    [/wheel/i, (g) => { const w = mesh(new THREE.TorusGeometry(3.2, 0.4, 6, 16), wood, 0, 3.6, 0); g.add(w); moving.push({ obj: w, kind: "spin" }); }],
+    [/wheel/i, spokedWheel],
     [/miracle/i, miracleBowl],
     [/band/i, bandstand],
     [{ test: isDrums }, drumCircle],
@@ -1337,21 +1348,22 @@ export function makeBuilders(phone) {
      broad. The footing is main's tower's own foot, eight-sided and 1.6 m out, so the outline is main's. On it a step, and a
      tower in seven hoops, white and red turn about, a flat of it toward the walker with a door in a pale surround and two
      windows over it; a corbel under the gallery; the gallery's deck, its stanchions and its rail; the lantern room, a low
-     wall with a sill on it and posts from the sill to the roof's plate; and a red roof with a brass ball on it.
-     The lamp is main's: a box of a metre in the shared amber, which turns. It stands 1.1 m lower than it did, on the sill,
-     so that the roof over it ends under main's top. It turns inside the posts, clear of them, and no post stands before its
-     middle as the walker sees it. A phone's tower has eight sides, and six posts and six stanchions where a desktop has
-     eight.
+     wall with a pedestal in it and six posts from the wall to the roof's plate; and a low red roof with a brass ball on it.
+     The lamp is main's: a box of a metre in the shared amber, which turns. It stands 1.1 m lower than it did, on the
+     pedestal, so that the roof over it ends under main's top. It turns inside the posts, clear of them, and no post stands
+     before its middle as the walker sees it. The room's wall is low, and the roof's plate stands 30 cm over the lamp, so the
+     lamp shows whole from the path and under the roof from over it. A phone's tower has eight sides, and six stanchions
+     where a desktop has eight.
      The footing is 3.2 m across. Stood at every quarter metre of the path, as the trestle is, the ground under a corner of
      its foot lies 2.01 m under the landmark's own ground at the lowest: so it goes LIGHT_SUNK down, which is that and a
      hand more. Its test sweeps the path and holds the depth to covering the fall by no more than a hand. */
   /* The lighthouse's heights: its footing's top, the tower's foot and its top, the lantern's sill, the roof's plate, how tall the
      roof is, and the lamp's middle. And how far out each of its rings stands: the footing, the step and the tower's wall at
      their feet and at their tops, and the rest all the way up. */
-  const TOWER = { footing: 0.5, foot: 0.75, top: 7.85, hoops: 7, sill: 9, plate: 10.04, roof: 0.8, lamp: 9.5 };
-  const TOWER_OUT = { footing: { foot: 1.6, top: 1.5 }, step: { foot: 1.46, top: 1.42 }, wall: { foot: 1.38, top: 1.02 }, corbel: 1.38, deck: 1.46, rail: 1.27, room: 0.98, sill: 1.04, posts: 0.9, plate: 1.06, roof: 1.14 };
+  const TOWER = { footing: 0.5, foot: 0.75, top: 7.85, hoops: 7, room: 8.55, sill: 9, plate: 10.3, roof: 0.54, lamp: 9.5 };
+  const TOWER_OUT = { footing: { foot: 1.6, top: 1.5 }, step: { foot: 1.46, top: 1.42 }, wall: { foot: 1.38, top: 1.02 }, corbel: 1.38, deck: 1.46, rail: 1.27, room: 0.98, sill: 0.5, posts: 0.88, plate: 0.96, roof: 1.04 };
   function lighthouse(g) {
-    const sides = phone ? 8 : 12, flat = Math.PI / sides, posts = phone ? 6 : 8, { footing, foot, top, sill, plate } = TOWER, out = TOWER_OUT;
+    const sides = phone ? 8 : 12, flat = Math.PI / sides, posts = phone ? 6 : 8, lantern = 6, { footing, foot, top, sill, plate } = TOWER, out = TOWER_OUT;
     const iron = tone(IRON, true), pale = tone(PALE_STONE, true), white = tone(SNOW, true);
     /* How far out the tower's wall is at a height, at a corner; and its flat toward the walker, at a part's foot, where the
        wall is furthest out under it. Each thing on the wall is set by that. */
@@ -1378,17 +1390,23 @@ export function makeBuilders(phone) {
     put(g, new THREE.CylinderGeometry(out.corbel, wall(top - 0.4) + 0.005, 0.4 + KEYED, sides, 1, true).rotateY(flat), pale, 0, top - 0.2 + KEYED / 2, 0);
     put(g, new THREE.CylinderGeometry(out.deck, out.deck, deck - top, sides).rotateY(flat), iron, 0, (deck + top) / 2, 0);
     put(g, new THREE.TorusGeometry(out.rail, 0.08, 4, phone ? 12 : 16), iron, 0, rail, 0, Math.PI / 2);
-    /* The lantern room: its wall, the sill the lamp stands on, the roof's plate, the roof and its ball. */
-    put(g, new THREE.CylinderGeometry(out.room, out.room, sill - 0.08 - deck + KEYED, sides).rotateY(flat), white, 0, (sill - 0.08 + deck - KEYED) / 2, 0);
-    put(g, new THREE.CylinderGeometry(out.sill, out.sill, 0.1, sides).rotateY(flat), iron, 0, sill - 0.05, 0);
+    /* The lantern room: its low wall, the pedestal the lamp stands on, from the wall's floor up to the lamp's foot, the roof's
+       plate, the roof and its ball. The wall is low and the pedestal narrow, so that from the path the lamp shows whole over
+       them; the plate is a hand over the lamp and the roof low and no broader than it must be, so that from over it, coming
+       down onto the island at night, the lamp shows under them. */
+    put(g, new THREE.CylinderGeometry(out.room, out.room, TOWER.room - deck + KEYED, sides).rotateY(flat), white, 0, (TOWER.room + deck - KEYED) / 2, 0);
+    put(g, new THREE.CylinderGeometry(out.sill, out.sill + 0.08, sill - TOWER.room + KEYED, sides).rotateY(flat), iron, 0, (sill + TOWER.room - KEYED) / 2, 0);
     put(g, new THREE.CylinderGeometry(out.plate, out.plate, 0.12, sides).rotateY(flat), iron, 0, plate + 0.06, 0);
     put(g, new THREE.ConeGeometry(out.roof, TOWER.roof, sides).rotateY(flat), tone(DEEP_RED, true), 0, plate + 0.11 + TOWER.roof / 2, 0);
     /* The uprights, each half a step round from the walker's line: at every such place a stanchion of the gallery, from the
-       deck up into the rail, and a post of the lantern room, from the sill up into the plate. */
+       deck up into the rail; and six posts of the lantern room, from the room's wall up into the plate. */
     for (let k = 0; k < posts; k++) {
-      const a = ((k + 0.5) / posts) * 2 * Math.PI, sin = Math.sin(a), cos = Math.cos(a);
-      put(g, new THREE.BoxGeometry(0.13, rail - deck, 0.13), iron, out.rail * sin, (rail + deck) / 2, out.rail * cos, 0, a, 0);
-      put(g, new THREE.BoxGeometry(0.14, plate - sill + 2 * KEYED, 0.14), iron, out.posts * sin, (plate + sill) / 2, out.posts * cos, 0, a, 0);
+      const a = ((k + 0.5) / posts) * 2 * Math.PI;
+      put(g, new THREE.BoxGeometry(0.13, rail - deck, 0.13), iron, out.rail * Math.sin(a), (rail + deck) / 2, out.rail * Math.cos(a), 0, a, 0);
+    }
+    for (let k = 0; k < lantern; k++) {
+      const a = ((k + 0.5) / lantern) * 2 * Math.PI;
+      put(g, new THREE.BoxGeometry(0.14, plate - TOWER.room + 2 * KEYED, 0.14), iron, out.posts * Math.sin(a), (plate + TOWER.room) / 2, out.posts * Math.cos(a), 0, a, 0);
     }
     put(g, new THREE.SphereGeometry(0.09, 6, 5), tone(BRASS), 0, plate + 0.11 + TOWER.roof + 0.04, 0);
     /* The lamp is main's: a box of a metre in the shared amber, turning. */
@@ -1399,8 +1417,8 @@ export function makeBuilders(phone) {
 
   /* Eyes Of The World: two eyes on stalks, where the two plain balls stood on their poles, and looking at the walker. Each is
      a turned stalk with a brass collar at its foot and one under its cup; the cup, which the stalk widens into and the eye
-     sits in; the eye; a lid over it, like a hood, down to just over the iris; and on the eye's face an iris with a dark
-     pupil on it. The two eyes are main's balls, their size and their material main's, drawn as one mesh where main drew two;
+     sits in, round its lowest part only; the eye; a lid over it, like a hood, down to a hand over the iris; and on the eye's
+     face an iris with a dark pupil on it. The cup and the lid leave the ball's glow showing all round the iris. The two eyes are main's balls, their size and their material main's, drawn as one mesh where main drew two;
      they glow and do not pulse. They stand a tenth of a metre lower than they did, so that the lids end under main's top,
      and nearer each other, which leaves the outline room for each iris: main's balls stood at the outline's own edge.
      Seen from above a ball fills the outline from front to back: main's ball had a corner at the outline's very edge, 0.45 m
@@ -1408,15 +1426,15 @@ export function makeBuilders(phone) {
      which puts an edge of it foremost, 0.416 m before its middle, and leaves 3 cm: the iris and the pupil are discs let into
      the ball, their faces in those 3 cm, and the ball falls away from them at either side. A corner left foremost would
      stand through the pupil, a bright point in its middle. A lid is no broader than its ball. */
-  const EYE = { out: 0.68, at: 3.4, r: 0.45, iris: 0.2, pupil: 0.11, lid: 0.215, cup: 3.15 };
+  const EYE = { out: 0.68, at: 3.4, r: 0.45, iris: 0.18, pupil: 0.1, lid: 0.3, cup: 3.08 };
   function eyes(g) {
     const sides = phone ? 6 : 8, round = phone ? 8 : 10, { out, at, r, cup } = EYE;
-    const stalk = [[0.2, -SUNK], [0.2, 0.22], [0.26, 0.36], [0.14, 0.6], [0.115, 1.7], [0.1, 2.7], [0.2, 2.85], [0.36, 3.01], [0.41, cup - 0.04], [0.41, cup], [0.3, cup]];
+    const stalk = [[0.2, -SUNK], [0.2, 0.22], [0.26, 0.36], [0.14, 0.6], [0.115, 1.7], [0.1, 2.62], [0.2, 2.77], [0.36, 2.94], [0.41, cup - 0.04], [0.41, cup], [0.3, cup]];
     /* The lid, about its eye's middle: its underside, its edge, and its dome up to 0.54 m over the middle. */
-    const lid = [[0, EYE.lid], [r - 0.005, EYE.lid], [r - 0.005, EYE.lid + 0.05], [0.38, 0.4], [0.22, 0.5], [0, 0.54]];
+    const lid = [[0, EYE.lid], [r - 0.005, EYE.lid], [r - 0.005, EYE.lid + 0.04], [0.38, 0.42], [0.22, 0.5], [0, 0.54]];
     for (const x of [-out, out]) {
       put(g, lathe(stalk, sides), tone(TIMBER), x, 0, 0);
-      for (const [y, wide] of [[0.6, 0.155], [2.7, 0.125]]) put(g, new THREE.CylinderGeometry(wide, wide, 0.1, sides, 1, true), tone(BRASS), x, y, 0);
+      for (const [y, wide] of [[0.6, 0.155], [2.58, 0.125]]) put(g, new THREE.CylinderGeometry(wide, wide, 0.1, sides, 1, true), tone(BRASS), x, y, 0);
       put(g, turned(lid, round), tone(DARK_TIMBER, true), x, at, 0);
       /* The iris's face is 13 mm inside the outline's front edge and 2 cm proud of the ball's foremost edge, and the pupil's
          is 1 cm proud of the iris's. */
@@ -1433,7 +1451,7 @@ export function makeBuilders(phone) {
      of the outline, which is where they have room to open. The light is main's sphere in main's material, 4 m up and moved
      as main moves it: at its lowest its underside is 2.5 m up, and the petals' tips are 12 cm under that. */
   /* The bowl's rim and its water; and a petal: how far out and how high its middle is, half its length, and its lean. */
-  const LOTUS = { rim: 2.27, water: 2.17, petal: { out: 0.735, at: 1.97, long: 0.47, lean: 0.54 } };
+  const LOTUS = { rim: 2.27, water: 2.17, petal: { out: 0.735, at: 1.97, long: 0.47, wide: 0.32, lean: 0.54 }, between: { out: 0.66, at: 1.95, long: 0.4, wide: 0.28, lean: 0.4 } };
   function miracleBowl(g) {
     const round = phone ? 8 : 12, { rim, petal } = LOTUS;
     put(g, new THREE.CylinderGeometry(0.9, 0.98, 0.35 + SUNK, 8), stone, 0, (0.35 - SUNK) / 2, 0);
@@ -1444,11 +1462,14 @@ export function makeBuilders(phone) {
     const bowl = [[0, 1.58], [0.36, 1.6], [0.56, 1.8], [0.68, 2.0], [0.72, 2.2], [0.72, rim], [0.62, rim], [0.58, LOTUS.water], [0.4, 2.03], [0, 1.98]];
     put(g, paint(turned(bowl, round), (x, y, z) => (y > rim - 0.01 || (y > 1.975 && Math.hypot(x, z) < 0.61) ? BOWL_PALE : GREY)), painted, 0, 0, 0);
     put(g, new THREE.CircleGeometry(0.6, round).rotateX(-Math.PI / 2), tone(WATER, true), 0, LOTUS.water, 0);
-    /* The petals: each a long flat leaf that leans out from the pillar's head past the bowl's rim, its tip toward a corner
-       of the outline. */
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * 2 * Math.PI;
-      put(g, new THREE.SphereGeometry(1, phone ? 4 : 6, phone ? 3 : 4).scale(0.27, petal.long, 0.085).rotateX(petal.lean), tone(PALE_STONE), petal.out * Math.sin(a), petal.at, petal.out * Math.cos(a), 0, a, 0);
+    /* The petals: each a long broad leaf that leans out from the pillar's head past the bowl's rim, its tip toward a corner
+       of the outline, pale stone at its foot and paler toward its tip; and between each two of them a shorter one that leans
+       out less, toward the outline's side, where there is less room. So the flower is sixteen petals round, and from the path
+       its pale tips stand round the bowl. A phone's has the eight long ones alone. */
+    const leaf = ({ long, wide, lean }, round) => paint(new THREE.SphereGeometry(1, ...round).scale(wide, long, 0.085).rotateX(lean), (x, y) => (y > 0.05 * long ? LOTUS_PALE : PALE_STONE));
+    for (let k = 0; k < 16; k += phone ? 2 : 1) {
+      const a = (k / 16) * 2 * Math.PI, of = k % 2 ? LOTUS.between : petal;
+      put(g, leaf(of, k % 2 || phone ? [5, 3] : [6, 4]), painted, of.out * Math.sin(a), of.at, of.out * Math.cos(a), 0, a, 0);
     }
     const s = mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.9 }), 0, 4, 0);
     g.add(s);
@@ -1491,7 +1512,11 @@ export function makeBuilders(phone) {
       if (Math.abs(pos.getY(i) + tall / 2) > 1e-6) continue;
       if (Math.round(((pos.getX(i) + wide / 2) / wide) * cols) % 2 === 0) pos.setY(i, pos.getY(i) + FLAG.cut);
     }
-    put(g, paint(cloth, (x, y) => (y > tall / 2 - row ? TRIM : y < -tall / 2 + row ? TRIM : y < -tall / 2 + 2 * row ? DEEP_RED : SCARLET)), painted, mid, head - tall / 2, 0);
+    /* Its bands, and its folds: under the gold band at its head, which the loops hold flat, a column of cells that is the right
+       half of a tongue lies in the fold's shade, so that the cloth hangs in pleats, one to a tongue, where a flat sheet read as a
+       board. (The head is not folded: a loop lies flush on it, and a loop's gold on a gold in shade would flicker.) */
+    const band = (y) => (y < -tall / 2 + row ? TRIM : y < -tall / 2 + 2 * row ? DEEP_RED : BANNER_RED);
+    put(g, paint(cloth, (x, y) => (y > tall / 2 - row ? TRIM : Math.floor(((x + wide / 2) / wide) * cols) % 2 ? shade(band(y), BANNER_FOLD) : band(y))), painted, mid, head - tall / 2, 0);
     /* A drop is 20 cm broad for most of its length: a slimmer one broke into specks from 45 m on a phone. */
     for (let k = 1; k < cols; k += 2) put(g, cut([[-0.04, 0.05], [0.04, 0.05], [0.1, -0.08], [0.1, -0.28], [0, -0.38], [-0.1, -0.28], [-0.1, -0.08]], CLOTH - 0.01), tone(BRASS, true), mid - wide / 2 + (k * wide) / cols, head - tall, 0);
     /* The begonias, each [x, y, how far its petals reach], on the cloth's near face and on its far one. */
@@ -1567,6 +1592,189 @@ export function makeBuilders(phone) {
     put(g, new THREE.SphereGeometry(0.36, phone ? 6 : 8, phone ? 4 : 6).scale(0.84, 0.74, 1.12), hide, 0, 1.74, -1.17, 0.2, 0, 0);
     for (const x of [-0.21, 0.21]) put(g, new THREE.IcosahedronGeometry(0.07, 0), tone(PUPIL, true), x, 1.86, -1.37);
     put(g, new THREE.ConeGeometry(0.15, 0.5, 5).rotateX(Math.PI / 2 + 0.3), hide, 0, 0.84, SHELL.at + SHELL.long * rings[rings.length - 1][0] + 0.02);
+  }
+
+  /* ---------- Box Of Rain, The Wheel, Dark Star, Morning Dew, One More Saturday Night and Ripple ---------- */
+  /* Each of these six keeps inside the outline, seen from above, of the plain shape it replaced, and under its top, as the batches
+     before it do. The wheel, the star and the dew are main's own moving or special parts, in main's materials: the wheel turns as
+     main's turned, the star is main's unlit near-black and the dew main's shiny grey, each still its own draw call. The lantern
+     on the fingerpost is the one lit part this batch adds: it glows in the shared amber and does not move, so it costs a draw call
+     and nothing in the light show. No post, rail, stalk, spoke or streak of rain here is thinner than 13 cm, as in the batch
+     before. */
+  /* A part painted face by face that shades smooth: a cloud's puffs, which flat-shaded would read as stones. */
+  const paintedSmooth = new THREE.MeshLambertMaterial({ vertexColors: true });
+
+  /* Box Of Rain: a planked box open to the sky, where the four stone walls stood, and over it a small cloud that rains into it.
+     The plain walls were 2.6 m tall, and a cloud over them would have stood over their top: so the box is 0.75 m tall, the cloud's
+     top is under the walls' old top, and the rain shows between them, a metre of it: from the path the box's near wall hides what
+     falls inside it, and with walls a metre tall the rain showed as stubs under the cloud. The box is three courses of planks, no plank the
+     tone of the one under it or of the one beside it at a corner, on four corner posts that stand a hand proud of them; it holds
+     its water a little under its brim. The cloud is a cluster of soft puffs, pale over and grey under. The rain falls from the
+     cloud into the water in streaks, each a stout one, 14 cm through and more, leaning a little with the wind; a phone has fewer. The
+     walls' outer faces keep to the plain walls' 1.6 m from the middle.
+     The box is 3.2 m across and stands level. Stood at every quarter metre of the path, the ground under a corner of its foot
+     lies 2.15 m under the landmark's own ground at the lowest: so the posts, planks and water go RAIN_SUNK down, which is that
+     and a hand more. */
+  const RAIN_BOX = { out: 1.6, wall: 0.16, post: 0.24, inset: 0.02, course: 0.25, courses: 3, proud: 0.08, water: 0.55, slant: 0.12, streak: [0.34, 0.24] };
+  function rainBox(g) {
+    const { out, wall, post, inset, course, courses, proud, water } = RAIN_BOX, high = course * courses;
+    /* The boards' faces stand `inset` inside the posts', and the boards' inner faces at `inner` from the middle. */
+    const mid = out - inset - wall / 2, inner = out - inset - wall, deep = 0.05;
+    /* The walls, course by course: the front and back boards run into the posts, the side boards between the front and back
+       boards. A board's tone steps on round the box and up it, so no two boards that meet share one. */
+    for (let c = 0; c < courses; c++) {
+      const low = c === 0, h = low ? course + RAIN_SUNK : course, y = low ? (course - RAIN_SUNK) / 2 : (c + 0.5) * course;
+      [[0, -mid], [1, mid]].forEach(([k, z]) => put(g, new THREE.BoxGeometry(2 * (out - post / 2), h, wall), tone(RAIN_PLANKS[(c + 2 * k) % 4], true), 0, y, z));
+      [[1, -mid], [3, mid]].forEach(([k, x]) => put(g, new THREE.BoxGeometry(wall, h, 2 * inner), tone(RAIN_PLANKS[(c + k) % 4], true), x, y, 0));
+    }
+    /* The posts go a little deeper than the boards, and the water deeper than the boards but less than the posts, so no two of
+       their feet lie in one plane. */
+    for (const x of [-1, 1]) for (const z of [-1, 1]) put(g, new THREE.BoxGeometry(post, high + proud + RAIN_SUNK + deep, post), tone(DARK_TIMBER, true), x * (out - post / 2), (high + proud - RAIN_SUNK - deep) / 2, z * (out - post / 2));
+    /* The water: a level face a little under the brim, from wall to wall and a centimetre into them, and the box full of it on down. */
+    put(g, new THREE.BoxGeometry(2 * inner + 0.02, water + RAIN_SUNK + deep / 2, 2 * inner + 0.02), tone(RAIN_WATER, true), 0, (water - RAIN_SUNK - deep / 2) / 2, 0);
+    /* The cloud: puffs pressed flat, pale where they look up and grey where they look down. */
+    const puffs = [[0, 2.2, 0, 0.5], [0.72, 2.12, 0.18, 0.4], [-0.74, 2.13, -0.12, 0.42], [0.22, 2.08, -0.55, 0.36], [-0.28, 2.07, 0.52, 0.36], [1.12, 2.04, -0.22, 0.28], [-1.12, 2.05, 0.32, 0.28]].slice(0, phone ? 4 : 7);
+    for (const [x, y, z, r] of puffs) put(g, paint(new THREE.IcosahedronGeometry(r, 1).scale(1.25, 0.72, 1.1), (fx, fy) => (fy < -0.25 * r ? CLOUD_UNDER : fy < 0.1 * r ? CLOUD : CLOUD_OVER)), paintedSmooth, x, y, z);
+    /* The rain: in each column, streaks from the water up to the cloud, each its length and a gap apart, leaning with the wind.
+       Each column's lowest streak goes a few centimetres into the water and is as long as that column's own share of a streak,
+       so the columns do not fall in step; its highest ends in the cloud, or under it where a gap comes there. */
+    const [long, gap] = RAIN_BOX.streak, top = 1.95, columns = [[-0.7, -0.4, 0], [-0.2, 0.3, 0.55], [0.3, -0.35, 0.25], [0.72, 0.22, 0.75], [-0.48, 0.1, 0.4], [0.05, -0.02, 0.1], [0.5, 0.48, 0.65]].slice(0, phone ? 4 : 7);
+    const at = (x, h) => x + Math.tan(RAIN_BOX.slant) * (top - h);
+    for (const [x, z, share] of columns) {
+      for (let foot = water - 0.04, head = foot + long * (0.4 + 0.6 * share); foot < top - 0.12; foot = head + gap, head = foot + long) {
+        const y = Math.min(head, top);
+        put(g, new THREE.CylinderGeometry(RAIN_STREAK, RAIN_STREAK, (y - foot) / Math.cos(RAIN_BOX.slant), 5), tone(RAIN, true), (at(x, y) + at(x, foot)) / 2, (y + foot) / 2, z, 0, 0, RAIN_BOX.slant);
+      }
+    }
+  }
+
+  /* The Wheel: main's turning wheel, a wagon wheel now. One mesh, so it turns as one as main's did, 3.6 m up: a timber tyre in
+     ten felloes, an iron rim round it, ten spokes from the hub to the tyre, and the hub with its brass caps. It turns about the
+     upright through its middle, as main's did, so it can touch the ground only where its rim crosses that line at its foot: a
+     stone footing stands under that point, a few centimetres short of it, with a brass pivot on it whose tip is in the rim. No
+     spoke stands upright, so none runs down the line it turns about. */
+  const WHEEL = { at: 3.6, tyre: [2.95, 3.3, 0.25], rim: [3.28, 3.45, 0.27], hub: [0.46, 0.56], cap: [0.26, 0.68], spokes: 10, spoke: 0.16, from: 0.35, to: 3.1 };
+  function spokedWheel(g) {
+    const sides = phone ? 12 : 24, ring = (r0, r1, half) => lathe([[r0, -half], [r1, -half], [r1, half], [r0, half], [r0, -half]], sides).rotateX(Math.PI / 2);
+    /* The tyre's felloes are painted turn about, one between each pair of spokes, and its inner face is one pale tone all round:
+       seen from under the wheel at dusk, an inner face in two tones broke into a row of dark slivers along the tyre's top. The
+       spokes are paler still, and the hub is the timber's own tone: in darker wood, a spoke two pixels wide went near-black at
+       night and broke into specks along its length. */
+    const felloe = (x, y) => (Math.hypot(x, y) < WHEEL.tyre[0] + 0.05 ? WHEEL_PALE : Math.floor(((Math.atan2(x, y) / (2 * Math.PI) + 1) * WHEEL.spokes)) % 2 ? TIMBER : WHEEL_PALE);
+    const parts = [paint(ring(...WHEEL.tyre), felloe), paint(ring(...WHEEL.rim), () => IRON)];
+    parts.push(paint(new THREE.CylinderGeometry(WHEEL.hub[0], WHEEL.hub[0], WHEEL.hub[1], 12).rotateX(Math.PI / 2), () => TIMBER), paint(new THREE.CylinderGeometry(WHEEL.cap[0], WHEEL.cap[0], WHEEL.cap[1], 10).rotateX(Math.PI / 2), () => BRASS));
+    for (let k = 0; k < WHEEL.spokes; k++) {
+      const a = ((k + 0.5) / WHEEL.spokes) * 2 * Math.PI, mid = (WHEEL.from + WHEEL.to) / 2;
+      parts.push(paint(new THREE.BoxGeometry(WHEEL.spoke, WHEEL.to - WHEEL.from, WHEEL.spoke).rotateZ(-a).translate(Math.sin(a) * mid, Math.cos(a) * mid, 0), () => WHEEL_SPOKE));
+    }
+    const wheel = mesh(mergeGeometries(parts.map((p) => { for (const n of Object.keys(p.attributes)) if (!["position", "normal", "color"].includes(n)) p.deleteAttribute(n); return p; })), painted, 0, WHEEL.at, 0);
+    g.add(wheel);
+    moving.push({ obj: wheel, kind: "spin" });
+    /* The footing and the pivot under the rim's foot, which is WHEEL.at less the rim's radius over the ground. */
+    const foot = WHEEL.at - WHEEL.rim[1];
+    put(g, new THREE.CylinderGeometry(0.7, 0.95, foot - 0.03 + SUNK, 8), stone, 0, (foot - 0.03 - SUNK) / 2, 0);
+    put(g, new THREE.ConeGeometry(0.11, 0.1 + KEYED, 6), tone(BRASS), 0, foot - 0.03 + (0.1 - KEYED) / 2, 0);
+  }
+
+  /* Dark Star: main's dark ball, a star now. Main's unlit near-black, in a mesh of its own as main's was: an icosahedron with a long
+     spike at each of its twelve corners and, on a desktop, a short one on each of its twenty faces. It rests on one corner, the
+     lowest spike's tip a hand into its plinth, a rough stone of seven sides. */
+  const STAR = { at: 2.5, body: 0.9, root: 0.8, long: 1.4, short: 1.15, plinth: 1.2 };
+  function darkStar(g) {
+    /* The plinth's faces are two shades of its stone, by chance but the same every visit. */
+    put(g, paint(roughen(new THREE.CylinderGeometry(0.95, 1.2, STAR.plinth + SUNK, 7, 2), 0.1, 50), (x, y, z) => (roll(x, y, z, 51) > 0.5 ? PIER_PLINTH : shade(PIER_PLINTH, 0.86))), painted, 0, (STAR.plinth - SUNK) / 2, 0);
+    const ico = new THREE.IcosahedronGeometry(1, 0), pos = ico.attributes.position, corners = [], seen = new Set();
+    for (let i = 0; i < pos.count; i++) {
+      const v = new THREE.Vector3().fromBufferAttribute(pos, i), key = v.toArray().map((n) => n.toFixed(4)).join();
+      if (!seen.has(key)) { seen.add(key); corners.push(v.normalize()); }
+    }
+    /* Turned so that its first corner points straight down. */
+    const turn = new THREE.Quaternion().setFromUnitVectors(corners[0], new THREE.Vector3(0, -1, 0));
+    const spike = (way, tip, base) => new THREE.ConeGeometry(base, tip - STAR.root, 5).translate(0, (tip + STAR.root) / 2, 0).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(UP, way)).toNonIndexed();
+    const parts = [new THREE.IcosahedronGeometry(STAR.body, 1)];
+    for (const c of corners) parts.push(spike(c.clone().applyQuaternion(turn), STAR.long, 0.22));
+    if (!phone) for (let f = 0; f < pos.count; f += 3) {
+      const m = new THREE.Vector3().fromBufferAttribute(pos, f).add(new THREE.Vector3().fromBufferAttribute(pos, f + 1)).add(new THREE.Vector3().fromBufferAttribute(pos, f + 2));
+      parts.push(spike(m.normalize().applyQuaternion(turn), STAR.short, 0.16));
+    }
+    g.add(mesh(mergeGeometries(parts.map((p) => { for (const n of Object.keys(p.attributes)) if (n !== "position" && n !== "normal") p.deleteAttribute(n); return p; })), new THREE.MeshBasicMaterial({ color: 0x0b0b0d }), 0, STAR.at, 0));
+  }
+
+  /* Morning Dew: main's shiny stone, a dewdrop now, in main's own material and its own mesh as main's was: a great drop, round at
+     its foot and drawn up to a point, and two small ones, on a broad leaf that lies across the path, its tips to either side, its
+     rim curled up and its midrib down the middle. The great drop is broader across the path than along it, 2.2 m at its widest as
+     the walker sees it, so that from the path it is a drop and not a spire; the small ones stand out toward the leaf's tips,
+     clear of it. The leaf keeps inside
+     the plain stone's outline seen from above, and its edge goes on down into the ground. */
+  const DEW = { long: 2.02, wide: 1.0, drop: [[0, 0], [0.45, 0.12], [0.8, 0.5], [0.95, 1.0], [0.85, 1.5], [0.55, 2.0], [0.3, 2.5], [0.12, 2.9], [0, 3.1]], broad: 1.2, foot: 0.38, small: [[1.48, 0.03, 0.27], [-1.44, 0.08, 0.24]] };
+  /* The leaf's rings, from its foot up and in: how far out each stands along the leaf and across it, and how high. */
+  const LEAF_RINGS = [[1, 1, -SUNK], [1, 1, 0.6], [0.985, 0.96, 0.72], [0.94, 0.78, 0.6], [0.86, 0.5, 0.5], [0.74, 0.22, 0.45], [0.6, 0.05, 0.43]];
+  function dewdrop(g) {
+    const sides = phone ? 12 : 24, rings = phone ? [0, 1, 2, 3, 4, 6] : [0, 1, 2, 3, 4, 5, 6];
+    /* A ring of the leaf: corner i goes round it; along the leaf (x) it reaches its tips, and across it (z) it is pointed at them. */
+    const ring = ([along, across, y]) => Array.from({ length: sides }, (_, i) => {
+      const a = (i / sides) * 2 * Math.PI, s = Math.sin(a), c = Math.cos(a), x = DEW.long * along * s;
+      return [x, y > 0 ? y - 0.06 * (x / DEW.long) ** 2 : y, DEW.wide * across * c * Math.abs(c)];
+    });
+    const leaf = loft(rings.map((k) => ring(LEAF_RINGS[k])), [0, LEAF_RINGS[6][2] - 0.01, 0], [0, -SUNK, 0]);
+    /* Its tones: dark where its edge goes down, its midrib pale, its veins a little lighter, and the rest of its face green. */
+    const vein = (x, z) => { const t = (Math.abs(x) + 1.3 * Math.abs(z)) / 0.42; return Math.abs(t - Math.round(t)) < 0.12; };
+    put(g, paint(leaf, (x, y, z) => (y < 0.4 ? LEAF_UNDER : Math.abs(z) < 0.09 ? LEAF_RIB : vein(x, z) ? LEAF_VEIN : y > 0.62 ? LEAF_RIM : LEAF_FACE)), painted, 0, 0, 0);
+    /* The drops, each standing a few centimetres into the leaf where it lies. */
+    const parts = [turned(DEW.drop, phone ? 10 : 14).scale(DEW.broad, 1, 1).translate(0, DEW.foot, 0)];
+    for (const [x, z, r] of DEW.small) parts.push(new THREE.SphereGeometry(r, phone ? 6 : 10, phone ? 4 : 8).toNonIndexed().translate(x, meets(leaf, x, z, true) + r - 0.04, z));
+    const drops = mergeGeometries(parts.map((p) => { for (const n of Object.keys(p.attributes)) if (n !== "position") p.deleteAttribute(n); return p; }));
+    drops.computeVertexNormals();
+    g.add(mesh(drops, new THREE.MeshPhongMaterial({ color: 0x7d7a74, specular: 0xffffff, shininess: 80, flatShading: true }), 0, 0, 0));
+  }
+
+  /* One More Saturday Night: a lamp post at a crossroads. A turned post with a lantern on its head, and under it two fingerboards
+     that point their two ways, each with a pale border painted on it. The lantern glows in the shared amber and does not move: an
+     iron base, its glass, which glows, a cap and a brass finial. The plain shape's outline is a band toward the walker, wide along
+     the path's line and shallow across it, so the post stands toward the walker in it and the boards point along it. */
+  const FINGERPOST = { at: -0.2, post: 4.15, boards: [[3.72, [1.85, -0.4]], [3.1, [-1.8, -0.5]]], board: [0.52, 0.08], border: [0.09, 0.075, 0.01], lantern: { foot: 0.08, glass: [0.19, 0.14, 0.4], ring: 0.05, cap: [0.24, 0.18], finial: 0.065 } };
+  function fingerpost(g) {
+    const { at, post, lantern } = FINGERPOST, sides = phone ? 8 : 12, iron = tone(IRON, true);
+    put(g, turned([[0, -SUNK], [0.24, -SUNK], [0.24, 0.22], [0.3, 0.3], [0.3, 0.46], [0.17, 0.62], [0.13, 0.95], [0.13, post - 0.35], [0.17, post - 0.3], [0.17, post - 0.18], [0.13, post - 0.12], [0.13, post], [0, post]], sides), tone(TIMBER), 0, 0, at);
+    /* The boards: each from inside the post to its tip, its point toward its way, with an iron collar round the post where it is
+       held. Each is a dark board with a pale band along it near its top and near its foot, a centimetre proud of both its faces. */
+    const [tall, thick] = FINGERPOST.board, [band, inset, proud] = FINGERPOST.border, pale = tone(FINGER_BORDER, true);
+    for (const [y, [tx, tz]] of FINGERPOST.boards) {
+      const long = Math.hypot(tx, tz - at), turn = Math.atan2(-(tz - at), tx), head = long - 0.28;
+      const board = new THREE.Group();
+      put(board, cut([[0.04, -tall / 2], [head, -tall / 2], [long, 0], [head, tall / 2], [0.04, tall / 2]], thick), tone(FINGER_BOARD, true), 0, 0, 0);
+      for (const side of [-1, 1]) put(board, new THREE.BoxGeometry(head - 0.32, band, thick + 2 * proud), pale, (head + 0.32) / 2, side * (tall / 2 - inset), 0);
+      stand(g, board, 0, y, at, 0, turn, 0);
+      put(g, new THREE.CylinderGeometry(0.18, 0.18, tall + 0.08, 8), iron, 0, y, at);
+    }
+    /* The lantern on the post's head, from its foot up: its base, its glass, the ring its cap stands on, the cap, and the finial. */
+    const [top, bottom, glass] = lantern.glass, [capR, capH] = lantern.cap, foot = post + lantern.foot, ring = foot + glass;
+    put(g, new THREE.CylinderGeometry(bottom + 0.04, 0.15, lantern.foot + KEYED, 6), iron, 0, post + (lantern.foot - KEYED) / 2, at);
+    g.add(mesh(new THREE.CylinderGeometry(top, bottom, glass, 6), amber, 0, foot + glass / 2, at));
+    put(g, new THREE.CylinderGeometry(capR, capR, lantern.ring, 6), iron, 0, ring + lantern.ring / 2, at);
+    put(g, new THREE.ConeGeometry(capR - 0.02, capH + KEYED, 6), iron, 0, ring + lantern.ring + (capH - KEYED) / 2, at);
+    put(g, new THREE.SphereGeometry(lantern.finial, 6, 5), tone(BRASS), 0, ring + lantern.ring + capH + lantern.finial / 2, at);
+  }
+
+  /* Ripple: still water in a kerb of stone, where the dark disc lay in its stone ring, and on it three ripples, each smaller and
+     lower than the one round it, and no pebble at their middle. The pool is dark and the ripples paler, a grey-blue that catches
+     the sky: in the water's own dark they read from the path as black rings, a spiral. The kerb is the plain ring's own stone,
+     12 cm over the water, with rough stones set in it. Nothing stands over 0.28 m, as nothing of the plain one did.
+     The kerb is 6.6 m across and stands level. Stood at every quarter metre of the path, the ground under its rim lies 3.71 m
+     under the landmark's own ground at the lowest, where the path is steepest: so the pool and the kerb go POOL_SUNK down, which
+     is that and a hand more. */
+  const POOL = { r: 2.6, top: 0.08, kerb: [2.55, 3.3, 0.2], stones: 10, ridges: [[2.1, 0.12], [1.45, 0.09], [0.8, 0.06]], half: 0.12 };
+  function stillWater(g) {
+    const sides = phone ? 12 : 24;
+    put(g, new THREE.CylinderGeometry(POOL.r, POOL.r, POOL.top + POOL_SUNK, sides), tone(POOL_WATER), 0, (POOL.top - POOL_SUNK) / 2, 0);
+    const [k0, k1, kh] = POOL.kerb;
+    put(g, lathe([[k0, -POOL_SUNK - 0.05], [k1, -POOL_SUNK - 0.05], [k1, kh], [k0, kh], [k0, -POOL_SUNK - 0.05]], sides), tone(STONE, true), 0, 0, 0);
+    const n = phone ? 8 : POOL.stones;
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * 2 * Math.PI, r = 0.3 + 0.05 * roll(k, 0, 0, 60);
+      put(g, rock(r, 0, 0.15, 61 + k).scale(1.3, 0.55, 1), tone(k % 3 ? GREY : PALE_STONE, true), 2.8 * Math.cos(a), 0.05, 2.8 * Math.sin(a), 0, -a);
+    }
+    for (const [R, h] of POOL.ridges) put(g, lathe([[R - POOL.half, POOL.top], [R, POOL.top + h], [R + POOL.half, POOL.top], [R - POOL.half, POOL.top]].reverse(), sides), tone(RIPPLE, true), 0, 0, 0);
   }
 
   /* Each landmark's still parts merge into one mesh once it is built; a part that moves stays apart. The standing stone alone is
