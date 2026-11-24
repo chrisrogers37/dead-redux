@@ -93,6 +93,52 @@ describe("rise", () => {
     }
   });
 
+  // The platform's edge (issue #194): the head 5 cm outside the stage's column and 5 m under its top. The line meets the column
+  // further off than 3 m, yet under its top, only between 89.05 and 89.43 degrees up: a third of a degree, where a step is 2.9.
+  // As the boom's own elevation eases, its steps land in that third of a degree or past it: the camera was drawn in to 2.5 m
+  // over the bear or hung at the boom's length, and went from the one to the other as the boom settled.
+  it("rises over a landmark it is all but over, whatever its own elevation: hard against a tall column, where the angles that stop the line in front of it are fewer than a step, the line passes over the column from every elevation the easing boom goes through", () => {
+    const col = column(0, 0.05, STAGE_COLUMN.r, HEAD.y + 5);
+    let stepped = 0;
+    for (let n = 0; n <= 200; n++) {
+      const el = 0.3 + n * 0.0005, dir = line(0, el);
+      // The plain steps, as the boom takes them: up from its own elevation until the line is clear for 3 m.
+      let need = 0;
+      while (el + need < Math.PI / 2 && nearest(HEAD, line(0, el + need), [], [col]) < 3) need += 0.05;
+      const inFront = el + need < Math.PI / 2 && nearest(HEAD, line(0, el + need), [], [col]) < LEN;
+      const { lift, room } = rise(HEAD, dir, LEN, [], [col], 0, 1);
+      // Where the steps' own line passes over, that is the rise; where it stops in front of the column, a step more.
+      expect(lift, `from ${el.toFixed(4)} rad`).toBe(inFront ? need + 0.05 : need);
+      expect(room, `from ${el.toFixed(4)} rad`).toBe(1);
+      expect(nearest(HEAD, dir, [], [col]), `from ${el.toFixed(4)} rad`).toBe(Infinity);
+      if (inFront) stepped += 1;
+    }
+    // Both happen over these elevations: the steps alone stop the line in front of the column from 26 of the 201.
+    expect(stepped).toBe(26);
+  });
+
+  it("still stops in front of a tall landmark where the angles that meet its face are a step or more, from every elevation: a step past the least rise that clears 3 m would not pass over it", () => {
+    // 1 m from the head and 8 m over it: the line meets its face beyond 3 m from 70.5 degrees up to 82.9, over four steps. And
+    // 0.5 m from the head and 5 m over it: from 80.4 degrees to 84.3, a step and a third, where a step on from the steps' own
+    // line passes over from some elevations and not from others; the least rise that clears, found to a hair, tells the same
+    // from all of them.
+    for (const [side, over] of [[1, 8], [0.5, 5]]) {
+      const col = column(0, side, STAGE_COLUMN.r, HEAD.y + over);
+      let passes = 0;
+      for (let n = 0; n <= 200; n++) {
+        const el = 0.3 + n * 0.0005, dir = line(0, el), at = `${side} m off, from ${el.toFixed(4)} rad`;
+        const { lift, room } = rise(HEAD, dir, LEN, [], [col], 0, 1);
+        // The least step that clears 3 m, and no more; and the line stops in front of the column.
+        expect(nearest(HEAD, line(0, el + lift - 0.05), [], [col]), at).toBeLessThan(3);
+        expect(nearest(HEAD, line(0, el + lift), [], [col]), at).toBeGreaterThanOrEqual(3);
+        expect(room, at).toBeLessThan(1);
+        if (nearest(HEAD, line(0, el + lift + 0.05), [], [col]) >= LEN) passes += 1;
+      }
+      // (For the nearer column a step on from the steps' own line does pass over, from some of these elevations.)
+      if (side === 0.5) expect(passes).toBeGreaterThan(0);
+    }
+  });
+
   it("draws the camera in to 0.5 m in front of a landmark 3 m or more from the head, without rising", () => {
     const box = landmark(0, 7, 20);
     const dir = line(0);
@@ -103,6 +149,17 @@ describe("rise", () => {
     expect(lift).toBe(0);
     expect(elevation(dir)).toBeCloseTo(EL, 12);
     expect(LEN * room).toBeCloseTo(entry - 0.5, 9);
+  });
+
+  it("does not rise for a landmark 3 m or more from the head, however little its top stands over the boom's line: the step more is for a landmark the boom has risen at", () => {
+    // Its near face 5.2 m off, and its top half a millimetre over where the line meets that face: a line a fifth of a
+    // milliradian higher, which is how finely the least rise is found, would pass over it.
+    const box = landmark(0, 6, HEAD.y + 5.2 * Math.tan(EL) + 0.0005), dir = line(0);
+    expect(nearest(HEAD, line(0, EL + 0.0002), [box], [])).toBe(Infinity);
+    const { lift, room } = rise(HEAD, dir, LEN, [box], [], 0, 1);
+    expect(lift).toBe(0);
+    expect(room).toBeCloseTo((5.2 / Math.cos(EL) - 0.5) / LEN, 9);
+    expect(elevation(dir)).toBeCloseTo(EL, 12);
   });
 
   it("measures the entry distance along +z and along a diagonal", () => {
@@ -436,6 +493,31 @@ describe("goRound", () => {
       }
       // Up, and never down again but by the millimetre it went past the top's edge.
       expect(way.every((q, k) => k === 0 || q.y >= way[k - 1].y - 0.0011), at).toBe(true);
+    }
+  });
+
+  // A goal that standOff set on a side of a room and the bear's least then moved by a hair (avatar.js `clear`) stood 1.7e-15 m
+  // inside the room at a stop beside a landmark of 1986-07-04: it was taken for a goal over the box, and the place, coming down
+  // that side to it, was sent 0.5 m back up the side for two frames.
+  it("takes a goal within a hair of a room's side for a goal on that side: a place coming down the side to it comes down, and one on the next side goes round to it, neither sent up the box as to a goal over it", () => {
+    for (const hair of [1e-15, 1e-9, 1e-4]) for (const step of [0.3, 0.55]) {
+      // Down the east side of the tower's room, from 10 m up to a goal 4 m up, a hair in from that side.
+      // (The place stops on the side, the hair short of a goal that is in the room by it: it is there within 25 frames.)
+      const east = TOWER.max.x + ROOM, goal = { x: east - hair, y: 4, z: 0.5 }, down = go({ x: east, y: 10, z: 0.4 }, goal, [TOWER], [], step).way.slice(0, 25);
+      expect(down.every((q, k) => k === 0 || q.y <= down[k - 1].y + 1e-9), `down, ${hair} m in, ${step} m a frame`).toBe(true);
+      expect(apart(down[down.length - 1], goal), `down, ${hair} m in, ${step} m a frame`).toBeLessThan(hair + 1e-6);
+      // From the north side, 2 m up, round the corner to the same goal: level, never up the 12 m box.
+      const round = go({ x: 10, y: 2, z: TOWER.min.z - ROOM }, { ...goal, y: 2 }, [TOWER], [], step).way.slice(0, 45);
+      expect(Math.max(...round.map((q) => q.y)), `round, ${hair} m in, ${step} m a frame`).toBeLessThan(2.01);
+      expect(apart(round[round.length - 1], { ...goal, y: 2 }), `round, ${hair} m in, ${step} m a frame`).toBeLessThan(hair + 1e-6);
+      // And from over the box, a metre in from that side on the room's top: across to over the goal, out over the top's
+      // edge and down the side to it. It stood on the top over such a goal for good.
+      const over = go({ x: east - 1, y: TOWER.max.y + ROOM, z: 0.5 }, goal, [TOWER], [], step).way.slice(0, 60);
+      expect(apart(over[over.length - 1], goal), `from the top, ${hair} m in, ${step} m a frame`).toBeLessThan(hair + 1e-6);
+      // (Only a place within that hair of the edge is put on it: one whose step has taken it on past the edge, to a goal
+      // further out, is where its step took it, as far out as it went.)
+      const past = go({ x: east - 0.2, y: TOWER.max.y + ROOM, z: 0.5 }, { x: east + 3, y: 4, z: 0.5 }, [TOWER], [], step).way[0];
+      expect(past.x, `past the edge, ${step} m a frame`).toBeGreaterThan(east + 0.05);
     }
   });
 

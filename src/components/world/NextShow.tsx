@@ -20,7 +20,8 @@ interface Inputs {
   pastPick: PastPick | null;
   /** A test hook: the moment the clock reads, in ms since the epoch, in place of the real one. */
   fakeNow: number | null;
-  leanback: boolean;
+  /** Whether the visitor is riding (ride.ts), and when their sleep timer ends. */
+  riding: boolean;
   sleepEndsAt: number | null;
   /** The last track has ended. */
   over: boolean;
@@ -33,7 +34,7 @@ export interface Next {
   kind: "day" | "past";
   href: string;
   line: string;
-  /** Hands lean-back and the sleep timer to the page the link loads. */
+  /** Hands the ride and the sleep timer to the page the link loads. */
   carryOver: () => void;
 }
 
@@ -43,10 +44,10 @@ const CHECK_MS = 60_000;
 /**
  * The next show. A watcher reads the site's day every minute and whenever the page comes back into view; once it has turned, the
  * chip says so and its link loads the new day: nothing reloads on its own while the show plays. At the end of the last track the new
- * day loads at once, else the past pick is offered. The link hands lean-back and the sleep timer to the next page (carry), which
+ * day loads at once, else the past pick is offered. The link hands the ride and the sleep timer to the next page (carry), which
  * starts the show on arrival. Called once; NextChip draws the result where it belongs.
  */
-export function useNextShow({ today, renderedAt, pastPick, fakeNow, leanback, sleepEndsAt, over, onCarry }: Inputs): Next | null {
+export function useNextShow({ today, renderedAt, pastPick, fakeNow, riding, sleepEndsAt, over, onCarry }: Inputs): Next | null {
   /* The site's day once it has moved on from today's. */
   const [turned, setTurned] = useState<string | null>(null);
   /* The show is over and the day has not turned, so the past pick is offered. */
@@ -76,7 +77,7 @@ export function useNextShow({ today, renderedAt, pastPick, fakeNow, leanback, sl
     };
   }, [renderedAt]);
 
-  /* On arrival: lean-back and the sleep timer come back, and the show starts as the first move would start it, unless the timer has
+  /* On arrival: the ride and the sleep timer come back, and the show starts as the first move would start it, unless the timer has
      already run out. */
   const arrive = useEffectEvent((carry: Carry) => {
     clearCarry();
@@ -92,7 +93,7 @@ export function useNextShow({ today, renderedAt, pastPick, fakeNow, leanback, sl
   }, []);
 
   function carryOver() {
-    writeCarry({ leanback, sleepEndsAt });
+    writeCarry({ riding, sleepEndsAt });
   }
 
   /* The end of the last track: the new day's show loads at once; else the past pick is offered until the show plays again. */
@@ -120,23 +121,23 @@ export function useNextShow({ today, renderedAt, pastPick, fakeNow, leanback, sl
 
 interface ChipProps {
   next: Next;
-  /** Lean-back's type: 24/32 mono, the eyebrow 20/28. */
-  leanback: boolean;
+  /** A settled ride's type: 24/32 mono, the eyebrow 20/28. */
+  settled: boolean;
 }
 
 /**
  * The chip: the eyebrow for a past pick, the line, and the link that loads the next show. It blocks nothing and takes no focus.
- * Out of lean-back it is as wide as the plate beside it: the past pick as the now-plate, and the new day's chip as the title plate,
- * since it adds nothing to that column's width (its inline size is contained) and stretches to it, wrapping its line.
+ * Unless the ride has settled it is as wide as the plate beside it: the past pick as the now-plate, and the new day's chip as the
+ * title plate, since it adds nothing to that column's width (its inline size is contained) and stretches to it, wrapping its line.
  */
-export function NextChip({ next, leanback }: ChipProps) {
-  const width = leanback ? "" : next.kind === "past" ? "sm:w-[360px]" : "self-stretch contain-inline-size";
+export function NextChip({ next, settled }: ChipProps) {
+  const width = settled ? "" : next.kind === "past" ? "sm:w-[360px]" : "self-stretch contain-inline-size";
   return (
     <div data-next={next.kind} role="status" className={`plate chip ${width}`}>
       {next.kind === "past" && (
-        <p className={leanback ? "text-[20px] leading-7 font-mono uppercase tracking-[0.12em] text-muted" : "t-tag text-muted"}>From the archive</p>
+        <p className={settled ? "text-[20px] leading-7 font-mono uppercase tracking-[0.12em] text-muted" : "t-tag text-muted"}>From the archive</p>
       )}
-      <p className={`${leanback ? "text-[24px] leading-8 font-mono" : "t-row"} text-ink flex flex-wrap items-center gap-x-4 gap-y-1 ${next.kind === "past" ? "mt-1" : ""}`}>
+      <p className={`${settled ? "text-[24px] leading-8 font-mono" : "t-row"} text-ink flex flex-wrap items-center gap-x-4 gap-y-1 ${next.kind === "past" ? "mt-1" : ""}`}>
         <span>{next.line}</span>
         <a href={next.href} data-action="play-next" onClick={next.carryOver} className="text-accent underline hover:text-ink inline-flex items-center min-h-11 -my-3 px-2 -mx-2 whitespace-nowrap">
           Play it

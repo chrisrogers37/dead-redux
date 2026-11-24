@@ -20,7 +20,7 @@ Each day features one show. Everyone who visits that day gets the same one, and 
 The home page and every day's page are an island, drawn in the browser with three.js. A stage stands at its north-east edge, with six players in silhouette and a rig of light beams, and the hill before it is the seating.
 
 - **The setlist is the path.** Each song is a landmark on a loop over the island: set 2's opener on the summit, Drums in the left cave and Space in the right (`public/world/path.js`). Five bears walk it as the show plays, three on a phone.
-- **The visitor is one more bear.** The first move starts the show: a walking key, or a tap or click on the world. Walk in third person or first, walk with the bears, or lean back while the camera drifts.
+- **The visitor is one more bear.** The first move starts the show: a walking key, or a tap or click on the world. Walk in third person or first, or ride with the bears: the camera goes along the setlist with them. A ride left alone for ten seconds settles: the page strips to the song and the seek bar, and the camera drifts out to a slow crane. Settled, the page still works as it is: a pointer that moves shows the cursor, and the seek bar, Sleep, Leave and the link to a new show take a press. A key, or a press on the world, brings the page back, and looking around brings the camera back.
 - **A band plays on the stage.** Six players, black against the light panel: a bass, two guitars, two drummers at their kits and keys, with their microphones and monitors. While the show plays they sway, strum, tap a foot and strike, gently and slowly enough that no limb flashes the panel behind it (`public/world/band.js`).
 - **A crowd fills the hill.** Faceless figures dance to the band's beat, rise as the music builds to a peak, sit at set break and in Space, and step aside as the visitor walks through (`public/world/crowd.js`, `seats.js`).
 - **The show carries the island through a night.** Set 1 opens in the last light. The dark is deepest through Drums and Space, under the stars and the moon, with the stage the one warm light. The encore begins at first light, and day breaks behind the stage as the show ends (`public/world/night.js`). A seek, a skipped song or a join mid-show passes through the hours between in a few seconds.
@@ -36,9 +36,8 @@ The home page and every day's page are an island, drawn in the browser with thre
 |---|---|
 | Walk and turn | Arrow keys or W A S D; Q and E step sideways; Shift runs |
 | Look around | Drag, or T and G |
-| Walk with the bears | B |
+| Ride with the bears | B or F; Esc leaves it |
 | First person | V |
-| Lean back | F; Esc leaves it |
 | Play or pause | Space or K |
 | Back or ahead 10 s | J or L |
 | Previous or next song | P or N |

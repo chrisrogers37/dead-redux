@@ -14,7 +14,7 @@ import { firstPersonOn, setFirstPerson, subscribeView } from "./view";
 import { isAway, matchShelvesCookie, setShelf, shelvesAway, subscribeShelves, type Shelf } from "./shelves";
 import { NoRecording } from "./NoRecording";
 import { soundLabel } from "@/lib/sound";
-import { LeanBackCorner } from "./LeanBackCorner";
+import { createRide, eachSecond, idleMs, RIDE_NAME, sleepLabel, sleepLeft, sleepUnitMs, type Ride } from "./ride";
 import { NextChip, useNextShow, type PastPick } from "./NextShow";
 
 interface Props { show: ShowSummary; featuredDate: string; today: string; renderedAt: number; pastPick: PastPick | null; bestSource: Source | null; isToday: boolean; tourName: string | null; testHooks: boolean; lookupFailed: boolean; shelves: string; }
@@ -56,7 +56,8 @@ interface DetailsProps { source: Source; show: ShowSummary; tracks: Track[]; tou
 function DetailsPanel({ source, show, tracks, tourName, routing, world, archiveUrl, singleKey, first }: DetailsProps) {
   /* The panel fits between the now-plate's stack and the top plates above it, at every width, so it never slides under them. Only the
      plates it would run into count: on a phone both, on a wider screen the top-right row. A plate's tab counts with it, wherever it
-     hangs, and of a plate put away on its shelf only the tab is left to count. */
+     hangs, and of a plate put away on its shelf only the tab is left to count. The top plates change size too, as when a ride adds
+     its row to them, so the panel is fitted again whenever one does. */
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -75,6 +76,7 @@ function DetailsPanel({ source, show, tracks, tourName, routing, world, archiveU
     window.addEventListener("resize", fit);
     const observer = new ResizeObserver(fit);
     observer.observe(wrapper);
+    for (const top of document.querySelectorAll("[data-hud='top']")) observer.observe(top);
     return () => { details?.removeEventListener("toggle", fit); window.removeEventListener("resize", fit); observer.disconnect(); };
   }, []);
   const reviews = `${source.numReviews} review${source.numReviews === 1 ? "" : "s"}`;
@@ -138,22 +140,39 @@ function ShelfTab({ shelf, side, label, away, className = "" }: { shelf: Shelf; 
   );
 }
 
+/* A plate that is a button with a line of text, and a row of them, which on a phone is a column at the screen's right edge. */
+const PLATE_BUTTON = "plate t-body text-ink h-11 flex items-center";
+const PLATE_ROW = "flex gap-2 max-sm:flex-col max-sm:items-end";
+
+/* The ride's own two buttons, on the page for as long as the visitor rides: the sleep timer, which reads the time left, and Leave.
+   Awake they are a row under the page's buttons. Settled they are the settled look's top-right corner, in its larger type, side by
+   side, or stacked on a phone as the top icons are, so a settled visitor reaches both without waking the page. The timer is the
+   ride's (ride.ts), not theirs, so it runs on through both looks. The time left is read from the clock once a second while the
+   timer runs. */
+const CORNER_BUTTON = "plate text-[24px] leading-8 text-ink";
+function RideRow({ ride, sleepEndsAt, unit, settled }: { ride: Ride; sleepEndsAt: number | null; unit: number; settled: boolean }) {
+  const left = useSyncExternalStore(sleepEndsAt === null ? subscribe : eachSecond, () => sleepLeft(sleepEndsAt, unit, Date.now()), () => null);
+  const button = settled ? CORNER_BUTTON : `${PLATE_BUTTON} whitespace-nowrap`;
+  return (
+    <div className={settled ? `hud right-16 top-12 ${PLATE_ROW}` : PLATE_ROW}>
+      <button type="button" data-action="sleep" onClick={ride.pressSleep} className={button}>{sleepLabel(left, unit)}</button>
+      <button type="button" data-action="leave" onClick={ride.leave} className={button}>Leave · Esc</button>
+    </div>
+  );
+}
+
 /* The page: the world's container, the HUD on plates, the hooks, the show as JSON for the world, and the module loader. */
 export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bestSource, isToday, tourName, testHooks, lookupFailed, shelves }: Props) {
   const tracks = useMemo(() => flatten(bestSource), [bestSource]);
   const sets = useMemo(() => (bestSource ? deriveSets(bestSource) : NO_SETS), [bestSource]);
   const data = useMemo(() => JSON.stringify(worldData(featuredDate, show, bestSource, tracks, sets)), [featuredDate, show, bestSource, tracks, sets]);
 
-  const [leanback, setLeanback] = useState(false);
-  const [follow, setFollow] = useState(false);
-  /* When lean-back's sleep timer ends, in ms since the epoch; null while it is off. Leaving lean-back turns it off. */
-  const [sleepEndsAt, setSleepEndsAt] = useState<number | null>(null);
+  /* The ride (ride.ts): whether the visitor rides with the bears, whether the page has settled since they last touched it, and when
+     the ride's sleep timer ends. */
+  const [ride] = useState(createRide);
+  const { riding, settled, sleepEndsAt } = useSyncExternalStore(ride.subscribe, ride.state, ride.state);
   /* The last track has ended, as the player reports it. */
   const [over, setOver] = useState(false);
-  function leave() {
-    setLeanback(false);
-    setSleepEndsAt(null);
-  }
   /* The player's state, mirrored onto <main>. A show without a recording has no player and stays "error", its sound plain; the player
      starts "idle", its sound pending, and announces its first state before this component's listener exists. */
   const [playerState, setPlayerState] = useState<PlayerState>(tracks.length ? "idle" : "error");
@@ -176,7 +195,7 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
   const titleAway = isAway(away, "title"), actionsAway = isAway(away, "actions"), playerAway = isAway(away, "player");
   /* Test hooks, on preview deployments only, where the server marks <main data-test-hooks="1">: ?at=<track>&t=<seconds> is where the
      first move starts, ?stats=1 shows window.__hill in the legend plate, ?day=<YYYY-MM-DD> is the site's day the day watcher reads in
-     place of the clock, ?sleep=seconds makes the sleep timer count seconds. */
+     place of the clock, ?sleep=seconds makes the sleep timer count seconds, ?idle=<seconds> is how long a ride waits to settle. */
   const search = useSyncExternalStore(subscribe, () => window.location.search, () => "");
   const hooks = testHooks ? new URLSearchParams(search) : null;
   const at = hooks?.get("at");
@@ -185,10 +204,14 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
   const day = hooks?.get("day");
   const fakeAt = day ? Date.parse(`${day}T12:00:00Z`) : NaN;
   const fakeNow = Number.isNaN(fakeAt) ? null : fakeAt;
-  const sleepUnit = hooks?.get("sleep") === "seconds" ? 1000 : 60_000;
+  const sleepUnit = sleepUnitMs(testHooks, search);
+  const idle = idleMs(testHooks, search);
+  /* The ride listens to the page for as long as the page is up; and each time the page is drawn in its other look, the control that
+     had focus as the look changed has it back where that look shows it. */
+  useEffect(() => ride.start({ idleMs: idle, unitMs: sleepUnit }), [ride, idle, sleepUnit]);
+  useEffect(() => ride.refocus(), [ride, settled]);
   /* The next show: the new day's once the site's day has turned, or a past pick once this show is over. */
-  const next = useNextShow({ today, renderedAt, pastPick, fakeNow, leanback, sleepEndsAt, over,
-    onCarry: (c) => { if (c.leanback) setLeanback(true); setSleepEndsAt(c.sleepEndsAt); } });
+  const next = useNextShow({ today, renderedAt, pastPick, fakeNow, riding, sleepEndsAt, over, onCarry: ride.arrive });
   const [stats, setStats] = useState<string | null>(null);
 
   /* Load the world once. A plain script element keeps the module out of the bundler. If the script errors,
@@ -210,19 +233,15 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
   });
   useEventListener("document", "player:start", () => setJoined(true));
 
-  /* The world reports its camera mode; the follow button reads pressed while the camera walks with the bears. */
-  useEventListener<CustomEvent<{ mode: string }>>("document", "world:mode", (e) => setFollow(e.detail.mode === "follow"));
-
   useEffect(() => {
     if (!showStats) return;
     const timer = window.setInterval(() => setStats(JSON.stringify(window.__hill ?? null)), 1000);
     return () => window.clearInterval(timer);
   }, [showStats]);
 
+  /* V turns the view. The ride's own keys, B, F and Escape, are the ride's (ride.ts). */
   useEventListener<KeyboardEvent>("window", "keydown", (e) => {
-    if (e.key === "Escape") leave();
-    else if (e.code === "KeyF" && !e.repeat && !keyBelongsToControl(e) && lettersActive(e)) { if (leanback) leave(); else setLeanback(true); }
-    else if (e.code === "KeyV" && !e.repeat && !keyBelongsToControl(e) && lettersActive(e)) setFirstPerson(!first);
+    if (e.code === "KeyV" && !e.repeat && !keyBelongsToControl(e) && lettersActive(e)) setFirstPerson(!first);
   });
 
   const hinting = !joined && tracks.length > 0;
@@ -232,7 +251,7 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
   const relisten = `https://relisten.net/grateful-dead/${show.date.replace(/-/g, "/")}`;
 
   return (
-    <main data-mode={leanback ? "leanback" : undefined} data-state={playerState} data-routing={routing} data-joined={joined ? "true" : undefined} data-single-key={singleKey ? "on" : "off"} data-view={first ? "first" : "third"} data-shelves={away || undefined} data-test-hooks={testHooks ? "1" : undefined} className="world-page relative h-screen">
+    <main data-ride={riding ? (settled ? "settled" : "awake") : undefined} data-state={playerState} data-routing={routing} data-joined={joined ? "true" : undefined} data-single-key={singleKey ? "on" : "off"} data-view={first ? "first" : "third"} data-shelves={away || undefined} data-test-hooks={testHooks ? "1" : undefined} className="world-page relative h-screen">
       <script type="application/json" id="world-data" dangerouslySetInnerHTML={{ __html: data.replace(/</g, "\\u003c") }} />
       <div id="world" data-world="loading" tabIndex={fallback ? undefined : 0} role="application" aria-hidden={fallback || undefined}
         aria-label="The island. Walk and turn with the arrow keys or W A S D, and look up and down with T and G; the first move starts the show." />
@@ -240,7 +259,8 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
         <div className="sky" /><div className="ring" /><div className="hill" /><div className="cave l" /><div className="cave r" /><div className="water" />
       </div>
 
-      {!leanback && (
+      {/* A ride that has settled strips the HUD to the title, the line and the seek slider, below, and its corner, at the end. */}
+      {!settled && (
         <>
           {/* The title plate and, once the site's day has turned, the chip under it, in one column. On a phone the column ends 8 px
               before the icon column (which starts 64 px from the right edge), so its lines wrap before the column. */}
@@ -254,33 +274,31 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
               <p className="t-body text-muted mt-1">{show.venue} · {show.location}</p>
               {fallback && <p className="t-row text-muted mt-2">This world needs WebGL 2</p>}
             </div>
-            {next?.kind === "day" && <NextChip next={next} leanback={false} />}
+            {next?.kind === "day" && <NextChip next={next} settled={false} />}
             </div>
           </div>
           {/* Above the now-plate's stack, so an open Details panel never covers these controls on a short screen. The shelf's tab comes
               after the buttons, as it stands on a desktop, at the row's right end, so Tab reaches them in the order the screen shows; on
-              a phone it stands first, at the top of the column. */}
-          <div data-hud="top" data-shelf={actionsAway ? "in" : "out"} data-side="right" className="hud shelf right-6 top-6 max-sm:right-3 max-sm:top-3 flex gap-2 max-sm:flex-col max-sm:items-end z-20!">
-            <div id={shelfId("actions")} className="shelf-body flex gap-2 max-sm:flex-col max-sm:items-end">
+              a phone it stands first, at the top of the column. While the visitor rides, the ride's own two buttons stand in a row
+              under the page's, on the same shelf. */}
+          <div data-hud="top" data-shelf={actionsAway ? "in" : "out"} data-side="right" className={`hud shelf right-6 top-6 max-sm:right-3 max-sm:top-3 ${PLATE_ROW} z-20!`}>
+            <div id={shelfId("actions")} className="shelf-body flex flex-col items-end gap-2">
+            <div className={PLATE_ROW}>
             {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the world starts once per page load */}
             <a href="/archive" aria-label="Archive" className="plate t-row text-muted hover:text-ink h-11 flex items-center">
               <span className="max-sm:hidden">Archive</span>
               <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M21 8v13H3V8" /><path d="M1 3h22v5H1z" /><path d="M10 12h4" /></svg>
             </a>
-            {/* Asks the player to start the show (nothing once it has), then puts the camera behind the bears. */}
-            {!fallback && (
-              <button type="button" data-action="follow" aria-pressed={follow} aria-label="Walk with the bears"
-                onClick={() => { document.dispatchEvent(new Event("player:join")); document.dispatchEvent(new Event("world:follow")); }}
-                className="plate t-body text-ink h-11 flex items-center aria-pressed:shadow-[inset_0_0_0_2px_var(--accent)]">
-                <span className="max-sm:hidden">Walk with the bears</span>
-                <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="15" r="4" /><circle cx="6" cy="9" r="1.5" /><circle cx="12" cy="6" r="1.5" /><circle cx="18" cy="9" r="1.5" /></svg>
-              </button>
-            )}
-            <button type="button" data-action="lean-back" onClick={() => setLeanback(true)} aria-label="Lean back" className="plate t-body text-ink h-11 flex items-center">
-              <span className="max-sm:hidden">Lean back</span>
-              <svg className="sm:hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="1" /><path d="M8 21h8" /></svg>
+            {/* The ride's one control, pressed while the visitor rides: it starts the show (nothing once it has) and the ride, or
+                ends the ride. The still has it too: there it is the page's half of the ride. */}
+            <button type="button" data-action="ride" aria-pressed={riding} aria-label={RIDE_NAME} title={RIDE_NAME} onClick={ride.toggle}
+              className={`${PLATE_BUTTON} gap-2 aria-pressed:shadow-[inset_0_0_0_2px_var(--accent)]`}>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="15" r="4" /><circle cx="6" cy="9" r="1.5" /><circle cx="12" cy="6" r="1.5" /><circle cx="18" cy="9" r="1.5" /></svg>
+              <span className="max-sm:hidden">{RIDE_NAME}</span>
             </button>
             <ShareButtons featuredDate={featuredDate} showDate={show.date} venue={show.venue} location={show.location} isToday={isToday} />
+            </div>
+            {riding && <RideRow ride={ride} sleepEndsAt={sleepEndsAt} unit={sleepUnit} settled={false} />}
             </div>
             <ShelfTab shelf="actions" side="right" label="The page's buttons" away={actionsAway} className="max-sm:order-first" />
           </div>
@@ -296,22 +314,23 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
       {/* Bottom-right on a desktop, so the bears at the trailhead stay in view; full width above the stick on a phone, a plate higher
           while the hint shows. The wrapper and the plate stay mounted in every mode, so the player keeps playing; its shelf's tab stands
           at the corner beside it. */}
-      <div data-shelf={!leanback && playerAway ? "in" : "out"} data-side="right"
-        className={leanback ? "hud left-16 bottom-12" : `hud shelf right-6 bottom-6 flex items-end gap-2 max-sm:left-3 max-sm:right-3 ${hinting ? "max-sm:bottom-[212px]" : "max-sm:bottom-[160px]"}`}>
+      <div data-shelf={!settled && playerAway ? "in" : "out"} data-side="right"
+        className={settled ? "hud left-16 bottom-12" : `hud shelf right-6 bottom-6 flex items-end gap-2 max-sm:left-3 max-sm:right-3 ${hinting ? "max-sm:bottom-[212px]" : "max-sm:bottom-[160px]"}`}>
         {/* The stack itself, which the shelf puts away; it stays mounted there, so the show plays on. The Details panel is positioned
             against it, at rest and while it slides alike. */}
-        <div id={leanback ? undefined : shelfId("player")} className={leanback ? "flex flex-col items-start gap-2" : "shelf-body relative min-w-0 max-sm:flex-1 flex flex-col items-end gap-2 max-sm:items-stretch"}>
-        {!leanback && !fallback && (
+        <div id={settled ? undefined : shelfId("player")} className={settled ? "flex flex-col items-start gap-2" : "shelf-body relative min-w-0 max-sm:flex-1 flex flex-col items-end gap-2 max-sm:items-stretch"}>
+        {!settled && !fallback && (
           <div className={`plate t-tag text-muted ${stats ? "" : "max-sm:hidden"}`}>
             <p className="max-sm:hidden">Arrows or WASD to roam, drag to look</p>
+            <p className="max-sm:hidden">B or F: {RIDE_NAME}</p>
             {stats && <p className="text-[13px] leading-4 font-mono normal-case tracking-normal mt-1 max-w-[360px] wrap-anywhere">{stats}</p>}
           </div>
         )}
-        {/* The past pick above the now-plate; in lean-back, the new day too, above the title. */}
-        {next && (next.kind === "past" || leanback) && <NextChip next={next} leanback={leanback} />}
-        <div className={leanback ? "plate" : "plate w-[360px] max-sm:w-auto"}>
+        {/* The past pick above the now-plate; once the ride has settled, the new day too, above the title. */}
+        {next && (next.kind === "past" || settled) && <NextChip next={next} settled={settled} />}
+        <div className={settled ? "plate" : "plate w-[360px] max-sm:w-auto"}>
           {bestSource && tracks.length > 0 ? (
-            <Player tracks={tracks} sets={sets} featuredDate={featuredDate} showDate={show.date} venue={show.venue} archiveUrl={archiveUrl} leanback={leanback} startAt={startAt}>
+            <Player tracks={tracks} sets={sets} featuredDate={featuredDate} showDate={show.date} venue={show.venue} archiveUrl={archiveUrl} settled={settled} startAt={startAt}>
               <DetailsPanel source={bestSource} show={show} tracks={tracks} tourName={tourName} routing={routing} world={worldStatus} archiveUrl={archiveUrl} singleKey={singleKey} first={first} />
             </Player>
           ) : (
@@ -319,13 +338,13 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
           )}
         </div>
         </div>
-        {!leanback && <ShelfTab shelf="player" side="right" label="The player" away={playerAway} />}
+        {!settled && <ShelfTab shelf="player" side="right" label="The player" away={playerAway} />}
       </div>
 
-      {/* The stick: a thumb on it walks and turns (public/world/input.js). It stays mounted in lean-back and in the still, only hidden:
-          the world binds it once, when it loads. */}
+      {/* The stick: a thumb on it walks and turns (public/world/input.js). It stays mounted in a settled ride and in the still, only
+          hidden: the world binds it once, when it loads. */}
       <div data-stick="" role="application" aria-label="Walk: slide up or down to walk, left or right to turn"
-        className={`hud stick left-1/2 -translate-x-1/2 bottom-6 sm:hidden! ${leanback || fallback ? "hidden!" : ""}`}>
+        className={`hud stick left-1/2 -translate-x-1/2 bottom-6 sm:hidden! ${settled || fallback ? "hidden!" : ""}`}>
         <svg viewBox="0 0 112 112" width="112" height="112" aria-hidden="true">
           <path data-dir="fwd" d="M50 21 56 15 62 21" />
           <path data-dir="back" d="M50 91 56 97 62 91" />
@@ -335,7 +354,8 @@ export function WorldHome({ show, featuredDate, today, renderedAt, pastPick, bes
         <span className="knob" />
       </div>
 
-      {leanback && <LeanBackCorner sleepEndsAt={sleepEndsAt} onSleep={setSleepEndsAt} unit={sleepUnit} onLeave={leave} />}
+      {/* The settled look's corner: the sleep timer and Leave. */}
+      {settled && <RideRow ride={ride} sleepEndsAt={sleepEndsAt} unit={sleepUnit} settled />}
     </main>
   );
 }

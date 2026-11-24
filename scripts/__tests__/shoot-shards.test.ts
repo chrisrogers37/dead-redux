@@ -66,7 +66,7 @@ const lists = {
   devices: ["desktop", "phone", "tv", "phone-landscape"],
   byName: new Set(["phone-landscape"]),
   pages: [home, slope, nearPage, reach, archive, sweep, frame, failed],
-  recordings: [{ device: "desktop", name: "home" }, { device: "tv", name: "leanback", click: "[data-action='lean-back']" }],
+  recordings: [{ device: "desktop", name: "home" }, { device: "tv", name: "ride", click: "[data-action='ride']" }],
   assets: ["/icon", "/2026-03-01/opengraph-image"],
 };
 
@@ -158,7 +158,7 @@ describe("planFiles", () => {
         { device: "tv", path: "/archive", stills: ["tv-archive.png", "tv-archive-end.png"] },
         { device: "tv", path: "/2026-10-20?pose=sweep", stills: [] },
       ],
-      recordings: ["desktop-home.webm", "tv-leanback.webm"],
+      recordings: ["desktop-home.webm", "tv-ride.webm"],
       assets: ["asset-icon.png", "asset-2026-03-01-opengraph-image.png"],
     });
   });
@@ -184,7 +184,7 @@ describe("planFailures", () => {
   });
 
   it("fails a run for each recording its plan names that it did not save", () => {
-    expect(planFailures(files, without("tv-leanback.webm"))).toEqual(["tv-leanback.webm: the plan names this recording, and it was not saved"]);
+    expect(planFailures(files, without("tv-ride.webm"))).toEqual(["tv-ride.webm: the plan names this recording, and it was not saved"]);
   });
 
   it("passes a run without a generated image: the site may answer one with a 404, which the shoot skips", () => {
@@ -258,7 +258,7 @@ describe("the shoot's shards, by the script's own lists", () => {
     expect([...new Set(whole.pages.map((page) => page.device))]).toEqual(["desktop", "phone", "tv", "desktop-reduced", "phone-360", "phone-landscape", "desktop-nowebgl", "phone-nowebgl"]);
     expect(whole.pages[0]).toMatchObject({ device: "desktop", path: "/" });
     expect(whole.pages[0].stills.slice(0, 2)).toEqual(["desktop-home-1.png", "desktop-home-2.png"]);
-    for (const file of ["desktop-fixed-near-tuning.png", "phone-fixed-crowd-rise-8s.png", "tv-archive-2026-09-end.png", "desktop-reduced-fixed-focus-13.png", "phone-nowebgl-fixed-playing.png", "tv-leanback.webm", "desktop-camera-stage.webm", "phone-camera-tower.webm", "desktop-band.webm", "asset-icon.png"]) {
+    for (const file of ["desktop-fixed-near-tuning.png", "phone-fixed-crowd-rise-8s.png", "tv-archive-2026-09-end.png", "desktop-reduced-fixed-focus-12.png", "phone-nowebgl-fixed-playing.png", "tv-ride.webm", "desktop-camera-stage.webm", "phone-camera-tower.webm", "desktop-band.webm", "asset-icon.png"]) {
       expect(filesOf(whole), file).toContain(file);
     }
   });
@@ -374,7 +374,7 @@ describe("the shoot's shards, by the script's own lists", () => {
     // lost a still to a skipped step would pass.
     const script = readFileSync(join(ROOT, ".github/screenshots/shoot.mjs"), "utf8");
     const began = script.indexOf("const began = Math.floor(Date.now() / 1000) * 1000;");
-    const check = script.indexOf("failures.push(...planFailures(planFiles(plan), await writtenSince(outDir, began)));");
+    const check = script.indexOf("failures.push(...planFailures(planFiles(plan), await writtenSince(outDir, began), perFile.untaken));");
     expect(began).toBeGreaterThan(0);
     // It began before any browser was launched, so before any file was saved.
     expect(script.indexOf("chromium.launch(")).toBeGreaterThan(began);

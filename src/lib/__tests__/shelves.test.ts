@@ -29,7 +29,7 @@ describe("shelvesFromCookie", () => {
 
   it("lets nothing a visitor writes in the cookie through but the three names", () => {
     expect(shelvesFromCookie('player,"><script>alert(1)</script>,title')).toBe("title,player");
-    expect(shelvesFromCookie('in" data-mode="leanback')).toBe("");
+    expect(shelvesFromCookie('in" data-ride="settled')).toBe("");
   });
 });
 

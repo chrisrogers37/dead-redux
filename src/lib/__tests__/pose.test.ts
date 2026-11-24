@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { postPose } from "../../../public/world/pose.js";
+import { CRANE, cranePose, postPose, ridePose, RIG_EASE_S, rigShare } from "../../../public/world/pose.js";
 
 // What public/world/main.js holds when it places the camera: five bears BEAR_GAP = 7 m apart on their line, the lead 100 m along it.
 const GAP = 7;
@@ -15,7 +15,7 @@ type Deps = {
   bearD: number;
   count: number;
   gap: number;
-  line: { at(d: number): V };
+  line: { at(d: number): V; tangentAt(d: number): V };
   height: (x: number, z: number) => number;
   keepInView: (from: V, look: V) => number;
 };
@@ -30,6 +30,8 @@ const lineBent = (bend: number) => ({
     const x = 3 + 0.6 * on - 0.8 * past, z = -5 - 0.8 * on - 0.6 * past;
     return { x, y: ground(x, z), z };
   },
+  // The line's level unit tangent, which turns a quarter of a turn at the bend.
+  tangentAt: (d: number): V => (d < bend ? { x: 0.6, y: 0, z: -0.8 } : { x: -0.8, y: 0, z: -0.6 }),
 });
 const straight = lineBent(Infinity);
 
@@ -166,5 +168,109 @@ describe("postPose", () => {
     const at = inChord(postPose(world({ count: 3 }), 0, 0).pos, visitor(3), lead);
     expect(at.behind).toBeCloseTo(16, 9);
     expect(at.left).toBeCloseTo(6, 9);
+  });
+});
+
+describe("cranePose", () => {
+  // The visitor's bear, five gaps behind the lead; the crane hangs behind it.
+  const slot = LEAD_D - COUNT * GAP;
+  // How far a point stands along the straight line from where it starts, and how far to its side.
+  const alongLine = (p: V) => (p.x - 3) * 0.6 + (p.z + 5) * -0.8;
+  const beside = (p: V) => (p.x - 3) * 0.8 + (p.z + 5) * 0.6;
+
+  it("hangs CRANE.back m behind the visitor's bear along the line, 9 m over the ground under it, and looks at the line CRANE.ahead m on, 8 m over it", () => {
+    for (const elapsed of [0, 4, 7.5, 19, 30]) {
+      const { pos, look } = cranePose(world(), elapsed);
+      expect(alongLine(pos)).toBeCloseTo(slot - CRANE.back, 9);
+      expect(pos.y - ground(pos.x, pos.z)).toBeCloseTo(9, 9);
+      expectNear(look, raised(straight.at(slot - CRANE.back + CRANE.ahead), 8));
+    }
+    expect(CRANE).toEqual({ back: 14, sway: 2, ahead: 28 });
+  });
+
+  it("sways CRANE.sway m to either side of the line and back once in 30 s, on the line at the start", () => {
+    const side = (elapsed: number) => beside(cranePose(world(), elapsed).pos);
+    expect(side(0)).toBeCloseTo(0, 9);
+    expect(Math.abs(side(7.5))).toBeCloseTo(CRANE.sway, 9);
+    expect(side(15)).toBeCloseTo(0, 9);
+    expect(side(22.5)).toBeCloseTo(-side(7.5), 9);
+    expect(side(34)).toBeCloseTo(side(4), 9);
+    for (let t = 0; t < 30; t += 0.5) expect(Math.abs(side(t))).toBeLessThanOrEqual(CRANE.sway + 1e-9);
+  });
+
+  it("goes up the line with the bears shown when a downgrade drops some, as the visitor's bear does", () => {
+    expect(alongLine(cranePose(world({ count: 3 }), 0).pos)).toBeCloseTo(LEAD_D - 3 * GAP - CRANE.back, 9);
+  });
+
+  it("writes its answer into what it is handed and hands that back, so a frame need make none; handed nothing, it makes one of its own each time", () => {
+    const mine = { pos: { x: 0, y: 0, z: 0 }, look: { x: 0, y: 0, z: 0 } }, { pos, look } = mine;
+    expect(cranePose(world(), 4, mine)).toBe(mine);
+    expect(mine.pos).toBe(pos);
+    expect(mine.look).toBe(look);
+    expect(mine).toEqual(cranePose(world(), 4));
+    // The same one again, for another moment: written over.
+    cranePose(world(), 19, mine);
+    expect(mine).toEqual(cranePose(world(), 19));
+    expect(mine).not.toEqual(cranePose(world(), 4));
+    expect(cranePose(world(), 4)).not.toBe(cranePose(world(), 4));
+  });
+
+  it("sways square to the line where it hangs, not to the line where the bears are", () => {
+    // The bend is at 60 m, past the crane at 51 m and short of the visitor's bear at 65 m: the sway is across the first stretch.
+    const at = cranePose(world({ line: lineBent(60) }), 7.5).pos;
+    expect(alongLine(at)).toBeCloseTo(slot - CRANE.back, 9);
+    expect(Math.abs(beside(at))).toBeCloseTo(CRANE.sway, 9);
+  });
+});
+
+describe("ridePose", () => {
+  const post = { pos: { x: 0, y: 10, z: 0 }, look: { x: 0, y: 5, z: -30 } };
+  const crane = { pos: { x: 6, y: 9, z: 2 }, look: { x: 8, y: 8, z: -40 } };
+
+  it("is the rig that walks with the bears before the camera sets off and the crane once it has arrived, each as it was handed over", () => {
+    expect(ridePose(post, crane, 0)).toBe(post);
+    expect(ridePose(post, crane, 1)).toBe(crane);
+    expect(ridePose(post, crane, -0.2)).toBe(post);
+    expect(ridePose(post, crane, 1.2)).toBe(crane);
+  });
+
+  it("stands on the straight line between the two, and looks as far along the line between their looks, by rigShare of the time passed", () => {
+    for (const lean of [0.1, 0.25, 0.5, 0.8]) {
+      const k = rigShare(lean), { pos, look } = ridePose(post, crane, lean);
+      expectNear(pos, { x: 6 * k, y: 10 - k, z: 2 * k });
+      expectNear(look, { x: 8 * k, y: 5 + 3 * k, z: -30 - 10 * k });
+    }
+    // Half-way in time is half-way there.
+    expectNear(ridePose(post, crane, 0.5).pos, { x: 3, y: 9.5, z: 1 });
+  });
+
+  it("writes the pose between the rigs into what it is handed and hands that back, leaving the rigs' own as they were; handed nothing, it makes one", () => {
+    const mine = { pos: { x: 0, y: 0, z: 0 }, look: { x: 0, y: 0, z: 0 } }, { pos, look } = mine;
+    const before = JSON.stringify([post, crane]);
+    expect(ridePose(post, crane, 0.3, mine)).toBe(mine);
+    expect(mine.pos).toBe(pos);
+    expect(mine.look).toBe(look);
+    expect(mine).toEqual(ridePose(post, crane, 0.3));
+    expect(JSON.stringify([post, crane])).toBe(before);
+    // On a rig it is the rig's own that comes back, and what was handed in is left alone.
+    expect(ridePose(post, crane, 0, mine)).toBe(post);
+    expect(ridePose(post, crane, 1, mine)).toBe(crane);
+    expect(mine).toEqual(ridePose(post, crane, 0.3));
+    expect(ridePose(post, crane, 0.3)).not.toBe(ridePose(post, crane, 0.3));
+  });
+
+  it("sets off and arrives at rest, never turns back on the way, and takes RIG_EASE_S seconds", () => {
+    expect(rigShare(0)).toBe(0);
+    expect(rigShare(1)).toBe(1);
+    // A thousandth of the time from either end it has gone three millionths of the way: a straight ramp would have gone a thousandth.
+    expect(rigShare(0.001)).toBeLessThan(4e-6);
+    expect(1 - rigShare(0.999)).toBeLessThan(4e-6);
+    // Fastest half-way, at one and a half times a straight ramp's pace.
+    expect((rigShare(0.501) - rigShare(0.499)) / 0.002).toBeCloseTo(1.5, 5);
+    for (let k = 1; k <= 100; k++) {
+      expect(rigShare(k / 100)).toBeGreaterThan(rigShare((k - 1) / 100));
+      expect(rigShare(k / 100) + rigShare(1 - k / 100)).toBeCloseTo(1, 12);
+    }
+    expect(RIG_EASE_S).toBe(3);
   });
 });

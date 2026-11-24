@@ -7,7 +7,9 @@
 // nineteen runs of 2026-11-22 and 23 whose logs tell, the stage's recording, held 25 s, left its bear 2 to 5 m short of the
 // platform's edge.
 import { STAGE, STAGE_REACH } from "../../public/world/ground.js";
+import { RIG_EASE_S } from "../../public/world/pose.js";
 import { bandPath } from "./band.mjs";
+import { AWAKE, RIDE, SETTLED } from "./ride.mjs";
 
 /** How long each recording runs once the page has loaded and any control is pressed, unless its steps take longer. */
 export const RECORD_MS = 10_000;
@@ -30,6 +32,18 @@ export const STAGE_EDGE = [STAGE[0], STAGE[1], STAGE_REACH + 0.1];
 // unless the step has failed.
 const FRAME_MS = 2000;
 
+// The ride's recordings (src/components/world/ride.ts): the button, once the world is ready, and the state its press must bring,
+// the button pressed; the page's marks of the ride's two looks are ride.mjs's, with its stills. A recording that is of the ride
+// with the bears, and not of its settling, asks for a minute's wait to settle (?idle=, on previews), so the page stays awake
+// through its ten seconds and whatever a slow renderer adds to them.
+const ONCE_READY = `#world[data-world='ready'] ~ div ${RIDE}`, PRESSED = `${RIDE}[aria-pressed='true']`, STAYS_AWAKE = "idle=60";
+// The ride's camera eases between its two rigs over RIG_EASE_S of the world's time (pose.js), and a frame is at most 50 ms of it:
+// 60 frames each way.
+const EASE_FRAMES = RIG_EASE_S * 20;
+/** How long the ride's camera may take on its way between its rigs, either way, in ms: a recording that waits for it to come to the
+ * crane or back, and a settled still whose subject is the crane (shoot.mjs), fail the run past this. */
+export const EASE_MS = EASE_FRAMES * FRAME_MS;
+
 // The walk's camera at the stage and at a landmark (#178, #191), which no still and no other recording shows: in third person a
 // landmark or the stage in the boom's way used to cut the view, and the first mend of that left the camera swinging for ever beside
 // the stage once the bear stood still. Two walks on the fixed day, each from a place of its own (?pose=X,Z,HEADING,PITCH), since
@@ -44,7 +58,7 @@ export const CAMERA_WALKS = [
   ["camera-tower", "81.66,54.33,2.524,0", [["ArrowUp", 40 * FRAME_MS, { near: [69.5, 71.46, 1] }], [null, 90 * FRAME_MS, { rest: REST_FRAMES }]]],
 ];
 
-// Short recordings show the motion that stills cannot. Lean-back records on the TV.
+// Short recordings show the motion that stills cannot. The TV records the ride as a TV has it: started, then left alone.
 // An entry records the page at its path, "/" unless it names one. A `click` is pressed first, and the state its `waitFor` names
 // must come. Its `keys` are steps taken one after another, each [key, ms, until]: the key is held for its milliseconds, or with no
 // key (null) the bear stands. A step that names what it waits for ends when that comes, and fails the run if its milliseconds
@@ -52,6 +66,8 @@ export const CAMERA_WALKS = [
 //   near: [x, z, r]   the visitor stands within r m of a place;
 //   turned: rad       the visitor has turned so far since the step began;
 //   past: mode        the world has left that mode (the opening's descent);
+//   lean: 1 or 0      the ride's camera is on the crane (1), or back on the rig that walks with the bears (0): how far it has
+//                     gone from that rig to the crane, by the world's own count (main.js's `ride` stat);
 //   rest: frames      the camera has come to rest: for so many frames of the world, and REST_MS of the clock, the visitor has
 //                     stood where it stands and its bear's head has kept its place in the frame;
 //   played: frames    the world has drawn so many frames while the show played: a frame drawn while the page's state was any but
@@ -59,11 +75,16 @@ export const CAMERA_WALKS = [
 export const RECORDINGS = [
   { device: "desktop", name: "home" },
   { device: "phone", name: "home" },
+  // The ride on the TV: the button starts it; two seconds on (?idle=2) the page settles and the camera eases out to the crane. The
+  // recording stands until the camera is on the crane, the page's two seconds and the ease's frames at the most, and then three
+  // seconds there, which wait for nothing.
   {
     device: "tv",
-    name: "leanback",
-    click: "[data-action='lean-back']",
-    waitFor: "[data-mode='leanback']",
+    name: "ride",
+    path: "/?idle=2",
+    click: RIDE,
+    waitFor: AWAKE,
+    keys: [[null, 2_000 + EASE_MS, { lean: 1 }], [null, 3_000]],
   },
   // Roaming: focus the scene, then hold each key for its milliseconds, in order. The roam goes nowhere in particular: its holds
   // wait for nothing.
@@ -95,29 +116,46 @@ export const RECORDINGS = [
   // 75 s and takes longer on a slower runner or a heavier world: so the recording waits for the world to leave its descent, and
   // then stands 5 s more with the bears.
   { device: "desktop", name: "descent", path: "/2026-10-20", keys: [[null, 120 * FRAME_MS, { past: "descent" }], [null, 5_000]] },
-  // Walking with the bears on the fixed day, once the world is ready: the button puts the camera behind the bears.
+  // Riding with the bears on the fixed day, once the world is ready: the button puts the camera behind the bears. Once the button
+  // is pressed the recording waits for nothing: it is ten seconds of the ride, awake.
   {
     device: "desktop",
-    name: "follow",
-    path: "/2026-10-20",
-    click: "#world[data-world='ready'] ~ div [data-action='follow']",
-    waitFor: "[data-action='follow'][aria-pressed='true']",
+    name: "ride",
+    path: `/2026-10-20?${STAYS_AWAKE}`,
+    click: ONCE_READY,
+    waitFor: PRESSED,
   },
   // The same from C C Rider 0:42 in, where the bears set off along a straight stretch in one line, clear of the landmarks.
   {
     device: "desktop",
-    name: "follow-straight",
-    path: "/2026-10-20?at=3&t=42",
-    click: "#world[data-world='ready'] ~ div [data-action='follow']",
-    waitFor: "[data-action='follow'][aria-pressed='true']",
+    name: "ride-straight",
+    path: `/2026-10-20?at=3&t=42&${STAYS_AWAKE}`,
+    click: ONCE_READY,
+    waitFor: PRESSED,
   },
-  // Walking with the bears on a phone: its three bears ahead and the visitor's bear above the now-plate.
+  // Riding with the bears on a phone: its three bears ahead and the visitor's bear above the now-plate.
   {
     device: "phone",
-    name: "follow",
-    path: "/2026-10-20",
-    click: "#world[data-world='ready'] ~ div [data-action='follow']",
-    waitFor: "[data-action='follow'][aria-pressed='true']",
+    name: "ride",
+    path: `/2026-10-20?${STAYS_AWAKE}`,
+    click: ONCE_READY,
+    waitFor: PRESSED,
+  },
+  // A ride that settles and wakes, on the fixed day: three seconds after the button (?idle=3) the HUD strips, which the press waits
+  // for, and the camera eases out to the crane; the recording stands until it is there, and the stats line after the stand is the
+  // crane's. A look to the left then wakes the page and brings the camera back to the rig the look turns, as slowly: the look's
+  // 600 ms wait for nothing, since what the look is for, the camera's way back, is what the next step waits for. Left alone, the
+  // page would settle again three seconds into the way back and send the camera out once more, so Shift is held until the camera
+  // is back with the bears: a key held down is input for as long as it is held (watchIdle in ride.ts), and Shift alone gives the
+  // world no control (public/world/input.js). Then two seconds with the bears, under the page's three before it settles again,
+  // which wait for nothing.
+  {
+    device: "desktop",
+    name: "ride-settle-wake",
+    path: "/2026-10-20?idle=3",
+    click: ONCE_READY,
+    waitFor: SETTLED,
+    keys: [[null, EASE_MS, { lean: 1 }], ["ArrowLeft", 600], ["ShiftLeft", EASE_MS, { lean: 0 }], [null, 2_000]],
   },
   // From ?pose=stage the click starts the show, then the visitor's bear walks down the slope to the platform and stops at its edge. The
   // walk is 23 m, and a frame moves the bear at most 0.6 m (12 m/s, each frame's step capped at 50 ms), so it takes 39 frames, which
@@ -129,10 +167,11 @@ export const RECORDINGS = [
     click: "canvas",
     keys: [["ArrowUp", 40 * FRAME_MS, { near: STAGE_EDGE }], [null, 3_000]],
   },
-  // The sound's listener through the camera's modes, from ?pose=stage: the click starts the show, B walks with the bears, a step walks
-  // again, F leans back, Escape leaves it and a step walks on. The stats line after each control shows the mode, where the listener
-  // stands and where the visitor's bear's head does; in third person they are the same point in every mode. Its holds wait for
-  // nothing: each is there for its line of the log.
+  // The sound's listener through the camera's modes, from ?pose=stage: the click starts the show, B starts the ride, a step walks
+  // again, F starts the ride as B does, Escape leaves it and a step walks on. The stats line after each control shows the mode, where
+  // the listener stands and where the visitor's bear's head does; in third person they are the same point in every mode. A key held
+  // down keeps the ride awake, so the crane's line is ride-settle-wake's. Its holds wait for nothing: each is there for its line of
+  // the log.
   {
     device: "desktop",
     name: "stage-modes",
@@ -158,15 +197,16 @@ export const RECORDINGS = [
 
 /**
  * What a step reads of the world (window.__hill, main.js): where the visitor stands, how many frames the world has drawn, its
- * mode, where the visitor's bear's head lands in the frame, as fractions of it to a thousandth, and whether the show plays (the
- * page's state, which main.js plays the band by). Null until the world has started. The page tells nothing of the camera's own
- * place; with the bear standing, its head moves in the frame when the camera does, by a thousandth of the frame for one to three
- * centimetres of the camera's way at the walk's distances.
+ * mode, where the visitor's bear's head lands in the frame, as fractions of it to a thousandth, in a ride how far its camera has
+ * gone to the crane ({ lean, yaw }, null out of one), and whether the show plays (the page's state, which main.js plays the band
+ * by). Null until the world has started. The page tells nothing of the camera's own place; with the bear standing, its head moves
+ * in the frame when the camera does, by a thousandth of the frame for one to three centimetres of the camera's way at the walk's
+ * distances.
  */
 export const readWorld = (page) =>
   page.evaluate(() => {
     const hill = window.__hill, playing = window.document?.querySelector("main")?.dataset.state === "playing";
-    return hill?.walker ? { walker: hill.walker, frames: hill.frames, mode: hill.mode, screen: hill.avatar?.screen ?? null, playing } : null;
+    return hill?.walker ? { walker: hill.walker, frames: hill.frames, mode: hill.mode, screen: hill.avatar?.screen ?? null, ride: hill.ride ?? null, playing } : null;
   });
 
 /**
@@ -186,7 +226,7 @@ export async function worldStarted(page, ms = WORLD_MS, now = Date.now) {
 /**
  * Whether what a step waits for has come.
  *
- * @param until - What the step waits for: near, turned, past, rest or played (RECORDINGS, above).
+ * @param until - What the step waits for: near, turned, past, lean, rest or played (RECORDINGS, above).
  * @param world - What the world says now (readWorld).
  * @param start - What it said as the step began.
  * @param seen - The step's own memory: for `rest`, { still, frame, at }, what was last seen to change and when; for `played`,
@@ -198,6 +238,8 @@ export function arrived(until, world, start, seen, at) {
   if (until.near) return Math.hypot(walker.x - until.near[0], walker.z - until.near[1]) <= until.near[2];
   if (until.turned !== undefined) return Math.abs(walker.heading - start.walker.heading) >= until.turned;
   if (until.past !== undefined) return world.mode !== until.past;
+  // The ride's camera on the crane, or back with the bears: a world out of a ride has no such camera, and has not come to either.
+  if (until.lean !== undefined) return world.ride?.lean === until.lean;
   // Frames drawn while the show played: those since the last reading count if the show plays now.
   if (until.played !== undefined) {
     if (seen.frame === undefined) Object.assign(seen, { frame: start.frames, played: 0 });
@@ -224,6 +266,10 @@ export function missed(until, world, start, seen) {
     return `the visitor had not turned ${until.turned.toFixed(2)} rad: ${stood}, ${Math.abs(walker.heading - start.walker.heading).toFixed(2)} rad from the heading ${to3(start.walker.heading)} it began at`;
   }
   if (until.past !== undefined) return `the world had not left its ${until.past}: its mode was ${world.mode}, ${world.frames - start.frames} frames on, and ${stood}`;
+  if (until.lean !== undefined) {
+    const where = world.ride ? `it had gone ${world.ride.lean} of the way to the crane` : `the world was in no ride, its mode ${world.mode}`;
+    return `the ride's camera had not come ${until.lean ? "to the crane" : "back to the bears"}: ${where}, ${world.frames - start.frames} frames on, and ${stood}`;
+  }
   if (until.played !== undefined) return `the show had played for ${seen.played ?? 0} of the ${until.played} frames it must, ${world.frames - start.frames} frames on, and was ${world.playing ? "" : "not "}playing; ${stood}`;
   const head = world.screen === null ? "the page did not say where the bear's head lands in the frame" : `the bear's head, at ${world.screen.join(", ")} of the frame, had kept its place for ${world.frames - seen.frame} frames of the ${until.rest} it must`;
   return `the camera had not come to rest: ${head}; ${stood}`;

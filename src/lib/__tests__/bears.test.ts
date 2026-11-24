@@ -112,6 +112,64 @@ describe("buildBear", () => {
     }
   });
 
+  it("gives the visitor's near-white bear a belly, a muzzle and inner ears a shade deeper than its fur and less deep than its ruff, and the five theirs paler than their fur, as before", () => {
+    const light = (c: { r: number; g: number; b: number }) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    // Corners where each part is drawn in its own tone in full: the belly's middle, the front of the torso inside its oval, under
+    // the head's lowest corner (2.5 m up), where nothing else stands; and, each found by an exact test of its surface, to a hundredth
+    // of a millimetre, as the ruff's are, the muzzle, an egg 0.5175 by 0.405 by 0.45 m about a point 3.4 m up and 1.8 m ahead, and the
+    // inner ears, each the front of a ball of 0.35 m about a point 0.7 m to its side, 4.5 m up and 0.6 m ahead, within 0.16 m of the
+    // ear's middle.
+    const torsoAt = (x: number, y: number, z: number) => z > 0.4 && y < 2.45 && Math.hypot(x / 0.78, (y - 2) / 1.15) < 0.7;
+    const muzzleAt = (x: number, y: number, z: number) => Math.abs((x / 0.5175) ** 2 + ((y - 3.4) / 0.405) ** 2 + ((z - 1.8) / 0.45) ** 2 - 1) < 1e-5;
+    const earAt = (x: number, y: number, z: number) =>
+      Math.abs(Math.hypot(Math.abs(x) - 0.7, y - 4.5, z - 0.6) - 0.35) < 1e-5 && z > 0.84 && Math.hypot(Math.abs(x) - 0.7, y - 4.5) <= 0.16;
+    const ruffAt = (x: number, y: number, z: number) => {
+      const tip = Math.PI / 2 - 0.22, up = y - 3.1, across = up * Math.cos(tip) + z * Math.sin(tip), along = -up * Math.sin(tip) + z * Math.cos(tip);
+      return Math.abs(Math.hypot(Math.hypot(x, across) - 1, along) - 0.17) < 1e-5;
+    };
+    const coloursOf = (hue: number) => {
+      const { body } = buildBear(new THREE.Scene(), hue), at = body.geometry.attributes.position, colour = body.geometry.attributes.color;
+      const found: Record<"belly" | "muzzle" | "ears" | "ruff", { r: number; g: number; b: number }[]> = { belly: [], muzzle: [], ears: [], ruff: [] };
+      for (let i = 0; i < at.count; i++) {
+        const [x, y, z] = [at.getX(i), at.getY(i), at.getZ(i)], c = { r: colour.getX(i), g: colour.getY(i), b: colour.getZ(i) };
+        if (torsoAt(x, y, z)) found.belly.push(c);
+        if (muzzleAt(x, y, z)) found.muzzle.push(c);
+        if (earAt(x, y, z)) found.ears.push(c);
+        if (ruffAt(x, y, z)) found.ruff.push(c);
+      }
+      // Each part is found, and the ears on both sides.
+      expect(found.belly.length).toBeGreaterThan(5);
+      expect(found.muzzle.length).toBeGreaterThan(100);
+      expect(found.ears.length).toBeGreaterThanOrEqual(6);
+      expect(found.ruff.length).toBeGreaterThan(200);
+      return found;
+    };
+    // The visitor's: a shade deeper than its fur, 10 to 25 % less light, where paler than near white would not show (it was 11 %
+    // lighter); and lighter than its ruff, which is deeper still, so the two stay apart.
+    const fur = new THREE.Color(VISITOR), visitor = coloursOf(VISITOR);
+    expect(light(fur)).toBeGreaterThan(0.6);
+    const deepestRuff = Math.max(...visitor.ruff.map((c) => light(c) / light(fur)));
+    for (const part of ["belly", "muzzle", "ears"] as const) {
+      for (const c of visitor[part]) {
+        const ratio = light(c) / light(fur);
+        expect(ratio).toBeGreaterThanOrEqual(0.75);
+        expect(ratio).toBeLessThanOrEqual(0.9);
+        expect(ratio).toBeGreaterThan(deepestRuff + 0.05);
+        // The same hue as the fur, deeper: its channels in the fur's own proportions.
+        expect([c.r / fur.r, c.g / fur.g, c.b / fur.b].map((k) => k - ratio)).toEqual([0, 0, 0].map(() => expect.closeTo(0, 5)));
+      }
+    }
+    // The five's: half way from their fur to white, as on main, to the float a vertex holds.
+    const five = buildBears(new THREE.Scene(), 5).map((b: { color: { getHex(): number } }) => b.color.getHex());
+    expect(five).toHaveLength(5);
+    for (const hue of five) {
+      const own = coloursOf(hue), half = new THREE.Color(hue).lerp(new THREE.Color(0xffffff), 0.5);
+      for (const part of ["belly", "muzzle", "ears"] as const) {
+        for (const c of own[part]) expect([c.r, c.g, c.b]).toEqual([half.r, half.g, half.b].map((v: number) => expect.closeTo(v, 6)));
+      }
+    }
+  });
+
   it("is one mesh to draw and four hidden limbs: two arms, then two legs, an arm swinging with the leg across from it", () => {
     const bear = buildBear(new THREE.Scene(), 0xd4607a);
     const meshes = bear.g.children.filter((o: { isMesh?: boolean }) => o.isMesh);

@@ -75,7 +75,7 @@ body { background-color: var(--page); color: var(--ink); }
 /* The chip that names the next show fades in; a reduced-motion visitor sees it at once (the rule below turns animations off). */
 .chip { animation: chip-in 240ms ease-out; }
 @keyframes chip-in { from { opacity: 0; } }
-/* Lean-back hides the cursor after 3 s without input. */
+/* A ride that has settled hides the cursor with the HUD (ride.ts). */
 .cursor-off, .cursor-off * { cursor: none; }
 
 /* The stick (phone): a plate on a hairline, a chevron at each end of its two lines, and a knob that follows the thumb (input.js sets
@@ -95,9 +95,9 @@ body { background-color: var(--page); color: var(--ink); }
 .stick[data-held] { border-color: var(--muted); }
 .stick[data-held] .knob { transition: background-color 120ms ease-out; }
 
-/* The seek slider: a 44-px band to touch, with a 6-px track (8 in lean-back), filled with the accent up to the playing position (--p),
-   and a 16-px accent thumb ringed in the page colour. The padding makes the band: it starts where the control row ends, so the two
-   never share a touch, and the track lies 12 px into it (16 under lean-back's line), with the rest below. A block, so the margin
+/* The seek slider: a 44-px band to touch, with a 6-px track (8 in a settled ride), filled with the accent up to the playing position
+   (--p), and a 16-px accent thumb ringed in the page colour. The padding makes the band: it starts where the control row ends, so the
+   two never share a touch, and the track lies 12 px into it (16 under a settled ride's line), with the rest below. A block, so the margin
    alone takes the padding back: 7 px stays under the track, as it did. */
 .seek { --p: 0%; appearance: none; display: block; box-sizing: content-box; height: 6px; padding: 12px 0 26px; margin: 0 0 -19px; background: none; }
 .seek::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent) var(--p), var(--line) var(--p)); }
@@ -110,10 +110,10 @@ body { background-color: var(--page); color: var(--ink); }
 .seek:focus-visible { outline-color: transparent; }
 .seek:focus-visible::-webkit-slider-runnable-track { box-shadow: 0 0 0 3px var(--page), 0 0 0 6px var(--accent); }
 .seek:focus-visible::-moz-range-track { box-shadow: 0 0 0 3px var(--page), 0 0 0 6px var(--accent); }
-[data-mode="leanback"] .seek { height: 8px; padding: 16px 0 20px; margin: 0 0 -13px; }
-[data-mode="leanback"] .seek::-webkit-slider-runnable-track { height: 8px; }
-[data-mode="leanback"] .seek::-moz-range-track { height: 8px; }
-[data-mode="leanback"] .seek::-webkit-slider-thumb { margin-top: -4px; }
+[data-ride="settled"] .seek { height: 8px; padding: 16px 0 20px; margin: 0 0 -13px; }
+[data-ride="settled"] .seek::-webkit-slider-runnable-track { height: 8px; }
+[data-ride="settled"] .seek::-moz-range-track { height: 8px; }
+[data-ride="settled"] .seek::-webkit-slider-thumb { margin-top: -4px; }
 
 /* The designed still for a browser without WebGL 2: a sky, the hill, its two caves, the ring. */
 .world-fallback { display: none; position: fixed; inset: 0; overflow: hidden; }
