@@ -263,6 +263,15 @@ export function installPlates() {
 }
 export const readPlates = (page) => page.evaluate(() => window.__plates());
 
+// Whether a console error is the page's own, which stops a count. Not the archive's audio, an aborted request or the favicon; and not the
+// Content-Security-Policy refusing Vercel's toolbar, which a preview's build loads on every page and the policy refuses on purpose (the
+// shoot counts those refusals apart: VERCEL_TOOLBAR in .github/screenshots/shoot.mjs). Chromium writes the refusal as "Loading the
+// script 'https://vercel.live/…' violates the following Content Security Policy directive: …", and older builds as "Refused to load
+// the script '…' because it violates …": either way the address refused is the first thing quoted, and it is the toolbar's. A refusal
+// of any other address is the site's, and stops the count.
+const TOOLBAR_REFUSED = /^[^']*'https:\/\/vercel\.live\/[^']*' (?:because it )?violates the following Content Security Policy directive/;
+export const worldError = (text) => !/archive\.org|ERR_ABORTED|favicon/.test(text) && !TOOLBAR_REFUSED.test(text);
+
 // A page for a job: its viewport and pixel ratio, a phone's touch for the phone's tier, the shelves put away, the stepper, the plate
 // reader, and the world's modules routed. `modules` gathers every world module the page is served, by name, for the world's hash.
 export async function openPage(browser, job, { siteUrl, mainCommit, worldDir }) {
@@ -281,7 +290,7 @@ export async function openPage(browser, job, { siteUrl, mainCommit, worldDir }) 
   const page = await context.newPage();
   const errors = [], modules = new Map();
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
-  page.on("console", (m) => { if (m.type() === "error" && !/archive\.org|ERR_ABORTED|favicon/.test(m.text())) errors.push(`console.error: ${m.text().slice(0, 300)}`); });
+  page.on("console", (m) => { if (m.type() === "error" && worldError(m.text())) errors.push(`console.error: ${m.text().slice(0, 300)}`); });
   page.on("response", (response) => {
     const name = /^\/world\/([^/]+\.js)$/.exec(new URL(response.url()).pathname)?.[1];
     if (name && response.status() === 200) modules.set(name, response.text().then((text) => [name, text]));

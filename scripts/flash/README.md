@@ -73,7 +73,7 @@ A job that did not measure what it was asked to stops, says why, and writes no r
 
 - the virtual clock moved by other than 1/60 s between two frames, or the world drew other than one frame;
 - a screenshot differs from the canvas by more than 2/255 at a checked point, so it does not show the frame just drawn;
-- the page reported an error;
+- the page reported an error: any but the archive's audio, an aborted request, the favicon, and, on a Vercel preview, the security policy's refusal of Vercel's toolbar, which the policy refuses on purpose and the shoot counts apart;
 - the HUD's shelves are not put away, or the page plays another show than the windows';
 - the world does not know what it was asked: a pose it does not take, or `still=1` or a rung on a world from before those hooks. Until main has them, that is every `main` job with either;
 - the visitor does not stand where a pose of four numbers put them, because the walk's limits moved them (the island's edge, the stage, a bear's reach); or, from any pose but `home`, moved during the count. A world from before `window.__hill.walker` does not say where the visitor stands: a job on it with a named pose runs unchecked, prints a warning, says so in its result (`poseHeld`), and the table lists it. Until main has the stat, that is every `main` job.
