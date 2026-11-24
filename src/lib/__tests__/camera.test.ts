@@ -659,6 +659,67 @@ describe("the walk's camera at a landmark and the stage", () => {
     }
   });
 
+  // The review of #195 found the camera held short of its rest for good once the view alone had moved: the bear stood beside a
+  // landmark of the fixed day's show, looked up to the limit, turned a little and stood, and the camera stood 0.88 m from where a
+  // cut would put it on a desktop and 0.69 m on a phone, where main's came to rest there. Below the head, the bear's least
+  // pressed the camera's place into the landmark's room each frame, and the way it took from there, round the room or straight
+  // for its rest, led back in. Looking up or down beside each corner of every landmark of that show found it again, 5.0 m short;
+  // and at the three places the path lens of #191 named, main's own camera rested up to 10.3 m short at 16 of 360 such stops on a
+  // desktop, and the review's branch's up to 3.3 m short at 4 more on a phone.
+  it("is not held short of its rest by the bear's least once the view alone has moved: looking up or down to the limit and turning beside a landmark, where the review of #195 did, at each corner of every landmark of the fixed day's show and at the three places #191's path lens named, it comes to rest within three seconds where a cut would put it", { timeout: 60000 }, () => {
+    const STILL = 300, REST = 180;
+    // One stand: the keys until `frames`, then STILL frames still. It must rest within SLACK and the 5 cm of the test above of a
+    // cut's place, and move less than a centimetre a frame from REST frames into the stand on.
+    const stand = (w: World, start: Walker, frames: number, keys: (f: number, walker: Walker) => void, at: string) => {
+      const avatar = avatarOf(w.marks, w.phone), cutter = avatarOf(w.marks, w.phone), camera = cameraOf(w.phone), fresh = cameraOf(w.phone), was = new THREE.Vector3(), walker = { ...start };
+      confine(walker, limits);
+      let rested = 0;
+      for (let f = 0; f < frames + STILL; f++) {
+        if (f > 0 && f < frames) keys(f, walker);
+        avatar.step(walker.x, walker.z, walker.heading, DT);
+        avatar.boom(camera, walker, DT, f === 0);
+        if (f >= frames && camera.position.distanceTo(was) >= 0.01) rested = f - frames + 1;
+        was.copy(camera.position);
+      }
+      cutter.step(walker.x, walker.z, walker.heading, 0);
+      cutter.boom(fresh, walker, 0, true);
+      expect(camera.position.distanceTo(fresh.position), at).toBeLessThan(SLACK + 0.05);
+      expect(rested, at).toBeLessThanOrEqual(REST);
+      return 1;
+    };
+    for (const phone of [false, true]) {
+      const tier = phone ? "phone" : "desktop", day = on("1986-07-04", phone);
+      // The review's stand: still for four seconds, looking up at 0.8 rad a second for a second and a half, which reaches the
+      // limit in one, and turning 0.02 rad a frame for a second.
+      let stops = stand(day, { x: -6.58, z: 4.65, heading: 1.01, pitch: 0 }, 390, (f, walker) => { if (f >= 240 && f < 330) walker.pitch = Math.min(0.8, walker.pitch + 0.8 / 60); else if (f >= 330) walker.heading += 0.02; }, `${tier}: the review's stand`);
+      // Out from each corner of every landmark's box along its diagonal, by 0.5, 1.5 and 2.5 m, facing anywhere: still for two
+      // seconds, looking up or down to the limit, turning by up to 0.8 rad either way, and still.
+      const random = seeded(61);
+      day.marks.forEach((mark, k) => {
+        const b = keepOutBox(mark as never) as unknown as Box;
+        for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) for (const out of [0.5, 1.5, 2.5]) for (const tilt of [1, -1]) {
+          const start = { x: (cx < 0 ? b.min.x : b.max.x) + cx * out * Math.SQRT1_2, z: (cz < 0 ? b.min.z : b.max.z) + cz * out * Math.SQRT1_2, heading: random() * 2 * Math.PI, pitch: 0 }, turn = (random() - 0.5) * 2;
+          stops += stand(day, start, 210, (f, walker) => stride(walker, f >= 180 ? [0, 0, turn, 0, 0] : [0, 0, 0, 0, f >= 120 ? tilt : 0], limits), `${tier}: song ${k}, corner ${cx}, ${cz}, ${out} m out, looking ${tilt > 0 ? "up" : "down"}`);
+        }
+      });
+      // The path lens's places, from 24 headings: walking 8 m in, backing 8 m in, turning 1.6 rad either way or looking up to
+      // the limit there, over a second, and still, looking up as far as the look goes.
+      for (const [date, x, z] of [["1986-07-04", -75.3, -66.8], ["1986-07-04", -2.7, 99.7], ["1970-12-31", -13.2, 3.0]] as [string, number, number][]) {
+        const w = on(date, phone);
+        for (let h = 0; h < 24; h++) for (const way of ["walking in", "backing in", "turning left", "turning right", "looking up"]) {
+          const heading = (h * Math.PI) / 12, fx = -Math.sin(heading), fz = -Math.cos(heading), back = way === "walking in" ? -8 : way === "backing in" ? 8 : 0, turn = way === "turning left" ? 1.6 : way === "turning right" ? -1.6 : 0;
+          stops += stand(w, { x: x + fx * back, z: z + fz * back, heading: heading - turn, pitch: way === "looking up" ? 0 : 0.8 }, 61, (f, walker) => {
+            if (f <= 40) { walker.x -= (fx * back) / 40; walker.z -= (fz * back) / 40; }
+            walker.heading += turn / 60;
+            if (way === "looking up") walker.pitch = Math.min(0.8, walker.pitch + 1.2 * DT);
+            confine(walker, limits);
+          }, `${tier}: ${date} at (${x}, ${z}), ${way} at ${h * 15} degrees`);
+        }
+      }
+      expect(stops, tier).toBe(1 + 19 * 24 + 360);
+    }
+  });
+
   it("goes round a trunk in its way as it goes after its goal, and under a crown no faster than the crown's slope makes it: in the woods beside the landmarks of two shows, turning on the spot at eight places round each, it never jumps from one side of a trunk to the other", { timeout: 120000 }, () => {
     // A crown's ceiling comes down a metre for each metre nearer the crown (trees.js `ceiling`). So a place that goes level at its
     // pace under a crown's edge takes the camera down as fast as it takes it along: the two together, the square root of two paces.
@@ -788,6 +849,36 @@ describe("the walk's camera at a landmark and the stage", () => {
     }
   });
 
+  // The crowd moves where the camera will rest while the bear stands: its figures part or close round the boom's end, and `over`
+  // asks another height there. The review's branch held the camera to how near the last rest it had come, so a rest metres
+  // lower was one it strayed from, and it went straight down to it at its chase's pace, 0.25 m in a frame on a desktop and 0.14 m
+  // on a phone, where the boom comes down after the crowd at 3 m a second (avatar.js CLIMB).
+  it("comes down after the crowd at the boom's own pace when the crowd lowers where it will rest with the bear standing: with a stand-in for the crowd that raises the boom's end 15 m over the ground and then goes, beside the tower, and it rests where a cut would put it", () => {
+    const HIGH = 15, CLIMB = 3, STAND = 240, STILL = 300;
+    for (const phone of [false, true]) {
+      const tier = phone ? "phone" : "desktop", w = on("1986-07-04", phone), walk = across(w.marks[17], [0, -20], [0, 7], "past the tower");
+      const crowd = { there: true }, over = (p: Point) => { if (crowd.there) p.y = Math.max(p.y, height(p.x, p.z) + HIGH); };
+      const avatar = avatarOf(w.marks, phone, { over }), cutter = avatarOf(w.marks, phone, { over }), camera = cameraOf(phone), fresh = cameraOf(phone), was = new THREE.Vector3(), walker = { ...walk.start };
+      let most = 0, high = 0;
+      for (let f = 0; f < walk.frames + STAND + STILL; f++) {
+        if (f > 0 && f < walk.frames) stride(walker, walk.keys(f, walker), limits);
+        if (f === walk.frames + STAND) { crowd.there = false; high = camera.position.y; }
+        avatar.step(walker.x, walker.z, walker.heading, DT);
+        avatar.boom(camera, walker, DT, f === 0);
+        // From the frame after the stand-in goes. In that frame the camera drops to its place at once, here as on main: `over` is
+        // asked of the camera last of all, and raised it from its place, which the tower had drawn in.
+        if (f > walk.frames + STAND) most = Math.max(most, camera.position.distanceTo(was));
+        was.copy(camera.position);
+      }
+      cutter.step(walker.x, walker.z, walker.heading, 0);
+      cutter.boom(fresh, walker, 0, true);
+      expect(camera.position.distanceTo(fresh.position), tier).toBeLessThan(SLACK + 0.05);
+      // It came down metres, and no faster in a frame than the boom comes down.
+      expect(high - camera.position.y, tier).toBeGreaterThan(5);
+      expect(most, tier).toBeLessThanOrEqual(CLIMB * DT);
+    }
+  });
+
   it("goes on from where another camera left the view: after a ride with the bears it starts from that camera's place, not from where it last stood in a walk", () => {
     for (const phone of [false, true]) {
       // A walk past the Lovelight tower; then a ridden camera leaves the view 9 m behind the bear and 5 m up, with the tower
@@ -903,16 +994,16 @@ describe("the walk's camera at a landmark and the stage", () => {
     }
     // What a count of three's classes cannot see: a list walked by `for ... of` makes an iterator, an arrow or a function written in
     // a function is made at each call, and an object or a list written out is made where it stands. None is in the frame's code:
-    // boom.js's functions, and avatar.js's boom and what it calls there, clear, floored, reached, hang, seek and chase. (rise's Math.hypot is as it
+    // boom.js's functions, and avatar.js's boom and what it calls there, clear, floored, strays, hang, seek and chase. (rise's Math.hypot is as it
     // was: a root in its place is another number.)
     const made0 = /\bnew\b|=>|\bfunction\b.*\bfunction\b|\bfor \([^;)]*\bof\b|\.\.\.|return \{|[=(,] \[|= \{|\.(map|filter|some|every|forEach|slice|concat)\(/;
     const boomJs = readFileSync(new URL("../../../public/world/boom.js", import.meta.url), "utf8"), avatarJs = readFileSync(new URL("../../../public/world/avatar.js", import.meta.url), "utf8");
-    const bodies = ["nearest", "enters", "stoodOff", "standOff", "goRound", "crest", "rise"].map((name) => { const from = boomJs.indexOf(`function ${name}(`); return [name, boomJs.slice(from, boomJs.indexOf("\n}\n", from))]; });
+    const bodies = ["nearest", "enters", "stoodOff", "standOff", "goRound", "pressed", "crest", "rise"].map((name) => { const from = boomJs.indexOf(`function ${name}(`); return [name, boomJs.slice(from, boomJs.indexOf("\n}\n", from))]; });
     bodies.push(["boom", avatarJs.slice(avatarJs.indexOf("  function boom(camera, walker, dt, cut) {"), avatarJs.indexOf("  /* Another camera placed the view"))]);
-    // clear, and floored, reached, hang, seek and chase, which stand after it down to the boom's own comment.
+    // clear, and floored, strays, hang, seek and chase, which stand after it down to the boom's own comment.
     const helpers = avatarJs.slice(avatarJs.indexOf("  function clear(p) {"), avatarJs.indexOf("  /* The walk's camera. Its place and its aim ease after the bear"));
-    for (const name of ["floored(p)", "reached(far)", "strays(p)", "hang(p, room)", "seek(out, hangs, met, lift, reach, k, room)", "chase(aim, leapt, dt, room)"]) expect(helpers, name).toContain(`  function ${name} {`);
-    bodies.push(["clear, floored, reached, hang, seek and chase", helpers]);
+    for (const name of ["floored(p)", "strays(p)", "hang(p, room)", "seek(out, hangs, met, lift, reach, k, room)", "chase(aim, leapt, dt, room)"]) expect(helpers, name).toContain(`  function ${name} {`);
+    bodies.push(["clear, floored, strays, hang, seek and chase", helpers]);
     for (const [name, text] of bodies) {
       expect(text.length, name).toBeGreaterThan(200);
       expect(text.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter((line) => made0.test(line)), name).toEqual([]);

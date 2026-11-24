@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { height } from "./ground.js";
 import { buildBear, stride } from "./bears.js";
-import { goRound, HAIR, LEAST, NIL, rise, standOff } from "./boom.js";
+import { goRound, HAIR, LEAST, NIL, pressed, rise, standOff } from "./boom.js";
 
 /* The visitor's bear: a sixth bear in the site's ink, seen from behind and above. Its legs, bob and lean follow its speed, so it
    lopes while the five walk. The walk's camera hangs on a boom behind its head and eases after it; a landmark between them draws the
@@ -101,7 +101,7 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
      the boom there (`rest`), which is where a cut would put it. `closest` is the closest the camera's place has been to that
      since the bear stood still, in m, and `bent` whether the place has since left its goal for its rest; `apart`, the boxes the
      head stands in none of, in one array that is the same every frame; `found`, the rise and the reach `seek` came to. */
-  const tip = new THREE.Vector3(), tipWas = new THREE.Vector3(), ends = new THREE.Vector3(), rest = new THREE.Vector3();
+  const tip = new THREE.Vector3(), tipWas = new THREE.Vector3(), ends = new THREE.Vector3(), rest = new THREE.Vector3(), restWas = new THREE.Vector3();
   const apart = [], found = new Float64Array(2);
   let closest = Infinity, bent = false;
   /* Where the landmarks and the stage would have the camera this frame (`goal`) and a frame ago, and its place, which goes there
@@ -142,20 +142,6 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
   /* Keeps the point `p` FLOOR m over the ground. */
   function floored(p) {
     p.y = Math.max(p.y, height(p.x, p.z) + FLOOR);
-  }
-
-  /* Whether any landmark's box or any column comes within `far` m of the head, seen from above: none that does not can have a
-     say in a camera that hangs no further from the head than that less its room. */
-  function reached(far) {
-    for (let i = 0; i < boxes.length; i++) {
-      const b = boxes[i], dx = Math.max(b.min.x - pivot.x, 0, pivot.x - b.max.x), dz = Math.max(b.min.z - pivot.z, 0, pivot.z - b.max.z);
-      if (dx * dx + dz * dz < far * far) return true;
-    }
-    for (let i = 0; i < columns.length; i++) {
-      const c = columns[i], dx = pivot.x - c.x, dz = pivot.z - c.z, r = c.r + far;
-      if (dx * dx + dz * dz < r * r) return true;
-    }
-    return false;
   }
 
   /* Whether the point `p` is more than SLACK m further from where the camera will rest than its place has been since the
@@ -323,22 +309,28 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
        goes there, and only what stands between it and there, which it goes round, takes it further from there. Both are
        needed. A goal may bring the place nearer its rest and nearer the bear at once, as a post the line crosses does, and
        only the goal tells; and a goal no further from the rest may lie beyond a landmark that the rest does not, and only the
-       step tells. With no landmark in it the camera is the boom's own, as it is on a walk. */
+       step tells. With no landmark in it the camera is the boom's own, as it is on a walk.
+       The rule knows one rest. Where the rest moves with the bear still standing, the crowd's figures or the eye's room having
+       moved it, how near the place came to the last says nothing of its way to this one, and it starts again: as the crowd goes,
+       the place comes down after its goal at CLIMB, and not straight for its new rest at its chase's pace. And it stands aside
+       where the bear has pressed the place, or the rest, into a landmark's room (boom.js `pressed`). Its own way to its rest is
+       straight, and the bear's least, pressing the place back into the room each frame, can hold it there short of its rest for
+       good; the goal's way is the boom's, which swings and rises round the bear as it eases. Held so, the camera stood 0.88 m
+       from its rest on a desktop and 0.69 m on a phone after looking up beside a landmark of 1986-07-04. */
     let bound = false;
     if (stands) {
       ends.copy(tip);
       hang(ends, room);
       over(ends);
-      /* (Where no landmark has a say in the goal and none stands near enough to have one in the rest, there is no rest to
-         reckon: the camera is the boom's own.) */
-      if (say || reached(ends.distanceTo(pivot) + room)) {
-        apart.length = 0;
-        for (let i = 0; i < boxes.length; i++) if (left[i] > 0) apart.push(boxes[i]);
-        bound = seek(rest, ends, apart, 0, 1, 1, room) || say;
-      }
+      apart.length = 0;
+      for (let i = 0; i < boxes.length; i++) if (left[i] > 0) apart.push(boxes[i]);
+      bound = seek(rest, ends, apart, 0, 1, 1, room) || say;
     }
+    if (!rest.equals(restWas)) { closest = Infinity; bent = false; }
+    restWas.copy(rest);
     closest = bound ? Math.min(closest, place.distanceTo(rest)) : Infinity;
-    bent = bound && (bent || strays(goal));
+    const ruled = bound && !pressed(place, pivot, hung, boxes, columns, room) && !pressed(rest, pivot, hung, boxes, columns, room);
+    bent = ruled && (bent || strays(goal));
     /* How far the walk itself moved the boom's ends this frame, squared. A goal that moved no further than that, and SLACK, moved
        with the walk; one that moved further leapt. Most frames need no root to tell. */
     const walked = Math.max(hung.distanceToSquared(hungWas), pivot.distanceToSquared(pivotWas)), went = goal.distanceToSquared(goalWas);
@@ -347,7 +339,7 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     else if (bent) chase(rest, false, dt, room);
     else {
       /* (A place put on its goal has not strayed, since its goal has not: the step put back is one of the chase's.) */
-      if (!leapt && place.equals(goalWas)) { place.copy(goal); pace = 0; } else { chase(goal, leapt, dt, room); if (bound && strays(place)) { bent = true; place.copy(stood); } }
+      if (!leapt && place.equals(goalWas)) { place.copy(goal); pace = 0; } else { chase(goal, leapt, dt, room); if (ruled && strays(place)) { bent = true; place.copy(stood); } }
     }
     goalWas.copy(goal); hungWas.copy(hung); pivotWas.copy(pivot); tipWas.copy(tip);
     camera.position.copy(place);

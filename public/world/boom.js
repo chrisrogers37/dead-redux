@@ -221,6 +221,13 @@ export function goRound(p, was, goal, head, hangs, boxes, columns, room) {
     /* Turning that way goes east along the north side, south along the east, west along the south and north along the west; and
        as far as the step has left, or just past that end of the side. */
     const to = face === NORTH ? (turn > 0 ? EAST : WEST) : face === SOUTH ? (turn > 0 ? WEST : EAST) : face === EAST ? (turn > 0 ? SOUTH : NORTH) : turn > 0 ? NORTH : SOUTH;
+    /* No way round runs into the bear's least. Where the end of the side the place is to go along lies within it (as avatar.js
+       `clear` measures, from the head over it and from the bear's own line under it), the bear would press the place back into
+       the room each frame and hold it there for good, short of its goal: by up to 10 m, looking up beside a landmark of
+       1986-07-04. Over the head the least narrows; so the place goes up the side instead, until that end is out of the least or
+       the place is over the room, and round from there. */
+    const ex = (to === EAST ? x1 : to === WEST ? x0 : fx) - head.x, ez = (to === SOUTH ? z1 : to === NORTH ? z0 : fz) - head.z, ey = fy - head.y;
+    if (ex * ex + ez * ez + (ey > 0 ? ey * ey : 0) < LEAST * LEAST) { out(p, TOP, Math.min(rest, y1 - fy + SKIN)); continue; }
     out(p, to, Math.min(rest, Math.max(0, to === EAST ? x1 - fx : to === WEST ? fx - x0 : to === SOUTH ? z1 - fz : fz - z0) + SKIN));
   }
   for (let i = 0; i < columns.length; i++) {
@@ -298,6 +305,18 @@ export function goRound(p, was, goal, head, hangs, boxes, columns, room) {
     up = wr >= r - SKIN || was.y >= top - SKIN || Math.min(r - d, top - p.y) >= Math.min(r - wr, top - was.y);
   }
   if (up) { p.x = was.x; p.y = was.y + step; p.z = was.z; }
+}
+
+/* Whether the point `p` stands in a room, deeper in than a point set on its side (SKIN): out of the box the head stands in or
+   has just left, only the bear's least puts the camera's place there (avatar.js `clear`). The room of a box that stands around
+   `head` and around `hangs` is let be, as goRound lets it be. */
+export function pressed(p, head, hangs, boxes, columns, room) {
+  for (let i = 0; i < boxes.length; i++) if (inRoom(p, boxes[i], room - SKIN) && !(around(head, boxes[i]) && inRoom(hangs, boxes[i], room))) return true;
+  for (let i = 0; i < columns.length; i++) {
+    const c = columns[i], dx = p.x - c.x, dz = p.z - c.z, r = c.r + room - SKIN;
+    if (dx * dx + dz * dz < r * r && p.y < c.top + room - SKIN) return true;
+  }
+  return false;
 }
 
 /* How far in front of a landmark the boom's line stops, and how near the head a landmark must start for the boom to rise over it
