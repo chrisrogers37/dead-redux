@@ -2,12 +2,15 @@ import { readFileSync } from "fs";
 import { join } from "path";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import { Scene } from "three";
-import { describe, expect, it } from "vitest";
-import { arrived, CAMERA_WALKS, missed, POLL_MS, press, PRESS_MS, readWorld, RECORD_MS, RECORDINGS, REST_FRAMES, REST_MS, STAGE_EDGE, step, WORLD_MS, worldStarted } from "../../.github/screenshots/recordings.mjs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { arrived, CAMERA_WALKS, EASE_MS, missed, POLL_MS, press, PRESS_MS, readWorld, RECORD_MS, RECORDINGS, REST_FRAMES, REST_MS, STAGE_EDGE, step, WORLD_MS, worldStarted } from "../../.github/screenshots/recordings.mjs";
+import { AWAKE, RIDE, SETTLED } from "../../.github/screenshots/ride.mjs";
 import { planFiles } from "../../.github/screenshots/shards.mjs";
 import { STAGE, STAGE_REACH } from "../../public/world/ground.js";
 import { makeBuilders } from "../../public/world/landmarks.js";
 import { buildPath, buildWalkLine, layout, placeLandmarks } from "../../public/world/path.js";
+import { RIG_EASE_S } from "../../public/world/pose.js";
+import { watchIdle } from "../../src/components/world/ride";
 
 // The shoot's recordings (.github/screenshots/recordings.mjs): the list, and the steps one takes, taken here with a stand-in for
 // the page. The class these hold: a step that depends on the page's state, on a renderer several times slower than a visitor's,
@@ -15,8 +18,8 @@ import { buildPath, buildWalkLine, layout, placeLandmarks } from "../../public/w
 
 const ROOT = join(__dirname, "../..");
 type Walker = { x: number; z: number; heading: number; pitch: number };
-type World = { walker: Walker; frames: number; mode: string; screen: number[] | null };
-type Until = { near?: number[]; turned?: number; past?: string; rest?: number };
+type World = { walker: Walker; frames: number; mode: string; screen: number[] | null; ride?: { lean: number; yaw: number } | null };
+type Until = { near?: number[]; turned?: number; past?: string; lean?: number; rest?: number };
 type Step = [string | null, number, Until?];
 type Recording = { device: string; name: string; path?: string; click?: string; waitFor?: string; keys?: Step[]; stick?: [string, number][]; recordMs?: number };
 const recordings = RECORDINGS as Recording[];
@@ -35,6 +38,8 @@ function standIn(world: (t: number) => World | null) {
   return { page, keys, now: () => t };
 }
 const at = (x: number, z: number, heading = 0, frames = 0, screen: number[] | null = [0.5, 0.6], mode = "walk"): World => ({ walker: { x, z, heading, pitch: 0 }, frames, mode, screen });
+// The same in a ride, its camera `lean` of the way from the rig that walks with the bears to the crane: "follow" awake, "drift" settled.
+const riding = (lean: number, frames: number, mode = lean > 0 ? "drift" : "follow"): World => ({ ...at(0, 104, 1.1, frames, [0.5, 0.5], mode), ride: { lean, yaw: 0 } });
 // A runner that draws a frame of the world every `frameMs`: how many it has drawn by a time.
 const drawn = (t: number, frameMs: number) => Math.floor(t / frameMs);
 
@@ -117,20 +122,105 @@ describe("the recordings of the walk's camera", () => {
   });
 });
 
+describe("the recordings of the ride", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const ride = recordings.filter(({ name }) => /^ride(-|$)/.test(name));
+  const of = (device: string, name: string) => ride.find((r) => r.device === device && r.name === name)!;
+  const ONCE_READY = `#world[data-world='ready'] ~ div ${RIDE}`, PRESSED = `${RIDE}[aria-pressed='true']`;
+  // The ride's camera eases between its rigs over RIG_EASE_S of the world's time, and a frame is at most 50 ms of it.
+  const EASE_FRAMES = RIG_EASE_S / 0.05;
+
+  it("are five, under the names the pull request's table gives: the ride on the TV, with the bears on a desktop, on a straight stretch and on a phone, and one that settles and wakes", () => {
+    expect(ride.map(({ device, name }) => `${device}-${name}.webm`)).toEqual(["tv-ride.webm", "desktop-ride.webm", "desktop-ride-straight.webm", "phone-ride.webm", "desktop-ride-settle-wake.webm"]);
+    // Each starts the ride by its one button, and its press must bring the ride's state; none names its own length, so its steps
+    // are its length, or RECORD_MS where it has none.
+    for (const r of ride) {
+      const where = `${r.device}-${r.name}`;
+      expect(r.click!.endsWith(RIDE), where).toBe(true);
+      expect([AWAKE, SETTLED, PRESSED], where).toContain(r.waitFor);
+      expect(r.recordMs, where).toBeUndefined();
+    }
+  });
+
+  it("keep a ride that is not about settling awake through its recording six times over, and wait for nothing once its button is pressed", () => {
+    for (const [device, name, path] of [["desktop", "ride", "/2026-10-20?idle=60"], ["desktop", "ride-straight", "/2026-10-20?at=3&t=42&idle=60"], ["phone", "ride", "/2026-10-20?idle=60"]]) {
+      expect(of(device, name), `${device}-${name}`).toEqual({ device, name, path, click: ONCE_READY, waitFor: PRESSED });
+    }
+    // Ten seconds of recording under a wait of a minute.
+    expect(RECORD_MS * 6).toBe(60_000);
+  });
+
+  it("stand the TV's until the camera is on the crane, the page's two seconds and the ease's frames at two seconds a frame, and then three seconds there", () => {
+    expect(of("tv", "ride")).toEqual({ device: "tv", name: "ride", path: "/?idle=2", click: RIDE, waitFor: AWAKE, keys: [[null, 2_000 + EASE_FRAMES * 2000, { lean: 1 }], [null, 3_000]] });
+    expect(EASE_FRAMES).toBe(60);
+    expect(EASE_MS).toBe(EASE_FRAMES * 2000);
+  });
+
+  it("show the camera's way out and back whole in the one that settles and wakes: it stands until the camera is on the crane, a look wakes the page, and Shift, held until the camera is back with the bears, keeps the page awake under a wait of three seconds and gives the world no control", () => {
+    const settles = of("desktop", "ride-settle-wake");
+    expect(settles).toEqual({
+      device: "desktop", name: "ride-settle-wake", path: "/2026-10-20?idle=3", click: ONCE_READY, waitFor: SETTLED,
+      keys: [[null, EASE_FRAMES * 2000, { lean: 1 }], ["ArrowLeft", 600], ["ShiftLeft", EASE_FRAMES * 2000, { lean: 0 }], [null, 2_000]],
+    });
+    // The last stand is under the page's wait, so the recording ends with the camera at the bears and the page awake.
+    const [, [lookKey, lookMs], [holdKey, holdMs], [, standMs]] = settles.keys!, look = lookKey!, hold = holdKey!;
+    expect(standMs).toBeLessThan(3000);
+    // By the page's own watch, with the page's wait of three seconds: left alone after the look, it settles again in three; with
+    // Shift held it never does, however long the hold may last, and settles three seconds after Shift is let go.
+    vi.useFakeTimers();
+    const idle = 3000;
+    for (const held of [false, true]) {
+      const win = new EventTarget(), told: boolean[] = [];
+      const send = (type: string, code: string, key: string) => win.dispatchEvent(Object.assign(new Event(type), { code, key }));
+      const stop = watchIdle(win, { ms: idle, settled: true, onChange: (settled) => told.push(settled) });
+      send("keydown", look, look);
+      vi.advanceTimersByTime(lookMs);
+      send("keyup", look, look);
+      if (held) send("keydown", hold, "Shift");
+      vi.advanceTimersByTime(holdMs);
+      expect(told, String(held)).toEqual(held ? [false] : [false, true]);
+      if (held) {
+        send("keyup", hold, "Shift");
+        vi.advanceTimersByTime(standMs);
+        expect(told).toEqual([false]);
+        vi.advanceTimersByTime(idle - standMs - 1);
+        expect(told).toEqual([false]);
+        vi.advanceTimersByTime(1);
+        expect(told).toEqual([false, true]);
+      }
+      stop();
+    }
+    // Shift is the run of a walk, which alone is no control of the world's: it starts no walk and turns no look (input.js).
+    const input = readFileSync(join(ROOT, "public/world/input.js"), "utf8");
+    expect(input).toContain('ShiftLeft: "run"');
+    expect(input).toContain('if (k !== "run") userInput(k);');
+  });
+
+  it("name the ride's button and its looks by ride.mjs's names, as its stills do, and not by their own", () => {
+    const list = readFileSync(join(ROOT, ".github/screenshots/recordings.mjs"), "utf8");
+    expect(list).toContain('import { AWAKE, RIDE, SETTLED } from "./ride.mjs";');
+    expect(list).not.toMatch(/data-action='ride'\]|data-ride=/);
+  });
+});
+
 describe("every recording's steps", () => {
-  it("are a key or none, a time, and at most one thing waited for, of the four a step knows", () => {
+  it("are a key or none, a time, and at most one thing waited for, of the five a step knows", () => {
     for (const { device, name, keys } of recordings) for (const [n, [key, ms, until]] of (keys ?? []).entries()) {
       const where = `${device}-${name}, step ${n + 1}`;
-      expect(key === null || /^(Arrow(Up|Down|Left|Right)|Key[A-Z]|Escape)$/.test(key), where).toBe(true);
+      expect(key === null || /^(Arrow(Up|Down|Left|Right)|Key[A-Z]|Escape|ShiftLeft)$/.test(key), where).toBe(true);
       expect(ms, where).toBeGreaterThan(0);
       if (until !== undefined) {
         expect(Object.keys(until), where).toHaveLength(1);
-        expect(["near", "turned", "past", "rest"], where).toContain(Object.keys(until)[0]);
+        expect(["near", "turned", "past", "lean", "rest"], where).toContain(Object.keys(until)[0]);
+        // The ride's camera is waited for at either end of its way, which the world's count of it reaches exactly.
+        if (until.lean !== undefined) expect([0, 1], where).toContain(until.lean);
       }
     }
   });
 
-  it("wait on the world wherever the recording is of the bear getting somewhere: the stage's walk to the platform's edge, and the descent's landing", () => {
+  it("wait on the world wherever the recording is of the bear or the camera getting somewhere: the stage's walk to the platform's edge, the descent's landing, and the ride's camera on its way to the crane and back", () => {
     // The stage's recording held its key 25 s and left the bear 2 to 5 m short of the edge in seven of nineteen runs' logs; the
     // descent ran a fixed 75 s, which a slower runner's 120 frames do not fit in.
     const named = (name: string) => recordings.find((r) => r.device === "desktop" && r.name === name)!;
@@ -139,9 +229,9 @@ describe("every recording's steps", () => {
     // The rest hold their keys for a time and wait for nothing: the roam goes nowhere in particular, and the modes' steps are
     // each there for a line of the log.
     const waits = recordings.filter(({ keys }) => (keys ?? []).some(([, , until]) => until !== undefined)).map(({ device, name }) => `${device}-${name}`);
-    expect(waits).toEqual(["desktop-descent", "desktop-stage", "desktop-camera-stage", "desktop-camera-tower", "phone-camera-stage", "phone-camera-tower"]);
+    expect(waits).toEqual(["tv-ride", "desktop-descent", "desktop-ride-settle-wake", "desktop-stage", "desktop-camera-stage", "desktop-camera-tower", "phone-camera-stage", "phone-camera-tower"]);
     // And every recording that presses a control for a state names the state.
-    expect(recordings.filter(({ waitFor }) => waitFor).map(({ device, name }) => `${device}-${name}`)).toEqual(["tv-leanback", "desktop-follow", "desktop-follow-straight", "phone-follow"]);
+    expect(recordings.filter(({ waitFor }) => waitFor).map(({ device, name }) => `${device}-${name}`)).toEqual(["tv-ride", "desktop-ride", "desktop-ride-straight", "phone-ride", "desktop-ride-settle-wake"]);
   });
 });
 
@@ -211,6 +301,36 @@ describe("a step", () => {
     expect(took.failure).toBe("desktop-descent.webm: step 1, standing, took its whole 240000 ms and the world had not left its descent: its mode was descent, 96 frames on, and it stood at 0, 104 heading 1.1");
   });
 
+  it("stands until the ride's camera is on the crane, or holds a key until it is back with the bears, by the world's own count of its way, and fails when it does not come", async () => {
+    // The page settles two seconds in, and the camera then eases out over 60 frames, a sixtieth of the way a frame.
+    const FILE = "desktop-ride-settle-wake.webm";
+    const out = (frameMs: number) => (t: number) => { const f = drawn(t, frameMs), lean = t < 2000 ? 0 : Math.min(1, Math.round((1000 * (f - drawn(2000, frameMs))) / 60) / 1000); return riding(lean, f, t < 2000 ? "follow" : "drift"); };
+    for (const frameMs of [16, 780]) {
+      const { page, keys, now } = standIn(out(frameMs)), took = await take(page, [null, 122_000, { lean: 1 }], { file: FILE, n: 1, now });
+      expect(took.failure, `${frameMs} ms a frame`).toBeNull();
+      expect(took.ms, `${frameMs} ms a frame`).toBeGreaterThanOrEqual(2000 + 59 * frameMs);
+      expect(took.ms, `${frameMs} ms a frame`).toBeLessThan(2000 + 61 * frameMs + POLL_MS);
+      expect(keys).toEqual([]);
+    }
+    // On the way back Shift is held until the camera is with the bears, and let go then.
+    const back = (t: number) => { const f = drawn(t, 500); return riding(Math.max(0, Math.round(1000 * (1 - f / 60)) / 1000), f, "follow"); };
+    const home = standIn(back), returned = await take(home.page, ["ShiftLeft", 120_000, { lean: 0 }], { file: FILE, n: 3, now: home.now });
+    expect(returned).toEqual({ ms: 60 * 500, failure: null });
+    expect(home.keys).toEqual(["ShiftLeft down at 0", "ShiftLeft up at 30000"]);
+    // A camera that stops short of the crane, as one would where the page never settled; and a world that left the ride, whose
+    // camera is on neither rig.
+    const short = standIn((t) => riding(0.6, drawn(t, 780))), stuck = await take(short.page, [null, 120_000, { lean: 1 }], { file: FILE, n: 1, now: short.now });
+    expect(stuck.failure).toMatch(/^desktop-ride-settle-wake\.webm: step 1, standing, took its whole 120000 ms and the ride's camera had not come to the crane: it had gone 0\.6 of the way to the crane, \d+ frames on, and it stood at 0, 104 heading 1\.1$/);
+    const left = standIn((t) => at(0, 104, 1.1, drawn(t, 500))), gone = await take(left.page, ["ShiftLeft", 120_000, { lean: 0 }], { file: FILE, n: 3, now: left.now });
+    expect(gone.failure).toContain("the ride's camera had not come back to the bears: the world was in no ride, its mode walk");
+    expect(left.keys).toEqual(["ShiftLeft down at 0", "ShiftLeft up at 120000"]);
+    // A world out of a ride has no ride's camera at either end: neither is come to.
+    expect(arrived({ lean: 0 }, { ...at(0, 0), ride: null }, at(0, 0), {}, 0)).toBe(false);
+    expect(arrived({ lean: 0 }, at(0, 0), at(0, 0), {}, 0)).toBe(false);
+    expect(arrived({ lean: 1 }, riding(0.999, 1), at(0, 0), {}, 0)).toBe(false);
+    expect(arrived({ lean: 1 }, riding(1, 1), at(0, 0), {}, 0)).toBe(true);
+  });
+
   // The camera's rest, as the page lets a step see it: the bear standing where it stood, and its head where it was in the frame.
   describe("that stands until the camera has rested", () => {
     // A camera that moves for `moving` frames after the bear stops, the head sliding down the frame, and is then still.
@@ -272,11 +392,13 @@ describe("a step", () => {
     expect(never.now()).toBeGreaterThanOrEqual(WORLD_MS);
   });
 
-  it("reads the world as the page tells it: where the visitor stands, the frames drawn, the mode and where the bear's head lands in the frame, or nothing before the world has started", async () => {
-    const hill = { walker: { x: 1, z: 2, heading: 3, pitch: 0 }, frames: 7, mode: "walk", avatar: { view: "third", screen: [0.5, 0.62] }, calls: 22 };
+  it("reads the world as the page tells it: where the visitor stands, the frames drawn, the mode, where the bear's head lands in the frame and how far a ride's camera has gone to the crane, or nothing before the world has started", async () => {
+    const hill = { walker: { x: 1, z: 2, heading: 3, pitch: 0 }, frames: 7, mode: "walk", avatar: { view: "third", screen: [0.5, 0.62] }, ride: null, calls: 22 };
     // The page's own function, run here against a window of this test's making.
     const run = (window: unknown) => (readWorld as unknown as (page: unknown) => Promise<World | null>)({ evaluate: async (read: () => unknown) => new Function("window", `return (${read})()`)(window) });
-    expect(await run({ __hill: hill })).toEqual({ walker: hill.walker, frames: 7, mode: "walk", screen: [0.5, 0.62] });
+    expect(await run({ __hill: hill })).toEqual({ walker: hill.walker, frames: 7, mode: "walk", screen: [0.5, 0.62], ride: null });
+    // In a ride, how far its camera has gone to the crane.
+    expect(await run({ __hill: { ...hill, mode: "drift", ride: { lean: 0.4, yaw: 0 } } })).toMatchObject({ mode: "drift", ride: { lean: 0.4, yaw: 0 } });
     expect(await run({ __hill: { ...hill, avatar: { view: "first", screen: null } } })).toMatchObject({ screen: null });
     expect(await run({})).toBeNull();
     expect(await run({ __hill: { placeMs: 12 } })).toBeNull();
@@ -287,6 +409,8 @@ describe("a step", () => {
     expect(missed({ near: [0, 0, 2] }, now, start, {})).toBe("the visitor had not come within 2 m of 0, 0: it stood at 3, 4 heading 1.5, 5.0 m from there");
     expect(missed({ turned: 2 }, now, start, {})).toBe("the visitor had not turned 2.00 rad: it stood at 3, 4 heading 1.5, 0.50 rad from the heading 1 it began at");
     expect(missed({ past: "descent" }, now, start, {})).toBe("the world had not left its descent: its mode was descent, 30 frames on, and it stood at 3, 4 heading 1.5");
+    expect(missed({ lean: 1 }, { ...now, ride: { lean: 0.6, yaw: 0 } }, start, {})).toBe("the ride's camera had not come to the crane: it had gone 0.6 of the way to the crane, 30 frames on, and it stood at 3, 4 heading 1.5");
+    expect(missed({ lean: 0 }, { ...now, mode: "walk", ride: null }, start, {})).toBe("the ride's camera had not come back to the bears: the world was in no ride, its mode walk, 30 frames on, and it stood at 3, 4 heading 1.5");
     expect(missed({ rest: 12 }, now, start, { frame: 33 })).toBe("the camera had not come to rest: the bear's head, at 0.25, 0.75 of the frame, had kept its place for 7 frames of the 12 it must; it stood at 3, 4 heading 1.5");
   });
 });
@@ -298,23 +422,23 @@ describe("a recording's control", () => {
     return { clicked, asked, page: { waitForSelector: async (selector: string, { timeout }: { timeout: number }) => { asked.push([selector, timeout]); if (!there.includes(selector)) throw new Error("timeout"); }, click: async (selector: string) => { clicked.push(selector); } } };
   };
   const pressed = press as unknown as (page: unknown, click: string, waitFor: string | undefined, file: string) => Promise<{ found: boolean; failure: string | null }>;
-  const FOLLOW = "[data-action='follow']", ON = "[data-action='follow'][aria-pressed='true']";
+  const BUTTON = RIDE, ON = `${RIDE}[aria-pressed='true']`;
 
   it("is pressed once it appears, and the state it names must come: a recording of a control that did nothing fails the run", async () => {
-    const works = pageWith([FOLLOW, ON]);
-    expect(await pressed(works.page, FOLLOW, ON, "desktop-follow.webm")).toEqual({ found: true, failure: null });
-    expect(works.clicked).toEqual([FOLLOW]);
-    expect(works.asked).toEqual([[FOLLOW, PRESS_MS], [ON, PRESS_MS]]);
-    const dead = pageWith([FOLLOW]);
-    expect(await pressed(dead.page, FOLLOW, ON, "desktop-follow.webm")).toEqual({ found: true, failure: `desktop-follow.webm: ${FOLLOW} was pressed and ${ON} had not come 15000 ms later` });
-    expect(dead.clicked).toEqual([FOLLOW]);
+    const works = pageWith([BUTTON, ON]);
+    expect(await pressed(works.page, BUTTON, ON, "desktop-ride.webm")).toEqual({ found: true, failure: null });
+    expect(works.clicked).toEqual([BUTTON]);
+    expect(works.asked).toEqual([[BUTTON, PRESS_MS], [ON, PRESS_MS]]);
+    const dead = pageWith([BUTTON]);
+    expect(await pressed(dead.page, BUTTON, ON, "desktop-ride.webm")).toEqual({ found: true, failure: `desktop-ride.webm: ${BUTTON} was pressed and ${ON} had not come 15000 ms later` });
+    expect(dead.clicked).toEqual([BUTTON]);
     // A control that names no state is pressed and no more.
     expect(await pressed(pageWith(["canvas"]).page, "canvas", undefined, "desktop-roam.webm")).toEqual({ found: true, failure: null });
   });
 
   it("is not pressed where it never appears: the recording is skipped, and the run fails for the file its plan names and it did not save", async () => {
     const none = pageWith([]);
-    expect(await pressed(none.page, FOLLOW, ON, "desktop-follow.webm")).toEqual({ found: false, failure: null });
+    expect(await pressed(none.page, BUTTON, ON, "desktop-ride.webm")).toEqual({ found: false, failure: null });
     expect(none.clicked).toEqual([]);
   });
 });
@@ -333,13 +457,14 @@ describe("the shoot's script", () => {
     expect(loop).toContain("if ((keys || stick) && (await worldStarted(page)) === null) {\n      failures.push(`${file}: the world had not said where the visitor stands ${WORLD_MS} ms after the page loaded, so its keys went to nothing`);");
     // Nothing in a recording is logged as missed and then recorded as if it had not been.
     expect(loop).not.toMatch(/recording anyway|waitFor timed out|keyboard\.(down|up)\(/);
-    // What is still only logged is a control that is not there at all: the recording is skipped, and the plan's check fails the run.
-    expect(loop.match(/console\.log\(`\$\{file\}: [^`]*absent`\);\n\s+await context\.close\(\);\n\s+continue/g)).toHaveLength(2);
-    expect(script).toContain('failures.push(...planFailures(planFiles(plan), await writtenSince(outDir, began)));');
+    // A control that is not there at all, the button or the stick, skips the recording, and fails the run in one line that says
+    // why, which the plan's check does not repeat for the file that was not saved (perFile, ride.mjs's fileFailures).
+    expect(loop.match(/console\.log\(`\$\{file\}: [^`]*absent`\);\n\s+perFile\.fail\(file, [^\n]*absent, so nothing was recorded[^\n]*, false\);\n\s+await context\.close\(\);\n\s+continue/g)).toHaveLength(2);
+    expect(script).toContain("failures.push(...planFailures(planFiles(plan), await writtenSince(outDir, began), perFile.untaken));");
   });
 
   it("has its list of recordings from recordings.mjs, and none of its own", () => {
-    expect(script).toContain('import { press, RECORD_MS, RECORDINGS, step, WORLD_MS, worldStarted } from "./recordings.mjs";');
+    expect(script).toContain('import { EASE_MS, press, RECORD_MS, RECORDINGS, step, WORLD_MS, worldStarted } from "./recordings.mjs";');
     expect(script).not.toMatch(/const (RECORDINGS|CAMERA_WALKS|RECORD_MS) =/);
     expect(script).toContain("recordings: RECORDINGS,");
   });

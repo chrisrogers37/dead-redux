@@ -4,7 +4,7 @@ import { BOUND, height, STAGE, STAGE_COLUMN, STAGE_REACH } from "../../../public
 import { DEAD, REACH } from "../../../public/world/input.js";
 import { BEAR_GAP, DESCENT_S } from "../../../public/world/modes.js";
 import { DEEP, HOUR_RATE, lookAt, newLook } from "../../../public/world/night.js";
-import { CRANE, DESCENT_FROM, postPose } from "../../../public/world/pose.js";
+import { CRANE, cranePose, DESCENT_FROM, postPose, ridePose, RIG_EASE_S } from "../../../public/world/pose.js";
 import { WINDOW } from "../../../public/world/quality.js";
 
 // public/world/main.js runs here as a page runs it, frame by frame, with the modules it imports: what keeps a walk in bounds (confine,
@@ -145,6 +145,10 @@ const fake = vi.hoisted(() => {
     // handful of them, as the draw-call sweep does.
     thinned: null as boolean | null,
     sparse: false,
+    // How many frames the renderer has drawn; and each time the crane's aim was turned down for a phone's now-plate (avatar.js's tilt),
+    // how high in the frame it was asked to keep the visitor's bear.
+    drawn: 0,
+    tilted: [] as number[],
   };
   class Scene {
     shown = new Set<unknown>();
@@ -192,8 +196,9 @@ const fake = vi.hoisted(() => {
       Object.assign(this, values);
     }
   }
-  // How far a third-person view turns down to keep the visitor's bear in the frame (avatar.js's turnDown).
-  const TURN = 0.05;
+  // How far a third-person view turns down to keep the visitor's bear in the frame (avatar.js's turnDown), and how far the stand-in's
+  // tilt lowers the point a phone's crane looks at, in m.
+  const TURN = 0.05, TILT = 1.5;
   // The stand-ins' own: the light the island hands on, a landmark's outline, the cameras' ways, a tree's column, how near a walk comes
   // to a trunk and how far from one anything grows.
   const LIT = (material: unknown) => material, OUTLINE = [[0, 0], [1, 0], [0, 1]], WAYS = { eyes: [[1, 2, 3]], views: [{ from: [0, 0], to: [1, 1], half: 5 }] };
@@ -207,6 +212,7 @@ const fake = vi.hoisted(() => {
       setPixelRatio() {}
       setSize() {}
       render(_scene: unknown, camera: unknown) {
+        world.drawn += 1;
         world.drew.push("render");
         world.drewFrom.push(camera);
       }
@@ -335,6 +341,11 @@ const fake = vi.hoisted(() => {
           world.keptY = ndcY;
           return TURN;
         },
+        // Turns an aim down about the camera: here it only lowers the point looked at.
+        tilt: (_camera: Camera, aim: Vec, _point: Vec, ndcY: number) => {
+          world.tilted.push(ndcY);
+          aim.y -= TILT;
+        },
       }),
     },
     sky: {
@@ -421,7 +432,7 @@ const fake = vi.hoisted(() => {
       },
     },
   };
-  return { world, three, modules, TURN, LIT, OUTLINE, WAYS, SLIDE, CEILING, TREE_REACH, TRUNK_ROOM, BAND_GLOW, PATH };
+  return { world, three, modules, TURN, TILT, LIT, OUTLINE, WAYS, SLIDE, CEILING, TREE_REACH, TRUNK_ROOM, BAND_GLOW, PATH };
 });
 
 vi.mock("three", () => fake.three);
@@ -493,6 +504,7 @@ type Hill = {
   tier: string;
   scale: number;
   mode: string;
+  ride: { lean: number; yaw: number } | null;
   near: { index: number; title: string; clear: boolean } | null;
   rung: number;
   still: boolean;
@@ -522,9 +534,10 @@ type Hud = { plate?: number | null; away?: boolean; stick?: number | null; hint?
 // query, on a preview, or anywhere else with `hooks` false; `reduced` asks for reduced motion; `title` names the track, the first of
 // `songs`, each with one of the `landmarks`; `trees` is where the trees stand; `view` is "third" or "first" person; and a day with no
 // `recording` has no tracks. `segues` are the songs that run into the next, by their place in the show, and `mask` what the path's
-// stand-in hands back as the mask of the show's lit bands (null, as for a show with none). A page with a map waits until the world has
-// read it.
-async function startWorld({ playing = false, routing = "webaudio", search = "", hooks = true, reduced = false, map = null as object | null, title = TRACK.title, songs = 1, landmarks = [] as { position: Point3; rotation: { y: number } }[], trees = [] as Point[], view = "third", recording = true, screen = DESKTOP, hud = {} as Hud, segues = [] as number[], mask = null as object | null } = {}) {
+// stand-in hands back as the mask of the show's lit bands (null, as for a show with none). `ride` is what the page says of the ride
+// as the world loads ("awake" or "settled", as a visitor carried over from the day before arrives). A page with a map waits until
+// the world has read it.
+async function startWorld({ playing = false, routing = "webaudio", search = "", hooks = true, reduced = false, map = null as object | null, title = TRACK.title, songs = 1, landmarks = [] as { position: Point3; rotation: { y: number } }[], trees = [] as Point[], view = "third", recording = true, screen = DESKTOP, hud = {} as Hud, segues = [] as number[], mask = null as object | null, ride = null as "awake" | "settled" | null } = {}) {
   let now = 0;
   let queued: FrameRequestCallback | null = null;
   const container = Object.assign(new EventTarget(), {
@@ -534,7 +547,9 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
     appendChild: () => {},
     getBoundingClientRect: () => ({ top: 0 }),
   });
-  const main: { dataset: Record<string, string> } = { dataset: { state: playing ? "playing" : "paused", routing, view, ...(search && hooks ? { testHooks: "1" } : {}) } };
+  const main: { dataset: Record<string, string> } = { dataset: { state: playing ? "playing" : "paused", routing, view, ...(search && hooks ? { testHooks: "1" } : {}), ...(ride ? { ride } : {}) } };
+  // The modes the world told the page it entered, in order.
+  const told: string[] = [];
   // What main.js asked to be told of <main>'s changes with.
   const observers: (() => void)[] = [];
   const { plate: plateTop = null, away = false, stick: stickTop = 0, hint: hintTop = null } = hud;
@@ -571,6 +586,7 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
       createElement: () => ({ getContext: () => ({}) }),
     }),
   );
+  document.addEventListener("world:mode", (e) => told.push((e as CustomEvent<{ mode: string }>).detail.mode));
   vi.stubGlobal("window", Object.assign(new EventTarget(), { matchMedia: media, devicePixelRatio: 1 }));
   vi.stubGlobal("matchMedia", media);
   vi.stubGlobal("innerWidth", screen.width);
@@ -605,6 +621,8 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
   fake.world.meshes = [];
   fake.world.onset = null;
   fake.world.keyTurned = false;
+  fake.world.drawn = 0;
+  fake.world.tilted = [];
   vi.resetModules();
   await import("../../../public/world/main.js");
   if (map && !reduced) await vi.waitFor(() => expect(hill().map).not.toBeNull());
@@ -652,8 +670,18 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
     beam: () => fake.world.meshes[0].material as { opacity: number; color: number },
     // The page's clock, in ms.
     now: () => now,
-    // Turns lean-back on or off, as the page does on <main>.
-    lean: (on: boolean) => { main.dataset.mode = on ? "leanback" : ""; for (const told of observers) told(); },
+    // What the page says of the ride, as it marks it on <main>: "awake", "settled", or null out of one. `read` has the world read
+    // <main> again with nothing changed, as when the player's state changes.
+    ride: (state: "awake" | "settled" | null) => { if (state) main.dataset.ride = state; else delete main.dataset.ride; for (const tell of observers) tell(); },
+    read: () => { for (const tell of observers) tell(); },
+    // The modes the world has told the page of.
+    told,
+    // Whether a frame is waiting to be drawn, and how many have been.
+    waiting: () => queued !== null,
+    drawn: () => fake.world.drawn,
+    // A press on the world at (x, y) px, and the same pointer moved or lifted.
+    drag: (type: string, x: number, y: number) => (type === "pointerdown" ? container : window).dispatchEvent(Object.assign(new Event(type), { pointerId: 3, clientX: x, clientY: y })),
+    key,
   };
 }
 
@@ -831,7 +859,7 @@ describe("main.js's frames", () => {
       expect(fake.world.made).toEqual(["places", "island", "trees"]);
     });
 
-    it("flies the cameras the trees are placed clear of: the descent from DESCENT_FROM m over the island's middle, the bears BEAR_GAP m apart, and lean-back's crane as pose.js's CRANE has it", async () => {
+    it("flies the cameras the trees are placed clear of: the descent from DESCENT_FROM m over the island's middle, the bears BEAR_GAP m apart, and a settled ride's crane as pose.js's CRANE has it", async () => {
       const page = await startWorld();
       page.run(0.02);
       // One frame in, the descent has hardly left where it starts; and it comes down a straight line, which a second place on it
@@ -851,9 +879,9 @@ describe("main.js's frames", () => {
       for (let k = 1; k < bears.length; k++) expect(bears[k - 1] - bears[k]).toBeCloseTo(BEAR_GAP, 9);
       // The visitor's bear, one gap behind the last.
       expect(bears[bears.length - 1] - along(page.stepped())).toBeCloseTo(BEAR_GAP, 9);
-      // Lean-back: the crane hangs CRANE.back m behind the visitor's bear on the line, 9 m up, to one side by its sway, and looks
-      // at the line CRANE.ahead m on from there, 8 m up.
-      page.lean(true);
+      // A ride that is settled as it begins lands on the crane: it hangs CRANE.back m behind the visitor's bear on the line, 9 m up,
+      // to one side by its sway, and looks at the line CRANE.ahead m on from there, 8 m up.
+      page.ride("settled");
       let widest = 0;
       page.run(30, {
         ms: 50,
@@ -908,15 +936,17 @@ describe("main.js's frames", () => {
     });
 
     it("stand still: a frame hands them no time and asks them only for what a walk and its camera keep out of", async () => {
-      // The opening, a walk in third person and in first, lean-back, and a walk under reduced motion: main.js reads their count for
-      // the stats, the trunks a walk keeps out of, and the slide and the ceiling it hands the walk's camera, and nothing else of them,
-      // so nothing it does can move them.
+      // The opening, a walk in third person and in first, a ride on both its rigs, and a walk under reduced motion: main.js reads their
+      // count for the stats, the trunks a walk keeps out of, and the slide and the ceiling it hands the walk's camera, and nothing else
+      // of them, so nothing it does can move them.
       const page = await startWorld({ trees: [off(15, 20)] });
       page.run(DESCENT_S + 0.1);
       page.hold("ArrowUp", 0.5);
-      page.lean(true);
+      page.ride("awake");
       page.run(1);
-      page.lean(false);
+      page.ride("settled");
+      page.run(RIG_EASE_S + 1);
+      page.ride(null);
       page.run(0.2);
       expect((hill() as unknown as { trees: number }).trees).toBe(1);
       expect([...fake.world.treeReads].sort()).toEqual(["ceiling", "count", "slide", "trunks"]);
@@ -1571,6 +1601,32 @@ describe("main.js's frames", () => {
     expect(leads.at(-1)! - leads[0]).toBeGreaterThan(0);
   });
 
+  it("reckons the bears' cameras each frame from the world as it then stands: the view the page asks for, and the bears a downgrade leaves", async () => {
+    type Page = Awaited<ReturnType<typeof startWorld>>;
+    const deps = (page: Page, third: boolean) => ({ third, phone: false, bearD: along(page.shown()[0].g.position), count: page.shown().length, gap: BEAR_GAP, line: LINE, height, keepInView: () => fake.TURN });
+    // In first person the opening's camera stands on the line behind the last bear, as postPose has it there.
+    const first = await startWorld({ view: "first" });
+    first.run(DESCENT_S + 0.1);
+    expect(first.mode()).toBe("attract");
+    expectNear(fake.world.camera.position, postPose(deps(first, false), 0, 0).pos);
+    expectNear(fake.world.camera.target, postPose(deps(first, false), 0, 0).look);
+    expect(distance(fake.world.camera.position, postPose(deps(first, true), 0, 0).pos)).toBeGreaterThan(5);
+    // Frames of 50 ms step the world down until bears go: both cameras then stand for the bears that are left.
+    const page = await startWorld();
+    const made = fake.world.bears.length;
+    for (let k = 0; k < 1500 && page.shown().length === made; k++) page.run(0.05, { ms: 50 });
+    const left = page.shown().length;
+    expect(left).toBeLessThan(made);
+    page.run(0.1);
+    expect(page.mode()).toBe("attract");
+    expectNear(fake.world.camera.position, postPose(deps(page, true), 0, 0).pos);
+    expect(distance(fake.world.camera.position, postPose({ ...deps(page, true), count: made }, 0, 0).pos)).toBeGreaterThan(5);
+    page.ride("settled");
+    page.run(0.02);
+    expect(page.shown()).toHaveLength(left);
+    expectNear(fake.world.camera.position, cranePose(deps(page, true), page.now() / 1000).pos);
+  });
+
   it("draws the beam as added light in one pass that writes no depth, stands it on the song's landmark, and hides it without a recording", async () => {
     const page = await startWorld();
     page.run(0.02);
@@ -1604,6 +1660,304 @@ describe("main.js's frames", () => {
   it("makes the camera's near plane 0.5 m, which a bear's snout stays clear of in first person (collide.js)", async () => {
     await startWorld();
     expect(fake.world.camera.near).toBe(0.5);
+  });
+});
+
+// The ride (modes.js): the page says whether the visitor rides and whether it has settled (<main data-ride>, which `page.ride` writes),
+// and the camera stands on the rig that walks with the bears, on the crane, or on its way between them (pose.js). The frames here are
+// 20 ms, so the world's time is the page's clock, and the lead bear stands where the stand-in's own bears do.
+describe("main.js's ride", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  type Page = Awaited<ReturnType<typeof startWorld>>;
+  const FRAME_S = 0.02;
+  const camera = () => fake.world.camera;
+  const deps = (page: Page) => ({ third: true, phone: false, bearD: along(page.shown()[0].g.position), count: page.shown().length, gap: BEAR_GAP, line: LINE, height });
+  // Where pose.js puts each rig for the bears as they stand: the one that walks with them, its look turned by `yaw` and `pitch`, and
+  // the crane.
+  const post = (page: Page, yaw = 0, pitch = 0) => postPose({ ...deps(page), keepInView: () => fake.TURN }, yaw, pitch);
+  const crane = (page: Page) => cranePose(deps(page), page.now() / 1000);
+  const onRig = (rig: { pos: Point3; look: Point3 }) => {
+    expectNear(camera().position, rig.pos);
+    expectNear(camera().target, rig.look);
+  };
+  const apart = (a: Point3, b: Point3) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+  // How far the visitor's bear stands behind the last of the five: one gap, while a camera other than a walk's has it.
+  const behindLast = (page: Page) => along(page.shown().at(-1)!.g.position) - along(page.stepped());
+
+  it("starts with the bears as the page turns the ride on, from the opening, from a walk and from the descent: on their rig at once, the look level, and the page told", async () => {
+    for (const from of ["attract", "walk", "descent"]) {
+      const page = await startWorld({ playing: true });
+      if (from !== "descent") page.run(DESCENT_S + 0.1);
+      // A walk that has turned and looked up: the ride frames the bears again, level.
+      if (from === "walk") { page.hold("ArrowLeft", 0.3); page.hold("KeyT", 0.3); }
+      expect(page.mode(), from).toBe(from);
+      expect(hill().ride).toBe(null);
+      page.ride("awake");
+      page.run(FRAME_S);
+      expect(page.mode(), from).toBe("follow");
+      expect(page.told.at(-1), from).toBe("follow");
+      onRig(post(page));
+      expect(hill().ride).toEqual({ lean: 0, yaw: 0 });
+      expect(behindLast(page)).toBeCloseTo(BEAR_GAP, 9);
+    }
+  });
+
+  it("eases to the crane as the page settles, each frame where pose.js puts it for the time passed, and never cuts: the visitor's bear keeps its place in the line, and no frame moves the camera a fifth of a metre where a cut would move it six", async () => {
+    const page = await afterDescent({ playing: true });
+    page.ride("awake");
+    page.run(1);
+    page.ride("settled");
+    expect(page.mode()).toBe("drift");
+    expect(page.told.at(-1)).toBe("drift");
+    let frames = 0, most = 0, rigs = Infinity;
+    const was = { ...camera().position };
+    page.run(RIG_EASE_S, {
+      each: () => {
+        frames += 1;
+        const from = post(page), to = crane(page);
+        onRig(ridePose(from, to, Math.min(1, (frames * FRAME_S) / RIG_EASE_S)));
+        rigs = Math.min(rigs, apart(from.pos, to.pos));
+        most = Math.max(most, apart(camera().position, was));
+        Object.assign(was, camera().position);
+        // The settling moves the camera alone: the bear stays in the line, where the sound's listener is (#98).
+        expect(behindLast(page)).toBeCloseTo(BEAR_GAP, 9);
+        expect(page.mode()).toBe("drift");
+      },
+    });
+    expect(frames).toBe(RIG_EASE_S / FRAME_S);
+    expect(rigs).toBeGreaterThan(6);
+    expect(most).toBeLessThan(0.2);
+    page.run(0.1);
+    onRig(crane(page));
+    expect(hill().ride).toEqual({ lean: 1, yaw: 0 });
+  });
+
+  it("stays on the crane when the page wakes, and comes back to the bears' rig on a look control, easing, with the look where the visitor left it and turned on from there", async () => {
+    const page = await afterDescent({ playing: true });
+    page.ride("awake");
+    // The visitor turns the look left for half a second and up for 0.3 s: 1.6 rad a second and 1.2.
+    page.hold("ArrowLeft", 0.5);
+    page.hold("KeyT", 0.3);
+    const yaw = 1.6 * 0.5, pitch = 1.2 * 0.3;
+    onRig(post(page, yaw, pitch));
+    page.ride("settled");
+    page.run(RIG_EASE_S + 0.1);
+    onRig(crane(page));
+    // The page wakes, as for a pointer that moves: the crane keeps the view, swaying as it does.
+    page.ride("awake");
+    page.run(1, { each: () => { expect(page.mode()).toBe("drift"); onRig(crane(page)); } });
+    // A drag on the world, 100 px to the left, turns the look half a radian more: the camera sets off for the rig it turns.
+    page.drag("pointerdown", 400, 300);
+    expect(page.mode()).toBe("follow");
+    page.drag("pointermove", 300, 300);
+    page.drag("pointerup", 300, 300);
+    let frames = 0;
+    page.run(RIG_EASE_S, {
+      each: () => {
+        frames += 1;
+        onRig(ridePose(post(page, yaw + 0.5, pitch), crane(page), Math.max(0, 1 - (frames * FRAME_S) / RIG_EASE_S)));
+      },
+    });
+    page.run(0.1);
+    onRig(post(page, yaw + 0.5, pitch));
+    expect(hill().ride).toEqual({ lean: 0, yaw: 1.3 });
+    // And a look key from the crane does the same, while the page still says it is settled: the world hears the key first.
+    page.ride("settled");
+    page.run(0.5);
+    page.hold("ArrowRight", 0.3);
+    page.read();
+    page.run(0.1);
+    expect(page.mode()).toBe("follow");
+    expect(hill().ride!.yaw).toBeCloseTo(1.3 - 1.6 * 0.3, 3);
+    // So does a drag that starts on a settled page.
+    page.ride("awake");
+    page.ride("settled");
+    page.run(0.5);
+    expect(page.mode()).toBe("drift");
+    page.drag("pointerdown", 400, 300);
+    page.drag("pointerup", 400, 300);
+    expect(page.mode()).toBe("follow");
+  });
+
+  it("frames the bears level again each time a ride begins: the look turned in one ride is not the next one's, whether that one ended with the bears or on the crane", async () => {
+    const page = await afterDescent({ playing: true });
+    page.ride("awake");
+    page.hold("ArrowLeft", 0.5);
+    page.hold("KeyT", 0.3);
+    onRig(post(page, 1.6 * 0.5, 1.2 * 0.3));
+    // A step leaves the ride, and the page with it; the ride begun again looks at the lead bear, level.
+    page.hold("ArrowDown", 0.1);
+    expect(page.mode()).toBe("walk");
+    page.ride(null);
+    page.ride("awake");
+    page.run(FRAME_S);
+    expect(page.mode()).toBe("follow");
+    onRig(post(page));
+    expect(hill().ride).toEqual({ lean: 0, yaw: 0 });
+    // Turned again, settled, and left from the crane by the page: the next ride is level too, and so is one that begins on the crane
+    // and is brought back by a look.
+    page.hold("ArrowRight", 0.5);
+    page.ride("settled");
+    page.run(RIG_EASE_S + 0.1);
+    page.ride(null);
+    page.run(FRAME_S);
+    page.ride("settled");
+    page.run(FRAME_S);
+    onRig(crane(page));
+    page.ride("awake");
+    page.drag("pointerdown", 400, 300);
+    page.drag("pointerup", 400, 300);
+    page.run(RIG_EASE_S + 0.1);
+    expect(page.mode()).toBe("follow");
+    onRig(post(page));
+    expect(hill().ride).toEqual({ lean: 0, yaw: 0 });
+  });
+
+  it("turns back mid-way where a look control comes while the camera is still on its way out, from where it has got to", async () => {
+    const page = await afterDescent({ playing: true });
+    page.ride("awake");
+    page.run(0.5);
+    page.ride("settled");
+    page.run(1);
+    // A second of the three: a third of the time out. The stat is rounded to a thousandth.
+    const out = hill().ride!.lean;
+    expect(out).toBeCloseTo(1 / RIG_EASE_S, 3);
+    const before = { ...camera().position };
+    page.key("keydown", "KeyG");
+    page.run(FRAME_S);
+    page.key("keyup", "KeyG");
+    // One frame on it has gone back by a frame's share, and stands a few centimetres from where it was.
+    expect(page.mode()).toBe("follow");
+    expect(hill().ride!.lean).toBeCloseTo(out - FRAME_S / RIG_EASE_S, 2);
+    expect(hill().ride!.lean).toBeLessThan(out);
+    expect(apart(camera().position, before)).toBeLessThan(0.2);
+  });
+
+  it("leaves the ride for a walk on a step, from the bears' rig and from the crane: where the visitor's bear last stood in a walk, with the camera cut there, and the page told", async () => {
+    for (const settled of [false, true]) {
+      const page = await afterDescent();
+      // A walk a few metres off the line, to come back to.
+      page.hold("KeyE", 0.5);
+      const stood = { ...page.stepped() };
+      expect(Math.abs(across(stood))).toBeGreaterThan(5);
+      page.ride("awake");
+      page.run(0.5);
+      if (settled) { page.ride("settled"); page.run(RIG_EASE_S + 0.1); }
+      expect(page.mode()).toBe(settled ? "drift" : "follow");
+      expect(across(page.stepped())).toBeCloseTo(0, 9);
+      page.told.length = 0;
+      page.key("keydown", "ArrowDown");
+      page.run(FRAME_S);
+      page.key("keyup", "ArrowDown");
+      expect(page.mode()).toBe("walk");
+      expect(page.told).toEqual(["walk"]);
+      expect(fake.world.cut).toBe(true);
+      // One frame's step back from where it stood: 12 m/s for 20 ms.
+      expect(distance(page.stepped(), stood)).toBeCloseTo(12 * FRAME_S, 9);
+      expect(hill().ride).toBe(null);
+    }
+  });
+
+  it("ends the ride in a walk as the page turns it off, from either rig, and does not start it again for a page that goes on saying riding after a step has left it", async () => {
+    const page = await afterDescent();
+    page.ride("awake");
+    page.run(0.2);
+    page.ride(null);
+    page.run(FRAME_S);
+    expect(page.mode()).toBe("walk");
+    page.ride("awake");
+    page.run(0.2);
+    page.ride("settled");
+    page.run(0.5);
+    expect(page.mode()).toBe("drift");
+    page.ride(null);
+    page.run(FRAME_S);
+    expect(page.mode()).toBe("walk");
+    // The next ride; a step leaves it; the page's word still stands, and is read again as the player's state changes.
+    page.ride("awake");
+    page.run(0.2);
+    page.hold("ArrowDown", 0.1);
+    expect(page.mode()).toBe("walk");
+    page.read();
+    page.run(0.2);
+    expect(page.mode()).toBe("walk");
+  });
+
+  it("lands a visitor carried over from the day before on the crane in the world's first frame, with no descent", async () => {
+    const page = await startWorld({ ride: "settled", playing: true });
+    expect(page.told).toEqual(["drift"]);
+    page.run(FRAME_S);
+    expect(page.mode()).toBe("drift");
+    onRig(crane(page));
+    expect(hill().ride).toEqual({ lean: 1, yaw: 0 });
+    // And one who arrives riding and awake is with the bears.
+    const awake = await startWorld({ ride: "awake" });
+    awake.run(FRAME_S);
+    expect(awake.mode()).toBe("follow");
+    onRig(post(awake));
+  });
+
+  it("holds still under reduced motion: one frame for each change the page makes, the bears standing at the song's landmark, the settled view fixed on the trailhead, and frames only while a look is held", async () => {
+    const page = await startWorld({ reduced: true });
+    // The frames a change asks for, drawn until none waits.
+    const frames = (change: () => void) => {
+      const from = page.drawn();
+      change();
+      for (let k = 0; k < 50 && page.waiting(); k++) page.run(FRAME_S);
+      return page.drawn() - from;
+    };
+    frames(() => {});
+    expect(page.waiting()).toBe(false);
+    expect(page.mode()).toBe("walk");
+    // Awake, it is follow's rule: the bears stand where the song's landmark is, 50 m along their line, and the camera is on their rig.
+    expect(frames(() => page.ride("awake"))).toBe(1);
+    expect(page.mode()).toBe("follow");
+    expect(along(page.shown()[0].g.position)).toBeCloseTo(50, 9);
+    onRig(post(page));
+    // Settled: the trailhead from 8 m over the summit, at once. The stand-in's path puts the trailhead at the island's middle.
+    expect(frames(() => page.ride("settled"))).toBe(1);
+    expect(page.mode()).toBe("drift");
+    expectNear(camera().position, { x: 0, y: height(0, 0) + 8, z: 0 });
+    expectNear(camera().target, { x: 0, y: 0, z: 0 });
+    expect(hill().ride).toEqual({ lean: 1, yaw: 0 });
+    // The page wakes: a frame for the change, and the view is the same one.
+    expect(frames(() => page.ride("awake"))).toBe(1);
+    expect(page.mode()).toBe("drift");
+    expectNear(camera().position, { x: 0, y: height(0, 0) + 8, z: 0 });
+    // A look key brings the bears' rig back at once, and the world draws while it is held and no longer.
+    const from = page.drawn();
+    page.hold("ArrowLeft", 0.2);
+    expect(page.drawn() - from).toBe(0.2 / FRAME_S);
+    expect(frames(() => {})).toBe(1);
+    expect(page.mode()).toBe("follow");
+    onRig(post(page, 1.6 * 0.2, 0));
+    expect(hill().ride!.lean).toBe(0);
+    // And leaving is one frame more.
+    expect(frames(() => page.ride(null))).toBe(1);
+    expect(page.mode()).toBe("walk");
+    expect(page.waiting()).toBe(false);
+  });
+
+  it("turns the crane's aim down on a phone until the visitor's bear stands above the now-plate, on the crane and on the way to it, and leaves the bears' rig its own aim", async () => {
+    const page = await startWorld({ screen: { width: 390, height: 844, touch: true }, hud: { plate: 500, stick: 708 }, ride: "awake", playing: true });
+    expect(hill().tier).toBe("phone");
+    const on = () => ({ ...deps(page), phone: true });
+    page.run(0.5);
+    expect(fake.world.tilted).toEqual([]);
+    page.ride("settled");
+    page.run(RIG_EASE_S / 2);
+    // Half-way: the crane's aim, turned down, mixed with the bears' rig's.
+    const to = cranePose(on(), page.now() / 1000), tilted = { pos: to.pos, look: { ...to.look, y: to.look.y - fake.TILT } };
+    onRig(ridePose(postPose({ ...on(), keepInView: () => fake.TURN }, 0, 0), tilted, 0.5));
+    page.run(RIG_EASE_S / 2 + 0.1);
+    const there = cranePose(on(), page.now() / 1000);
+    onRig({ pos: there.pos, look: { ...there.look, y: there.look.y - fake.TILT } });
+    // Asked each frame to keep the bear's feet 24 px above the now-plate, 500 px down a frame 844 px high.
+    expect(fake.world.tilted.length).toBeGreaterThan(RIG_EASE_S / FRAME_S);
+    for (const y of fake.world.tilted) expect(((1 - y) / 2) * 844).toBeCloseTo(476, 9);
   });
 });
 

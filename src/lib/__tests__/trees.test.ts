@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { readdirSync } from "fs";
 import { beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
@@ -14,7 +15,7 @@ import { BOUND, CAVES, FIRST_EYE, height, STAGE, STAGE_COLUMN, STAGE_REACH, TEST
 import { buildIsland as worldIsland, FEATHER, offTracks, RING, takesPool as worldPool } from "../../../public/world/island.js";
 import { BEAR_GAP, confine, walkLimits as worldLimits } from "../../../public/world/modes.js";
 import { nearStand, outline } from "../../../public/world/path.js";
-import { CRANE, DESCENT_FROM, postPose } from "../../../public/world/pose.js";
+import { CRANE, cranePose, DESCENT_FROM, postPose, ridePose, RIG_EASE_S } from "../../../public/world/pose.js";
 import { onCrowdGround } from "../../../public/world/seats.js";
 import {
   BASE_FRAC, BESIDE, broadGeometry, broadLobes, buildTrees, cameraWays, CAVE_ROOM, CELL, CLOSE, CROWD_ROOM, CROWN_BASE, CROWN_R, CROWN_R_MAX, CROWN_REACH, EDGE_NEAR,
@@ -205,7 +206,7 @@ describe("where the trees stand", () => {
     expect(PATH_ROOM - CROWN_R_MAX).toBeGreaterThanOrEqual(4);
   });
 
-  it("keeps LINE_ROOM from the bears' line: a crown, lean-back's crane swaying to either side of the line, and a metre", () => {
+  it("keeps LINE_ROOM from the bears' line: a crown, a settled ride's crane swaying to either side of the line, and a metre", () => {
     const fine = Array.from({ length: Math.ceil(line.length * 2) }, (_, k) => line.at(k / 2));
     for (const w of WORLDS) expect(leastFrom(fine, w.trees), w.date).toBeGreaterThan(LINE_ROOM - 0.02);
     expect(LINE_ROOM).toBeGreaterThanOrEqual(CROWN_R_MAX + CRANE.sway + 1);
@@ -406,7 +407,7 @@ describe("the cameras' ways", () => {
       // No eye of the other tier's camera, which stands elsewhere.
       const other = eyesAt(40, !phone)[0];
       expect(eyes.some(([x, z]) => x === other.x && z === other.z)).toBe(false);
-      // Lean-back's crane, 40 m along: to the visitor's bear CRANE.back m on, to each bear a gap further, and to where it looks.
+      // A settled ride's crane, 40 m along: to the visitor's bear CRANE.back m on, to each bear a gap further, and to where it looks.
       const crane = xz(line.at(40)), sees = new Set([...Array.from({ length: counts[0] + 1 }, (_, k) => CRANE.back + k * BEAR_GAP), CRANE.ahead]);
       for (const on of sees) expect(has(views, crane, xz(line.at(40 + on)), SIGHT_HALF)).toBe(true);
       expect(plain(views).filter((v) => v.from[0] === crane[0] && v.from[1] === crane[1] && v.half === SIGHT_HALF)).toHaveLength(sees.size);
@@ -687,7 +688,7 @@ describe("the cameras' ways", () => {
     for (const w of shoots) expect(w.trees).toHaveLength(w.phone ? TARGET.phone : TARGET.desktop);
   });
 
-  it("stands no tree behind a landmark as its song begins and the beam stands on it: not within a crown's reach of the sight of it for 24 m past it, from the camera that walks with the bears or from lean-back's crane", () => {
+  it("stands no tree behind a landmark as its song begins and the beam stands on it: not within a crown's reach of the sight of it for 24 m past it, from the camera that walks with the bears or from a settled ride's crane", () => {
     // The opening is the first song's: the bears stand at its landmark, on every show, all that the tier draws. Under reduced motion
     // they stand at each song's.
     let room = Infinity, sights = 0;
@@ -755,7 +756,7 @@ describe("the cameras' ways", () => {
     expect(longest).toBeGreaterThan(2 * EYE_ROOM);
   });
 
-  it("keeps lean-back's crane a metre clear of every crown as it sways to either side of the bears' line", () => {
+  it("keeps a settled ride's crane a metre clear of every crown as it sways to either side of the bears' line", () => {
     const hangs = [];
     for (let d = 0; d < line.length; d += 1) {
       const p = line.at(d), tangent = line.tangentAt(d);
@@ -764,6 +765,184 @@ describe("the cameras' ways", () => {
     let nearest = Infinity;
     for (const w of WORLDS) nearest = Math.min(nearest, leastFrom(hangs, w.trees));
     expect(nearest - CROWN_R_MAX).toBeGreaterThan(0.9);
+  });
+});
+
+// The ride's camera goes between its two rigs in a straight line (pose.js ridePose), and no rule of the trees' names that line: these
+// hold it clear of them all the same, on every show there is and on any there could be.
+describe("the ride's way between its rigs", () => {
+  type Way = { from: Point; to: Point };
+  // When the crane hangs at either end of its sway and on the line: a quarter and three quarters of its 30 s, and its start.
+  const SWAYS = [7.5, 22.5, 0];
+  // A tier's ways in one view, third person or first: from the camera that walks with the bears to the crane, the lead bear every
+  // `step` m of the line, for each number of bears the tier can show and the crane at each of those three places.
+  const waysOn = (phone: boolean, third: boolean, step = 0.5) => {
+    const ways: Way[] = [];
+    for (let d = 0; d < line.length; d += step) for (const count of bearsOf(phone)) {
+      const deps = { third, phone, bearD: d, count, gap: BEAR_GAP, line, height, keepInView: () => 0 }, from = postPose(deps, 0, 0).pos;
+      for (const elapsed of SWAYS) ways.push({ from, to: cranePose(deps, elapsed).pos });
+    }
+    return ways;
+  };
+  // The ways by squares of 24 m, each in the square its middle lies in: no way is 50 m long, so a place within 12 m of one finds
+  // it in its own square or a neighbour. `nearest(x, z)` is how far the nearest way passes, seen from above.
+  const sorted = (ways: Way[]) => {
+    const cells = new Map<string, Way[]>(), cell = (v: number) => Math.floor(v / 24);
+    for (const way of ways) {
+      const k = `${cell((way.from.x + way.to.x) / 2)},${cell((way.from.z + way.to.z) / 2)}`;
+      if (!cells.has(k)) cells.set(k, []);
+      cells.get(k)!.push(way);
+    }
+    return (x: number, z: number) => {
+      let nearest = Infinity;
+      for (let i = cell(x) - 1; i <= cell(x) + 1; i++) for (let j = cell(z) - 1; j <= cell(z) + 1; j++) {
+        for (const { from, to } of cells.get(`${i},${j}`) ?? []) nearest = Math.min(nearest, fromSegment(x, z, [from.x, from.z], [to.x, to.z]));
+      }
+      return nearest;
+    };
+  };
+  const TIERS = [false, true], VIEWS = [true, false];
+  let nearestWay: Map<string, (x: number, z: number) => number>, longest: number;
+  const nearestOn = (phone: boolean, third: boolean) => nearestWay.get(`${phone},${third}`)!;
+  beforeAll(() => {
+    nearestWay = new Map();
+    longest = 0;
+    for (const phone of TIERS) for (const third of VIEWS) {
+      const ways = waysOn(phone, third);
+      for (const { from, to } of ways) longest = Math.max(longest, Math.hypot(to.x - from.x, to.z - from.z));
+      nearestWay.set(`${phone},${third}`, sorted(ways));
+    }
+  }, 60000);
+
+  // What the near plane of the widest frame the trees' tests reckon with needs: a frame twice as wide as a desktop's (eyeRoom).
+  const WIDE_ROOM = 1.3;
+
+  it("passes outside every crown on every show, on a desktop and a phone, in third person and in first, with room for the widest frame's near plane", () => {
+    // The longest way, seen from above, is under 25 m: the rigs stand furthest apart where the line bends.
+    expect(longest).toBeLessThan(25);
+    expect(longest).toBeGreaterThan(20);
+    const rooms = new Map<string, number>();
+    for (const w of WORLDS) for (const third of VIEWS) {
+      const nearest = nearestOn(w.phone, third);
+      let room = Infinity;
+      for (const t of w.trees) room = Math.min(room, nearest(t.x, t.z) - t.reach);
+      expect(room, `${w.date} ${w.phone ? "phone" : "desktop"} ${third ? "third" : "first"} person`).toBeGreaterThan(WIDE_ROOM);
+      const k = `${w.phone},${third}`;
+      rooms.set(k, Math.min(rooms.get(k) ?? Infinity, room));
+    }
+    // Over all the shows the nearest crown leaves what the widest frame's near plane needs and more, in either view. In third
+    // person it is a tree that stands as near the camera that walks with the bears as EYE_ROOM lets one, at the way's start:
+    // under 3 m from it on some show, as that rule's own test finds. More shows can only bring that down, never under the bar.
+    for (const phone of TIERS) for (const third of VIEWS) expect(rooms.get(`${phone},${third}`)).toBeGreaterThan(WIDE_ROOM);
+    for (const phone of TIERS) expect(rooms.get(`${phone},true`)).toBeLessThan(3);
+  });
+
+  it("could pass through no crown on any show: of every place a square may try a tree, those the tier's own cameras' rules leave all stand further from the way than their crown could reach, whatever landmarks a show has", { timeout: 20000 }, () => {
+    // Every place a tree is ever tried: each square's TRIES, with the widest its crown could be and the furthest it could reach, as
+    // placeTrees reckons them, at the tallest a tree stands.
+    const span = Math.ceil(RING / CELL), tries: { x: number; z: number; reach: number }[] = [];
+    for (let a = -span; a <= span; a++) for (let b = -span; b <= span; b++) for (let nth = 0; nth < TRIES; nth++) {
+      const wide = CROWN_R[0] + (CROWN_R[1] - CROWN_R[0]) * chance(a, b, 7), lean = LEAN * (0.25 + 0.75 * chance(a, b, 11));
+      tries.push({ x: (a + 0.1 + 0.8 * chance(a, b, 20 * nth + 1)) * CELL, z: (b + 0.1 + 0.8 * chance(a, b, 20 * nth + 2)) * CELL, reach: wide * CROWN_REACH + lean * (TALL[1] + SUNK) });
+    }
+    const key = (x: number, z: number) => `${x},${z}`, reachAt = new Map(tries.map((t) => [key(t.x, t.z), t.reach]));
+    const from = (points: number[][]) => {
+      const cells = new Map<string, number[][]>(), cell = (v: number) => Math.floor(v / 16);
+      for (const p of points) { const k = `${cell(p[0])},${cell(p[1])}`; if (!cells.has(k)) cells.set(k, []); cells.get(k)!.push(p); }
+      return (x: number, z: number, r: number) => {
+        for (let i = cell(x - r); i <= cell(x + r); i++) for (let j = cell(z - r); j <= cell(z + r); j++) for (const p of cells.get(`${i},${j}`) ?? []) if (Math.hypot(x - p[0], z - p[1]) < r) return true;
+        return false;
+      };
+    };
+    const lies = ({ from: [ax, az], to: [bx, bz], half, spread = 0 }: View, x: number, z: number) => {
+      const dx = bx - ax, dz = bz - az, long = Math.hypot(dx, dz), along = Math.max(0, Math.min(long, ((x - ax) * dx + (z - az) * dz) / (long || 1)));
+      return Math.hypot(x - ax - (dx / (long || 1)) * along, z - az - (dz / (long || 1)) * along) < half + spread * along;
+    };
+    const nearLine = from(linePoints);
+    for (const phone of TIERS) {
+      // The rules that are the cameras' own and no show's: LINE_ROOM from the bears' line, EYE_ROOM from the camera that walks with
+      // the bears, and out of the views that cost nothing, as a day without a recording has them. A show's landmarks only add to
+      // these, so its trees are among the places they leave.
+      const { eyes, views } = waysOf({ line, height, marks: [], phone, bears: bearsOf(phone) }), nearEye = from(eyes), clear = views.filter((v) => !v.cost);
+      const left = tries.filter((t) => !nearLine(t.x, t.z, LINE_ROOM) && !nearEye(t.x, t.z, EYE_ROOM) && !clear.some((v) => lies(v, t.x, t.z)));
+      expect(left.length).toBeGreaterThan(1000);
+      for (const third of VIEWS) {
+        const nearest = nearestOn(phone, third), where = `${phone ? "phone" : "desktop"}, ${third ? "third" : "first"} person`;
+        // The nearest such place to a way stands LINE_ROOM from the line, opposite the crane at the end of its sway, 6.0 m from
+        // the way. The one whose crown could come nearest stands 6.4 m from it and could reach 4.5 m of that, which leaves
+        // 1.9 m, on either tier and in either view: both are by the crane's end of the way, which every tier and view shares.
+        expect(least(left.map((t) => nearest(t.x, t.z))), where).toBeGreaterThan(LINE_ROOM - CRANE.sway);
+        const room = least(left.map((t) => nearest(t.x, t.z) - t.reach));
+        expect(room, where).toBeGreaterThan(WIDE_ROOM);
+        expect(room, where).toBeLessThan(2.5);
+      }
+      // And the shows' own trees are among those places, none reaching further than its place could: the fixed day's and two more.
+      const places = new Set(left.map((t) => key(t.x, t.z)));
+      for (const w of phone ? [fixedPhone, on("1973-03-30", true), on("1986-07-07", true)] : [fixed, on("1973-03-30"), on("1986-07-07")]) {
+        for (const t of w.trees) {
+          expect(places.has(key(t.x, t.z)), `${w.date}: the tree at ${t.x}, ${t.z}`).toBe(true);
+          expect(t.reach).toBeLessThanOrEqual(reachAt.get(key(t.x, t.z))! + 1e-12);
+        }
+      }
+    }
+  });
+
+  it("stays well over the ground all the way: 6 m and more in third person on a desktop and 4 m in the other views, where the rigs themselves hang 6.5 m up or more", () => {
+    for (const phone of TIERS) for (const third of VIEWS) {
+      let low = Infinity;
+      for (const { from, to } of waysOn(phone, third, 2)) for (let k = 0; k <= 16; k++) {
+        const s = k / 16, x = from.x + (to.x - from.x) * s, z = from.z + (to.z - from.z) * s;
+        low = Math.min(low, from.y + (to.y - from.y) * s - height(x, z));
+      }
+      expect(low, `${phone ? "phone" : "desktop"}, ${third ? "third" : "first"} person`).toBeGreaterThan(third && !phone ? 6 : 4);
+      expect(low).toBeLessThan(6.5 + 1e-9);
+    }
+  });
+
+  it("moves the camera under a metre in a frame as the page settles and wakes, wherever the bears are, where the cut it replaces moved it up to 24 m: on a desktop and a phone, in both views, at 20 frames a second", { timeout: 20000 }, () => {
+    // The bears walk 2.5 m/s (main.js); a frame adds 50 ms of world time at the most. From every 3 m of the line, with each number
+    // of bears: the page settles, the camera goes out for RIG_EASE_S and rests a second, and a look control brings it back.
+    const DT = 0.05, PACE = 2.5;
+    const apart = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+    for (const phone of TIERS) for (const third of VIEWS) {
+      let most = 0, rigs = 0, cut = 0;
+      for (const count of bearsOf(phone)) for (let d0 = 0; d0 < line.length; d0 += 3) {
+        let lean = 0, was: Point | null = null, post: Point | null = null, crane: Point | null = null;
+        for (let f = 0; f < (2 * RIG_EASE_S + 1) / DT; f++) {
+          const deps = { third, phone, bearD: d0 + PACE * DT * f, count, gap: BEAR_GAP, line, height, keepInView: () => 0 };
+          // As main.js steps it: toward the crane while the page is settled, back once it wakes to a look.
+          lean = Math.max(0, Math.min(1, lean + (f * DT < RIG_EASE_S + 1 ? DT : -DT) / RIG_EASE_S));
+          const a = postPose(deps, 0, 0), b = cranePose(deps, DT * f), at = ridePose(a, b, lean).pos;
+          if (was) {
+            most = Math.max(most, apart(at, was));
+            rigs = Math.max(rigs, apart(a.pos, post!), apart(b.pos, crane!));
+          }
+          cut = Math.max(cut, apart(a.pos, b.pos));
+          was = at; post = a.pos; crane = b.pos;
+        }
+      }
+      const where = `${phone ? "phone" : "desktop"}, ${third ? "third" : "first"} person`;
+      // The rigs themselves move the camera as they go with the bears: the one that walks with them up to 0.64 m in a frame on a
+      // desktop where the line bends, in third person, and both of them 0.22 m in first, where they keep to the line. The way
+      // between them adds under a fifth of a metre to that in third person and under half a metre in first: 0.73 m in a frame at
+      // the most, on a desktop in third person. The cut it replaces was as far as the rigs stand apart, up to 24 m.
+      expect(most, where).toBeLessThan(third ? rigs + 0.2 : rigs + 0.5);
+      expect(most, where).toBeLessThan(0.8);
+      expect(most, where).toBeGreaterThan(0.5);
+      expect(cut, where).toBeGreaterThan(19);
+      expect(cut, where).toBeLessThan(25);
+    }
+  });
+
+  it("stands the same trees as before the two modes became one: a day with no recording, whose trees only the land and the cameras place, hashed on a desktop and a phone", () => {
+    // Each tree's place, size and kind to the millimetre. A show's landmarks move its trees, and other tests hold those; these two
+    // move only if the path, the line, the land's rules or a camera's numbers do.
+    const hashes = TIERS.map((phone) => {
+      const { spots } = placed({ count: phone ? TARGET.phone : TARGET.desktop, loop, line: linePoints, landmarks: [], ...waysOf({ line, height, marks: [], phone, bears: bearsOf(phone) }) });
+      const mm = (v: number) => Math.round(v * 1000);
+      return createHash("sha256").update(JSON.stringify(spots.map((t) => [mm(t.x), mm(t.z), mm(t.tall), mm(t.wide), t.kind]))).digest("hex").slice(0, 16);
+    });
+    expect(hashes).toEqual(["15daee0e449cb724", "36c1feb36bd2d0e7"]);
   });
 });
 

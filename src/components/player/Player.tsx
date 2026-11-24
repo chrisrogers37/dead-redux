@@ -83,8 +83,8 @@ interface Props {
   showDate: string;
   venue: string;
   archiveUrl: string;
-  /** Lean-back shows the big title, the line and the seek band only. */
-  leanback: boolean;
+  /** A settled ride (ride.ts) shows the big title, the line and the seek band only. */
+  settled: boolean;
   /** Where the first move starts, ahead of the saved point. */
   startAt?: ResumePoint | null;
   /** What Details holds. */
@@ -93,7 +93,7 @@ interface Props {
 
 const finiteOr = (n: number, fallback: number) => (Number.isFinite(n) && n > 0 ? n : fallback);
 
-export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl, leanback, startAt, children }: Props) {
+export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl, settled, startAt, children }: Props) {
   const aRef = useRef<HTMLAudioElement>(null);
   const bRef = useRef<HTMLAudioElement>(null);
   const eng = useRef<Engine>({
@@ -118,6 +118,8 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
   const [joined, setJoined] = useState(false);
   const [over, setOver] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  /** Whether Details is open. It is kept here, which a ride that settles and wakes leaves alone: the controls are drawn anew then. */
+  const [detailsOpen, setDetailsOpen] = useState(false);
   /** Whether each element still loads with crossOrigin; one turns false when its load fails the CORS check, and only that element re-mounts. */
   const [cors, setCors] = useState<[boolean, boolean]>([true, true]);
   const [corsA, corsB] = cors;
@@ -536,7 +538,7 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
   /* Another control can start the show: a player:join dispatched synchronously inside its own activating handler joins, as the first move does. */
   useEventListener("document", "player:join", () => join());
 
-  /* Lean-back's sleep timer stops the show. */
+  /* The ride's sleep timer stops the show. */
   useEventListener("document", "player:pause", () => pause());
 
   /* The world says how each element sounds. */
@@ -593,7 +595,7 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
       <audio id="show-audio-a" key={corsA ? "a-cors" : "a"} ref={aRef} preload="metadata" playsInline crossOrigin={corsA ? "anonymous" : undefined} />
       <audio id="show-audio-b" key={corsB ? "b-cors" : "b"} ref={bRef} preload="metadata" playsInline crossOrigin={corsB ? "anonymous" : undefined} />
       <Transport
-        leanback={leanback}
+        settled={settled}
         title={tracks[view.index].title}
         index={view.index}
         count={tracks.length}
@@ -609,6 +611,8 @@ export function Player({ tracks, sets, featuredDate, showDate, venue, archiveUrl
         onNext={next}
         onSeek={seekTo}
         onRetry={tryAgain}
+        detailsOpen={detailsOpen}
+        onDetails={setDetailsOpen}
       >
         {children}
       </Transport>

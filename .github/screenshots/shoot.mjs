@@ -17,7 +17,8 @@ import {
   walkPoses,
 } from "./assets.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
-import { press, RECORD_MS, RECORDINGS, step, WORLD_MS, worldStarted } from "./recordings.mjs";
+import { EASE_MS, press, RECORD_MS, RECORDINGS, step, WORLD_MS, worldStarted } from "./recordings.mjs";
+import { cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, movePointer, pressFailure, pressWorld, rideIdle, ridePages, stillInLook } from "./ride.mjs";
 import { planFailures, planFiles, shardPlan, writtenSince } from "./shards.mjs";
 
 const DEVICES = {
@@ -90,19 +91,19 @@ const shelfStep = (shelf, state, shot, boxes = false) => ({
   shot,
 });
 
+// The ride's own steps on each page that shoots it (ride.mjs). A page with one of them loads with the wait its device needs before
+// the ride settles (the idle hook, rideIdle), unless it keeps the page's own.
+const RIDE_PAGES = ridePages(PLAY_WAIT_MS);
+
 // Each step acts on the loaded page, then shoots it. The prefix keeps one page's file names
-// apart from another's, and afterPlaying ({ ms, shot }) adds a later shot of the play step.
-const playerSteps = (prefix, afterPlaying) => [
+// apart from another's, afterPlaying ({ ms, shot }) adds a later shot of the play step, and the ride's steps come last.
+const playerSteps = (prefix, afterPlaying, ride) => [
   { click: "[data-action='details']", boxes: true, shot: `${prefix}details` },
   // Keyboard focus, which is what draws the ring: Chromium shows :focus-visible after a Tab, not after a script focus that follows
   // a mouse click. Tab from the previous button lands on the play disc and starts nothing.
   { focus: "[data-action='prev']", press: "Tab", shot: `${prefix}focus-play` },
   playStep(`${prefix}playing`, afterPlaying),
-  {
-    click: "[data-action='lean-back']",
-    waitFor: "[data-mode='leanback']",
-    shot: `${prefix}leanback`,
-  },
+  ...ride,
 ];
 
 const PAGES = [
@@ -110,13 +111,13 @@ const PAGES = [
   {
     path: "/",
     shots: ["home-1", "home-2"],
-    steps: playerSteps(""),
+    steps: playerSteps("", undefined, RIDE_PAGES.home.steps),
   },
   // A fixed day whose show never changes, so every run plays the same tracks.
   {
     path: "/2026-10-20",
     shots: ["fixed-1", "fixed-2"],
-    steps: playerSteps("fixed-", { ms: 8000, shot: "fixed-playing-8s" }),
+    steps: playerSteps("fixed-", { ms: 8000, shot: "fixed-playing-8s" }, RIDE_PAGES.fixed.steps),
   },
   // The fixed day's walk: G (a look down, which starts nothing) leaves the opening for a walk behind the visitor's bear; then the
   // Details switch turns to first person, the walker's eye with no bear, and back, which leaves the view setting as it was.
@@ -152,22 +153,22 @@ const PAGES = [
       { focus: "#world", press: "KeyV", shot: "fixed-reach-pass-third" },
     ],
   },
-  // The fixed day without WebGL 2: the designed still under the HUD, its Details, then the show playing from the still.
+  // The fixed day without WebGL 2: the designed still under the HUD, its Details, then the show playing from the still, and the ride,
+  // which there is the page's half of it: the HUD awake, then settled.
   {
     path: "/2026-10-20",
-    devices: ["desktop-nowebgl", "phone-nowebgl"],
+    devices: RIDE_PAGES.still.devices,
     ready: "#world[data-world='fallback']",
     shots: ["fixed"],
-    steps: [{ click: "[data-action='details']", boxes: true, shot: "fixed-details" }, playStep("fixed-playing")],
+    steps: [{ click: "[data-action='details']", boxes: true, shot: "fixed-details" }, playStep("fixed-playing"), ...RIDE_PAGES.still.steps],
   },
-  // The fixed day's focus walk, under reduced motion so the thirteen shots differ by the ring alone: Tab lands on the world, the title's
-  // tab, Archive, Walk with the bears, Lean back, Share, the buttons' tab, prev, play, next, Details, the seek slider and the player's
-  // tab, the order the screen shows them in, with a shot after each press.
+  // The fixed day's focus walk, under reduced motion so the shots differ by the ring alone: Tab lands on each of the HUD's stops in
+  // the order the screen shows them (FOCUS_STOPS in ride.mjs, the ride's one button among them), with a shot after each press.
   {
     path: "/2026-10-20",
     devices: ["desktop-reduced"],
     shots: [],
-    steps: Array.from({ length: 13 }, (_, i) => ({ press: "Tab", shot: `fixed-focus-${i + 1}` })),
+    steps: FOCUS_STOPS.map((_, i) => ({ press: "Tab", shot: `fixed-focus-${i + 1}` })),
   },
   // The fixed day 5 s before its first track ends: playing crosses into track 2, and the later shot logs the gap between them.
   {
@@ -284,23 +285,22 @@ const PAGES = [
   // points. A landmark is read here at the size a visitor sees it.
   ...nearPages(),
   // The fixed day with the site's day faked as 2099-01-01, a day it will not reach: the chip names the new day at load and stays while
-  // the show plays on (the 8-s shot's clock has moved; the url line still reads the fixed page); in lean-back it sits above the title; its
-  // link loads today's page, which arrives leaned back and starts the show, or shows it paused where the browser refuses.
+  // the show plays on (the 8-s shot's clock has moved; the url line still reads the fixed page); once the ride has settled it sits above
+  // the title. The settled page is then used as it is: a pointer moves over it, a press on the world wakes it, and once it has
+  // settled again the chip's link is pressed there and loads today's page, which arrives riding, settled at once, and starts the
+  // show, or shows it paused where the browser refuses (ride.mjs).
   {
     path: "/2026-10-20?day=2099-01-01",
-    devices: ["desktop", "phone", "desktop-reduced"],
+    devices: RIDE_PAGES.newday.devices,
     shots: ["fixed-newday"],
-    steps: [
-      playStep("fixed-newday-playing", { ms: 8000, shot: "fixed-newday-8s" }),
-      { click: "[data-action='lean-back']", waitFor: "[data-mode='leanback']", shot: "fixed-newday-leanback" },
-      {
-        click: "[data-action='play-next']",
-        waitFor: "main:not(:has([data-next]))[data-state='playing'], main:not(:has([data-next]))[data-state='paused']",
-        waitMs: PLAY_WAIT_MS,
-        player: true,
-        shot: "fixed-newday-tapped",
-      },
-    ],
+    steps: [playStep("fixed-newday-playing", { ms: 8000, shot: "fixed-newday-8s" }), ...RIDE_PAGES.newday.steps],
+  },
+  // The same on the phone, whose finger has no pointer to move over the page and taps where a mouse clicks.
+  {
+    path: "/2026-10-20?day=2099-01-01",
+    devices: RIDE_PAGES.newdayTouch.devices,
+    shots: ["fixed-newday"],
+    steps: [playStep("fixed-newday-playing", { ms: 8000, shot: "fixed-newday-8s" }), ...RIDE_PAGES.newdayTouch.steps],
   },
   // The night the show carries the island through (night.js), at four of its hours, while the show plays with ?drive=map: the last light,
   // as Jack Straw opens set 1; the deep of the night, in Space, with the moon; first light, as U.S. Blues, the encore, begins; and
@@ -376,18 +376,14 @@ const PAGES = [
     shots: [],
     steps: [playStep("fixed-turn-start", { ms: 20000, shot: "fixed-turned" })],
   },
-  // The sleep timer counting seconds, in lean-back: one press sets 30 s; 32 s on, the show is paused and, with no input since the
-  // click, the cursor is hidden; a key brings it back.
+  // The sleep timer counting seconds, in a ride: the ride's own row has it while the page is awake, and one press sets 30 s; 32 s on,
+  // the show is paused and, with no input since the click, the ride has settled and the cursor is hidden; focus on the settled look's
+  // timer and Shift bring the cursor back, and a letter then wakes the page, the ride still on (ride.mjs).
   {
     path: "/2026-10-20?sleep=seconds",
-    devices: ["desktop"],
+    devices: RIDE_PAGES.sleep.devices,
     shots: [],
-    steps: [
-      playStep("fixed-sleep-playing"),
-      { click: "[data-action='lean-back']", waitFor: "[data-mode='leanback']", shot: "fixed-sleep-leanback" },
-      { click: "[data-action='sleep']", shot: "fixed-sleep-30", later: { ms: 32000, shot: "fixed-slept" } },
-      { focus: "[data-action='sleep']", press: "ShiftLeft", shot: "fixed-cursor-back" },
-    ],
+    steps: [playStep("fixed-sleep-playing"), ...RIDE_PAGES.sleep.steps],
   },
   // The end shot shows the last screen, where the archive's count line sits. The TV shoots the archive too, at 1920 by 1080.
   { path: "/archive", devices: ["desktop", "desktop-reduced", "phone", "phone-360", "tv"], shots: ["archive"], end: "archive-end" },
@@ -418,13 +414,13 @@ const PAGES = [
   // A fixed past day with a long featured month over a long show month.
   { path: "/2026-09-29", shots: ["2026-09-29"] },
   // The fixed day with Relisten's answer forced, on previews: the look-up failed (the plate says so, with Try again and the Relisten
-  // link), then in lean-back; and a show it has no recording of (the plate as before). Either way the world loads without the
-  // show's path.
+  // link), then in a ride, awake and settled; and a show it has no recording of (the plate as before). Either way the world loads
+  // without the show's path.
   {
     path: "/2026-10-20?lookup=failed",
-    devices: ["desktop", "phone", "phone-360"],
+    devices: RIDE_PAGES.lookup.devices,
     shots: ["fixed-lookup-failed"],
-    steps: [{ click: "[data-action='lean-back']", waitFor: "[data-mode='leanback']", shot: "fixed-lookup-failed-leanback" }],
+    steps: RIDE_PAGES.lookup.steps,
   },
   { path: "/2026-10-20?lookup=missing", devices: ["desktop", "phone"], shots: ["fixed-no-recording"] },
   // The fixed day's shelves: each tab puts its shelf away past its edge of the screen, the title's, then the buttons', then the
@@ -455,20 +451,17 @@ const PAGES = [
     ],
   },
   // The fixed day with the player away, on a phone and on a phone on its side: the camera frames the visitor's bear above what is left
-  // at the foot of the frame. The first shot comes before the first move, while the hint is up. Walking with the bears then starts the
+  // at the foot of the frame. The first shot comes before the first move, while the hint is up. The ride then starts the
   // show, which takes the hint away, and puts the camera behind the bears: on the upright phone the visitor's bear stands above the
   // stick, and on its side, where the page shows no stick, as low as the frame's foot. The stats line's `avatar.clear` reads whether
-  // its feet land in the frame above that. Then the tab brings the player back.
+  // its feet land in the frame above that. Then the tab brings the player back, the ride still awake: the tab is there only while it is.
   {
     path: "/2026-10-20",
-    devices: ["phone", "phone-landscape"],
+    devices: RIDE_PAGES.frame.devices,
+    ownIdle: RIDE_PAGES.frame.ownIdle,
     ready: "#world[data-world='ready']",
     shots: [],
-    steps: [
-      shelfStep("player", "in", "fixed-shelf-frame"),
-      { click: "[data-action='follow']", waitFor: "[data-action='follow'][aria-pressed='true']", shot: "fixed-shelf-frame-follow" },
-      shelfStep("player", "out", "fixed-shelf-frame-back"),
-    ],
+    steps: [shelfStep("player", "in", "fixed-shelf-frame"), ...RIDE_PAGES.frame.steps, { ...shelfStep("player", "out", "fixed-shelf-frame-back"), ride: "awake" }],
   },
   // The walk's draw calls on the fixed day, from ?pose=sweep: the visitor's bear at each of the sweep's poses, with the world on the
   // day's first track and then on Drums (index 13), where the left cave lights. The log names each device's peak and the pose that
@@ -536,6 +529,8 @@ const MAX_SCREENS = 4;
 // recording whose control's state never comes, whose world never starts or whose step waits for what never comes (recordings.mjs),
 // and a policy problem (below).
 const failures = [];
+// A still's or a recording's own failures, one line a file, and those of them that were not saved (ride.mjs).
+const perFile = fileFailures(failures);
 
 // What the log says when a read had to wait for the page to load again: the shot was taken, then the page navigated as it was read.
 const reread = (file) => () => console.log(`reread ${file}: the page navigated while it was read`);
@@ -551,6 +546,15 @@ const logStats = async (page, file) => {
     if (failure) failures.push(`${file}: ${failure}`);
   }
   return parsed;
+};
+
+// Takes a still. One that needs the ride in a look (`need`, a step's `ride`) fails the run where the page marks any other just before
+// it or just after (stillInLook in ride.mjs): the page changes look on a timer, and a slow renderer can be late for it.
+const takeStill = async (page, file, need, options) => {
+  const failure = await stillInLook(page, need, () => page.screenshot(options));
+  if (!failure) return;
+  perFile.fail(file, failure);
+  console.log(`${file}: ${failure}`);
 };
 
 // The HUD's shelves, by their tabs' names (src/components/world/shelves.ts).
@@ -710,8 +714,8 @@ const open = async (page, url) => {
   return response;
 };
 
-// Logs where a shot was taken and what the page says: its URL, the player's state with the now-plate's sentence, whether lean-back has
-// hidden the cursor, and the next-show chip's kind and text, or null without one.
+// Logs where a shot was taken and what the page says: its URL, the player's state with the now-plate's sentence, whether a settled ride
+// has hidden the cursor, and the next-show chip's kind and text, or null without one.
 const logPage = async (page, file) => {
   const [state, line, cursor, next] = await evaluateAcrossNavigation(page, () => {
     const chip = document.querySelector("[data-next]");
@@ -742,10 +746,12 @@ if (site.protocol !== "https:") {
   throw new Error(`SITE_URL must be an https URL, got ${process.env.SITE_URL}`);
 }
 
-// A path's URL for a device. The TV device asks for the TV tier: a headless browser cannot be told apart from a desktop.
-const pageUrl = (path, device) => {
+// A path's URL for a device. The TV device asks for the TV tier: a headless browser cannot be told apart from a desktop. A page that
+// shoots the ride asks for the wait the device needs before the ride settles (`idle`, in seconds).
+const pageUrl = (path, device, idle = null) => {
   const url = new URL(path, site);
   if (device === "tv") url.searchParams.set("tier", "tv");
+  if (idle !== null) url.searchParams.set("idle", String(idle));
   return url;
 };
 
@@ -778,8 +784,9 @@ try {
       height: options.viewport.height * MAX_SCREENS,
     };
 
-    for (const [k, { path, shots, steps, end, ready, sweep, failAudio, status, served, whole }] of pages.entries()) {
-      const url = pageUrl(path, device);
+    for (const [k, { path, shots, steps, end, ready, sweep, failAudio, status, served, whole, ownIdle }] of pages.entries()) {
+      // A page with a step that needs the ride in one of its looks loads with this device's wait, unless it keeps the page's own.
+      const url = pageUrl(path, device, steps?.some((step) => step.ride) && !ownIdle ? rideIdle(device) : null);
       if (failAudio) await page.route(isTrackAudio, (route) => route.abort());
       const response = await open(page, url);
       // A redirect to another host, such as a login wall, is not the site. A page that names a status must answer with it.
@@ -830,16 +837,21 @@ try {
       }
 
       for (const step of steps ?? []) {
-        const selector = step.click ?? step.focus;
-        // A control missing from the page is logged and the step skipped; a step that only presses a key has none to miss. A required
-        // step says so in a failure of its own; any step's untaken still fails the run at its end, when what was saved is held to
-        // the plan (planFailures).
+        const selector = step.click ?? step.tap ?? step.focus;
+        // A control missing from the page is logged and the step skipped; a step that only presses a key has none to miss. Its
+        // untaken stills fail the run, each in one line that says why (perFile.fail), and are not listed again at the run's end, when
+        // what was saved is held to the plan (planFailures).
         if (selector && (await page.locator(selector).count()) === 0) {
-          if (step.required) failures.push(`${device}-${step.shot}.png: ${selector} absent`);
+          for (const shot of [step.shot, step.later?.shot].filter(Boolean)) perFile.fail(`${device}-${shot}.png`, `${selector} absent, so the still was not taken`, false);
           console.log(`${step.shot}: ${selector} absent`);
           continue;
         }
+        // A press that is of a control in one look of the ride waits for that look, and fails the run where the page is in another as it
+        // is made (ride.mjs).
+        const pressedWrong = step.from ? await pressFailure(page, step.from) : null;
+        if (pressedWrong) perFile.fail(`${device}-${step.shot}.png`, pressedWrong);
         if (step.focus) await page.focus(selector);
+        else if (step.tap) await page.tap(selector);
         else if (step.click) await page.click(selector);
         if (step.press) await page.keyboard.press(step.press);
         // A drag on the world turns and tilts the view by so many px ([right, down]), from a point clear of every plate.
@@ -850,6 +862,10 @@ try {
           await page.mouse.move(x + step.drag[0], y + step.drag[1], { steps: 8 });
           await page.mouse.up();
         }
+        // A pointer that moves over the world, which shows a settled ride's cursor, and a press on the bare world, which wakes it
+        // (ride.mjs).
+        if (step.move) await movePointer(page);
+        if (step.world) await pressWorld(page, Boolean(options.hasTouch));
         // A near step stands the visitor by another song's landmark and waits for the frames that draw the cut and the bears there:
         // frames, since a software renderer draws two a second and a GPU sixty. They are its settle. A world that is not drawing
         // has no still to take: the step fails the run and is skipped, at once where there is no world at all.
@@ -873,7 +889,18 @@ try {
             .waitForSelector(step.waitFor, { timeout: step.waitMs ?? 15_000 })
             .catch(() => {
               console.log(`${step.shot}: waitFor timed out; shooting anyway`);
-              if (step.required) failures.push(`${device}-${step.shot}.png: never reached ${step.waitFor}`);
+              if (step.required) perFile.fail(`${device}-${step.shot}.png`, `never reached ${step.waitFor}`);
+            });
+        }
+        // A settled ride's still waits for the camera to reach the crane (public/world/main.js's `ride` stat), where the page has a
+        // world. The crane is what the still shows, so one that never gets there fails the run, as a recording's wait for it does
+        // (EASE_MS in recordings.mjs); the still is taken as it stands.
+        if (step.crane) {
+          await page
+            .waitForFunction(() => { const ride = window.__hill?.ride; return !ride || ride.lean === 1; }, null, { timeout: EASE_MS })
+            .catch(() => {
+              console.log(`${step.shot}: the camera had not reached the crane`);
+              perFile.fail(`${device}-${step.shot}.png`, `the camera had not reached the crane ${EASE_MS} ms after the page settled`);
             });
         }
         if (step.player) {
@@ -887,10 +914,15 @@ try {
           console.log(logText(`state ${device}-${step.shot}.png ${state} · ${line}`));
           console.log(`routing ${device}-${step.shot}.png ${routing}`);
         }
+        // A step may say how the cursor should be once it has acted: shown, or hidden. It is read here, straight after the act and
+        // before the step's second of settling and its still, and the reading goes in the step's line below (ride.mjs).
+        const cursorRead = step.cursor ? await cursorNow(page) : null;
+        const cursorWrong = step.cursor ? cursorFailure(step.cursor, cursorRead) : null;
+        if (cursorWrong) perFile.fail(`${device}-${step.shot}.png`, cursorWrong);
         if (step.near === undefined) await page.waitForTimeout(STEP_SETTLE_MS);
         const file = `${device}-${step.shot}.png`;
-        await page.screenshot({ path: join(outDir, file), fullPage: true, clip });
-        console.log(`${file}  ${url}  ${step.near !== undefined ? `near ${step.near}` : selector ?? `press ${step.press}`}`);
+        await takeStill(page, file, step.ride, { path: join(outDir, file), fullPage: true, clip });
+        console.log(`${file}  ${url}  ${step.near !== undefined ? `near ${step.near}` : selector ?? (step.press ? `press ${step.press}` : step.move ? "a pointer's move" : step.world ? "a press on the world" : `waited for ${step.waitFor}`)}${cursorRead ? `  cursor ${cursorRead} as the step acted` : ""}`);
         const stats = await logStats(page, file);
         // A near still of the wrong song fails the run: the stats say which song the visitor stands by. Its page plays nothing, so the
         // player's lines are left out: each read of the page waits on a frame, and a software renderer's frame is a third of a second.
@@ -910,8 +942,11 @@ try {
               .catch(() => console.log(`night ${device}-${step.later.shot}.png  the world's hour had not reached the show's`));
           }
           const laterFile = `${device}-${step.later.shot}.png`;
-          await page.screenshot({ path: join(outDir, laterFile), fullPage: true, clip });
-          console.log(`${laterFile}  ${url}  ${selector}`);
+          const laterCursorRead = step.later.cursor ? await cursorNow(page) : null;
+          const laterCursorWrong = step.later.cursor ? cursorFailure(step.later.cursor, laterCursorRead) : null;
+          if (laterCursorWrong) perFile.fail(laterFile, laterCursorWrong);
+          await takeStill(page, laterFile, step.later.ride, { path: join(outDir, laterFile), fullPage: true, clip });
+          console.log(`${laterFile}  ${url}  ${selector}${laterCursorRead ? `  cursor ${laterCursorRead} before the still` : ""}`);
           await logStats(page, laterFile);
           await logPage(page, laterFile);
           // Serialised in the page, so each reading prints as one line of JSON.
@@ -974,11 +1009,13 @@ try {
     const file = `${device}-${name}.webm`;
     await open(page, url);
     if (click) {
-      // A control missing from the page is logged and the recording skipped; the run then fails at its end, for a recording the plan
-      // names and nothing saved (planFailures). A control whose state never comes fails the run, and is recorded as it is.
+      // A control missing from the page is logged and the recording skipped, and the run fails for it in one line that says why
+      // (perFile.fail), which the plan's check at the run's end does not repeat (planFailures). A control whose state never comes
+      // fails the run, and is recorded as it is.
       const pressed = await press(page, click, waitFor, file);
       if (!pressed.found) {
         console.log(`${file}: ${click} absent`);
+        perFile.fail(file, `${click} absent, so nothing was recorded`, false);
         await context.close();
         continue;
       }
@@ -1006,6 +1043,7 @@ try {
         .catch(() => null);
       if (!box) {
         console.log(`${file}: [data-stick] absent`);
+        perFile.fail(file, "[data-stick] absent, so nothing was recorded", false);
         await context.close();
         continue recording;
       }
@@ -1057,8 +1095,9 @@ try {
 
   failures.push(...(await saveAssets(site, plan.assets, outDir)));
   // What this run saved, against what its plan names (shards.mjs). A still or a recording the plan names and the run did not save
-  // fails it: a step skipped because its control is absent logs a line above and takes no still. So does a file the plan does not name.
-  failures.push(...planFailures(planFiles(plan), await writtenSince(outDir, began)));
+  // fails it, and so does a file the plan does not name. A step skipped because its control is absent takes no still: its stills
+  // have their failure already, with its cause, and are not listed here again.
+  failures.push(...planFailures(planFiles(plan), await writtenSince(outDir, began), perFile.untaken));
   for (const failure of failures) console.log(`failure ${failure}`);
   if (failures.length > 0) throw new Error(`${failures.length} failure(s); each has its own "failure" line above`);
 } finally {
