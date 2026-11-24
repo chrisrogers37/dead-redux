@@ -179,6 +179,10 @@ float grain(vec2 p) {
    proud of the ground at their highest, so a low sun or the stage's glow picks the turf out; a phone does without it. The relief is
    read from how the grain's height changes from one pixel to the next, which costs no more of the grain than its colour does. */
 const TUSSOCK = 0.9, BLADE = 5.3, FINE_NEAR = 22, FINE_FAR = 70, RELIEF = 0.126;
+/* The broad grain: cells 2 m across (BROAD a metre), shown, BROAD_AMP deep, only as the tussocks fade out, so the ground near the
+   eye is as it was, and ground past the tussocks' reach, 30 m from a phone's eye on level ground, keeps a grain out to 41 m. Colour
+   only: it stands in no relief, so a phone and a desktop draw it alike. */
+const BROAD = 0.5, BROAD_AMP = 0.24;
 /* A grain is drawn in full while a pixel takes in no more than HELD_FROM of one of its cells, and is gone, into the ground's even
    colour, by HELD_TO of one: past that a pixel cannot hold it, and it would break into a dither where the land is seen edge-on. */
 const HELD_FROM = 0.25, HELD_TO = 0.6;
@@ -269,7 +273,11 @@ export function grained(material, relief, tracked = false, pixel = { value: PIXE
         float fineShown = (1.0 - smoothstep(${f(FINE_NEAR)}, ${f(FINE_FAR)}, length(vViewPosition))) * (1.0 - smoothstep(${f(HELD_FROM)}, ${f(HELD_TO)}, covers * ${f(BLADE)}));
         float tussocks = ${GRAIN_EVEN}, blades = ${GRAIN_EVEN};
         if (coarseShown > 0.0) tussocks = mix(${GRAIN_EVEN}, grain(vPoolAt.xz * ${f(TUSSOCK)} + 17.0), coarseShown);
-        if (fineShown > 0.0) blades = grain(vPoolAt.xz * ${f(BLADE)} + 41.0);${tracked ? `
+        if (fineShown > 0.0) blades = grain(vPoolAt.xz * ${f(BLADE)} + 41.0);
+        /* The broad grain comes in only where the tussocks go, and goes as its own cells near a pixel's reach. */
+        float broadShown = (1.0 - coarseShown) * (1.0 - smoothstep(${f(HELD_FROM)}, ${f(HELD_TO)}, covers * ${f(BROAD)}));
+        float broad = ${GRAIN_EVEN};
+        if (broadShown > 0.0) broad = grain(vPoolAt.xz * ${f(BROAD)} + 73.0);${tracked ? `
         /* The crowd's worn earth: where the turf is thin, which is where the tussock grain is low, and the more of the ground the
            harder it is trodden. Where a pixel cannot hold the grain, tussocks is 0.5 and the earth is as much of the ground as it
            is trodden hard, so nothing dithers. */
@@ -282,7 +290,8 @@ export function grained(material, relief, tracked = false, pixel = { value: PIXE
           bandLit = band(bandOff, covers, tussocks);
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${f(tone.r)}, ${f(tone.g)}, ${f(tone.b)}), ${f(BAND_LAY)} * bandLit);
         }` : ""}
-        diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - ${GRAIN_EVEN}) + 0.26 * (blades - ${GRAIN_EVEN}) * fineShown;`);
+        diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - ${GRAIN_EVEN}) + 0.26 * (blades - ${GRAIN_EVEN}) * fineShown;
+        diffuseColor.rgb *= 1.0 + ${f(BROAD_AMP)} * (broad - ${GRAIN_EVEN}) * broadShown;`);
     /* The bands' own glow, added to what the ground gives off, which is nothing else. */
     if (bands) shader.fragmentShader = shader.fragmentShader.replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
         totalEmissiveRadiance += vec3(${f(amber.r)}, ${f(amber.g)}, ${f(amber.b)}) * uBandGlow * bandLit;`);
@@ -302,18 +311,22 @@ export function grained(material, relief, tracked = false, pixel = { value: PIXE
 
 /* The sea: water in the night's colour for it (night.js), with twilight's glow lying on it as a path toward where the sun set or
    will rise, the moon's path the same way toward the moon, and the stage's light on the water behind the stage. A slow swell crosses
-   it, a little paler on its backs, and breaks each path into bars of light; over the sand the water is shallow and paler, and it
-   laps the shore in a line of foam. One mesh on its own material, so it costs one draw call, as the plain sea did; it is not lit, and
-   it takes the fog, so it fades into the haze as the ground does. It writes its colours as they are, as the sky does (sky.js).
-   Returns what draws a look of the night on it at a time (the sky's own, which stands still under reduced motion) and sets the
-   stage's glow on the ground (`uPool`). */
+   it, a little paler on its backs, where the night sky's light lies on it in the dark, and breaks each path into bars of light; over
+   the sand the water is shallow and paler, and it laps the shore in a line of foam. One mesh on its own material, so it costs one
+   draw call, as the plain sea did; it is not lit, and it takes the fog, so it fades into the haze as the ground does. It writes its
+   colours as they are, as the sky does (sky.js). Returns what draws a look of the night on it at a time (the sky's own, which stands
+   still under reduced motion) and sets the stage's glow on the ground (`uPool`). */
 /* The swell: SWELL_M m from back to back, crossing a point every SWELL_S seconds, slow enough that no patch of water brightens and
    dims faster than once in several seconds. The shore's line breathes in and out over LAP_S seconds. */
 const SWELL_M = 9, SWELL_S = 7, LAP_S = 9;
+/* The night sky's light on the swell's backs: the look's `ambient` times SWELL_SKY, laid on a back by how high it stands, so at the
+   deep of the night a back stands some 7 steps of the screen's 255 over a trough, in blue, where the water's own colour moves it by
+   one at most. It comes on by how dark the island is to the power SWELL_DARK, so dusk's water and daybreak's are as they were. */
+const SWELL_SKY = 0.056, SWELL_DARK = 3;
 function buildSea(scene, uPool) {
   const far = Math.hypot(STAGE[0], STAGE[1]), ox = STAGE[0] / far, oz = STAGE[1] / far;
   const uniforms = { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), uSea: { value: new THREE.Color() }, uGlow: { value: new THREE.Color() },
-    uShine: { value: new THREE.Color() }, uSunTo: { value: new THREE.Vector2(0, -1) }, uMoon: { value: 0 }, uTide: { value: 0 } };
+    uShine: { value: new THREE.Color() }, uNight: { value: new THREE.Color() }, uSunTo: { value: new THREE.Vector2(0, -1) }, uMoon: { value: 0 }, uTide: { value: 0 } };
   /* The way to the moon along the water. */
   const moonFar = Math.hypot(MOON[0], MOON[2]), mx = MOON[0] / moonFar, mz = MOON[2] / moonFar;
   const mat = new THREE.ShaderMaterial({
@@ -329,7 +342,7 @@ function buildSea(scene, uPool) {
         #include <fog_vertex>
       }`,
     fragmentShader: `
-      uniform vec3 uSea, uGlow, uShine;
+      uniform vec3 uSea, uGlow, uShine, uNight;
       uniform vec2 uSunTo;
       uniform float uMoon;
       uniform highp float uTide;
@@ -354,6 +367,8 @@ function buildSea(scene, uPool) {
         float facing = max(dot(away, uSunTo), 0.0);
         float bars = 0.55 + 0.9 * swell;
         vec3 col = uSea * (0.92 + 0.18 * swell) + uGlow * (0.34 * pow(facing, 60.0) * bars + 0.1 * pow(facing, 6.0)) * smoothstep(118.0, 160.0, r);
+        /* The night sky's light on the swell's backs, none in a trough. */
+        col += uNight * smoothstep(0.35, 0.8, swell) * ${f(SWELL_SKY)};
         float moonward = max(dot(away, vec2(${f(mx)}, ${f(mz)})), 0.0);
         col += uMoon * vec3(0.2, 0.25, 0.37) * (pow(moonward, 90.0) * bars + 0.16 * pow(moonward, 6.0)) * smoothstep(118.0, 150.0, r);
         vec2 s = vAt - vec2(${f(STAGE[0])}, ${f(STAGE[1])});
@@ -379,6 +394,7 @@ function buildSea(scene, uPool) {
     uniforms.uSunTo.value.fromArray(look.glowTo);
     uniforms.uMoon.value = look.moon;
     uniforms.uShine.value.fromArray(SHINE).multiplyScalar(look.shine);
+    uniforms.uNight.value.fromArray(look.ambient).multiplyScalar(Math.pow(look.dark, SWELL_DARK));
     uPool.value.copy(POOL).multiplyScalar(look.shine);
   };
 }
