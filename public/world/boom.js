@@ -128,6 +128,16 @@ function stoodOff(p, head, hangs, boxes, columns, room, back) {
   return up;
 }
 
+/* Whether the point `q` is within the bear's least of the head, or on it, as avatar.js `clear` measures it: from the head where
+   `q` is higher than that, and from the bear's own line where it is lower. A point `clear` has put out to the least is on it. */
+const bears = (q, head) => {
+  const dx = q.x - head.x, dy = q.y - head.y, dz = q.z - head.z;
+  return dx * dx + dz * dz + (dy > 0 ? dy * dy : 0) < LEAST * LEAST * HAIR;
+};
+/* Whether the room of the box `b` gives way to the bear for the point `q`: `given` (a goal that the bear's least has pressed into
+   a room, or null) is in that room, deeper than a point on its side, and `q` is in it within the bear's least but out of the box. */
+const gives = (q, b, head, given, room) => given !== null && inRoom(given, b, room - SKIN) && bears(q, head) && !inRoom(q, b, 0);
+
 /* Puts the point `p` out of every room it is in: to the nearest of a box's four sides and its top, or of a column's side and its
    top. It is where the camera comes to rest beside a landmark. One room is let be, as goRound lets it be: that of a box that
    stands around `head` and around `hangs`, where the boom's end hangs.
@@ -154,15 +164,21 @@ export function standOff(p, head, hangs, boxes, columns, room) {
    Once the goal stands still, the place comes to it and rests: no choice here turns back from one frame to the next. The way
    round a box is by the turn about its middle, which only grows less as the place goes that way; a goal over a box or a column,
    which no way round reaches, sends the place up; each of the ways round and over shortens only its own measure; and a place
-   that rooms which overlap leave no way goes up, where no room is (camera.test.ts stops every kind of walk, and holds this). */
-export function goRound(p, was, goal, head, hangs, boxes, columns, room) {
+   that rooms which overlap leave no way goes up, where no room is (camera.test.ts stops every kind of walk, and holds this).
+   `given` is the goal as the bear's least left it, where that pressed it into a landmark's room (avatar.js `clear`), and `goal`
+   is then where it stood out of every room before that: the way round is to `goal`. That landmark's room gives way to the bear
+   for the place as it did for the goal: a step that ends within the bear's least in that room, out of the landmark's own box,
+   is not stopped there. Else the place, held at the room's side or top while the least pressed its goal in past it, stood
+   short of its goal for good (camera.test.ts, beside boxes of every size and wherever they stand round the bear). The stage's
+   column gives no way: no stand at its edge, looking up, walking or turning in looking up, was held short there. */
+export function goRound(p, was, goal, head, hangs, boxes, columns, room, given = null) {
   /* The step as it came, before anything here moves the place; its length is reckoned once a room is found to stop it. */
   const px = p.x, py = p.y, pz = p.z, sx = px - was.x, sy = py - was.y, sz = pz - was.z;
   /* How many rooms have stopped it, and whether one stopped it short of a goal that is not in that one. */
   let step = -1, met = 0, short = false;
   for (let i = 0; i < boxes.length; i++) {
     const b = boxes[i];
-    if (!inRoom(p, b, room) || (around(head, b) && inRoom(hangs, b, room))) continue;
+    if (!inRoom(p, b, room) || (around(head, b) && inRoom(hangs, b, room)) || gives(p, b, head, given, room)) continue;
     if (step < 0) step = far(px, py, pz, was);
     met += 1;
     const x0 = b.min.x - room, x1 = b.max.x + room, z0 = b.min.z - room, z1 = b.max.z + room, y1 = b.max.y + room;
@@ -294,7 +310,7 @@ export function goRound(p, was, goal, head, hangs, boxes, columns, room) {
   let up = short && met > 1 && (p.x - was.x) * (p.x - was.x) + (p.y - was.y) * (p.y - was.y) + (p.z - was.z) * (p.z - was.z) < STALL * STALL * step * step;
   for (let i = 0; i < boxes.length && !up; i++) {
     const b = boxes[i];
-    if (!inRoom(p, b, room - SKIN) || (around(head, b) && inRoom(hangs, b, room))) continue;
+    if (!inRoom(p, b, room - SKIN) || (around(head, b) && inRoom(hangs, b, room)) || gives(p, b, head, given, room)) continue;
     const x0 = b.min.x - room, x1 = b.max.x + room, z0 = b.min.z - room, z1 = b.max.z + room, y1 = b.max.y + room;
     up = !inRoom(was, b, room - SKIN) || Math.min(p.x - x0, x1 - p.x, p.z - z0, z1 - p.z, y1 - p.y) >= Math.min(was.x - x0, x1 - was.x, was.z - z0, z1 - was.z, y1 - was.y);
   }

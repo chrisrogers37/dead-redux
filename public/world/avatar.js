@@ -104,10 +104,11 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
   const tip = new THREE.Vector3(), tipWas = new THREE.Vector3(), ends = new THREE.Vector3(), rest = new THREE.Vector3(), restWas = new THREE.Vector3();
   const apart = [], found = new Float64Array(2);
   let closest = Infinity, bent = false;
-  /* Where the landmarks and the stage would have the camera this frame (`goal`) and a frame ago, and its place, which goes there
-     at a pace of its own (`pace`, in m/s): it is behind while it is not where the goal was. Where the place stood, and places
-     to step from and to; and where the boom's two ends stood a frame ago, the head and the place it hangs to. */
-  const goal = new THREE.Vector3(), goalWas = new THREE.Vector3(), place = new THREE.Vector3(), stood = new THREE.Vector3(), from = new THREE.Vector3(), to = new THREE.Vector3();
+  /* Where the landmarks and the stage would have the camera this frame (`goal`) and a frame ago, and where the goal stood out of
+     every room before the bear's least had its say (`bareGoal`); and its place, which goes there at a pace of its own (`pace`, in
+     m/s): it is behind while it is not where the goal was. Where the place stood, and places to step from and to; and where the
+     boom's two ends stood a frame ago, the head and the place it hangs to. */
+  const goal = new THREE.Vector3(), goalWas = new THREE.Vector3(), bareGoal = new THREE.Vector3(), place = new THREE.Vector3(), stood = new THREE.Vector3(), from = new THREE.Vector3(), to = new THREE.Vector3();
   const hungWas = new THREE.Vector3(), pivotWas = new THREE.Vector3();
   const SWIFT = swift(phone);
   let pace = 0;
@@ -163,8 +164,9 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
      ease `k`, and out of every landmark's room (boom.js standOff). Where a landmark has drawn it in, raised it or put it out of
      its room, it still keeps no nearer the head than the boom's least and over the ground. Nearer the head, it goes straight up
      to the least: a landmark's sides stand upright, so that takes it into no room but one it comes up under, and it is put out
-     of that again. Tells whether any landmark or the stage had a say in it; the rise and the reach are in `found`. */
-  function seek(out, hangs, met, lift, reach, k, room) {
+     of that again. Tells whether any landmark or the stage had a say in it; the rise and the reach are in `found`. Where `bare` is
+     given, it is written where `out` stood before `clear` put it out from the bear: out of every room. */
+  function seek(out, hangs, met, lift, reach, k, room, bare = null) {
     dir.subVectors(hangs, pivot);
     const len = dir.length();
     dir.divideScalar(len || 1);
@@ -175,25 +177,30 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     out.copy(pivot).addScaledVector(dir, len * reach);
     const gx = out.x, gy = out.y, gz = out.z;
     standOff(out, pivot, hangs, boxes, columns, room);
-    if (!(reach < 1 || lift > 0 || out.x !== gx || out.y !== gy || out.z !== gz)) return false;
+    if (!(reach < 1 || lift > 0 || out.x !== gx || out.y !== gy || out.z !== gz)) { if (bare !== null) bare.copy(out); return false; }
     const dx = out.x - pivot.x, dy = out.y - pivot.y, dz = out.z - pivot.z, short = LEAST * LEAST - dx * dx - dz * dz;
     if (short > dy * dy) { out.y = pivot.y + Math.sqrt(short); standOff(out, pivot, hangs, boxes, columns, room); }
     floored(out);
+    if (bare !== null) bare.copy(out);
     clear(out);
     return true;
   }
 
   /* One frame of the place's way to `aim`, which is its goal or where it will rest. After its goal the place goes as its goal
      went, or with the bear in a frame the goal leapt (`leapt`), and then on toward it; to its rest it goes from where it
-     stands. It gathers its pace and lands: no faster in all than SWIFT. What it meets stops it and sends it round (goRound). */
-  function chase(aim, leapt, dt, room) {
+     stands. It gathers its pace and lands: no faster in all than SWIFT. What it meets stops it and sends it round (goRound).
+     It steers by `steer`: the aim itself, or, where the bear's least has pressed the aim into a landmark's room or the stage's,
+     where the aim stood out of every room before that. Then it goes there as round anything else, and the bear presses it in as
+     it pressed the aim; and a landmark's room gives way to the bear for the place's own step as it did for the aim (goRound
+     `given`). */
+  function chase(aim, steer, leapt, dt, room) {
     stood.copy(place);
     if (aim === goal) { if (leapt) place.add(pivot).sub(pivotWas); else place.add(goal).sub(goalWas); }
-    const bore = place.distanceTo(stood), togo = place.distanceTo(aim), most = Math.max(SWIFT * dt, bore);
+    const bore = place.distanceTo(stood), togo = place.distanceTo(steer), most = Math.max(SWIFT * dt, bore);
     pace = Math.min(pace + (SWIFT / GATHER) * dt, Math.max(0, SWIFT - bore / dt), togo / LAND);
-    place.lerp(aim, Math.min(1, (pace * dt) / (togo || 1)));
+    place.lerp(steer, Math.min(1, (pace * dt) / (togo || 1)));
     slide(place, room, aim);
-    goRound(place, stood, aim, pivot, hung, boxes, columns, room);
+    goRound(place, stood, steer, pivot, hung, boxes, columns, room, steer === aim ? null : aim);
     /* No nearer the bear than the boom's least: put out from it (`clear`), stopped again at what that would take it into, and
        in all no further this frame than SWIFT takes it; then, where a landmark's room has kept it nearer, on toward the goal,
        which is no nearer, by what SWIFT leaves. */
@@ -202,12 +209,12 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
       goRound(place, from, null, pivot, hung, boxes, columns, room);
       const gone = place.distanceTo(stood);
       if (gone > most) { place.sub(stood).multiplyScalar(most / gone).add(stood); goRound(place, stood, null, pivot, hung, boxes, columns, room); }
-      const still = place.distanceTo(aim), spare = most - place.distanceTo(stood);
+      const still = place.distanceTo(steer), spare = most - place.distanceTo(stood);
       /* (Whether it is nearer still, a copy of it tells: `clear` says whether it moved the point.) */
       from.copy(place);
       if (still > 0 && spare > 0 && clear(from)) {
         from.copy(place);
-        place.lerp(aim, Math.min(1, spare / still));
+        place.lerp(steer, Math.min(1, spare / still));
         goRound(place, from, null, pivot, hung, boxes, columns, room);
       }
     }
@@ -296,7 +303,7 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
       left[i] = boxes[i].containsPoint(pivot) ? 0 : reduced || cut ? Infinity : left[i] + dt;
       if (left[i] >= GRACE) met.push(boxes[i]);
     }
-    const say = seek(goal, hung, met, lift, reach, k, room);
+    const say = seek(goal, hung, met, lift, reach, k, room, bareGoal);
     lift = found[0]; reach = found[1];
     /* Once the bear stands still the boom eases on for a second, and its line sweeps on with it: over a landmark's top or under
        it, past its side, into the way of the next. Each of those is a leap of the goal, and one that the line's coming to rest
@@ -316,7 +323,13 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
        where the bear has pressed the place, or the rest, into a landmark's room (boom.js `pressed`). Its own way to its rest is
        straight, and the bear's least, pressing the place back into the room each frame, can hold it there short of its rest for
        good; the goal's way is the boom's, which swings and rises round the bear as it eases. Held so, the camera stood 0.88 m
-       from its rest on a desktop and 0.69 m on a phone after looking up beside a landmark of 1986-07-04. */
+       from its rest on a desktop and 0.69 m on a phone after looking up beside a landmark of 1986-07-04.
+       Where the bear's least has pressed the goal itself into a room, the bear standing, the place steers by where the goal
+       stood out of every room before that (`bareGoal`): it goes there round the landmark as round anything, the bear presses it
+       in as it pressed the goal, and a landmark's room gives way to the bear for the place as it did for the goal (`chase`,
+       boom.js goRound). Going after the pressed goal itself, the place was stopped at that room's side or top with its goal
+       inside, or pressed back in at one spot each frame, and stood short of its rest for good: by up to 7.5 m, at 50 of 60,000
+       stands beside boxes of every size round a bear looking up (camera.test.ts). */
     let bound = false;
     if (stands) {
       ends.copy(tip);
@@ -336,10 +349,10 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     const walked = Math.max(hung.distanceToSquared(hungWas), pivot.distanceToSquared(pivotWas)), went = goal.distanceToSquared(goalWas);
     const leapt = went > walked && Math.sqrt(went) > Math.sqrt(walked) + SLACK;
     if (reduced || cut || !(dt > 0)) { place.copy(goal); pace = 0; }
-    else if (bent) chase(rest, false, dt, room);
+    else if (bent) chase(rest, rest, false, dt, room);
     else {
       /* (A place put on its goal has not strayed, since its goal has not: the step put back is one of the chase's.) */
-      if (!leapt && place.equals(goalWas)) { place.copy(goal); pace = 0; } else { chase(goal, leapt, dt, room); if (ruled && strays(place)) { bent = true; place.copy(stood); } }
+      if (!leapt && place.equals(goalWas)) { place.copy(goal); pace = 0; } else { chase(goal, stands && pressed(goal, pivot, hung, boxes, columns, room) ? bareGoal : goal, leapt, dt, room); if (ruled && strays(place)) { bent = true; place.copy(stood); } }
     }
     goalWas.copy(goal); hungWas.copy(hung); pivotWas.copy(pivot); tipWas.copy(tip);
     camera.position.copy(place);
