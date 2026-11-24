@@ -1,7 +1,7 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { FIRST_EYE, G, height, TRAILHEAD } from "./ground.js";
-import { hull, standClear } from "./collide.js";
+import { hull, outside, standClear } from "./collide.js";
 import { isDrums, isSpace } from "./seats.js";
 
 /* The setlist is the path: a closed loop over the island, with a landmark at each song's point. */
@@ -156,9 +156,44 @@ export function outline(g, moving) {
   return hull(pts);
 }
 
+/* A landmark stands level, at the height of the ground under its middle, and on a slope the ground under its upper side rises over
+   that. One built level, on a footing, a plinth or a floor, says what of it must show (its builder's `userData.rim`, landmarks.js):
+   a list of [outline, y], each a convex outline in its own frame seen from above and the height over its own ground of the lowest
+   thing that must show inside it, such as a box's water, a kerb's top or a footing's. The ground is read both as it lies and as
+   the tier draws it (island.js surfaceOf), whose cells lie over the true ground by up to 0.29 m on a desktop and 0.65 m on a phone
+   where the ground dips. Where the ground under no outline rises over that outline's height, the landmark stands where it did, at
+   its middle's ground: it stands right, and does not move. Where it rises over one, the landmark stands higher, by as much as
+   puts the ground under every outline RIM_CLEAR under its height, and no higher. Its feet go on down far enough for that on the
+   slope's lower side (landmarks.js says how far for each). A landmark that says nothing never moves. */
+export const RIM_CLEAR = 0.1;
+/* Where the ground is read under an outline: its corners and every RIM_EDGE m along its edges, where the most a plane rises under
+   it lies, and every RIM_STEP m inside it, for ground that bends. Worked out once an outline. */
+const RIM_EDGE = 0.05, RIM_STEP = 0.25, rimPoints = new WeakMap();
+function pointsOf(rim) {
+  if (rimPoints.has(rim)) return rimPoints.get(rim);
+  const points = [], poly = hull(rim);
+  poly.forEach(([ax, az], i) => {
+    const [bx, bz] = poly[(i + 1) % poly.length], n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / RIM_EDGE));
+    for (let k = 0; k < n; k++) points.push([ax + ((bx - ax) * k) / n, az + ((bz - az) * k) / n]);
+  });
+  const xs = poly.map(([x]) => x), zs = poly.map(([, z]) => z);
+  for (let x = Math.min(...xs); x <= Math.max(...xs); x += RIM_STEP) for (let z = Math.min(...zs); z <= Math.max(...zs); z += RIM_STEP) if (outside(poly, x, z) < 0) points.push([x, z]);
+  rimPoints.set(rim, points);
+  return points;
+}
+/* How much higher than the ground under its middle a landmark with that `rim` stands at (x, z), turned `rot` about the upright, on
+   a tier that draws the ground as `drawn` does: 0 where no outline has the ground over its height. */
+export function rimLift(rim, x, z, rot, drawn) {
+  if (!rim?.length) return 0;
+  const c = Math.cos(rot), s = Math.sin(rot), own = height(x, z), ground = drawn ? (px, pz) => Math.max(height(px, pz), drawn(px, pz)) : height;
+  let over = 0;
+  for (const [poly, y] of rim) for (const [px, pz] of pointsOf(poly)) over = Math.max(over, ground(x + px * c + pz * s, z - px * s + pz * c) - own - y);
+  return over > 0 ? over + RIM_CLEAR : 0;
+}
+
 /* Each song's landmark stands at its point on the path, facing along it, unless the bears' line passes too near: then at the nearest
-   spot clear of the line (collide.js). */
-export function placeLandmarks(scene, { at, tangentAt }, tracks, hasShow, { BUILDERS, standingStone, moving }, landmarkU, line) {
+   spot clear of the line (collide.js); and as high as its rim asks of the ground the tier draws, `drawn` (rimLift). */
+export function placeLandmarks(scene, { at, tangentAt }, tracks, hasShow, { BUILDERS, standingStone, moving }, landmarkU, line, drawn) {
   const landmarks = [];
   /* The bears' line, a point every quarter metre. */
   const pts = [];
@@ -175,7 +210,7 @@ export function placeLandmarks(scene, { at, tangentAt }, tracks, hasShow, { BUIL
     else standingStone(g, tracks[i].title);
     const edge = outline(g, moving);
     const s = standClear(p.x, p.z, g.rotation.y, edge, pts);
-    g.position.set(s.x, height(s.x, s.z), s.z);
+    g.position.set(s.x, height(s.x, s.z) + rimLift(g.userData.rim, s.x, s.z, g.rotation.y, drawn), s.z);
     /* How far it reaches from its own middle, seen from above: ?pose=near-K stands back from a long landmark by it (nearStand). */
     g.userData.reach = Math.max(0, ...edge.map(([x, z]) => Math.hypot(x, z)));
     scene.add(g);

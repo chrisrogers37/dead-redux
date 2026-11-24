@@ -5,6 +5,7 @@ import { swift } from "../../../public/world/avatar.js";
 import { height } from "../../../public/world/ground.js";
 import { makeBuilders } from "../../../public/world/landmarks.js";
 import { confine } from "../../../public/world/modes.js";
+import { surfaceOf } from "../../../public/world/island.js";
 import { buildPath, buildWalkLine, layout, nearStand, outline, placeLandmarks } from "../../../public/world/path.js";
 import { buildTrees, cameraWays, placeTrees, TARGET } from "../../../public/world/trees.js";
 
@@ -37,7 +38,7 @@ export const path = buildPath(), line = buildWalkLine(path, 7);
  */
 export function landmarksOf(tracks: { title: string; duration: number }[], set2: number | null, phone: boolean, as: [number, string][] = []) {
   const landmarkU = layout(tracks, set2, path), builders = makeBuilders(phone), titles = new Map(as);
-  const landmarks = placeLandmarks(new THREE.Scene(), path, tracks.map((t, k) => ({ ...t, title: titles.get(k) ?? t.title })), true, builders, landmarkU, line);
+  const landmarks = placeLandmarks(new THREE.Scene(), path, tracks.map((t, k) => ({ ...t, title: titles.get(k) ?? t.title })), true, builders, landmarkU, line, surfaceOf(phone ? 52 : 80));
   return { landmarkU, builders, landmarks };
 }
 

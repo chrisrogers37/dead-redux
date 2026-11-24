@@ -76,6 +76,12 @@ export const stoneKind = (title) => titleHash(title) % STONE_KINDS;
 /* How far a footing or a post goes on down under the landmark's own ground: a landmark stands level, and on a slope the ground
    falls away under its lower side. */
 export const SUNK = 1.6;
+/* A rim (path.js rimLift): a built landmark stands level, and where the ground rises under its upper side over a part that must
+   show, it stands higher. Its builder says which parts, each by an outline seen from above and the height of its top: `around` is a
+   part of n sides r out, its first corner toward +z, as three.js turns a cylinder's or a lathe's; `oblong` runs from one corner to
+   the other. */
+const around = (n, r) => Array.from({ length: n }, (_, i) => [r * Math.sin((i / n) * 2 * Math.PI), r * Math.cos((i / n) * 2 * Math.PI)]);
+const oblong = (x0, z0, x1, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
 /* The plain stone's own grey, and the tones the builders share. They are said out here, with the newest five's own depths and
    tones under them, so that those five's tests read them from here and state none of them again (landmarks.test.ts). */
 export const STONE = 0x8e8a82;
@@ -85,9 +91,14 @@ export const GREY = 0x7d7a74, PALE_STONE = 0xa9a59c, MOSS = 0x55663f, SNOW = 0xe
 /* The road sign's, the trestle's, the kite's, the pier's and the bandstand's own: how far the trestle's posts and the bandstand's
    plinth go down, which is as far as the ground falls under them on the path and a hand more (their builders say how far that
    is), and their tones. */
-export const TRESTLE_SUNK = 7.4, BAND_SUNK = 4.4;
+export const TRESTLE_SUNK = 7.4, BAND_SUNK = 8.7;
 /* The lighthouse's footing and the terrapin's legs, the same way (their builders say how far the ground falls under them). */
-export const LIGHT_SUNK = 2.4, TERRAPIN_SUNK = 2.4, RAIN_SUNK = 2.4, POOL_SUNK = 3.95;
+export const LIGHT_SUNK = 3.75, TERRAPIN_SUNK = 2.4, RAIN_SUNK = 3.9, POOL_SUNK = 7.8;
+/* The feet of the others that stand higher where the ground rises under their rims (path.js rimLift), which the plain SUNK no
+   longer covers: the tuning peg's, the diamond's, the hitching rail's, the cabin's, the lotus bowl's, the wheel's and the dew's.
+   Each is as far as the ground falls under its feet below where it stands, at the lowest of every quarter metre of the path, on
+   the ground any tier draws, and a hand more: 2.77, 3.67, 3.18, 7.28, 2.19, 3.40 and 2.15 m. */
+export const PEG_SUNK = 3, DIAMOND_SUNK = 3.9, HITCH_SUNK = 3.45, CABIN_SUNK = 7.5, BOWL_SUNK = 2.45, WHEEL_SUNK = 3.65, DEW_SUNK = 2.4;
 export const SIGN_YELLOW = 0xd4a056, SIGN_DARK = 0x3a2a1e, PLAQUE = 0xe0d9c4, POST = 0x7a5230, HANDRAIL = 0xa98a5c, PLANK_TONES = [DARK_TIMBER, 0x5a4128, 0x3d2b1a];
 export const KITE_TONES = [0xd4607a, 0xe8b04b], BOW_TONES = [0x5b8fb5, 0xf0dba0];
 export const PIER_PLINTH = 0x6f6a63, PIER_NICHE = 0x2a2622, CREAM = 0xd8d2c4, COPPER = [0x5f8f7f, 0x4e7a6c];
@@ -277,7 +288,8 @@ export function makeBuilders(phone) {
   /* Tuning: a guitar's tuning peg, taller than a bear. A turned post on a stone footing, brass collars, the string wound round it,
      and its key, a flattened oval, amber and glowing. */
   function tuningPeg(g) {
-    put(g, new THREE.CylinderGeometry(1.1, 1.3, 0.4 + SUNK, 8), stone, 0, 0.2 - SUNK / 2, 0);
+    put(g, new THREE.CylinderGeometry(1.1, 1.3, 0.4 + PEG_SUNK, 8), stone, 0, 0.2 - PEG_SUNK / 2, 0);
+    g.userData.rim = [[around(8, 1.1), 0.4]];
     put(g, new THREE.CylinderGeometry(0.8, 1.0, 0.35, 8), stone, 0, 0.575, 0);
     const post = [[0.42, 0], [0.42, 0.4], [0.3, 0.65], [0.26, 2], [0.34, 2.25], [0.34, 2.6], [0.24, 2.85], [0.22, 4.1], [0.36, 4.35], [0.36, 4.6], [0.2, 4.8]];
     put(g, lathe(post, phone ? 8 : 12), tone(TIMBER), 0, 0.75, 0);
@@ -312,7 +324,8 @@ export function makeBuilders(phone) {
 
   /* Dupree's Diamond Blues: a cut stone, its table up and its point down, held in four brass claws over a stepped stone foot. */
   function cutDiamond(g) {
-    put(g, new THREE.CylinderGeometry(1.5, 1.7, 0.45 + SUNK, 8), stone, 0, 0.225 - SUNK / 2, 0);
+    put(g, new THREE.CylinderGeometry(1.5, 1.7, 0.45 + DIAMOND_SUNK, 8), stone, 0, 0.225 - DIAMOND_SUNK / 2, 0);
+    g.userData.rim = [[around(8, 1.5), 0.45]];
     put(g, new THREE.CylinderGeometry(1.15, 1.35, 0.4, 8), stone, 0, 0.65, 0);
     put(g, new THREE.CylinderGeometry(0.6, 0.95, 0.9, 8), stone, 0, 1.3, 0);
     const ice = tone(0xbfe3ea, true), girdle = 4.15, cut = 8;
@@ -333,7 +346,7 @@ export function makeBuilders(phone) {
     const posts = phone ? [-2, 0, 2] : [-2, -1, 0, 1, 2], gap = phone ? 4.8 : 2.4;
     posts.forEach((i, k) => {
       const lean = 0.05 * Math.sin(i * 2.3 + 1);
-      put(g, new THREE.CylinderGeometry(0.15, 0.2, 2.6 + SUNK, 6), tone(TIMBER, true), i * 2.4 + (SUNK / 2) * Math.sin(lean), 1.3 - SUNK / 2, 0, 0, 0, lean);
+      put(g, new THREE.CylinderGeometry(0.15, 0.2, 2.6 + HITCH_SUNK, 6), tone(TIMBER, true), i * 2.4 + (HITCH_SUNK / 2) * Math.sin(lean), 1.3 - HITCH_SUNK / 2, 0, 0, 0, lean);
       put(g, new THREE.ConeGeometry(0.19, 0.32, 6), tone(DARK_TIMBER, true), i * 2.4 - 1.44 * Math.sin(lean), 2.74, 0, 0, 0, lean);
       if (k === posts.length - 1) return;
       [[1.95, 0.13], [1.1, -0.13]].forEach(([y, z], rail) => put(g, new THREE.BoxGeometry(gap + 0.5, 0.17, 0.13), tone(rail ? DARK_TIMBER : TIMBER, true), i * 2.4 + gap / 2, y, z, 0.2 * (rail ? -1 : 1), 0, 0.03 * Math.sin(i * 3.1 + rail)));
@@ -356,6 +369,8 @@ export function makeBuilders(phone) {
     saddle.scale.setScalar(1.35);
     stand(g, saddle, 1.2, 2.2, 0.13, 0, 0.08, 0.03);
     if (!phone) for (const [r, tip] of [[0.4, 0.15], [0.33, -0.2]]) put(g, new THREE.TorusGeometry(r, 0.05, 5, 14), tone(STRING), -4.8, 1.75, 0.24, tip, 0, 0.1);
+    /* Its rim: the lower rail, whose lowest edge, tipped, is 0.95 m up, and the stirrups, which hang to 7 cm over the ground. */
+    g.userData.rim = [[oblong(-5.05, -0.22, 5.05, -0.04), 0.95], [oblong(1.2, -0.65, 1.35, 0.9), 0.07]];
   }
 
   /* Tennessee Jed: a log cabin. Six courses of logs crossing at the corners on a stone footing, a plank roof with a gable at each end,
@@ -364,7 +379,7 @@ export function makeBuilders(phone) {
   function logCabin(landmark) {
     const g = new THREE.Group();
     const log = tone(TIMBER), plank = tone(DARK_TIMBER, true), round = phone ? 6 : 8;
-    put(g, new THREE.BoxGeometry(5.5, 0.3 + SUNK, 4.5), stone, 0, 0.15 - SUNK / 2, 0);
+    put(g, new THREE.BoxGeometry(5.5, 0.3 + CABIN_SUNK, 4.5), stone, 0, 0.15 - CABIN_SUNK / 2, 0);
     for (let k = 0; k < 6; k++) {
       const y = 0.53 + 0.45 * k;
       for (const z of [-1.95, 1.95]) put(g, new THREE.CylinderGeometry(0.235, 0.235, 5.7, round), log, 0, y, z, 0, 0, Math.PI / 2);
@@ -382,7 +397,7 @@ export function makeBuilders(phone) {
     for (const side of [-1, 1]) put(g, new THREE.BoxGeometry(6.1, 0.14, slope), tone(ROOF, true), 0, (eave + ridge) / 2 - 0.06, side * (half / 2 + 0.2), side * pitch);
     put(g, new THREE.BoxGeometry(6.2, 0.16, 0.3), tone(ROOF, true), 0, ridge + 0.1, 0);
     /* The chimney, up the back wall and past the ridge. */
-    put(g, new THREE.BoxGeometry(1.0, 5.6 + SUNK, 0.9), stone, 1.3, 2.8 - SUNK / 2, -2.3);
+    put(g, new THREE.BoxGeometry(1.0, 5.6 + CABIN_SUNK, 0.9), stone, 1.3, 2.8 - CABIN_SUNK / 2, -2.3);
     put(g, new THREE.BoxGeometry(1.25, 0.22, 1.15), tone(0x6f6a63, true), 1.3, 5.7, -2.3);
     /* The door and the window, proud of the front wall's logs. */
     put(g, new THREE.BoxGeometry(1.15, 2.1, 0.1), plank, -0.8, 1.45, 2.2);
@@ -394,13 +409,14 @@ export function makeBuilders(phone) {
     put(g, new THREE.BoxGeometry(0.88, 0.06, 0.14), plank, 1.25, 1.95, 2.23);
     /* The porch: its boards, two posts and a lean-to roof, and a barrel by the door. */
     put(g, new THREE.BoxGeometry(5.4, 0.2, 1.5), plank, 0, 0.4, 2.95);
-    put(g, new THREE.BoxGeometry(5.2, 0.3 + SUNK, 1.3), stone, 0, 0.15 - SUNK / 2, 2.95);
+    put(g, new THREE.BoxGeometry(5.2, 0.3 + CABIN_SUNK, 1.3), stone, 0, 0.15 - CABIN_SUNK / 2, 2.95);
     for (const x of [-2.5, 2.5]) put(g, new THREE.CylinderGeometry(0.1, 0.12, 2.35, 6), log, x, 1.67, 3.55);
     put(g, new THREE.BoxGeometry(5.9, 0.1, 1.9), tone(ROOF, true), 0, 2.98, 3.0, 0.26);
     put(g, new THREE.CylinderGeometry(0.36, 0.3, 0.85, 10), tone(0x7a5a36), -2.0, 0.92, 3.1);
     for (const y of [0.72, 1.14]) put(g, new THREE.TorusGeometry(0.345, 0.03, 4, 10), tone(IRON), -2.0, y, 3.1, Math.PI / 2);
-    /* Its door faces the walker who comes up the path. */
+    /* Its door faces the walker who comes up the path. Its rim is its footing's and its porch's, so turned. */
     stand(landmark, g, 0, 0, 0, 0, Math.PI, 0);
+    landmark.userData.rim = [[oblong(-2.75, -2.25, 2.75, 2.25), 0.3], [oblong(-2.6, -3.6, 2.6, -2.3), 0.3]];
   }
 
   const BUILDERS = [
@@ -1245,6 +1261,7 @@ export function makeBuilders(phone) {
     /* A course's foot, and its half-breadth and half-depth. */
     const level = (k) => PIER.foot + k * PIER.course, half = (k) => [(PIER.wide - k * PIER.draw) / 2, (PIER.deep - k * PIER.draw) / 2];
     block(-0.78, -SUNK, -0.58, 0.78, PIER.foot, 0.58, PIER_PLINTH, 90);
+    g.userData.rim = [[oblong(-0.78, -0.58, 0.78, 0.58), PIER.foot]];
     for (const k of rows) {
       const [w, d] = half(k), grey = (n) => greys[Math.floor(greys.length * roll(k, n, 0, 91))], salt = 92 + 3 * k, LAP = 0.015;
       /* A niche's course is two jambs; the course over it, two blocks and the keystone between them, proud of them; any other,
@@ -1287,9 +1304,10 @@ export function makeBuilders(phone) {
      a rail, a top one and a bottom one with a cross of laths between, in every bay but the steps'; and the roof: an eave's
      board and soffit, three courses of copper green, the middle one the darker, that rise more gently as they go, a cupola
      under its own cap, and a brass ball on that. A phone's posts are four-sided and simpler, and its rail has no laths.
-     The stand is 9 m across and stands level. Stood at every quarter metre of the path, as the trestle is, the ground under a
-     corner of its plinth's foot or of a step's lies 3.89 m under the landmark's own ground at the lowest: so the plinth goes
-     BAND_SUNK down, 0.51 m into the ground there, and the steps a centimetre short of it. Its test holds the figure as the
+     The stand is 9 m across and stands level, and higher where the ground rises under its plinth's top or a step's (path.js
+     rimLift). Stood at every quarter metre of the path, as the trestle is, the ground under a corner of its plinth's foot or of
+     a step's lies 8.42 m under where it stands at the lowest: so the plinth goes BAND_SUNK down, 0.28 m into the ground there,
+     and the steps a centimetre short of it. Its test holds the figure as the
      trestle's does. */
   const BAND = { sides: 8, plinth: [4, 0.45], deck: 3.88, floor: 0.8, posts: 3.55, steps: 3, tread: 0.27, rail: [0.95, 0.2], soffit: 0.16 };
   /* The roof's courses, each ring [radius, height], from the eave up to the cupola's foot. */
@@ -1304,9 +1322,12 @@ export function makeBuilders(phone) {
        plinth's side and a centimetre into what is behind it. Their feet are that centimetre short of the plinth's, so that
        where a step laps the plinth the two feet are not in one plane. */
     const out = turn(BAND.steps + 0.5), side = plinth * Math.cos(Math.PI / sides), LAP = 0.01;
+    g.userData.rim = [[around(sides, plinth), plinthTop]];
     for (const n of [2, 1]) {
       const d = side + (2.5 - n) * BAND.tread - LAP / 2, high = (n * floor) / 3;
       put(g, new THREE.BoxGeometry(1.8, high + BAND_SUNK - LAP, BAND.tread + LAP), tone(PALE_STONE, true), d * Math.sin(out), (high - BAND_SUNK + LAP) / 2, d * Math.cos(out), 0, out, 0);
+      const step = oblong(-0.9, d - (BAND.tread + LAP) / 2, 0.9, d + (BAND.tread + LAP) / 2).map(([x, z]) => [x * Math.cos(out) + z * Math.sin(out), -x * Math.sin(out) + z * Math.cos(out)]);
+      g.userData.rim.push([step, high]);
     }
     /* The posts, from the floor up into the eave's soffit. */
     const soffit = eave - BAND.soffit, tall = soffit - floor + 0.04;
@@ -1357,9 +1378,10 @@ export function makeBuilders(phone) {
      before its middle as the walker sees it. The room's wall is low, and the roof's plate stands 30 cm over the lamp, so the
      lamp shows whole from the path and under the roof from over it. A phone's tower has eight sides, and six stanchions
      where a desktop has eight.
-     The footing is 3.2 m across. Stood at every quarter metre of the path, as the trestle is, the ground under a corner of
-     its foot lies 2.01 m under the landmark's own ground at the lowest: so it goes LIGHT_SUNK down, which is that and a
-     hand more. Its test sweeps the path and holds the depth to covering the fall by no more than a hand. */
+     The footing is 3.2 m across, and the lighthouse stands higher where the ground rises under the footing's top (path.js
+     rimLift). Stood at every quarter metre of the path, as the trestle is, the ground under a corner of its foot lies 3.5 m
+     under where it stands at the lowest: so it goes LIGHT_SUNK down, which is that and a hand more. Its test sweeps the path
+     and holds the depth to covering the fall by no more than a hand. */
   /* The lighthouse's heights: its footing's top, the tower's foot and its top, the lantern's sill, the roof's plate, how tall the
      roof is, and the lamp's middle. And how far out each of its rings stands: the footing, the step and the tower's wall at
      their feet and at their tops, and the rest all the way up. */
@@ -1372,6 +1394,7 @@ export function makeBuilders(phone) {
        wall is furthest out under it. Each thing on the wall is set by that. */
     const wall = (y) => out.wall.foot - ((out.wall.foot - out.wall.top) * (y - foot)) / (top - foot), face = (y) => wall(y) * Math.cos(flat);
     put(g, new THREE.CylinderGeometry(out.footing.top, out.footing.foot, footing + LIGHT_SUNK, 8), stone, 0, (footing - LIGHT_SUNK) / 2, 0);
+    g.userData.rim = [[around(8, out.footing.top), footing]];
     put(g, new THREE.CylinderGeometry(out.step.top, out.step.foot, foot - footing + KEYED, sides).rotateY(flat), pale, 0, (foot + footing - KEYED) / 2, 0);
     /* The tower's hoops are its own faces, painted: seven of them, the first and the last white. */
     const tall = top - foot + 2 * KEYED;
@@ -1457,7 +1480,8 @@ export function makeBuilders(phone) {
   const LOTUS = { rim: 2.27, water: 2.17, petal: { out: 0.735, at: 1.97, long: 0.47, wide: 0.32, lean: 0.54 }, between: { out: 0.66, at: 1.95, long: 0.4, wide: 0.28, lean: 0.4 } };
   function miracleBowl(g) {
     const round = phone ? 8 : 12, { rim, petal } = LOTUS;
-    put(g, new THREE.CylinderGeometry(0.9, 0.98, 0.35 + SUNK, 8), stone, 0, (0.35 - SUNK) / 2, 0);
+    put(g, new THREE.CylinderGeometry(0.9, 0.98, 0.35 + BOWL_SUNK, 8), stone, 0, (0.35 - BOWL_SUNK) / 2, 0);
+    g.userData.rim = [[around(8, 0.9), 0.35]];
     put(g, new THREE.CylinderGeometry(0.72, 0.78, 0.2 + KEYED, 8), tone(PALE_STONE, true), 0, 0.45 - KEYED / 2, 0);
     put(g, lathe([[0.5, 0.54], [0.5, 0.62], [0.36, 0.74], [0.3, 1.0], [0.3, 1.42], [0.36, 1.54], [0.4, 1.62]], 8), tone(GREY, true), 0, 0, 0);
     /* The bowl is one closed shape: its outside up to its rim, the rim's top, and its inside down to its floor. Its inside
@@ -1615,14 +1639,17 @@ export function makeBuilders(phone) {
      its water a little under its brim. The cloud is a cluster of soft puffs, pale over and grey under. The rain falls from the
      cloud into the water in streaks, each a stout one, 14 cm through and more, leaning a little with the wind; a phone has fewer. The
      walls' outer faces keep to the plain walls' 1.6 m from the middle.
-     The box is 3.2 m across and stands level. Stood at every quarter metre of the path, the ground under a corner of its foot
-     lies 2.15 m under the landmark's own ground at the lowest: so the posts, planks and water go RAIN_SUNK down, which is that
+     The box is 3.2 m across and stands level, and higher where the ground rises under its walls' tops or its water (path.js
+     rimLift). Stood at every quarter metre of the path, the ground under a corner of its foot lies 3.66 m under where it stands
+     at the lowest: so the posts, planks and water go RAIN_SUNK down, which is that
      and a hand more. */
   const RAIN_BOX = { out: 1.6, wall: 0.16, post: 0.24, inset: 0.02, course: 0.25, courses: 3, proud: 0.08, water: 0.55, slant: 0.12, streak: [0.34, 0.24] };
   function rainBox(g) {
     const { out, wall, post, inset, course, courses, proud, water } = RAIN_BOX, high = course * courses;
     /* The boards' faces stand `inset` inside the posts', and the boards' inner faces at `inner` from the middle. */
     const mid = out - inset - wall / 2, inner = out - inset - wall, deep = 0.05;
+    /* Its rim: the walls' tops and the water. */
+    g.userData.rim = [[oblong(-out, -out, out, out), high], [oblong(-inner, -inner, inner, inner), water]];
     /* The walls, course by course: the front and back boards run into the posts, the side boards between the front and back
        boards. A board's tone steps on round the box and up it, so no two boards that meet share one. */
     for (let c = 0; c < courses; c++) {
@@ -1656,6 +1683,7 @@ export function makeBuilders(phone) {
      upright through its middle, as main's did, so it can touch the ground only where its rim crosses that line at its foot: a
      stone footing stands under that point, a few centimetres short of it, with a brass pivot on it whose tip is in the rim. No
      spoke stands upright, so none runs down the line it turns about. */
+  const WHEEL_REACH = 0.2;
   const WHEEL = { at: 3.6, tyre: [2.95, 3.3, 0.25], rim: [3.28, 3.45, 0.27], hub: [0.46, 0.56], cap: [0.26, 0.68], spokes: 10, spoke: 0.16, from: 0.35, to: 3.1 };
   function spokedWheel(g) {
     const sides = phone ? 12 : 24, ring = (r0, r1, half) => lathe([[r0, -half], [r1, -half], [r1, half], [r0, half], [r0, -half]], sides).rotateX(Math.PI / 2);
@@ -1675,7 +1703,11 @@ export function makeBuilders(phone) {
     moving.push({ obj: wheel, kind: "spin" });
     /* The footing and the pivot under the rim's foot, which is WHEEL.at less the rim's radius over the ground. */
     const foot = WHEEL.at - WHEEL.rim[1];
-    put(g, new THREE.CylinderGeometry(0.7, 0.95, foot - 0.03 + SUNK, 8), stone, 0, (foot - 0.03 - SUNK) / 2, 0);
+    put(g, new THREE.CylinderGeometry(0.7, 0.95, foot - 0.03 + WHEEL_SUNK, 8), stone, 0, (foot - 0.03 - WHEEL_SUNK) / 2, 0);
+    /* Its rim: the footing's top, and what the wheel turns through: within each WHEEL_REACH m out from the line it turns about,
+       the ground keeps under the lowest the rim comes that far out, where it is nearest the ground. */
+    g.userData.rim = [[around(8, 0.7), foot - 0.03]];
+    for (let r = 0.7 + WHEEL_REACH; r < WHEEL.rim[1]; r += WHEEL_REACH) g.userData.rim.push([around(24, r), WHEEL.at - Math.sqrt(WHEEL.rim[1] ** 2 - (r - WHEEL_REACH) ** 2)]);
     put(g, new THREE.ConeGeometry(0.11, 0.1 + KEYED, 6), tone(BRASS), 0, foot - 0.03 + (0.1 - KEYED) / 2, 0);
   }
 
@@ -1719,7 +1751,7 @@ export function makeBuilders(phone) {
   const DROP = [[0, 0], [0.527, 0], [0.766, 0.207], [0.94, 0.508], [1, 0.85], [0.94, 1.192], [0.866, 1.35], [0.78, 1.475], [0.43, 1.865], [0.185, 2.177], [0.07, 2.34], [0, 2.45]];
   const COARSE = [0, 1, 3, 4, 5, 7, 8, 10, 11], TINY = [0, 1, 3, 4, 7, 11];
   /* The leaf's rings, from its foot up and in: how far out each stands along the leaf and across it, and how high. */
-  const LEAF_RINGS = [[1, 1, -SUNK], [1, 1, 0.6], [0.985, 0.96, 0.72], [0.94, 0.78, 0.6], [0.86, 0.5, 0.5], [0.74, 0.22, 0.45], [0.6, 0.05, 0.43]];
+  const LEAF_RINGS = [[1, 1, -DEW_SUNK], [1, 1, 0.6], [0.985, 0.96, 0.72], [0.94, 0.78, 0.6], [0.86, 0.5, 0.5], [0.74, 0.22, 0.45], [0.6, 0.05, 0.43]];
   function dewdrop(g) {
     const sides = phone ? 12 : 24, rings = phone ? [0, 1, 2, 3, 4, 6] : [0, 1, 2, 3, 4, 5, 6];
     /* A ring of the leaf: corner i goes round it; along the leaf (x) it reaches its tips, and across it (z) it is pointed at them. */
@@ -1727,7 +1759,9 @@ export function makeBuilders(phone) {
       const a = (i / sides) * 2 * Math.PI, s = Math.sin(a), c = Math.cos(a), x = DEW.long * along * s;
       return [x, y > 0 ? y - 0.06 * (x / DEW.long) ** 2 : y, DEW.wide * across * c * Math.abs(c)];
     });
-    const leaf = loft(rings.map((k) => ring(LEAF_RINGS[k])), [0, LEAF_RINGS[6][2] - 0.01, 0], [0, -SUNK, 0]);
+    const leaf = loft(rings.map((k) => ring(LEAF_RINGS[k])), [0, LEAF_RINGS[6][2] - 0.01, 0], [0, -DEW_SUNK, 0]);
+    /* Its rim: inside each ring of its face, the lower of that ring and the next one in, where it droops toward its tips. */
+    g.userData.rim = rings.slice(1).map((k, j, face) => [ring(LEAF_RINGS[k]).map(([x, , z]) => [x, z]), Math.min(...face.slice(j, j + 2).map((n) => LEAF_RINGS[n][2] - 0.06 * LEAF_RINGS[n][0] ** 2))]);
     /* Its tones: dark where its edge goes down, its midrib pale, its veins a little lighter, and the rest of its face green. */
     const vein = (x, z) => { const t = (Math.abs(x) + 1.3 * Math.abs(z)) / 0.42; return Math.abs(t - Math.round(t)) < 0.12; };
     put(g, paint(leaf, (x, y, z) => (y < 0.4 ? LEAF_UNDER : Math.abs(z) < 0.09 ? LEAF_RIB : vein(x, z) ? LEAF_VEIN : y > 0.62 ? LEAF_RIM : LEAF_FACE)), painted, 0, 0, 0);
@@ -1794,14 +1828,18 @@ export function makeBuilders(phone) {
      takes the sky's tone: rose at dusk and blue at night. The ripples are paler still, by their own tone, and lit as the water is.
      Dark water read from the path as a hole, its ripples as the grooves of a record. The kerb is the plain ring's own stone,
      12 cm over the water, with rough stones set in it. Nothing stands over 0.28 m, as nothing of the plain one did.
-     The kerb is 6.6 m across and stands level. Stood at every quarter metre of the path, the ground under its rim lies 3.71 m
-     under the landmark's own ground at the lowest, where the path is steepest: so the pool and the kerb go POOL_SUNK down, which
-     is that and a hand more. */
+     The kerb is 6.6 m across and stands level, and higher where the ground rises under the kerb's top or the water (path.js
+     rimLift). Stood at every quarter metre of the path, the ground under its rim lies 7.54 m under where it stands at the
+     lowest, where the path is steepest: so the pool and the kerb go POOL_SUNK down, which is that and a hand more. No map has
+     Ripple yet; at the steepest the kerb stands 4 m over the ground under its middle, a cistern of stone on the hill's lower
+     side. */
   const POOL = { r: 2.6, top: 0.08, kerb: [2.55, 3.3, 0.2], stones: 10, ridges: [[2.1, 0.12], [1.45, 0.09], [0.8, 0.06]], half: 0.09 };
   function stillWater(g) {
     const sides = phone ? 12 : 24;
     put(g, new THREE.CylinderGeometry(POOL.r, POOL.r, POOL.top + POOL_SUNK, sides), tone(POOL_WATER), 0, (POOL.top - POOL_SUNK) / 2, 0);
     const [k0, k1, kh] = POOL.kerb;
+    /* Its rim: the kerb's top and the water. */
+    g.userData.rim = [[around(sides, k1), kh], [around(sides, POOL.r), POOL.top]];
     put(g, lathe([[k0, -POOL_SUNK - 0.05], [k1, -POOL_SUNK - 0.05], [k1, kh], [k0, kh], [k0, -POOL_SUNK - 0.05]], sides), tone(STONE, true), 0, 0, 0);
     const n = phone ? 8 : POOL.stones;
     for (let k = 0; k < n; k++) {

@@ -1,6 +1,6 @@
 /* eslint-disable */
 import * as THREE from "three";
-import { BAND_GLOW, buildIsland } from "./island.js";
+import { BAND_GLOW, buildIsland, surfaceOf } from "./island.js";
 import { FIRST_EYE, height, STAGE_COLUMN, TEST_POSES } from "./ground.js";
 import { bandMask, buildPath, layout, nearStand, outline, placeLandmarks, buildWalkLine } from "./path.js";
 import { makeBuilders, mergeLandmarks } from "./landmarks.js";
@@ -131,7 +131,7 @@ function start(gl) {
   const builders = makeBuilders(phone);
   const { moving } = builders;
   const placeStart = performance.now();
-  const landmarks = placeLandmarks(scene, path, builtAs.size ? tracks.map((t, k) => ({ ...t, title: landmarkTitle(k) })) : tracks, hasShow, builders, landmarkU, line);
+  const landmarks = placeLandmarks(scene, path, builtAs.size ? tracks.map((t, k) => ({ ...t, title: landmarkTitle(k) })) : tracks, hasShow, builders, landmarkU, line, surfaceOf(budget.grid));
   /* How long the landmarks took to place, most of it their search for room beside the bears' line; the stats report it. */
   (window.__hill ??= {}).placeMs = Math.round((performance.now() - placeStart) * 10) / 10;
 
