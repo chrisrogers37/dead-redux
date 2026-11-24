@@ -885,6 +885,38 @@ describe("the band's playing", () => {
     }
   });
 
+  it("never runs its count faster than HALF_OVER a second, nor back, frame by frame: into a fast song from a standstill, at a steady 132, through seeks either way, a jump and a fall in tempo, and a pause", () => {
+    // Each case is its segments: seconds, beats a minute, a jump of the beat's phase as the segment starts, and whether the show plays.
+    const cases: [string, [number, number, number, boolean][]][] = [
+      ["into 160 from a standstill", [[0.5, 0, 0, false], [8, 160, 0, true]]],
+      ["a steady 132", [[10, 132, 0, true]]],
+      ["a seek 0.4 of a beat on at 120", [[4, 120, 0, true], [4, 120, 0.4, true]]],
+      ["a seek 30 beats on at 100", [[4, 100, 0, true], [4, 100, 30, true]]],
+      ["a seek 0.4 of a beat back at 100", [[4, 100, 0, true], [4, 100, -0.4, true]]],
+      ["a jump from 90 to 140", [[6, 90, 0, true], [6, 140, 0, true]]],
+      ["a fall from 110 to 100", [[6, 110, 0, true], [6, 100, 0, true]]],
+      ["a pause and a resume at 120", [[4, 120, 0, true], [2, 0, 0, false], [4, 120, 0, true]]],
+    ];
+    for (const [name, segments] of cases) {
+      const band = buildBand(new THREE.Group(), FLOOR);
+      let beats = 0, time = 0, was: number | null = null, fastest = 0, slowest = 0;
+      for (const [seconds, bpm, jump, playing] of segments) {
+        beats += jump;
+        for (let frame = 0; frame < Math.round(seconds * 60); frame++) {
+          beats += bpm / 3600;
+          time += 1 / 60;
+          const count: number = band.move(1 / 60, time, beats, playing);
+          if (was !== null) {
+            fastest = Math.max(fastest, (count - was) * 60);
+            slowest = Math.min(slowest, (count - was) * 60);
+          }
+          was = count;
+        }
+      }
+      expect([name, fastest <= HALF_OVER + 1e-9, slowest >= 0]).toEqual([name, true, true]);
+    }
+  });
+
   it("keeps a tempo it has taken up while the beat stays between the two: at 96 a minute after 150, it still plays every second beat", () => {
     const { band, play } = stand();
     const foot = band.bones.findIndex((bone: Bone) => bone.name === "tapping foot"), down = ends(band, foot).b.y;

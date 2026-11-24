@@ -25,7 +25,8 @@ export const SCALE = 1.77;
 /* The band keeps its own count of the beat, and plays in half time when the figures' beat (beat.js) is fast: over HALF_OVER beats a
    second (105 a minute) its count runs at half the beat, until the beat falls under HALF_UNDER (90 a minute). So the count never runs
    faster than HALF_OVER a second, whatever the tempo: nor in the frames before half time takes hold, while the beat's smoothed speed
-   (RATE_SMOOTH) rises past it, when the count is held to that pace and comes back onto the beat after (RETUNE).
+   (RATE_SMOOTH) rises past it, when the count is held to that pace and comes back onto the beat after (RETUNE). The pull back onto
+   the beat is held to the same pace, and never runs the count back: `move` returns the count, and a test steps it frame by frame.
 
    How the band moves is set by CLAUDE.md's bar on flashes, which the six capsules this band replaced broke two and three times
    over. A black limb against the lit panel swings a point's brightness as its edge passes, and at the hill's distance an arm, a
@@ -654,11 +655,16 @@ export function buildBand(stage, floor) {
     if (rate > HALF_OVER) half = true;
     else if (rate < HALF_UNDER) half = false;
     const pace = half ? 0.5 : 1;
+    const was = count;
     count += Math.min(step * pace, HALF_OVER * dt);
     const off = count - beats * pace;
     count -= (off - Math.round(off / pace) * pace) * Math.min(1, dt / RETUNE);
+    // What the frame does to the count, the retune's pull included, is held between standing still and HALF_OVER a second: a pull
+    // onto the beat never runs the count faster than that, nor ever back.
+    count = was + Math.max(0, Math.min(HALF_OVER * dt, count - was));
     for (let k = 0; k < players.length; k++) players[k].pose(count, level, time);
     place();
+    return count;
   }
   for (let k = 0; k < players.length; k++) players[k].pose(0, 0, 0);
   place();
