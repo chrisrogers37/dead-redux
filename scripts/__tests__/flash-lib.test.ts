@@ -10,6 +10,8 @@ import {
 } from "../flash/lib.mjs";
 import { tables } from "../flash/table.mjs";
 import windows from "../flash/windows.json";
+import schedule from "../../data/pick-schedule.json";
+import { showDateFor } from "../../src/lib/pick-schedule";
 
 // The flash counter's jobs, settings, page and table (scripts/flash). Importing lib.mjs here is itself a check: it runs no git, reads no
 // environment and loads no browser until one of its functions is called, so it imports where there is none of them.
@@ -144,6 +146,33 @@ describe("windows.json", () => {
         for (const s of at) expect(s > 0 && s < w.to - w.from, key).toBe(true);
       }
     }
+  });
+
+  it("names each day's own show, and in each window tracks of that show's map, each played inside its own length; and the three windows beside a landmark's light are of that landmark's song", () => {
+    // A window is counted on its day's page, which plays the show the schedule gives that day, and the count stops where the
+    // page plays another. A window whose track the show lacks, or that asks for a stretch past the track's end, would count
+    // some other song or the gap after one.
+    type Window = { track: number; from: number; to: number; cues?: number[][] };
+    const titles: Record<string, string> = {};
+    for (const [day, { show, windows: all }] of Object.entries(windows)) {
+      expect(showDateFor(schedule, day), day).toBe(show);
+      const { tracks } = JSON.parse(readFileSync(join(repoRoot(), "public", "maps", `${show}.json`), "utf8")) as { tracks: { title: string; playingDuration: number }[] };
+      for (const [key, w] of Object.entries(all) as [string, Window][]) {
+        // The window's own track, up to its end or its first cue, and then each cue's track from its place to the next cue.
+        const ends = [...(w.cues ?? []).map(([s]) => s), w.to - w.from], played: [number, number][] = [[w.track, w.from + ends[0]]];
+        (w.cues ?? []).forEach(([s, track, position], k) => played.push([track, position + ends[k + 1] - s]));
+        for (const [track, until] of played) {
+          expect(Number.isInteger(track) && track >= 0 && track < tracks.length, `${day} ${key}`).toBe(true);
+          expect(until, `${day} ${key}, track ${track}`).toBeLessThanOrEqual(tracks[track].playingDuration);
+        }
+        titles[`${day} ${key}`] = tracks[w.track].title;
+      }
+    }
+    // The jobs that count beside a landmark stand the visitor by the song's own landmark (pose=near-K), so K is the window's
+    // track: Lovelight's lighthouse, the miracle's light and the two eyes.
+    expect([titles["2026-10-20 L"], titles["2026-10-20 M"], titles["2026-11-25 E"]]).toEqual(["Turn On Your Lovelight", "I Need A Miracle ->", "Eyes Of The World ->"]);
+    const [beside] = parseJobs("branch L pose=near-17 still=1", WINDOWS);
+    expect([beside.pose, WINDOWS.L.track, jobUrl("http://127.0.0.1:3000", DAY, beside)]).toEqual(["near-17", 17, "http://127.0.0.1:3000/2026-10-20?drive=map&pose=near-17&still=1"]);
   });
 
   it("is what windowsFor reads, which refuses a day with no windows", () => {
