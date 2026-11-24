@@ -9,7 +9,7 @@ import { makeBuilders, mergeLandmarks, mergeStill, mesh, songKey, STONE_KINDS, s
 import { BAND_SUNK, BOW_TONES, BRASS, COPPER, CREAM, DARK_TIMBER, GREY, HANDRAIL, IRON, KITE_TONES, PALE_STONE, PIER_NICHE, PIER_PLINTH, PLANK_TONES, PLAQUE, POST, SIGN_DARK, SIGN_YELLOW, STONE, STRING, SUNK as COMMON_SUNK, TIMBER, TRESTLE_SUNK } from "../../../public/world/landmarks.js";
 // And the lighthouse's, the eyes', the lotus bowl's, the banner's and the terrapin's; and the box of rain's, the dew's leaf's, the
 // fingerpost's and the pool's.
-import { CLOUD, CLOUD_OVER, CLOUD_UNDER, FINGER_BOARD, FINGER_BORDER, LEAF_FACE, LEAF_RIB, LEAF_RIM, LEAF_UNDER, POOL_SUNK, POOL_WATER, RAIN, RAIN_PLANKS, RAIN_SUNK, RAIN_WATER, RIPPLE } from "../../../public/world/landmarks.js";
+import { CLOUD, CLOUD_OVER, CLOUD_UNDER, DEW_DEEP, DEW_FOOT, DEW_TIP, FINGER_BOARD, FINGER_BORDER, LEAF_FACE, LEAF_RIB, LEAF_RIM, LEAF_UNDER, POOL_SUNK, POOL_WATER, RAIN, RAIN_PLANKS, RAIN_SUNK, RAIN_WATER, RIPPLE } from "../../../public/world/landmarks.js";
 import { BANNER_FOLD, BANNER_RED, BEGONIA, BEGONIA_LEAF, BELLY, BOWL_PALE, CLAW, DEEP_RED, HEART, HIDE, IRIS, LIGHT_SUNK, LOTUS_PALE, PAD, PUPIL, SCARLET, SCUTES, SEAM, SNOW, TERRAPIN_SUNK, TRIM, WATER } from "../../../public/world/landmarks.js";
 import { layout, outline, placeLandmarks } from "../../../public/world/path.js";
 import { readdirSync } from "fs";
@@ -4033,9 +4033,11 @@ describe("the box of rain, the wheel, the dark star, the dewdrop, the fingerpost
         expect([other.position.x, other.position.y, other.position.z, other.rotation.x, other.rotation.y, other.rotation.z], where).toEqual([0, 3.6, 0, 0, 0, 0]);
         expect([material.isMeshLambertMaterial, (material.emissive as { getHex(): number }).getHex()], where).toEqual([true, 0]);
       } else expect(moving, where).toEqual([]);
-      // The star is main's unlit near-black and the dew main's shiny grey, as main drew them.
+      // The star is main's unlit near-black, as main drew it. The dew is shiny as main's stone was, with main's white highlight
+      // and its sharpness, and its own draw call; but it is water now, its tones its corners' own and shaded round, and it has a
+      // cool depth of its own that keeps it from going black at night. Main's grey, flat-shaded, read as a grey spire.
       if (title === STAR) expect([material.type, material.color.getHex()], where).toEqual(["MeshBasicMaterial", 0x0b0b0d]);
-      if (title === DEW) expect([material.type, material.color.getHex(), (material.specular as { getHex(): number }).getHex(), material.shininess, material.flatShading], where).toEqual(["MeshPhongMaterial", 0x7d7a74, 0xffffff, 80, true]);
+      if (title === DEW) expect([material.type, material.color.getHex(), material.vertexColors, (material.emissive as { getHex(): number }).getHex(), (material.specular as { getHex(): number }).getHex(), material.shininess, material.flatShading, material.transparent], where).toEqual(["MeshPhongMaterial", 0xffffff, true, DEW_DEEP, 0xffffff, 80, false, false]);
       // The lantern glows in the shared amber, as the lamp and the eyes do, and does not pulse or move.
       if (title === SATURDAY) expect([material.isMeshLambertMaterial, material.color.getHex(), (material.emissive as { getHex(): number }).getHex(), material.emissiveIntensity], where).toEqual([true, 0xe8b04b, 0xe8b04b, 0.6]);
     });
@@ -4057,11 +4059,12 @@ describe("the box of rain, the wheel, the dark star, the dewdrop, the fingerpost
     // stands; and the least its own silhouette may be of main's. The wheel and the pool are main's shapes made over, and
     // cover most of them. The box's walls are 0.75 m where main's were 2.6 m, so that a cloud stands over it under main's top
     // and rain shows between them; the star's body is under its spikes, where main's ball was round to its edge; the dew's drop
-    // is 2.2 m across where main's boulder was 4.4 m; and the fingerpost's boards point along the path where main's two stood
+    // is 2.4 m across and 2.3 m tall where main's boulder was 4.4 m and 4.1 m, round with a short tip, since a drop as broad as
+    // the boulder would be a dome and one as tall a spire; and the fingerpost's boards point along the path where main's two stood
     // off its middle, each one way, so it covers half of where those stood and is as large. A shape that kept inside its outline
     // by shrinking, or stood elsewhere in it, would cover less.
-    const LEAST: Record<string, [number, number]> = { [RAINBOX]: [0.62, 0.58], [WHEEL]: [0.79, 0.76], [STAR]: [0.63, 0.61], [DEW]: [0.49, 0.49], [SATURDAY]: [0.46, 0.46], [POOL]: [0.94, 0.92] };
-    const SIZE: Record<string, [number, number]> = { [RAINBOX]: [0.62, 0.58], [WHEEL]: [1.09, 1.06], [STAR]: [0.63, 0.61], [DEW]: [0.6, 0.59], [SATURDAY]: [1.03, 1.03], [POOL]: [0.96, 0.93] };
+    const LEAST: Record<string, [number, number]> = { [RAINBOX]: [0.62, 0.58], [WHEEL]: [0.79, 0.76], [STAR]: [0.63, 0.61], [DEW]: [0.44, 0.43], [SATURDAY]: [0.46, 0.46], [POOL]: [0.94, 0.92] };
+    const SIZE: Record<string, [number, number]> = { [RAINBOX]: [0.62, 0.58], [WHEEL]: [1.09, 1.06], [STAR]: [0.63, 0.61], [DEW]: [0.54, 0.53], [SATURDAY]: [1.03, 1.03], [POOL]: [0.96, 0.93] };
     tiers(({ parts }, title, phone, where) => {
       const was = silhouette(main(title).corners), now = silhouette(parts.flatMap(cornersOf)), covers = sharedBy(was, now) / areaOf(was), size = areaOf(now) / areaOf(was);
       if (covers < LEAST[title][phone ? 1 : 0] - 1e-9 || size < SIZE[title][phone ? 1 : 0]) expect.fail(`${where}: covers ${covers} of main's silhouette and is ${size} of its size`);
@@ -4142,7 +4145,7 @@ describe("the box of rain, the wheel, the dark star, the dewdrop, the fingerpost
   });
 
   it("cost what they are said to: at most 2,000 triangles each on a desktop and 1,300 on a phone, a phone's fewer, and under 4,800 and 2,800 between them", () => {
-    const COST: Record<string, [number, number]> = { [RAINBOX]: [1184, 764], [WHEEL]: [636, 444], [STAR]: [442, 242], [DEW]: [812, 356], [SATURDAY]: [540, 452], [POOL]: [920, 520] };
+    const COST: Record<string, [number, number]> = { [RAINBOX]: [1184, 764], [WHEEL]: [636, 444], [STAR]: [442, 242], [DEW]: [1016, 364], [SATURDAY]: [540, 452], [POOL]: [920, 520] };
     for (const title of SIX) {
       const [desktop, phone] = COST[title];
       expect([triangles(six(title).parts), triangles(six(title, true).parts)], title).toEqual([desktop, phone]);
@@ -4292,7 +4295,7 @@ describe("the box of rain, the wheel, the dark star, the dewdrop, the fingerpost
     }
   });
 
-  it("build the dewdrop: a great drop and two small ones, each standing a few centimetres into a broad leaf, all of the drops over the leaf, which is green with a pale midrib", () => {
+  it("build the dewdrop: a great drop and two small ones of water, each full and round at its foot with a short tip, shaded round, paler at its foot and catching the sky at its rim, standing a few centimetres into a broad leaf, all of the drops over the leaf, which is green with a pale midrib", () => {
     for (const phone of [false, true]) {
       const dew = six(DEW, phone), { own, pieces, position, color } = dew, [drops] = own, where = phone ? "on a phone" : "on a desktop", [leaf] = pieces;
       expect(pieces, where).toHaveLength(1);
@@ -4307,12 +4310,42 @@ describe("the box of rain, the wheel, the dark star, the dewdrop, the fingerpost
         expect(Math.max(...drop.corners.map((i) => outside(edge, drops.position.getX(i), drops.position.getZ(i)))), where).toBeLessThan(-0.005);
       }
       const [great, ...small] = [...drops.pieces].sort((p, q) => q.high - p.high);
-      expect(great.high - great.low > 3 && Math.hypot(midst(great)[0], midst(great)[2]) < 1e-3, where).toBe(true);
-      // The great drop is broad across the path, as the walker sees it, and narrower along it, where the leaf is narrow: drawn as
-      // round as the leaf let it be, it read from the path as a grey spire. The small ones stand clear of it.
-      expect([wide(great) > 2.1, wide(great) > 1.1 * deep(great)], where).toEqual([true, true]);
+      expect(Math.hypot(midst(great)[0], midst(great)[2]), where).toBeLessThan(1e-3);
+      // The great drop is broad across the path, as the walker sees it, and narrower along it, where the leaf is narrow. The small
+      // ones stand clear of it.
+      expect([wide(great) > 2.2, wide(great) > 1.15 * deep(great)], `${where}: the great drop ${wide(great)} m across the path and ${deep(great)} m along it`).toEqual([true, true]);
       for (const drop of small) expect(meet(drop, great), where).toBe(false);
+      // Each is a drop of water: full and round at its foot and drawn up to a short tip. Cut level at every hundredth of its
+      // height, how far it reaches along the path from its own axis, through its tip: its widest is in its lower half; a twentieth
+      // of the way up it reaches more than half as far, and a fifth of the way up nine tenths as far; its tip stands over its
+      // widest by no more than 1.7 times that reach; and 85 hundredths of the way up it reaches under 0.35 as far. The first drop
+      // of this phase, a tall spire, stood its tip 2.2 of its reach over its widest and reached 0.88 as far a fifth of the way up.
+      for (const drop of drops.pieces) {
+        const tip = drop.corners.reduce((p, q) => (drops.position.getY(q) > drops.position.getY(p) ? q : p)), axis = drops.position.getZ(tip), tall = drop.high - drop.low;
+        const reach = Array.from({ length: 99 }, (_, k) => sliced(drops.position, drop, drop.low + ((k + 1) / 100) * tall, "z")!.x1 - axis);
+        const most = Math.max(...reach), widest = (reach.indexOf(most) + 1) / 100;
+        expect([widest > 0.25 && widest < 0.5, reach[4] / most > 0.55, reach[19] / most > 0.9, ((1 - widest) * tall) / most < 1.7, reach[84] / most < 0.35], `${where}: a drop widest ${widest} of the way up, reaching ${reach[4] / most} as far a twentieth of the way up and ${reach[19] / most} a fifth, its tip ${((1 - widest) * tall) / most} of its reach over its widest and ${reach[84] / most} at 85 hundredths`).toEqual([true, true, true, true, true]);
+      }
+      // They are shaded round, their corners shared by the faces about them: a faceted drop read as cut stone. And they are water:
+      // bluish all over, paler at the foot, where the light the drop gathers comes out, than at the tip.
+      const geometry = (drops.part as unknown as { geometry: { index: unknown; toNonIndexed(): { attributes: { color: Corners } } } }).geometry, tones = geometry.toNonIndexed().attributes.color;
+      expect([geometry.index !== null, drops.part.material.flatShading], where).toEqual([true, false]);
+      for (const drop of drops.pieces) {
+        const lowest = drop.corners.reduce((p, q) => (drops.position.getY(q) < drops.position.getY(p) ? q : p)), highest = drop.corners.reduce((p, q) => (drops.position.getY(q) > drops.position.getY(p) ? q : p));
+        expect([isTone(tones, lowest, DEW_FOOT), isTone(tones, highest, DEW_TIP)], where).toEqual([true, true]);
+      }
+      const [foot, tip] = [colourOf(DEW_FOOT), colourOf(DEW_TIP)];
+      expect([foot.b > foot.r, tip.b > tip.r, bright(foot.r, foot.g, foot.b) > 1.3 * bright(tip.r, tip.g, tip.b)], where).toEqual([true, true, true]);
     }
+    // Its rim catches the sky: three's shiny shader, as it is written at the pinned version, takes the sky's light at the drops'
+    // edges, the hemisphere light's colour from above, more as the face turns from the eye. It adds light, as a reflection does.
+    const material = six(DEW).own[0].part.material as unknown as { onBeforeCompile(shader: { fragmentShader: string; vertexShader: string }): void };
+    const shader = { fragmentShader: THREE.ShaderLib.phong.fragmentShader, vertexShader: THREE.ShaderLib.phong.vertexShader };
+    expect(shader.fragmentShader.split("#include <opaque_fragment>")).toHaveLength(2);
+    material.onBeforeCompile(shader);
+    expect(shader.fragmentShader).toContain("outgoingLight += hemisphereLights[ 0 ].skyColor * RECIPROCAL_PI * 1.20 * pow( 1.0 - saturate( dot( normal, normalize( vViewPosition ) ) ), 3.0 );");
+    expect(shader.fragmentShader.indexOf("outgoingLight +=")).toBeLessThan(shader.fragmentShader.indexOf("#include <opaque_fragment>"));
+    expect(shader.vertexShader).toBe(THREE.ShaderLib.phong.vertexShader);
   });
 
   it("build the fingerpost: a turned post with a lantern on its head and two boards under it that point their two ways, each held in an iron collar, with a pale band along it on both its faces", () => {
@@ -4340,17 +4373,28 @@ describe("the box of rain, the wheel, the dark star, the dewdrop, the fingerpost
     }
   });
 
-  it("build the still pool: dark water in a kerb, and on it three ripples about its middle, each smaller and lower than the one round it, their crests up", () => {
+  it("build the still pool: water that takes the sky's light in a kerb, and on it three pale ripples about its middle, lit as the water is, each smaller and lower than the one round it, their crests up", () => {
+    // The water is pale enough to take the sky's light, as the sea takes the sky's tone: rose at dusk and blue at night, and
+    // bluer than it is red. A near-black pool, as main's and this phase's first were, took none and read as a hole, a drain.
+    // The ripples are paler than the water by their own tone, twice as bright and more: on the dark water they read from the
+    // path as dark rings, a record.
+    const ripple = colourOf(RIPPLE), water = colourOf(POOL_WATER);
+    expect([bright(water.r, water.g, water.b) > 0.2, water.b > water.r], "the water").toEqual([true, true]);
+    expect(bright(ripple.r, ripple.g, ripple.b)).toBeGreaterThan(2 * bright(water.r, water.g, water.b));
     for (const phone of [false, true]) {
       const pool = six(POOL, phone), { position } = pool, where = phone ? "on a phone" : "on a desktop", [water] = toned(pool, POOL_WATER), [kerb] = toned(pool, STONE);
-      const ridges = toned(pool, RIPPLE).sort((p, q) => q.x1 - p.x1);
+      const ridges = toned(pool, RIPPLE).sort((p, q) => q.x1 - p.x1), normal = pool.still.geometry.attributes.normal;
       expect([water.high, kerb.high], where).toEqual([expect.closeTo(0.08, 5), expect.closeTo(0.2, 5)]);
       expect(ridges, where).toHaveLength(3);
-      // The ripples are pale on the dark water, rings that catch the sky: as dark as the water's own, they read from the path as
-      // black rings, a spiral. And the kerb stands 12 cm over the water, where at 2 cm it showed only in slivers.
-      const ripple = colourOf(RIPPLE), dark = colourOf(POOL_WATER);
-      expect(bright(ripple.r, ripple.g, ripple.b), where).toBeGreaterThan(0.1);
-      expect(bright(ripple.r, ripple.g, ripple.b), where).toBeGreaterThan(10 * bright(dark.r, dark.g, dark.b));
+      // The kerb stands 12 cm over the water, where at 2 cm it showed only in slivers.
+      ridges.forEach((ridge) => {
+        // A ripple is lit as the water round it is: every normal of it is tipped up, within 32 degrees of the sky's. Lit as its
+        // own slopes, its near side caught the low sun and its foot went dark, a groove on each side of a pale crest.
+        for (const i of ridge.corners) if (normal.getY(i) < 0.85) expect.fail(`${where}: a ripple's normal ${normal.getY(i)} up`);
+        // And it is 9 cm either side of its crest, so that between two of them more water shows than ripple.
+        const foot = ridge.corners.filter((i) => position.getY(i) < 0.08 + 1e-6).map((i) => Math.hypot(position.getX(i), position.getZ(i)));
+        expect(Math.max(...foot) - Math.min(...foot), where).toBeCloseTo(0.18, 3);
+      });
       ridges.forEach((ridge, k) => {
         const crest = ridge.corners.filter((i) => position.getY(i) > ridge.high - 1e-6), out = crest.map((i) => Math.hypot(position.getX(i), position.getZ(i)));
         expect([midst(ridge)[0], midst(ridge)[2]].map((v) => Math.abs(v) < 1e-3), where).toEqual([true, true]);

@@ -1,6 +1,6 @@
 /* eslint-disable */
 import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { mergeGeometries, mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 import { isDrums, isSpace, isTuning } from "./seats.js";
 
 export const mesh = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); return m; };
@@ -101,11 +101,14 @@ export const LOTUS_PALE = 0xf1ece2, BANNER_RED = 0xe0472a;
 export const BANNER_FOLD = 0.78;
 export const TRIM = 0xc89a3c, BEGONIA = 0xf2b7ae, HEART = 0xf0c860, BEGONIA_LEAF = 0x538550;
 export const SEAM = 0x2e3524, SCUTES = [0x5d6b3a, 0x8a8548, 0x8f7440], BELLY = 0xcdbf8a, HIDE = 0x86946a, PAD = 0x6b7850, CLAW = 0xcfc4a2;
-/* Box Of Rain's, the dew's leaf's, the fingerpost's and the pool's own tones, and how thick a streak of rain is round. */
+/* Box Of Rain's, the dew's, the fingerpost's and the pool's own tones, and how thick a streak of rain is round. The dew's drops are
+   paler at the foot than at the tip, with a cool depth of their own (DEW_DEEP), and their rim takes DEW_RIM of the sky's light; the
+   pool's ripples are lit with their normals tipped up toward the sky's by RIPPLE_LIFT. */
 export const RAIN_PLANKS = [0x6b4e2e, 0x7d5c39, 0x5a4128, 0x86643f], RAIN = 0xb4cbdb, RAIN_WATER = 0x5f7a8c, CLOUD = 0xc9cdd3, CLOUD_OVER = 0xeef0f3, CLOUD_UNDER = 0x9ca1aa, RAIN_STREAK = 0.08;
 export const WHEEL_PALE = 0x8a6a44, WHEEL_SPOKE = 0xa08058;
+export const DEW_FOOT = 0xd2eef7, DEW_TIP = 0x7fb2cf, DEW_DEEP = 0x16303c, DEW_RIM = 1.2;
 export const LEAF_FACE = 0x4f7d3f, LEAF_RIM = 0x6b9a4f, LEAF_RIB = 0x9cc07a, LEAF_VEIN = 0x62904c, LEAF_UNDER = 0x2c4a2a;
-export const FINGER_BOARD = 0x3d2b1a, FINGER_BORDER = 0xe6d8a8, POOL_WATER = 0x0e1014, RIPPLE = 0x5e7187;
+export const FINGER_BOARD = 0x3d2b1a, FINGER_BORDER = 0xe6d8a8, POOL_WATER = 0x8f86c8, RIPPLE = 0xe8eef6, RIPPLE_LIFT = 2;
 
 /* The builders table: a title rule and the landmark it builds; a song no rule matches gets one of eight standing stones, by its title. */
 export function makeBuilders(phone) {
@@ -1596,10 +1599,10 @@ export function makeBuilders(phone) {
 
   /* ---------- Box Of Rain, The Wheel, Dark Star, Morning Dew, One More Saturday Night and Ripple ---------- */
   /* Each of these six keeps inside the outline, seen from above, of the plain shape it replaced, and under its top, as the batches
-     before it do. The wheel, the star and the dew are main's own moving or special parts, in main's materials: the wheel turns as
-     main's turned, the star is main's unlit near-black and the dew main's shiny grey, each still its own draw call. The lantern
-     on the fingerpost is the one lit part this batch adds: it glows in the shared amber and does not move, so it costs a draw call
-     and nothing in the light show. No post, rail, stalk, spoke or streak of rain here is thinner than 13 cm, as in the batch
+     before it do. The wheel, the star and the dew are main's own moving or special parts: the wheel turns as main's turned and the
+     star is main's unlit near-black, in main's materials; the dew is shiny as main's stone was, but water now. Each is still its
+     own draw call. The lantern on the fingerpost is the one lit part this batch adds: it glows in the shared amber and does not
+     move, so it costs a draw call and nothing in the light show. No post, rail, stalk, spoke or streak of rain here is thinner than 13 cm, as in the batch
      before. */
   /* A part painted face by face that shades smooth: a cloud's puffs, which flat-shaded would read as stones. */
   const paintedSmooth = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -1700,13 +1703,21 @@ export function makeBuilders(phone) {
     g.add(mesh(mergeGeometries(parts.map((p) => { for (const n of Object.keys(p.attributes)) if (n !== "position" && n !== "normal") p.deleteAttribute(n); return p; })), new THREE.MeshBasicMaterial({ color: 0x0b0b0d }), 0, STAR.at, 0));
   }
 
-  /* Morning Dew: main's shiny stone, a dewdrop now, in main's own material and its own mesh as main's was: a great drop, round at
-     its foot and drawn up to a point, and two small ones, on a broad leaf that lies across the path, its tips to either side, its
-     rim curled up and its midrib down the middle. The great drop is broader across the path than along it, 2.2 m at its widest as
-     the walker sees it, so that from the path it is a drop and not a spire; the small ones stand out toward the leaf's tips,
-     clear of it. The leaf keeps inside
-     the plain stone's outline seen from above, and its edge goes on down into the ground. */
-  const DEW = { long: 2.02, wide: 1.0, drop: [[0, 0], [0.45, 0.12], [0.8, 0.5], [0.95, 1.0], [0.85, 1.5], [0.55, 2.0], [0.3, 2.5], [0.12, 2.9], [0, 3.1]], broad: 1.2, foot: 0.38, small: [[1.48, 0.03, 0.27], [-1.44, 0.08, 0.24]] };
+  /* Morning Dew: main's shiny stone, a dewdrop now, in its own mesh as main's was: a great drop and two small ones, on a broad leaf
+     that lies across the path, its tips to either side, its rim curled up and its midrib down the middle. Each drop is full and
+     round at its foot and drawn up to a short tip, as a drop of water is drawn. They are water: shiny as main's stone was, with
+     main's white highlight, but shaded round, pale and clear, paler toward the foot, where the light a drop gathers comes out,
+     and with a cool depth of their own, so that at night they are blue and not black; and their rim takes the sky's light. Drawn
+     tall, a spire, in main's grey, it read as a grey cone. The great drop is broader across the path than along it, 2.4 m at its
+     widest as the walker sees it; the small ones stand out toward the leaf's tips, clear of it. The leaf keeps inside the plain
+     stone's outline seen from above, and its edge goes on down into the ground. */
+  const DEW = { long: 2.02, wide: 1.0, r: 0.95, broad: 1.25, foot: 0.38, small: [[1.48, 0.03, 0.27], [-1.44, 0.08, 0.24]] };
+  /* A drop's profile, [radius, height] for a drop a metre round at its widest, foot first: a flat foot a little over half as broad
+     as the drop, where it stands into the leaf; its round, whose middle is 0.85 over the foot, out to its widest and on over; and
+     from where the round turns toward the tip, its sides drawn a little in up to a short point 2.45 over the foot. `COARSE` is
+     the profile a phone's great drop and a desktop's small ones keep, and `TINY` a phone's small ones'. */
+  const DROP = [[0, 0], [0.527, 0], [0.766, 0.207], [0.94, 0.508], [1, 0.85], [0.94, 1.192], [0.866, 1.35], [0.78, 1.475], [0.43, 1.865], [0.185, 2.177], [0.07, 2.34], [0, 2.45]];
+  const COARSE = [0, 1, 3, 4, 5, 7, 8, 10, 11], TINY = [0, 1, 3, 4, 7, 11];
   /* The leaf's rings, from its foot up and in: how far out each stands along the leaf and across it, and how high. */
   const LEAF_RINGS = [[1, 1, -SUNK], [1, 1, 0.6], [0.985, 0.96, 0.72], [0.94, 0.78, 0.6], [0.86, 0.5, 0.5], [0.74, 0.22, 0.45], [0.6, 0.05, 0.43]];
   function dewdrop(g) {
@@ -1720,12 +1731,34 @@ export function makeBuilders(phone) {
     /* Its tones: dark where its edge goes down, its midrib pale, its veins a little lighter, and the rest of its face green. */
     const vein = (x, z) => { const t = (Math.abs(x) + 1.3 * Math.abs(z)) / 0.42; return Math.abs(t - Math.round(t)) < 0.12; };
     put(g, paint(leaf, (x, y, z) => (y < 0.4 ? LEAF_UNDER : Math.abs(z) < 0.09 ? LEAF_RIB : vein(x, z) ? LEAF_VEIN : y > 0.62 ? LEAF_RIM : LEAF_FACE)), painted, 0, 0, 0);
-    /* The drops, each standing a few centimetres into the leaf where it lies. */
-    const parts = [turned(DEW.drop, phone ? 10 : 14).scale(DEW.broad, 1, 1).translate(0, DEW.foot, 0)];
-    for (const [x, z, r] of DEW.small) parts.push(new THREE.SphereGeometry(r, phone ? 6 : 10, phone ? 4 : 8).toNonIndexed().translate(x, meets(leaf, x, z, true) + r - 0.04, z));
-    const drops = mergeGeometries(parts.map((p) => { for (const n of Object.keys(p.attributes)) if (n !== "position") p.deleteAttribute(n); return p; }));
+    /* The drops, each standing a few centimetres into the leaf where it lies, smooth: one shape of corners shared, so it shades
+       round. */
+    const drop = (r, sides, profile) => turned(profile.map((k) => DROP[k]).map(([x, y]) => [x * r, y * r]), sides);
+    const parts = [drop(DEW.r, phone ? 10 : 20, phone ? COARSE : DROP.map((_, k) => k)).scale(DEW.broad, 1, 1).translate(0, DEW.foot, 0)];
+    for (const [x, z, r] of DEW.small) parts.push(drop(r, phone ? 5 : 10, phone ? TINY : COARSE).translate(x, meets(leaf, x, z, true) - 0.04, z));
+    /* Each drop is clear and pale toward its foot, where the light it gathers comes out, and deeper toward its tip, corner by corner,
+       so the one tone runs into the other. */
+    const foot = new THREE.Color(DEW_FOOT), tip = new THREE.Color(DEW_TIP), c = new THREE.Color();
+    for (const part of parts) {
+      const position = part.attributes.position, colors = new Float32Array(position.count * 3);
+      let low = Infinity, high = -Infinity;
+      for (let i = 0; i < position.count; i++) { low = Math.min(low, position.getY(i)); high = Math.max(high, position.getY(i)); }
+      for (let i = 0; i < position.count; i++) c.lerpColors(foot, tip, THREE.MathUtils.smoothstep((position.getY(i) - low) / (high - low), 0.15, 0.75)).toArray(colors, i * 3);
+      part.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    }
+    const drops = mergeVertices(mergeGeometries(parts));
     drops.computeVertexNormals();
-    g.add(mesh(drops, new THREE.MeshPhongMaterial({ color: 0x7d7a74, specular: 0xffffff, shininess: 80, flatShading: true }), 0, 0, 0));
+    const water = new THREE.MeshPhongMaterial({ vertexColors: true, emissive: DEW_DEEP, specular: 0xffffff, shininess: 80 });
+    /* Its rim catches the sky: where its face turns away from the eye it takes the sky's light, the hemisphere light's colour from
+       above, as a pale surface lit by it would. */
+    water.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace("#include <opaque_fragment>", `
+        #if NUM_HEMI_LIGHTS > 0
+          outgoingLight += hemisphereLights[ 0 ].skyColor * RECIPROCAL_PI * ${DEW_RIM.toFixed(2)} * pow( 1.0 - saturate( dot( normal, normalize( vViewPosition ) ) ), 3.0 );
+        #endif
+        #include <opaque_fragment>`);
+    };
+    g.add(mesh(drops, water, 0, 0, 0));
   }
 
   /* One More Saturday Night: a lamp post at a crossroads. A turned post with a lantern on its head, and under it two fingerboards
@@ -1757,13 +1790,14 @@ export function makeBuilders(phone) {
   }
 
   /* Ripple: still water in a kerb of stone, where the dark disc lay in its stone ring, and on it three ripples, each smaller and
-     lower than the one round it, and no pebble at their middle. The pool is dark and the ripples paler, a grey-blue that catches
-     the sky: in the water's own dark they read from the path as black rings, a spiral. The kerb is the plain ring's own stone,
+     lower than the one round it, and no pebble at their middle. The water is a pale violet that takes the sky's light, as the sea
+     takes the sky's tone: rose at dusk and blue at night. The ripples are paler still, by their own tone, and lit as the water is.
+     Dark water read from the path as a hole, its ripples as the grooves of a record. The kerb is the plain ring's own stone,
      12 cm over the water, with rough stones set in it. Nothing stands over 0.28 m, as nothing of the plain one did.
      The kerb is 6.6 m across and stands level. Stood at every quarter metre of the path, the ground under its rim lies 3.71 m
      under the landmark's own ground at the lowest, where the path is steepest: so the pool and the kerb go POOL_SUNK down, which
      is that and a hand more. */
-  const POOL = { r: 2.6, top: 0.08, kerb: [2.55, 3.3, 0.2], stones: 10, ridges: [[2.1, 0.12], [1.45, 0.09], [0.8, 0.06]], half: 0.12 };
+  const POOL = { r: 2.6, top: 0.08, kerb: [2.55, 3.3, 0.2], stones: 10, ridges: [[2.1, 0.12], [1.45, 0.09], [0.8, 0.06]], half: 0.09 };
   function stillWater(g) {
     const sides = phone ? 12 : 24;
     put(g, new THREE.CylinderGeometry(POOL.r, POOL.r, POOL.top + POOL_SUNK, sides), tone(POOL_WATER), 0, (POOL.top - POOL_SUNK) / 2, 0);
@@ -1774,7 +1808,14 @@ export function makeBuilders(phone) {
       const a = (k / n) * 2 * Math.PI, r = 0.3 + 0.05 * roll(k, 0, 0, 60);
       put(g, rock(r, 0, 0.15, 61 + k).scale(1.3, 0.55, 1), tone(k % 3 ? GREY : PALE_STONE, true), 2.8 * Math.cos(a), 0.05, 2.8 * Math.sin(a), 0, -a);
     }
-    for (const [R, h] of POOL.ridges) put(g, lathe([[R - POOL.half, POOL.top], [R, POOL.top + h], [R + POOL.half, POOL.top], [R - POOL.half, POOL.top]].reverse(), sides), tone(RIPPLE, true), 0, 0, 0);
+    /* Each ripple is lit as the water round it is: its normals are tipped up toward the sky's, so that it is paler than the water
+       by its own tone alone. Lit as its own slopes, its near side caught the low sun and its foot went dark, a groove. */
+    const lit = (geo) => {
+      const normal = geo.attributes.normal, n = new THREE.Vector3();
+      for (let i = 0; i < normal.count; i++) { n.fromBufferAttribute(normal, i); n.y += RIPPLE_LIFT; n.normalize(); normal.setXYZ(i, n.x, n.y, n.z); }
+      return geo;
+    };
+    for (const [R, h] of POOL.ridges) put(g, lit(lathe([[R - POOL.half, POOL.top], [R, POOL.top + h], [R + POOL.half, POOL.top], [R - POOL.half, POOL.top]].reverse(), sides)), tone(RIPPLE), 0, 0, 0);
   }
 
   /* Each landmark's still parts merge into one mesh once it is built; a part that moves stays apart. The standing stone alone is
