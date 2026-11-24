@@ -6,10 +6,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SHELVES, SHELVES_COOKIE as PAGE_COOKIE, SHELVES_STORAGE as PAGE_STORAGE } from "../../src/components/world/shelves";
 import {
   installPlates, jobUrl, launch, mainSha, matrixJobs, openPage, parseJobs, readConfig, repoRoot, runFolder, SHELVES_AWAY, SHELVES_COOKIE, SHELVES_STORAGE, STEPPER, tagOf,
-  windowsFor, worldFrom, worldHash,
+  windowsFor, worldError, worldFrom, worldHash,
 } from "../flash/lib.mjs";
 import { tables } from "../flash/table.mjs";
 import windows from "../flash/windows.json";
+import schedule from "../../data/pick-schedule.json";
+import { showDateFor } from "../../src/lib/pick-schedule";
 
 // The flash counter's jobs, settings, page and table (scripts/flash). Importing lib.mjs here is itself a check: it runs no git, reads no
 // environment and loads no browser until one of its functions is called, so it imports where there is none of them.
@@ -144,6 +146,33 @@ describe("windows.json", () => {
         for (const s of at) expect(s > 0 && s < w.to - w.from, key).toBe(true);
       }
     }
+  });
+
+  it("names each day's own show, and in each window tracks of that show's map, each played inside its own length; and the three windows beside a landmark's light are of that landmark's song", () => {
+    // A window is counted on its day's page, which plays the show the schedule gives that day, and the count stops where the
+    // page plays another. A window whose track the show lacks, or that asks for a stretch past the track's end, would count
+    // some other song or the gap after one.
+    type Window = { track: number; from: number; to: number; cues?: number[][] };
+    const titles: Record<string, string> = {};
+    for (const [day, { show, windows: all }] of Object.entries(windows)) {
+      expect(showDateFor(schedule, day), day).toBe(show);
+      const { tracks } = JSON.parse(readFileSync(join(repoRoot(), "public", "maps", `${show}.json`), "utf8")) as { tracks: { title: string; playingDuration: number }[] };
+      for (const [key, w] of Object.entries(all) as [string, Window][]) {
+        // The window's own track, up to its end or its first cue, and then each cue's track from its place to the next cue.
+        const ends = [...(w.cues ?? []).map(([s]) => s), w.to - w.from], played: [number, number][] = [[w.track, w.from + ends[0]]];
+        (w.cues ?? []).forEach(([s, track, position], k) => played.push([track, position + ends[k + 1] - s]));
+        for (const [track, until] of played) {
+          expect(Number.isInteger(track) && track >= 0 && track < tracks.length, `${day} ${key}`).toBe(true);
+          expect(until, `${day} ${key}, track ${track}`).toBeLessThanOrEqual(tracks[track].playingDuration);
+        }
+        titles[`${day} ${key}`] = tracks[w.track].title;
+      }
+    }
+    // The jobs that count beside a landmark stand the visitor by the song's own landmark (pose=near-K), so K is the window's
+    // track: Lovelight's lighthouse, the miracle's light and the two eyes.
+    expect([titles["2026-10-20 L"], titles["2026-10-20 M"], titles["2026-11-25 E"]]).toEqual(["Turn On Your Lovelight", "I Need A Miracle ->", "Eyes Of The World ->"]);
+    const [beside] = parseJobs("branch L pose=near-17 still=1", WINDOWS);
+    expect([beside.pose, WINDOWS.L.track, jobUrl("http://127.0.0.1:3000", DAY, beside)]).toEqual(["near-17", 17, "http://127.0.0.1:3000/2026-10-20?drive=map&pose=near-17&still=1"]);
   });
 
   it("is what windowsFor reads, which refuses a day with no windows", () => {
@@ -579,6 +608,35 @@ describe("openPage", () => {
     asked.on.console({ type: () => "error", text: () => "the world fell over" });
     asked.on.console({ type: () => "log", text: () => "a note" });
     expect(errors).toEqual(["pageerror: boom", "console.error: the world fell over"]);
+  });
+
+  it("runs on a Vercel preview: the policy's refusal of Vercel's toolbar does not stop a count, and a refusal of anything else does", async () => {
+    // A preview's build loads the toolbar on every page and the policy refuses it, so a count that stopped on it could not run on a
+    // preview at all. The first message is word for word what the harness's Chromium wrote on a preview on 2026-11-24.
+    const policy = `the following Content Security Policy directive: "script-src 'self' 'nonce-abc' https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.min.js"`;
+    const toolbar = [
+      `Loading the script 'https://vercel.live/_next-live/feedback/feedback.js' violates ${policy}. The action has been blocked.`,
+      `Refused to load the script 'https://vercel.live/_next-live/feedback/feedback.js' because it violates ${policy}.`,
+      `Framing 'https://vercel.live/' violates the following Content Security Policy directive: "frame-src 'none'".`,
+    ];
+    const site = [
+      `Loading the script 'https://example.com/x.js' violates ${policy}. The action has been blocked.`,
+      `Refused to load the script 'https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.min.js' because it violates ${policy}.`,
+      `Loading the script 'https://vercel.live.example.com/x.js' violates ${policy}.`,
+      `Loading the script 'https://example.com/x.js', sent on to 'https://vercel.live/x.js' violates ${policy}.`,
+      "Failed to fetch 'https://vercel.live/x': see 'Content Security Policy'",
+      "Loading the script 'https://vercel.live/x.js' violates nothing at all",
+      "Uncaught TypeError: cannot read 'https://vercel.live/' of undefined",
+      "the world fell over",
+    ];
+    expect(toolbar.map(worldError)).toEqual([false, false, false]);
+    // And what passed before still passes: the archive's audio, an aborted request and the favicon.
+    expect(["Failed to load resource: https://archive.org/x.mp3", "net::ERR_ABORTED https://preview.test/x", "Failed to load resource: https://preview.test/favicon.ico"].map(worldError)).toEqual([false, false, false]);
+    expect(site.map(worldError)).toEqual(site.map(() => true));
+    const { asked, browser: fake } = browser();
+    const { errors } = await openPage(fake, job("branch Q"), SERVER);
+    for (const text of [...toolbar, ...site]) asked.on.console({ type: () => "error", text: () => text });
+    expect(errors).toEqual(site.map((text) => `console.error: ${text.slice(0, 300)}`));
   });
 
   it("leaves the server's own world alone, and serves a checkout's public/world in its place: its modules, and a 404 for one it lacks", async () => {
