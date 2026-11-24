@@ -9,6 +9,7 @@
       "D": { "name": "U.S. Blues: first light to daybreak, a build, its peak (260 s) and the release", "track": 18, "from": 250, "to": 272 },
       "L": { "name": "Turn On Your Lovelight: its peak (208 s), for a count from beside its lighthouse (pose=near-17)", "track": 17, "from": 202, "to": 214 },
       "M": { "name": "I Need A Miracle: deep night, for a count from beside its light (pose=near-11)", "track": 11, "from": 100, "to": 112 },
+      "W": { "name": "The Wheel: its spokes turning, for a count from beside it (pose=near-10)", "track": 10, "from": 100, "to": 112 },
       "S": {
         "name": "Seeks through the night: dusk, to Drums at 2 s, to the encore at 10 s, back to dusk at 18 s",
         "track": 1,
@@ -18,10 +19,22 @@
       }
     }
   },
+  "2026-11-24": {
+    "show": "1969-04-17",
+    "windows": {
+      "P": { "name": "Morning Dew: a peak (278 s), for a count from beside the shiny drop (pose=near-2)", "track": 2, "from": 272, "to": 284 }
+    }
+  },
   "2026-11-25": {
     "show": "1985-10-25",
     "windows": {
       "E": { "name": "Eyes Of The World: a peak (276 s), for a count from beside its two eyes (pose=near-11)", "track": 11, "from": 270, "to": 282 }
+    }
+  },
+  "2026-11-27": {
+    "show": "1973-03-30",
+    "windows": {
+      "N": { "name": "One More Saturday Night: its peak (176 s), for a count from beside the fingerpost's lantern (pose=near-25)", "track": 25, "from": 170, "to": 182 }
     }
   }
 }

@@ -152,6 +152,9 @@ const fake = vi.hoisted(() => {
     tilted: [] as number[],
     // The canvas's pixel, in rad of the view's height, the stage last fitted the band's crash poles to (band.js).
     perPx: NaN,
+    // The grid the island was built on; and the ground the landmarks were stood on, which the island's stand-in made for a grid.
+    islandGrid: NaN,
+    stoodOn: null as { grid: number } | null,
   };
   class Scene {
     shown = new Set<unknown>();
@@ -234,11 +237,14 @@ const fake = vi.hoisted(() => {
     DoubleSide: 2,
   };
   const modules = {
-    // The island draws the night's look on its sea and its ground itself (island.js), which the frames here do not read.
+    // The island draws the night's look on its sea and its ground itself (island.js), which the frames here do not read; and the
+    // ground as a tier draws it, which the landmarks here, the path's stand-ins, are not stood on.
     island: {
       BAND_GLOW,
-      buildIsland: (_scene: unknown, _grid: number, _phone: boolean, _loop: unknown, trunks: unknown, bands: typeof world.bands) => {
+      surfaceOf: (grid: number) => Object.assign(() => 0, { grid }),
+      buildIsland: (_scene: unknown, grid: number, _phone: boolean, _loop: unknown, trunks: unknown, bands: typeof world.bands) => {
         world.made.push("island");
+        world.islandGrid = grid;
         world.trunks = trunks;
         world.bands = bands;
         return { caves: [], shade: (_look: unknown, time: number, calm: number) => { world.tide = time; world.calm = calm; }, flora: { thin: (half: boolean) => { world.thinned = half; }, sparse: () => { world.sparse = true; } }, lit: LIT };
@@ -278,8 +284,9 @@ const fake = vi.hoisted(() => {
         world.laidOut = tracks.map((t) => t.title);
         return Array.from({ length: tracks.length + 1 }, (_, i) => 0.5 + 0.1 * i);
       },
-      placeLandmarks: (_scene: unknown, _path: unknown, tracks: { title: string }[]) => {
+      placeLandmarks: (_scene: unknown, _path: unknown, tracks: { title: string }[], ...rest: unknown[]) => {
         world.placed = tracks.map((t) => t.title);
+        world.stoodOn = (rest[rest.length - 1] ?? null) as { grid: number } | null;
         return world.landmarks;
       },
       // Where ?pose=near-K stands the visitor. path.js's own answer is tested with path.js; here song k's is the spot a test names, and a
@@ -788,6 +795,19 @@ describe("main.js's frames", () => {
     expect([hill().tier, fake.world.crowdPlain]).toEqual(["phone", true]);
     await startWorld({ search: "?tier=tv" });
     expect([hill().tier, fake.world.crowdPlain]).toEqual(["tv", true]);
+  });
+
+  it("stands the landmarks on the ground as the tier draws it: its rims clear of the island's own cells (path.js rimLift)", async () => {
+    const grids: number[] = [];
+    for (const tier of ["desktop", "phone", "tv"]) {
+      fake.world.stoodOn = null;
+      await startWorld({ search: `?tier=${tier}` });
+      const stoodOn = fake.world.stoodOn as { grid: number } | null;
+      expect(stoodOn?.grid, tier).toBe(fake.world.islandGrid);
+      grids.push(fake.world.islandGrid);
+    }
+    // Each tier draws its own: a desktop's ground on 80 cells a side, a phone's on 52 and a TV's on 64 (quality.js).
+    expect(grids).toEqual([80, 52, 64]);
   });
 
   it("draws a handful of the land's tufts for the draw-call sweep, whose frames are counted and never looked at, and all of them otherwise", async () => {
