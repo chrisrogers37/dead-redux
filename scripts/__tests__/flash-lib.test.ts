@@ -625,10 +625,13 @@ describe("openPage", () => {
       `Loading the script 'https://vercel.live.example.com/x.js' violates ${policy}.`,
       `Loading the script 'https://example.com/x.js', sent on to 'https://vercel.live/x.js' violates ${policy}.`,
       "Failed to fetch 'https://vercel.live/x': see 'Content Security Policy'",
+      "Loading the script 'https://vercel.live/x.js' violates nothing at all",
       "Uncaught TypeError: cannot read 'https://vercel.live/' of undefined",
       "the world fell over",
     ];
     expect(toolbar.map(worldError)).toEqual([false, false, false]);
+    // And what passed before still passes: the archive's audio, an aborted request and the favicon.
+    expect(["Failed to load resource: https://archive.org/x.mp3", "net::ERR_ABORTED https://preview.test/x", "Failed to load resource: https://preview.test/favicon.ico"].map(worldError)).toEqual([false, false, false]);
     expect(site.map(worldError)).toEqual(site.map(() => true));
     const { asked, browser: fake } = browser();
     const { errors } = await openPage(fake, job("branch Q"), SERVER);
