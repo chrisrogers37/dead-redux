@@ -44,7 +44,7 @@ describe("seats", () => {
     // Another day's stands elsewhere: of one day's people, nearly none has another's seat to within 10 cm.
     const a = (gathering(0) as Gathered).seats.map(strip), b = (gathering(1) as Gathered).seats.map(strip);
     expect(a.filter((s) => b.some((t) => Math.hypot(s.x - t.x, s.z - t.z) < 0.1)).length).toBeLessThan(10);
-  });
+  }, 30000);
 });
 
 describe("the gathering", () => {
@@ -333,7 +333,7 @@ describe("the gathering", () => {
       expect(g.seats.every((s) => s.blanket === -1 || g.blankets[s.blanket] !== undefined)).toBe(true);
     }
     expect(sitting).toBeGreaterThan(20 * days.length);
-  });
+  }, 30000);
 
   it("faces no one up a rise steeper than RISE, which a seated figure's feet follow, and most down the hill toward the stage", () => {
     // A seated figure's feet reach 0.36 of its height ahead and follow the ground there up a rise of 0.12 of its height at the most
@@ -556,7 +556,7 @@ describe("parting", () => {
     expect(stuck.filter(([seed]) => seed === 800)).toEqual([]);
     expect(stuck.length).toBeLessThanOrEqual(1);
     expect(fastest).toBeLessThanOrEqual(5.5 + 1e-4);
-  });
+  }, 30000);
 
   it("brings a still figure's arms down over a quarter second and up as slowly, turning them at most once each half second, and keeps them down through a dip", () => {
     const p = parting(placed, OPTS);

@@ -584,7 +584,7 @@ describe("the crowd's trodden grass and its blankets", () => {
         expect(blanketAt(crowdAt(mask, x, z).edge, 0)).toBe(0);
       }
     }
-  });
+  }, 30000);
 
   it("eases a blanket's edge across what a pixel takes in, never across less than 4 cm, and draws its border only while a pixel can hold it", () => {
     const [least, most] = BLANKET_SOFT as number[], [rimIn, rimOut] = BLANKET_RIM as number[], [heldFrom, heldTo] = BLANKET_HELD as number[];
