@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
 import { boomLength, buildAvatar, eyeRoom, GATHER, GRACE, HEAD, keepOutBox, LAND, SLACK, swift } from "../../../public/world/avatar.js";
-import { LEAST } from "../../../public/world/boom.js";
+import { LEAST, nearest } from "../../../public/world/boom.js";
 import { BOUND, height, STAGE, STAGE_COLUMN, STAGE_REACH } from "../../../public/world/ground.js";
 import { confine, walkLimits } from "../../../public/world/modes.js";
 import { TREE_REACH } from "../../../public/world/trees.js";
@@ -259,6 +259,26 @@ function turningBeside(mark: Mark, k: number, a: number, frames = 240): Walk {
   return { of: `song ${k}`, name, start: { x: mark.position.x + x * c + z * s, z: mark.position.z - x * s + z * c, heading: a, pitch: a % 2 ? 0.3 : 0 }, frames, keys: () => [0, 0, a % 2 ? 1 : -1, 0, 0] };
 }
 
+// The stops of a show: its walks, each cut off at a frame of its own, after which the bear stands still.
+function stopsOf(w: World): Walk[] {
+  const random = seeded(31 + w.set2), [sx, sz] = STAGE;
+  // Each kind of the show's walks, those at a landmark at every third one, cut off between a third of a second in and its
+  // end, or 400 frames in at the latest.
+  const walks: Walk[] = walksOf(w, 3).filter((walk) => !walk.of.startsWith("song ") || Number(walk.of.slice(5)) % 3 === 0).map((walk) => ({ ...walk, frames: 20 + Math.floor(random() * Math.min(400, walk.frames - 20)) }));
+  // The review's: on the walk's limit at the stage, facing it, still for 120 frames; the turn key held for 90, which turns
+  // the bear round; and still. From twelve places round the stage, turning either way, looking level and looking up.
+  for (let a = 0; a < 12; a++) for (const turn of [1, -1]) for (const pitch of [0, 0.4]) {
+    const x = sx + STAGE_REACH * Math.cos((a * Math.PI) / 6), z = sz + STAGE_REACH * Math.sin((a * Math.PI) / 6);
+    walks.push({ of: "the stage", name: `turning round at the stage's edge, place ${a}, ${turn > 0 ? "left" : "right"}, pitch ${pitch}`, start: { x, z, heading: Math.atan2(x - sx, z - sz), pitch }, frames: 210, keys: (f) => [0, 0, f >= 120 ? turn : 0, 0, 0] });
+  }
+  // Two stands that sweeps of ten shows found, where the camera came to rest metres from where a cut would put it. In the
+  // corner between two landmarks whose rooms overlap, where each one's way round led into the other: 5.3 m short. And
+  // pressed a hand's breadth into a room's edge by the bear, which pressed it back in each frame it came out: 10.2 m short.
+  if (w.date === "1987-09-12") walks.push(turningBeside(w.marks[3], 3, 3, 34));
+  if (w.date === "1980-05-15") walks.push(turningBeside(w.marks[5], 5, 5, 225));
+  return walks;
+}
+
 let WORLDS: World[];
 const on = (date: string, phone: boolean) => WORLDS.find((w) => w.date === date && w.phone === phone)!;
 // Placing four shows' landmarks on two tiers takes a second or two, most of it their search for room beside the bears' line.
@@ -454,28 +474,13 @@ describe("the walk's camera at a landmark and the stage", () => {
     // last second of the stand, TAIL frames, the camera moves less than a millimetre in all, so one that crept, or swung by less
     // than the centimetre a frame the first bar reads, would fail.
     const STILL = 300, REST = 180, TAIL = 60;
-    const [sx, sz] = STAGE;
     for (const phone of [false, true]) {
       const tier = phone ? "phone" : "desktop";
       let stops = 0, longest = 0, longestAt = "";
       for (const [date, set2] of [...SHOWS, ...MORE.map((d): [string, number] => [d, partway(d)])]) {
-        const w = SHOWS.some(([d]) => d === date) ? on(date, phone) : world(date, set2, phone, false), random = seeded(31 + set2);
+        const w = SHOWS.some(([d]) => d === date) ? on(date, phone) : world(date, set2, phone, false);
         const avatar = avatarOf(w.marks, phone), cutter = avatarOf(w.marks, phone), camera = cameraOf(phone), fresh = cameraOf(phone), was = new THREE.Vector3();
-        // Each kind of the show's walks, those at a landmark at every third one, cut off between a third of a second in and its
-        // end, or 400 frames in at the latest.
-        const walks: Walk[] = walksOf(w, 3).filter((walk) => !walk.of.startsWith("song ") || Number(walk.of.slice(5)) % 3 === 0).map((walk) => ({ ...walk, frames: 20 + Math.floor(random() * Math.min(400, walk.frames - 20)) }));
-        // The review's: on the walk's limit at the stage, facing it, still for 120 frames; the turn key held for 90, which turns
-        // the bear round; and still. From twelve places round the stage, turning either way, looking level and looking up.
-        for (let a = 0; a < 12; a++) for (const turn of [1, -1]) for (const pitch of [0, 0.4]) {
-          const x = sx + STAGE_REACH * Math.cos((a * Math.PI) / 6), z = sz + STAGE_REACH * Math.sin((a * Math.PI) / 6);
-          walks.push({ of: "the stage", name: `turning round at the stage's edge, place ${a}, ${turn > 0 ? "left" : "right"}, pitch ${pitch}`, start: { x, z, heading: Math.atan2(x - sx, z - sz), pitch }, frames: 210, keys: (f) => [0, 0, f >= 120 ? turn : 0, 0, 0] });
-        }
-        // Two stands that sweeps of ten shows found, where the camera came to rest metres from where a cut would put it. In the
-        // corner between two landmarks whose rooms overlap, where each one's way round led into the other: 5.3 m short. And
-        // pressed a hand's breadth into a room's edge by the bear, which pressed it back in each frame it came out: 10.2 m short.
-        if (date === "1987-09-12") walks.push(turningBeside(w.marks[3], 3, 3, 34));
-        if (date === "1980-05-15") walks.push(turningBeside(w.marks[5], 5, 5, 225));
-        for (const walk of walks) {
+        for (const walk of stopsOf(w)) {
           const walker = { ...walk.start }, at = `${date} on a ${tier}: ${walk.name}, stopped at frame ${walk.frames}`;
           confine(walker, limits);
           let rested = 0, tail = 0;
@@ -502,6 +507,155 @@ describe("the walk's camera at a landmark and the stage", () => {
       // the boom eases, takes notice of a landmark the head has just left (GRACE) and rises for it, a step at a time; the place
       // is at rest within its gathering, its way and its landing of the goal's last move.
       expect(longest, `${tier}: ${longestAt}`).toBeGreaterThan(60);
+    }
+  });
+
+  // How far the camera's distance to where it comes to rest may grow past the least it has been once the bear stands still, in
+  // m. The camera's own rule allows SLACK, 2 cm: a goal no further than that is its goal still. The rest of the 5 cm is for the
+  // measure, which is to where the camera came to rest and not to where it reckoned it would.
+  const TURN_BACK = 0.05;
+  // A stand, for the test that follows: the camera's places over it and the bear's head.
+  type Stand = { places: Float64Array; frames: number; head: THREE.Vector3 };
+  // What stands between a point and the camera's rest: the rooms the camera keeps out of, a centimetre short of the eye's room
+  // so that a place on a room's side is outside it, each reaching down past the ground; the stage's, the same; and the bear, a
+  // ball of the boom's least round its head.
+  function barriers(w: World, camera: THREE.PerspectiveCamera) {
+    const room = eyeRoom(camera) - 0.01, from = new THREE.Vector3(), way = new THREE.Vector3(), near = new THREE.Vector3();
+    const rooms = w.marks.map((mark) => { const b = keepOutBox(mark as never) as unknown as Box; return { min: { x: b.min.x - room, y: -1e6, z: b.min.z - room }, max: { x: b.max.x + room, y: b.max.y + room, z: b.max.z + room } }; });
+    const stage = { ...STAGE_COLUMN, r: STAGE_COLUMN.r + room, top: STAGE_COLUMN.top + room };
+    // Whether any of them stands between the point (x, y, z) and `to`, or around the point.
+    return (x: number, y: number, z: number, to: THREE.Vector3, head: THREE.Vector3) => {
+      from.set(x, y, z);
+      const far = from.distanceTo(to);
+      if (far < 1e-6) return false;
+      if (rooms.some((b) => x >= b.min.x && x <= b.max.x && z >= b.min.z && z <= b.max.z && y <= b.max.y)) return true;
+      if (Math.hypot(x - stage.x, z - stage.z) < stage.r && y < stage.top) return true;
+      way.subVectors(to, from).divideScalar(far);
+      if (nearest(from, way, rooms as never[], [stage] as never[]) < far) return true;
+      return near.copy(from).addScaledVector(way, Math.max(0, Math.min(far, way.dot(near.subVectors(head, from))))).distanceTo(head) < LEAST - 0.01;
+    };
+  }
+  // How far the camera's distance to where it came to rest grew past the least it had been over a stand, from the frame `since`
+  // of it: in all (`grew`), and leaving out what it grew in a frame with something between the camera and its rest (`turned`).
+  function turnedBack({ places, frames, head }: Stand, between: ReturnType<typeof barriers>, rest: THREE.Vector3, since = 0) {
+    let grew = 0, turned = 0, least = Infinity, kept = 0, keptLeast = Infinity, was = 0;
+    for (let f = since; f < frames; f++) {
+      const far = Math.hypot(places[3 * f] - rest.x, places[3 * f + 1] - rest.y, places[3 * f + 2] - rest.z), up = f > since ? far - was : 0;
+      if (!(up > 0 && between(places[3 * f - 3], places[3 * f - 2], places[3 * f - 1], rest, head))) kept += up;
+      least = Math.min(least, far); keptLeast = Math.min(keptLeast, kept);
+      grew = Math.max(grew, far - least); turned = Math.max(turned, kept - keptLeast);
+      was = far;
+    }
+    return { grew, turned };
+  }
+
+  // Issue #194: at the platform's edge, the bear turned round and standing, main's camera came in from 10.5 m over the bear to
+  // 6.5 m and went out again to 11 (10.7 of 20 on a phone), its goal having leapt to 2.7 m and back while nothing moved but the
+  // boom's own easing. These stops then showed the same wherever the easing boom's line crosses a landmark's edge, and where a
+  // place that had not yet come in went after a goal on its way back out: main's camera turned back by more than the bar at
+  // 238 of them on a desktop, by up to 5.8 m, and at 251 on a phone, by up to 13.9 m. The same stops as the test above, 1,771
+  // a tier: four seconds, and more on a busy machine.
+  it("comes to rest one way once the bear stands still: after every such stop its distance to where it comes to rest never grows by more than 5 cm past the least it has been, but where a landmark's room, the stage's or the bear stands between it and there, which it goes round", { timeout: 120000 }, () => {
+    const STILL = 300;
+    for (const phone of [false, true]) {
+      const tier = phone ? "phone" : "desktop", rest = new THREE.Vector3(), stand: Stand = { places: new Float64Array(3 * STILL), frames: STILL, head: new THREE.Vector3() };
+      let stops = 0, round = 0, most = 0;
+      for (const [date, set2] of [...SHOWS, ...MORE.map((d): [string, number] => [d, partway(d)])]) {
+        const w = SHOWS.some(([d]) => d === date) ? on(date, phone) : world(date, set2, phone, false);
+        const avatar = avatarOf(w.marks, phone), camera = cameraOf(phone), between = barriers(w, camera);
+        for (const walk of stopsOf(w)) {
+          const walker = { ...walk.start }, at = `${date} on a ${tier}: ${walk.name}, stopped at frame ${walk.frames}`;
+          confine(walker, limits);
+          for (let f = 0; f < walk.frames + STILL; f++) {
+            if (f > 0 && f < walk.frames) stride(walker, walk.keys(f, walker), limits);
+            avatar.step(walker.x, walker.z, walker.heading, DT);
+            avatar.boom(camera, walker, DT, f === 0);
+            if (f >= walk.frames) camera.position.toArray(stand.places, 3 * (f - walk.frames));
+          }
+          stand.head.set(walker.x, height(walker.x, walker.z) + HEAD, walker.z);
+          const { grew, turned } = turnedBack(stand, between, rest.copy(camera.position));
+          expect(turned, at).toBeLessThanOrEqual(TURN_BACK);
+          most = Math.max(most, turned);
+          if (grew > TURN_BACK) round += 1;
+          stops += 1;
+        }
+      }
+      expect(stops, tier).toBeGreaterThan(1500);
+      // The most it turns back is the rule's own 2 cm. And what is let off for going round is little: the camera's way round
+      // or over what stands between takes it further from its rest at 29 of these stops on a desktop and 22 on a phone.
+      expect(most, tier).toBeLessThanOrEqual(SLACK + 0.005);
+      expect(round, tier).toBeGreaterThan(0);
+      expect(round / stops, tier).toBeLessThan(0.1);
+    }
+  });
+
+  // The stand of issue #194 itself, as the shoot's recording walks it (recordings.mjs `camera-stage`): from its pose up to the
+  // platform's edge, round to the left through half a turn, and still. There the head stands 5 cm outside the stage's column
+  // and 5 m under its top, and the boom rises straight up at its full length.
+  it("goes from behind the bear to over it one way as the bear turns round at the platform's edge and stands: never further from where it comes to rest than it has been, and no nearer the bear than the straight way between the two takes it", () => {
+    // Main's camera came this near the head in the turn, where the goal leapt in for a few frames, and after it: 7.55 m and
+    // 6.52 m of 11 on a desktop, 12.18 m and 10.73 m of 20 on a phone. Now 8.73 m and 15.30 m in the turn, which is the straight
+    // way from 20 degrees up behind the bear to straight over it less what the turn carries it, and no nearer after the turn
+    // than at its end, 10.33 m and 18.73 m.
+    const WALK_FRAMES = 30, TURN_FRAMES = 118, STILL = 300;
+    for (const [phone, inTurn, after] of [[false, 8.5, 10.2], [true, 15, 18.5]] as [boolean, number, number][]) {
+      const tier = phone ? "phone" : "desktop", w = on("1986-07-04", phone), avatar = avatarOf(w.marks, phone), camera = cameraOf(phone), between = barriers(w, camera);
+      const walker = { x: 61.12, z: -53.12, heading: -0.855, pitch: 0 }, frames = WALK_FRAMES + TURN_FRAMES + STILL;
+      const stand: Stand = { places: new Float64Array(3 * frames), frames, head: new THREE.Vector3() }, head = new THREE.Vector3();
+      let nearTurn = Infinity, nearAfter = Infinity;
+      for (let f = 0; f < frames; f++) {
+        if (f > 0 && f < WALK_FRAMES) stride(walker, [1, 0, 0, 0, 0], limits);
+        else if (f >= WALK_FRAMES && f < WALK_FRAMES + TURN_FRAMES) stride(walker, [0, 0, 1, 0, 0], limits);
+        avatar.step(walker.x, walker.z, walker.heading, DT);
+        avatar.boom(camera, walker, DT, f === 0);
+        camera.position.toArray(stand.places, 3 * f);
+        const far = camera.position.distanceTo(head.set(walker.x, height(walker.x, walker.z) + HEAD, walker.z));
+        if (f >= WALK_FRAMES + TURN_FRAMES) nearAfter = Math.min(nearAfter, far); else if (f >= WALK_FRAMES) nearTurn = Math.min(nearTurn, far);
+      }
+      // It stands at the platform's edge, hard against the column, and the camera rests straight over it at the boom's length.
+      expect(Math.hypot(walker.x - STAGE[0], walker.z - STAGE[1]), tier).toBeCloseTo(STAGE_REACH, 6);
+      expect(camera.position.distanceTo(head), tier).toBeCloseTo(boomLength(phone), 2);
+      expect(Math.hypot(camera.position.x - head.x, camera.position.z - head.z), tier).toBeLessThan(0.01);
+      stand.head.copy(head);
+      // From the turn's first frame to its rest, with nothing let off for going round: nothing stands between.
+      expect(turnedBack(stand, between, camera.position, WALK_FRAMES).grew, tier).toBeLessThanOrEqual(TURN_BACK);
+      expect(nearTurn, tier).toBeGreaterThan(inTurn);
+      expect(nearAfter, tier).toBeGreaterThan(after);
+    }
+  });
+
+  // The boom's line crossing a landmark on its way to rest, where the rest itself is clear of it: a post 1.2 m square and 30 m
+  // tall, 6 m from the head, in open ground on the island's west side. The bear turns 0.8 rad and stands; the boom, a fifth of a
+  // second behind, has the post still to cross, and comes to rest 0.15 rad past it. Main's camera came in toward the post as
+  // the line crossed it, to 5.1 m from the head on a desktop and 6.2 m on a phone, and went out again to the boom's length.
+  it("does not come in for a landmark that the easing boom's line only crosses on its way to rest: past a post, with the bear standing, it goes on to its rest, gathering its pace as on any chase", () => {
+    for (const phone of [false, true]) {
+      const tier = phone ? "phone" : "desktop", TURN_FRAMES = 30, STILL = 240, start = { x: -60, z: 0, heading: 0.4, pitch: 0 }, to = start.heading + TURN_FRAMES * TURN * DT;
+      const post = new THREE.Mesh(new THREE.BoxGeometry(1.2, 30, 1.2)), head = new THREE.Vector3(start.x, height(start.x, start.z) + HEAD, start.z);
+      post.position.set(start.x + 6 * Math.sin(to - 0.15), height(start.x, start.z) + 15, start.z + 6 * Math.cos(to - 0.15));
+      post.updateMatrixWorld(true);
+      const avatar = avatarOf([post], phone), camera = cameraOf(phone), walker = { ...start }, was = new THREE.Vector3();
+      const stand: Stand = { places: new Float64Array(3 * STILL), frames: STILL, head }, first = (swift(phone) / GATHER) * DT * DT;
+      let nearest = Infinity, step = 0, quickened = 0;
+      for (let f = 0; f < 60 + TURN_FRAMES + STILL; f++) {
+        if (f >= 60 && f < 60 + TURN_FRAMES) stride(walker, [0, 0, 1, 0, 0], limits);
+        avatar.step(walker.x, walker.z, walker.heading, DT);
+        avatar.boom(camera, walker, DT, f === 0);
+        const moved = camera.position.distanceTo(was);
+        if (f >= 60 + TURN_FRAMES) {
+          camera.position.toArray(stand.places, 3 * (f - 60 - TURN_FRAMES));
+          nearest = Math.min(nearest, camera.position.distanceTo(head));
+          quickened = Math.max(quickened, moved - step);
+        }
+        step = moved; was.copy(camera.position);
+      }
+      // It rests at the boom's length, clear of the post; and from the stop on it was never further from there than it had
+      // been, nor nearer the head than the straight way to its rest takes it (10.69 m and 19.43 m), nor quicker by more in a
+      // frame than a chase gathers.
+      expect(camera.position.distanceTo(head), tier).toBeCloseTo(boomLength(phone), 6);
+      expect(turnedBack(stand, () => false, camera.position).grew, tier).toBeLessThanOrEqual(TURN_BACK);
+      expect(nearest, tier).toBeGreaterThan(boomLength(phone) - 0.8);
+      expect(quickened, tier).toBeLessThanOrEqual(first + 0.001);
     }
   });
 
@@ -569,6 +723,28 @@ describe("the walk's camera at a landmark and the stage", () => {
     }
   });
 
+  it("rests where a cut would put it over the crowd too: with a stand-in for the crowd that raises the boom's end 30 m over the ground, a walk past the tower and a stand end where a cut to that stand does", () => {
+    // Where it will rest is reckoned from where the boom's end will hang, and the crowd has raised that as well (avatar.js). At
+    // 30 m the raised boom's line meets the tower elsewhere than the boom's own does, so a rest reckoned from the boom's end
+    // as the crowd had not raised it would be another place: with 9 m, as in the test above, it is the same place.
+    const HIGH = 30, over = (p: Point) => { p.y = Math.max(p.y, height(p.x, p.z) + HIGH); };
+    for (const phone of [false, true]) {
+      const w = on("1986-07-04", phone), walk = across(w.marks[17], [0, -20], [0, 7], "past the tower"), tier = phone ? "phone" : "desktop";
+      const raised = avatarOf(w.marks, phone, { over }), plain = avatarOf(w.marks, phone), cutter = avatarOf(w.marks, phone, { over });
+      const camera = cameraOf(phone), other = cameraOf(phone), fresh = cameraOf(phone), walker = { ...walk.start };
+      for (let f = 0; f < walk.frames + 300; f++) {
+        if (f > 0 && f < walk.frames) stride(walker, walk.keys(f, walker), limits);
+        raised.step(walker.x, walker.z, walker.heading, DT);
+        raised.boom(camera, walker, DT, f === 0); plain.boom(other, walker, DT, f === 0);
+      }
+      cutter.step(walker.x, walker.z, walker.heading, 0);
+      cutter.boom(fresh, walker, 0, true);
+      expect(camera.position.distanceTo(fresh.position), tier).toBeLessThan(SLACK + 0.05);
+      // And the crowd did move that rest: with none the camera rests more than a metre from there.
+      expect(camera.position.distanceTo(other.position), tier).toBeGreaterThan(1);
+    }
+  });
+
   it("goes on from where another camera left the view: after a ride with the bears it starts from that camera's place, not from where it last stood in a walk", () => {
     for (const phone of [false, true]) {
       // A walk past the Lovelight tower; then a ridden camera leaves the view 9 m behind the bear and 5 m up, with the tower
@@ -587,6 +763,30 @@ describe("the walk's camera at a landmark and the stage", () => {
       avatar.boom(camera, walker, DT, false);
       // One frame on, it has gone no further from there than its pace; and it is not where it stood 85 m away.
       expect(camera.position.distanceTo(left), phone ? "phone" : "desktop").toBeLessThanOrEqual(pace(phone) + OVER);
+    }
+  });
+
+  it("eases on from where another camera left the view while the bear stands still: how near its rest it came before that camera took the view is forgotten, so it goes as the boom eases and not straight for its rest from a standing start", () => {
+    for (const phone of [false, true]) {
+      // The bear stands beside the Lovelight tower with the boom toward it, long enough for the camera to rest in front of
+      // the tower; then a ridden camera leaves the view 30 m off and 12 m up, with nothing between there and the bear.
+      const w = on("1986-07-04", phone), mark = w.marks[17], walk = across(mark, [0, -20], [0, 7], "past the tower"), avatar = avatarOf(w.marks, phone), camera = cameraOf(phone), walker = { ...walk.start };
+      for (let f = 0; f < walk.frames + 240; f++) {
+        if (f > 0 && f < walk.frames) stride(walker, walk.keys(f, walker), limits);
+        avatar.step(walker.x, walker.z, walker.heading, DT);
+        avatar.boom(camera, walker, DT, f === 0);
+      }
+      const rest = camera.position.clone(), head = new THREE.Vector3(walker.x, height(walker.x, walker.z) + HEAD, walker.z);
+      expect(rest.distanceTo(head), phone ? "phone" : "desktop").toBeLessThan(boomLength(phone) - 1);
+      const left = new THREE.Vector3(walker.x - 30 * Math.sin(walker.heading), head.y + 12, walker.z - 30 * Math.cos(walker.heading));
+      avatar.settle(left, head);
+      avatar.boom(camera, walker, DT, false);
+      // The boom's ease takes it a twelfth of its way in a frame, 3.3 m from there on a desktop. Had it kept how near its rest
+      // it had been, it would have gone for its rest from nothing, gathering its pace: 2 cm in its first frame.
+      expect(camera.position.distanceTo(left), phone ? "phone" : "desktop").toBeGreaterThan(1);
+      // And it comes to the same rest.
+      for (let f = 0; f < 300; f++) { avatar.step(walker.x, walker.z, walker.heading, DT); avatar.boom(camera, walker, DT, false); }
+      expect(camera.position.distanceTo(rest), phone ? "phone" : "desktop").toBeLessThan(SLACK + 0.05);
     }
   });
 
@@ -660,12 +860,16 @@ describe("the walk's camera at a landmark and the stage", () => {
     }
     // What a count of three's classes cannot see: a list walked by `for ... of` makes an iterator, an arrow or a function written in
     // a function is made at each call, and an object or a list written out is made where it stands. None is in the frame's code:
-    // boom.js's functions, and avatar.js's boom and clear. (rise's Math.hypot is as it was: a root in its place is another number.)
+    // boom.js's functions, and avatar.js's boom and what it calls there, clear, hang, seek and chase. (rise's Math.hypot is as it
+    // was: a root in its place is another number.)
     const made0 = /\bnew\b|=>|\bfunction\b.*\bfunction\b|\bfor \([^;)]*\bof\b|\.\.\.|return \{|[=(,] \[|= \{|\.(map|filter|some|every|forEach|slice|concat)\(/;
     const boomJs = readFileSync(new URL("../../../public/world/boom.js", import.meta.url), "utf8"), avatarJs = readFileSync(new URL("../../../public/world/avatar.js", import.meta.url), "utf8");
-    const bodies = ["nearest", "enters", "stoodOff", "standOff", "goRound", "rise"].map((name) => { const from = boomJs.indexOf(`function ${name}(`); return [name, boomJs.slice(from, boomJs.indexOf("\n}\n", from))]; });
+    const bodies = ["nearest", "enters", "stoodOff", "standOff", "goRound", "over", "rise"].map((name) => { const from = boomJs.indexOf(`function ${name}(`); return [name, boomJs.slice(from, boomJs.indexOf("\n}\n", from))]; });
     bodies.push(["boom", avatarJs.slice(avatarJs.indexOf("  function boom(camera, walker, dt, cut) {"), avatarJs.indexOf("  /* Another camera placed the view"))]);
-    bodies.push(["clear", avatarJs.slice(avatarJs.indexOf("  function clear(p) {"), avatarJs.indexOf("  /* The walk's camera. Its place and its aim ease after the bear"))]);
+    // clear, and hang, seek and chase, which stand after it down to the boom's own comment.
+    const helpers = avatarJs.slice(avatarJs.indexOf("  function clear(p) {"), avatarJs.indexOf("  /* The walk's camera. Its place and its aim ease after the bear"));
+    for (const name of ["hang(p, room)", "seek(out, hangs, met, lift, reach, k, room)", "chase(aim, leapt, dt, room)"]) expect(helpers, name).toContain(`  function ${name} {`);
+    bodies.push(["clear, hang, seek and chase", helpers]);
     for (const [name, text] of bodies) {
       expect(text.length, name).toBeGreaterThan(200);
       expect(text.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter((line) => made0.test(line)), name).toEqual([]);
@@ -719,6 +923,29 @@ describe("the walk's camera at a landmark and the stage", () => {
         expect(Math.min(Math.hypot(walker.x - tower.position.x, walker.z - tower.position.z), Math.hypot(walker.x - STAGE[0], walker.z - STAGE[1]))).toBeGreaterThan(100);
       }
       expect(Math.hypot(walker.x, walker.z)).toBeLessThan(BOUND);
+    }
+  });
+
+  it("is the boom's own camera when the bear stops with no landmark and no column in the boom's way: turning, looking up and down and standing by turns on the island's west side, it eases after the bear as the boom always has, to the last bit", () => {
+    for (const phone of [false, true]) {
+      // The same world and ground as the test above. The keys change every half second: a turn with a tilt of the look, then a
+      // stand, so that the boom is still easing through each stand, low over rising ground where the look is up.
+      const w = on("1986-07-04", phone), tower = w.marks[17], mine = avatarOf([tower], phone), bare = bareOf(phone);
+      const camera = cameraOf(phone), other = cameraOf(phone), walker = { x: -60, z: 0, heading: 0.4, pitch: 0 }, random = seeded(5);
+      const ease = 1 - Math.exp(-DT / 0.2), was = { x: 0, z: 0 };
+      let keys = [0, 0, 0, 0, 0], stood = 0;
+      for (let f = 0; f < 1800; f++) {
+        if (f % 30 === 0) keys = (f / 30) % 2 ? [0, 0, 0, 0, 0] : [random() < 0.5 ? 1 : 0, 0, random() < 0.5 ? 1 : -1, 0, random() < 0.6 ? 1 : -1];
+        if (f > 0) stride(walker, Math.hypot(walker.x + 60, walker.z) < 20 ? keys : [1, 0, 1, 0, 0], limits);
+        if (keys.every((key) => key === 0)) stood += 1;
+        mine.boom(camera, walker, DT, f === 0);
+        bare.boom(other, walker, DT, f === 0);
+        expect((camera.position as { toArray(): number[] }).toArray(), `frame ${f}`).toEqual((other.position as { toArray(): number[] }).toArray());
+        const { x, z } = camera.position as Point, back = boomLength(phone) * Math.cos(0.35 - walker.pitch), to = { x: walker.x + Math.sin(walker.heading) * back, z: walker.z + Math.cos(walker.heading) * back };
+        if (f > 0) expect([x, z], `frame ${f}`).toEqual([expect.closeTo(was.x + (to.x - was.x) * ease, 9), expect.closeTo(was.z + (to.z - was.z) * ease, 9)]);
+        was.x = x; was.z = z;
+      }
+      expect(stood, phone ? "phone" : "desktop").toBeGreaterThan(800);
     }
   });
 });
