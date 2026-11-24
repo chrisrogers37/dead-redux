@@ -1,19 +1,19 @@
-import { readdirSync, readFileSync } from "fs";
+import { readdirSync } from "fs";
 import { beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
 import { GROVE_POSES } from "../../../.github/screenshots/assets.mjs";
 import { AS_TITLES } from "../../../.github/screenshots/near.mjs";
 import { boomLength, buildAvatar, eyeRoom, HEAD, TOP } from "../../../public/world/avatar.js";
+import { landmarksOf, line, MAPS, path, stride, tracksOf, within } from "./world-walks";
 import { SNOUT } from "../../../public/world/bears.js";
 import { LEAST } from "../../../public/world/boom.js";
 import { BODY_REACH, outside } from "../../../public/world/collide.js";
 import { chance, STONE_REACH } from "../../../public/world/flora.js";
 import { BOUND, CAVES, FIRST_EYE, height, STAGE, STAGE_COLUMN, STAGE_REACH, TEST_POSES, TRAILHEAD } from "../../../public/world/ground.js";
 import { buildIsland as worldIsland, FEATHER, offTracks, RING, takesPool as worldPool } from "../../../public/world/island.js";
-import { makeBuilders } from "../../../public/world/landmarks.js";
 import { BEAR_GAP, confine, walkLimits as worldLimits } from "../../../public/world/modes.js";
-import { buildPath, buildWalkLine, layout, nearStand, outline, placeLandmarks } from "../../../public/world/path.js";
+import { nearStand, outline } from "../../../public/world/path.js";
 import { CRANE, DESCENT_FROM, postPose } from "../../../public/world/pose.js";
 import { onCrowdGround } from "../../../public/world/seats.js";
 import {
@@ -53,11 +53,9 @@ type Mesh = {
   material: { vertexColors: boolean; onBeforeCompile(shader: unknown): void };
 };
 
-const MAPS = new URL("../../../public/maps/", import.meta.url);
 // In date order, whatever order the file system lists them in.
 const DATES = readdirSync(MAPS).filter((name) => name.endsWith(".json")).map((name) => name.replace(".json", "")).sort();
 const FIXED = "1986-07-04";
-const path = buildPath(), line = buildWalkLine(path, 7);
 const loop = Array.from({ length: Math.ceil(path.curveLength / 2) }, (_, k) => { const p = path.at((2 * k) / path.curveLength); return [p.x, p.z]; });
 const linePoints = Array.from({ length: Math.ceil(line.length) }, (_, d) => { const p = line.at(d); return [p.x, p.z]; });
 // How many bears a tier can show, its own number and each the downgrade leaves (main.test.ts holds main.js to these, by the ladder).
@@ -67,12 +65,10 @@ const bearsOf = (phone: boolean) => (phone ? [3, 1] : [5, 3, 1]);
 // from, the ways of the tier's cameras, and the tier's trees placed by them. `as` builds some songs' landmarks for other titles, as
 // ?as=K:Title does.
 function world(date: string, phone = false, as: [number, string][] = []) {
-  const map = JSON.parse(readFileSync(new URL(`${date}.json`, MAPS), "utf8")) as { tracks: { title: string; playingDuration: number }[] };
-  const tracks = map.tracks.map((t) => ({ title: t.title, duration: t.playingDuration }));
+  const tracks = tracksOf(date);
   // The fixed day's second set opens at track 7; the maps do not say where another show's does, so it is taken to open partway.
-  const landmarkU = layout(tracks, date === FIXED ? 7 : Math.floor(tracks.length * 0.45), path);
-  const builders = makeBuilders(phone), titles = new Map(as);
-  const landmarks = placeLandmarks(new THREE.Scene(), path, tracks.map((t, k) => ({ ...t, title: titles.get(k) ?? t.title })), true, builders, landmarkU, line) as { position: { x: number; y: number; z: number }; rotation: { y: number } }[];
+  const { landmarkU, builders, landmarks: all } = landmarksOf(tracks, date === FIXED ? 7 : Math.floor(tracks.length * 0.45), phone, as);
+  const landmarks = all as { position: { x: number; y: number; z: number }; rotation: { y: number } }[];
   const marks: Mark[] = landmarks.map((g, k) => {
     const s = nearStand(path, landmarkU, landmarks, k);
     return { x: g.position.x, z: g.position.z, rot: g.rotation.y, poly: outline(g, builders.moving), d: line.dOf(landmarkU[k]), stand: s ? { x: s.x, z: s.z } : null };
@@ -153,26 +149,6 @@ function shapes(meshes: Mesh[], trees: Spot[], trunk = false) {
   });
   return out;
 }
-// How often the line from a point along `way` crosses the triangles.
-function crossings(tris: number[], x: number, y: number, z: number, [dx, dy, dz]: number[]) {
-  let hits = 0;
-  for (let o = 0; o < tris.length; o += 9) {
-    const ax = tris[o], ay = tris[o + 1], az = tris[o + 2], e1x = tris[o + 3] - ax, e1y = tris[o + 4] - ay, e1z = tris[o + 5] - az, e2x = tris[o + 6] - ax, e2y = tris[o + 7] - ay, e2z = tris[o + 8] - az;
-    const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x, det = e1x * px + e1y * py + e1z * pz;
-    if (Math.abs(det) < 1e-12) continue;
-    const tx = x - ax, ty = y - ay, tz = z - az, u = (tx * px + ty * py + tz * pz) / det;
-    if (u < 0 || u > 1) continue;
-    const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x, w = (dx * qx + dy * qy + dz * qz) / det;
-    if (w < 0 || u + w > 1) continue;
-    if ((e2x * qx + e2y * qy + e2z * qz) / det > 0) hits += 1;
-  }
-  return hits;
-}
-// Whether a point is inside a tree, by its triangles: a nearly level line from it crosses the tree's skin an odd number of times, along
-// each of three ways. A trunk and a bough are tubes open at their ends, which a level line from inside never leaves by; a line from
-// outside that leaves by an open end crosses once, but not along all three ways.
-const LEVEL = [[1, 0.0003, 0.0007], [-0.5, 0.0005, 0.866], [-0.5, -0.0004, -0.866]];
-const within = (tris: number[], x: number, y: number, z: number) => LEVEL.every((way) => crossings(tris, x, y, z, way) % 2 === 1);
 // How far a point stands from the nearest of the triangles: from each one's nearest point, which is a corner's, an edge's or its face's.
 function farFrom(tris: number[], x: number, y: number, z: number) {
   const p = new THREE.Vector3(x, y, z), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), at = new THREE.Vector3(), triangle = new THREE.Triangle(a, b, c);
@@ -1427,12 +1403,7 @@ describe("the walk's camera among the trees", () => {
         const pace = (12 * run) / 60, last = k === 4 ? 240 : Math.round((2 * r + 24) / pace);
         confine(walker, limits);
         for (let f = 0; f < last; f++) {
-          if (f > 0) {
-            walker.heading += (turn * 1.6) / 60;
-            const fx = -Math.sin(walker.heading), fz = -Math.cos(walker.heading);
-            walker.x += (fx * spd - fz * side) * pace; walker.z += (fz * spd + fx * side) * pace;
-            confine(walker, limits);
-          }
+          if (f > 0) stride(walker, [spd, side, turn, run > 1 ? 1 : 0, 0], limits);
           among.step(walker.x, walker.z, walker.heading, 1 / 60);
           bare.step(walker.x, walker.z, walker.heading, 1 / 60);
           among.boom(camera, walker, 1 / 60, f === 0);

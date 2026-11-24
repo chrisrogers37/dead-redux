@@ -18,6 +18,7 @@ import {
 } from "./assets.mjs";
 import { bandPath } from "./band.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
+import { press, RECORD_MS, RECORDINGS, step, WORLD_MS, worldStarted } from "./recordings.mjs";
 import { planFailures, planFiles, shardPlan, writtenSince } from "./shards.mjs";
 
 const DEVICES = {
@@ -554,106 +555,12 @@ const LOAD_MS = 30_000;
 // Full-page shots stop at this many screens; the archive lists a month.
 const MAX_SCREENS = 4;
 
-// Short recordings show the motion that stills cannot. Lean-back records on the TV.
-// An entry records the page at its path, "/" unless it names one.
-const RECORDINGS = [
-  { device: "desktop", name: "home" },
-  { device: "phone", name: "home" },
-  {
-    device: "tv",
-    name: "leanback",
-    click: "[data-action='lean-back']",
-    waitFor: "[data-mode='leanback']",
-  },
-  // Roaming: focus the scene, then hold each key for its milliseconds, in order.
-  {
-    device: "desktop",
-    name: "roam",
-    click: "canvas",
-    keys: [
-      ["ArrowUp", 3000],
-      ["ArrowLeft", 1200],
-      ["ArrowUp", 3000],
-      ["ArrowRight", 800],
-      // Then look up at the sky and down past the horizon.
-      ["KeyT", 700],
-      ["KeyG", 1400],
-    ],
-  },
-  // The phone roams with its on-screen stick, pushed to its rim each way in turn for its milliseconds, then let go.
-  {
-    device: "phone",
-    name: "roam",
-    stick: [
-      ["up", 3000],
-      ["left", 1200],
-    ],
-  },
-  // The fixed day's descent with nothing pressed: from over the summit down to the camera that walks with the bears, which wait at the
-  // trailhead. CI draws about two frames a second and each adds at most 50 ms of world time, so the 6-s descent takes about a minute there.
-  { device: "desktop", name: "descent", path: "/2026-10-20", recordMs: 75_000 },
-  // Walking with the bears on the fixed day, once the world is ready: the button puts the camera behind the bears.
-  {
-    device: "desktop",
-    name: "follow",
-    path: "/2026-10-20",
-    click: "#world[data-world='ready'] ~ div [data-action='follow']",
-    waitFor: "[data-action='follow'][aria-pressed='true']",
-  },
-  // The same from C C Rider 0:42 in, where the bears set off along a straight stretch in one line, clear of the landmarks.
-  {
-    device: "desktop",
-    name: "follow-straight",
-    path: "/2026-10-20?at=3&t=42",
-    click: "#world[data-world='ready'] ~ div [data-action='follow']",
-    waitFor: "[data-action='follow'][aria-pressed='true']",
-  },
-  // Walking with the bears on a phone: its three bears ahead and the visitor's bear above the now-plate.
-  {
-    device: "phone",
-    name: "follow",
-    path: "/2026-10-20",
-    click: "#world[data-world='ready'] ~ div [data-action='follow']",
-    waitFor: "[data-action='follow'][aria-pressed='true']",
-  },
-  // From ?pose=stage the click starts the show, then the visitor's bear walks down the slope to the platform and stops at its edge. The
-  // walk is 23 m, and a frame moves the bear at most 0.6 m (12 m/s, each frame's step capped at 50 ms), so it takes 39 frames. CI's
-  // software renderer draws this view about once every 0.5 s, so the walk takes about 20 s there: it is held for 25 s, a few seconds of
-  // them at the edge, and the recording runs 26.
-  {
-    device: "desktop",
-    name: "stage",
-    path: "/2026-10-20?pose=stage",
-    click: "canvas",
-    keys: [["ArrowUp", 25_000]],
-    recordMs: 26_000,
-  },
-  // The sound's listener through the camera's modes, from ?pose=stage: the click starts the show, B walks with the bears, a step walks
-  // again, F leans back, Escape leaves it and a step walks on. The stats line after each control shows the mode, where the listener
-  // stands and where the visitor's bear's head does; in third person they are the same point in every mode.
-  {
-    device: "desktop",
-    name: "stage-modes",
-    path: "/2026-10-20?pose=stage",
-    click: "canvas",
-    keys: [
-      ["KeyB", 3000],
-      ["ArrowUp", 2000],
-      ["KeyF", 3000],
-      ["Escape", 500],
-      ["ArrowUp", 2000],
-    ],
-  },
-];
-
-// How long each recording runs once the page has loaded and any control is pressed, unless it names its own `recordMs`.
-const RECORD_MS = 10_000;
-
 // What fails the run once every shot is taken: a generated image the site answers with an error, a frame over its tier's draw-call
 // budget (a shot's, or the walk's peak in a sweep), a first-person frame where a bear comes inside the camera's near plane, a show
 // playing with its sound neither through the world nor in plain stereo for a reason the player names, a required step whose control is
-// missing or whose state never comes, a page whose HTML arrives without the text it names (`served`), a sweep that cannot finish, and a
-// policy problem (below).
+// missing or whose state never comes, a page whose HTML arrives without the text it names (`served`), a sweep that cannot finish, a
+// recording whose control's state never comes, whose world never starts or whose step waits for what never comes (recordings.mjs),
+// and a policy problem (below).
 const failures = [];
 
 // What the log says when a read had to wait for the page to load again: the shot was taken, then the page navigated as it was read.
@@ -1094,31 +1001,26 @@ try {
     await open(page, url);
     if (click) {
       // A control missing from the page is logged and the recording skipped; the run then fails at its end, for a recording the plan
-      // names and nothing saved (planFailures).
-      // Scripts may draw the control after load, so it gets time to appear.
-      const found = await page.waitForSelector(click, { timeout: 15_000 }).then(
-        () => true,
-        () => false
-      );
-      if (!found) {
+      // names and nothing saved (planFailures). A control whose state never comes fails the run, and is recorded as it is.
+      const pressed = await press(page, click, waitFor, file);
+      if (!pressed.found) {
         console.log(`${file}: ${click} absent`);
         await context.close();
         continue;
       }
-      await page.click(click);
-      if (waitFor) {
-        await page
-          .waitForSelector(waitFor, { timeout: 15_000 })
-          .catch(() => console.log(`${file}: waitFor timed out; recording anyway`));
-      }
+      if (pressed.failure) failures.push(pressed.failure);
+    }
+    // Keys and the stick go to a world that has started: pressed into a page that has not, they are lost, and the recording is of a
+    // bear that stands where it began.
+    if ((keys || stick) && (await worldStarted(page)) === null) {
+      failures.push(`${file}: the world had not said where the visitor stands ${WORLD_MS} ms after the page loaded, so its keys went to nothing`);
     }
     let held = 0;
-    for (const [key, ms] of keys ?? []) {
-      await page.keyboard.down(key);
-      await page.waitForTimeout(ms);
-      await page.keyboard.up(key);
-      held += ms;
-      await logStats(page, `${file} after ${key}`);
+    for (const [n, [key, ms, until]] of (keys ?? []).entries()) {
+      const taken = await step(page, [key, ms, until], { file, n: n + 1 });
+      held += taken.ms;
+      if (taken.failure) failures.push(taken.failure);
+      await logStats(page, `${file} after ${key ?? "standing"}`);
     }
     // The stick is pushed with a mouse press, not a touch, from its centre to its rim each way in turn, and let go at the end; the
     // log says so.
