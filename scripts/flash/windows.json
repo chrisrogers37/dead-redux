@@ -22,7 +22,8 @@
   "2026-11-24": {
     "show": "1969-04-17",
     "windows": {
-      "P": { "name": "Morning Dew: a peak (278 s), for a count from beside the shiny drop (pose=near-2)", "track": 2, "from": 272, "to": 284 }
+      "P": { "name": "Morning Dew: a peak (278 s), for a count from beside the shiny drop (pose=near-2)", "track": 2, "from": 272, "to": 284 },
+      "T": { "name": "Turn On Your Love Light, where the band's still of the seven of 1968-70 is taken (band.mjs)", "track": 8, "from": 130, "to": 142 }
     }
   },
   "2026-11-25": {
@@ -34,7 +35,8 @@
   "2026-11-27": {
     "show": "1973-03-30",
     "windows": {
-      "N": { "name": "One More Saturday Night: its peak (176 s), for a count from beside the fingerpost's lantern (pose=near-25)", "track": 25, "from": 170, "to": 182 }
+      "N": { "name": "One More Saturday Night: its peak (176 s), for a count from beside the fingerpost's lantern (pose=near-25)", "track": 25, "from": 170, "to": 182 },
+      "J": { "name": "Jack Straw, where the band's still of the six of 1972-74, with the piano and the singer, is taken (band.mjs)", "track": 17, "from": 130, "to": 142 }
     }
   }
 }
