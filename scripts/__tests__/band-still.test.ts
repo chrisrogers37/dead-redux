@@ -170,7 +170,7 @@ describe("the band's still", () => {
         checked += 1;
         if (!(t > 1 && Math.abs(hit.x) < PANEL.w / 2 && hit.y > PANEL.y - PANEL.h / 2 && hit.y < PANEL.y + PANEL.h / 2)) off.push(corner);
       }
-      expect([show, role, checked > 100, off.length]).toEqual([show, role, true, 0]);
+      expect([show, role, checked > 200, off.length]).toEqual([show, role, true, 0]);
     }
   });
 });
