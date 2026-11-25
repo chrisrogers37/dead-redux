@@ -7,7 +7,10 @@
    2026-11-24): each member's dates of activity, and its table of the band's line-ups. Touring musicians are left out but one: Ned
    Lagin, who sat in through 1974, is a guest; Bruce Hornsby, who toured as the band's pianist from September 1990 to March 1992,
    is in, for the whole of that span. Where the page gives a month and no day, or its two lists disagree, the edge stands between
-   two of the catalog's shows (data/shows.json), so that it moves none of them; those edges are marked "lean" below.
+   two of the catalog's shows (data/shows.json), so that it moves none of them; those edges are marked "lean" below. The page gives
+   every keyboard player as "keyboards" and says no more of which: the keyboard of each is this table's own reading of who played
+   what, the organ for Pigpen, the piano for Keith Godchaux and for Hornsby, and a second keyboard ("keys") for Constanten, Mydland
+   and Welnick.
 
    Each row is [from, to, roles], both dates the row's own, in date order and with no two overlapping. A date in no row, in the
    weeks between one line-up's last show and the next one's first, takes the row before it; a date before the first row takes the
