@@ -1,6 +1,6 @@
 /* eslint-disable */
 import * as THREE from "three";
-import { BAND_GLOW, buildIsland } from "./island.js";
+import { BAND_GLOW, buildIsland, surfaceOf } from "./island.js";
 import { FIRST_EYE, height, STAGE_COLUMN, TEST_POSES } from "./ground.js";
 import { bandMask, buildPath, layout, nearStand, outline, placeLandmarks, buildWalkLine } from "./path.js";
 import { makeBuilders, mergeLandmarks } from "./landmarks.js";
@@ -107,6 +107,8 @@ function start(gl) {
     plateTop = tops.length ? Math.min(...tops) : frameH;
   }
 
+  /* Fits what of the world is drawn to the canvas's size, once the stage is built: the crashes' poles (band.js). */
+  let fitToCanvas = () => {};
   function resize() {
     const w = Math.max(1, container.clientWidth), h = Math.max(1, container.clientHeight);
     frameH = h;
@@ -114,6 +116,7 @@ function start(gl) {
     renderer.setSize(Math.round(w * quality.scale), Math.round(h * quality.scale), false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    fitToCanvas();
     wake();
   }
   resize();
@@ -131,7 +134,7 @@ function start(gl) {
   const builders = makeBuilders(phone);
   const { moving } = builders;
   const placeStart = performance.now();
-  const landmarks = placeLandmarks(scene, path, builtAs.size ? tracks.map((t, k) => ({ ...t, title: landmarkTitle(k) })) : tracks, hasShow, builders, landmarkU, line);
+  const landmarks = placeLandmarks(scene, path, builtAs.size ? tracks.map((t, k) => ({ ...t, title: landmarkTitle(k) })) : tracks, hasShow, builders, landmarkU, line, surfaceOf(budget.grid));
   /* How long the landmarks took to place, most of it their search for room beside the bears' line; the stats report it. */
   (window.__hill ??= {}).placeMs = Math.round((performance.now() - placeStart) * 10) / 10;
 
@@ -187,6 +190,10 @@ function start(gl) {
 
   /* ---------- the stage ---------- */
   const stage = buildStage(scene, sun, quality.shadows, panelMat, skyMat.uniforms);
+  /* The canvas's pixel, in rad of the view's height at its middle, which the band's crash poles are fitted to: they stay a pixel wide
+     from the back of the crowd as the render scale falls (stepDown). */
+  fitToCanvas = () => stage.fit((2 * Math.tan((camera.fov * Math.PI) / 360)) / (Math.round(frameH * quality.scale) * budget.pixelRatio));
+  fitToCanvas();
   /* The rig's beams draw after the rest of the world's solid things, adding their light to what lies behind them, and the crowd draws
      after the beams, so a figure covers whatever light they added where it stands: seen from anywhere, a beam in front of the figures
      leaves them dark. */

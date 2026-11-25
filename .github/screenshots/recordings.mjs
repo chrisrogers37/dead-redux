@@ -8,6 +8,7 @@
 // platform's edge.
 import { STAGE, STAGE_REACH } from "../../public/world/ground.js";
 import { RIG_EASE_S } from "../../public/world/pose.js";
+import { bandPath } from "./band.mjs";
 import { AWAKE, RIDE, SETTLED } from "./ride.mjs";
 
 /** How long each recording runs once the page has loaded and any control is pressed, unless its steps take longer. */
@@ -68,7 +69,9 @@ export const CAMERA_WALKS = [
 //   lean: 1 or 0      the ride's camera is on the crane (1), or back on the rig that walks with the bears (0): how far it has
 //                     gone from that rig to the crane, by the world's own count (main.js's `ride` stat);
 //   rest: frames      the camera has come to rest: for so many frames of the world, and REST_MS of the clock, the visitor has
-//                     stood where it stands and its bear's head has kept its place in the frame.
+//                     stood where it stands and its bear's head has kept its place in the frame;
+//   played: frames    the world has drawn so many frames while the show played: a frame drawn while the page's state was any but
+//                     playing does not count.
 export const RECORDINGS = [
   { device: "desktop", name: "home" },
   { device: "phone", name: "home" },
@@ -183,19 +186,27 @@ export const RECORDINGS = [
     ],
   },
   ...["desktop", "phone"].flatMap((device) => CAMERA_WALKS.map(([name, pose, keys]) => ({ device, name, path: `/2026-10-20?pose=${pose}`, click: "canvas", keys }))),
+  // The band playing a song (#184), which the band's two stills, 15 s apart, cannot show: from the front of the crowd, where those
+  // stills are taken (band.mjs), in Fire On The Mountain with the show's map driving the world. The click on the scene starts the
+  // show and V turns the view to first person, so the visitor's bear is out of the frame; then the band plays for 150 frames of the
+  // world while the show plays. The band plays only while it does (main.js), and archive.org's sound can take its time to start, so
+  // the step counts no frame drawn before then, and fails the run if the 150 never come. On CI each frame is 50 ms of the world's
+  // time, so the 150 are 7.5 s of it: three bars at 96 a minute, a stick's stroke three times over on each of the four sticks.
+  { device: "desktop", name: "band", path: bandPath("desktop"), click: "canvas", keys: [["KeyV", 500], [null, 180 * FRAME_MS, { played: 150 }]] },
 ];
 
 /**
  * What a step reads of the world (window.__hill, main.js): where the visitor stands, how many frames the world has drawn, its
- * mode, where the visitor's bear's head lands in the frame, as fractions of it to a thousandth, and in a ride how far its camera
- * has gone to the crane ({ lean, yaw }, null out of one). Null until the world has started. The page tells nothing of the camera's
- * own place; with the bear standing, its head moves in the frame when the camera does, by a thousandth of the frame for one to
- * three centimetres of the camera's way at the walk's distances.
+ * mode, where the visitor's bear's head lands in the frame, as fractions of it to a thousandth, in a ride how far its camera has
+ * gone to the crane ({ lean, yaw }, null out of one), and whether the show plays (the page's state, which main.js plays the band
+ * by). Null until the world has started. The page tells nothing of the camera's own place; with the bear standing, its head moves
+ * in the frame when the camera does, by a thousandth of the frame for one to three centimetres of the camera's way at the walk's
+ * distances.
  */
 export const readWorld = (page) =>
   page.evaluate(() => {
-    const hill = window.__hill;
-    return hill?.walker ? { walker: hill.walker, frames: hill.frames, mode: hill.mode, screen: hill.avatar?.screen ?? null, ride: hill.ride ?? null } : null;
+    const hill = window.__hill, playing = window.document?.querySelector("main")?.dataset.state === "playing";
+    return hill?.walker ? { walker: hill.walker, frames: hill.frames, mode: hill.mode, screen: hill.avatar?.screen ?? null, ride: hill.ride ?? null, playing } : null;
   });
 
 /**
@@ -215,10 +226,11 @@ export async function worldStarted(page, ms = WORLD_MS, now = Date.now) {
 /**
  * Whether what a step waits for has come.
  *
- * @param until - What the step waits for: near, turned, past, lean or rest (RECORDINGS, above).
+ * @param until - What the step waits for: near, turned, past, lean, rest or played (RECORDINGS, above).
  * @param world - What the world says now (readWorld).
  * @param start - What it said as the step began.
- * @param seen - The step's own memory, for `rest`: { still, frame, at }, what was last seen to change and when.
+ * @param seen - The step's own memory: for `rest`, { still, frame, at }, what was last seen to change and when; for `played`,
+ *   { frame, played }, the frame it last read and how many frames it has seen drawn while the show played.
  * @param at - The clock now, in ms.
  */
 export function arrived(until, world, start, seen, at) {
@@ -228,6 +240,13 @@ export function arrived(until, world, start, seen, at) {
   if (until.past !== undefined) return world.mode !== until.past;
   // The ride's camera on the crane, or back with the bears: a world out of a ride has no such camera, and has not come to either.
   if (until.lean !== undefined) return world.ride?.lean === until.lean;
+  // Frames drawn while the show played: those since the last reading count if the show plays now.
+  if (until.played !== undefined) {
+    if (seen.frame === undefined) Object.assign(seen, { frame: start.frames, played: 0 });
+    if (world.playing) seen.played += world.frames - seen.frame;
+    seen.frame = world.frames;
+    return seen.played >= until.played;
+  }
   // At rest: the same picture of the bear, from the same stand, for long enough. A page that does not say where the head lands
   // (the view is first person) never rests: its count starts again at every reading.
   const still = JSON.stringify([walker, world.screen]);
@@ -251,6 +270,7 @@ export function missed(until, world, start, seen) {
     const where = world.ride ? `it had gone ${world.ride.lean} of the way to the crane` : `the world was in no ride, its mode ${world.mode}`;
     return `the ride's camera had not come ${until.lean ? "to the crane" : "back to the bears"}: ${where}, ${world.frames - start.frames} frames on, and ${stood}`;
   }
+  if (until.played !== undefined) return `the show had played for ${seen.played ?? 0} of the ${until.played} frames it must, ${world.frames - start.frames} frames on, and was ${world.playing ? "" : "not "}playing; ${stood}`;
   const head = world.screen === null ? "the page did not say where the bear's head lands in the frame" : `the bear's head, at ${world.screen.join(", ")} of the frame, had kept its place for ${world.frames - seen.frame} frames of the ${until.rest} it must`;
   return `the camera had not come to rest: ${head}; ${stood}`;
 }

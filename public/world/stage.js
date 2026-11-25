@@ -1,25 +1,30 @@
 /* eslint-disable */
 import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { buildBand } from "./band.js";
 import { FACING, height, STAGE, SHELF_Y } from "./ground.js";
 import { mesh, mergeStill } from "./landmarks.js";
 import { buildRig } from "./rig.js";
 
 /* The stage, on its shelf at the island's north-east edge: a platform whose open front faces the island's middle (ground.js); a roof on
    two posts over a back wall with a light panel that plays the sky's liquid light; two PA stacks; a light; the rig's beams under the
-   roof's front edge (rig.js); and six players as flat black silhouettes, never likenesses: two guitars, a bass, keys and two drummers. */
+   roof's front edge (rig.js); and the band (band.js): six players as flat black silhouettes, never likenesses, two guitars, a bass, keys
+   and two drummers, with their instruments and the stage's furniture. */
 
 /* The walk's reach round the stage and the column the third-person camera keeps out of, STAGE_REACH and STAGE_COLUMN, are ground.js's:
    they follow the platform's edge, the PA stacks' outer corners and the roof's top built here. */
 /* Where the show sounds from: over the platform's centre, 2 m above the shelf, which puts it 0.8 m above the platform's floor (1.2 m
    up); and the way its sound faces: the stage's own. */
 export const STAGE_SOUND = { x: STAGE[0], y: SHELF_Y + 2, z: STAGE[1], facing: [Math.sin(FACING), 0, Math.cos(FACING)] };
-/* The light panel's middle in the stage's own frame: centred, PANEL.y m over the shelf, on the back wall. */
-export const PANEL = { y: 3.7, z: -4.08 };
+/* The light panel in the stage's own frame: its middle centred, PANEL.y m over the shelf, on the back wall; PANEL.w m wide and PANEL.h
+   high, so it stands on the platform's floor. */
+export const PANEL = { y: 3.7, z: -4.08, w: 16, h: 5 };
+/* The platform's floor, in the stage's own frame: FLOOR m over the shelf, and FLOOR_R m out to the FLOOR_SIDES corners of its edge. */
+export const FLOOR = 1.2, FLOOR_R = 9, FLOOR_SIDES = 16;
 
 /* Builds the stage. With `shadows` the sun casts the desktop's one shadow map, framed on the stage alone. `panelMat` is the light panel's
    material (sky.js) and `colors` the sky's uniforms, whose two colours the rig's beams take. Returns the group, the light panel, the stage
-   light (the downgrade turns it off), the rig (rig.js) and `move`, which plays the players. */
+   light (the downgrade turns it off), the rig (rig.js), `move`, which plays the band, and `fit`, which fits its crashes' poles to the
+   canvas (band.js). */
 export function buildStage(scene, sun, shadows, panelMat, colors) {
   const group = new THREE.Group();
   group.position.set(STAGE[0], SHELF_Y, STAGE[1]);
@@ -34,7 +39,7 @@ export function buildStage(scene, sun, shadows, panelMat, colors) {
   const stone = new THREE.MeshLambertMaterial({ color: 0x8e8a82, flatShading: true });
   const dark = new THREE.MeshLambertMaterial({ color: 0x1a1816, flatShading: true });
   const still = new THREE.Group();
-  still.add(mesh(new THREE.CylinderGeometry(9, 9.5, 2.7, 16), wood, 0, -0.15, 0));
+  still.add(mesh(new THREE.CylinderGeometry(FLOOR_R, 9.5, 2.7, FLOOR_SIDES), wood, 0, -0.15, 0));
   for (const x of [-8, 8]) still.add(mesh(new THREE.BoxGeometry(0.6, 8, 0.6), stone, x, 4, 4));
   still.add(mesh(new THREE.BoxGeometry(18, 0.5, 9), dark, 0, 8.2, 0), mesh(new THREE.BoxGeometry(18, 7, 0.4), dark, 0, 4.7, -4.3));
   for (const x of [-9.5, 9.5]) {
@@ -46,53 +51,13 @@ export function buildStage(scene, sun, shadows, panelMat, colors) {
   for (const m of still.children) { m.castShadow = true; m.receiveShadow = true; }
 
   /* The light panel covers the wall from the platform's floor up and plays the sky's liquid light (sky.js). */
-  const panel = mesh(new THREE.PlaneGeometry(16, 5), panelMat, 0, PANEL.y, PANEL.z);
+  const panel = mesh(new THREE.PlaneGeometry(PANEL.w, PANEL.h), panelMat, 0, PANEL.y, PANEL.z);
   const light = new THREE.PointLight(0xe8b04b, 60, 40);
   light.position.set(0, 7, 0);
   group.add(panel, light);
 
-  /* The players: flat black and unlit, each one mesh in a group standing on the floor, so a strum rocks the whole player and a nod bobs
-     it. The drummers sit, and each one's arms are a mesh that swings from the shoulders; the keyboard and the drums stand still, one mesh. */
-  const black = new THREE.MeshBasicMaterial({ color: 0x0b0b0d });
-  const part = (geo, x, y, z, rz = 0) => geo.rotateZ(rz).translate(x, y, z);
-  /* A capsule body of middle length `len` centred at `y`, and the head just above it. */
-  const body = (len, y) => [part(new THREE.CapsuleGeometry(0.5, len), 0, y, 0), part(new THREE.SphereGeometry(0.4, 8, 6), 0, y + len / 2 + 0.85, 0)];
-  /* A guitar across the hips, its neck rising to the player's left (the audience's right); the bass has a longer neck. */
-  const guitar = (neck) => {
-    const r = neck / 2 + 0.4;
-    return [part(new THREE.BoxGeometry(0.9, 0.5, 0.15), -0.15, 1.0, 0.55, -0.35),
-      part(new THREE.BoxGeometry(0.12, neck, 0.1), -0.15 + r * Math.sin(1.2), 1.0 + r * Math.cos(1.2), 0.55, -1.2)];
-  };
-  const arm = (x) => new THREE.BoxGeometry(0.14, 0.8, 0.14).translate(0, -0.4, 0).rotateX(-1.0).translate(x, 0, 0);
-  const players = [
-    { spot: [-3, 1], strums: true, geos: [...body(1.4, 1.2), ...guitar(1.0)] },
-    { spot: [3, 1], strums: true, geos: [...body(1.4, 1.2), ...guitar(1.0)] },
-    { spot: [-5.5, -1], strums: true, geos: [...body(1.4, 1.2), ...guitar(1.3)] },
-    { spot: [6, -1.5], geos: body(1.4, 1.2) },
-    /* The drummers, the second playing a half-beat behind the first. */
-    { spot: [-1.2, -2.5], lag: 0, geos: body(0.6, 1.1) },
-    { spot: [1.2, -2.5], lag: 0.5, geos: body(0.6, 1.1) },
-  ].map(({ spot: [x, z], strums = false, lag, geos }) => {
-    const g = new THREE.Group();
-    g.position.set(x, 1.2, z);
-    g.add(new THREE.Mesh(mergeGeometries(geos), black));
-    let arms = null;
-    if (lag !== undefined) {
-      arms = new THREE.Mesh(mergeGeometries([arm(-0.45), arm(0.45)]), black);
-      arms.position.set(0, 1.65, 0);
-      g.add(arms);
-    }
-    group.add(g);
-    return { g, strums, arms, lag };
-  });
-  /* The keyboard on its two legs in front of the keys, and each drummer's three drums. */
-  const kit = [part(new THREE.BoxGeometry(1.6, 0.2, 0.6), 6, 2.25, -0.75)];
-  for (const dx of [-0.7, 0.7]) kit.push(part(new THREE.BoxGeometry(0.1, 1.0, 0.1), 6 + dx, 1.7, -0.75));
-  for (const x of [-1.2, 1.2]) {
-    for (const dx of [-0.55, 0.55]) kit.push(part(new THREE.CylinderGeometry(0.35, 0.35, 0.5, 10), x + dx, 2.15, -1.65));
-    kit.push(part(new THREE.CylinderGeometry(0.5, 0.5, 0.4, 12).rotateX(Math.PI / 2), x, 1.7, -1.55));
-  }
-  group.add(new THREE.Mesh(mergeGeometries(kit), black));
+  /* The band and its furniture stand on the platform's floor (band.js). */
+  const band = buildBand(group, FLOOR);
   const rig = buildRig(group, colors);
 
   if (shadows) {
@@ -109,20 +74,5 @@ export function buildStage(scene, sun, shadows, panelMat, colors) {
     sun.shadow.normalBias = 0.02;
   }
 
-  /* The players keep the beat while the show plays: everyone nods on it, the guitars and the bass rock with the strum, and each
-     drummer's arms fall on 1 and 3. `beats` is their phase in beats, which the caller keeps (beat.js), and `t` the world's time in
-     seconds. Otherwise they stand, breathing on a 4-s cycle. Each change eases over 0.8 s. Under reduced motion nothing calls this, so
-     they stand still. */
-  let level = 0;
-  function move(dt, t, beats, playing) {
-    level = Math.max(0, Math.min(1, level + (playing ? dt : -dt) / 0.8));
-    const beat = Math.sin(2 * Math.PI * beats), breath = 0.02 * (1 - level) * Math.sin((2 * Math.PI * t) / 4);
-    for (const p of players) {
-      p.g.position.y = 1.2 + 0.06 * level * beat + breath;
-      if (p.strums) p.g.rotation.z = 0.15 * level * beat;
-      if (p.arms) p.arms.rotation.x = 0.5 * level * Math.sin(Math.PI * (beats - p.lag));
-    }
-  }
-
-  return { group, panel, light, rig, move };
+  return { group, panel, light, rig, move: band.move, fit: band.fit };
 }

@@ -61,6 +61,7 @@ const fake = vi.hoisted(() => {
     light: { visible: boolean; intensity: number };
     rig: { show: Float32Array; mesh: { visible: boolean; renderOrder?: number } };
     move: (dt: number, t: number, beats: number) => void;
+    fit: (perPx: number) => void;
   };
   type CrowdMesh = { renderOrder?: number };
   type Sky = { uniforms: Record<string, { value: number | Vec }> };
@@ -155,6 +156,11 @@ const fake = vi.hoisted(() => {
     // how high in the frame it was asked to keep the visitor's bear.
     drawn: 0,
     tilted: [] as number[],
+    // The canvas's pixel, in rad of the view's height, the stage last fitted the band's crash poles to (band.js).
+    perPx: NaN,
+    // The grid the island was built on; and the ground the landmarks were stood on, which the island's stand-in made for a grid.
+    islandGrid: NaN,
+    stoodOn: null as { grid: number } | null,
   };
   class Scene {
     shown = new Set<unknown>();
@@ -172,9 +178,11 @@ const fake = vi.hoisted(() => {
     position = new Vec();
     // Where it last looked.
     target = new Vec();
-    // Its near plane, from the arguments it is made with: field of view, aspect, near and far.
+    // Its field of view and near plane, from the arguments it is made with: field of view, aspect, near and far.
+    fov: number;
     near: number;
-    constructor(_fov?: number, _aspect?: number, near = NaN) {
+    constructor(fov = NaN, _aspect?: number, near = NaN) {
+      this.fov = fov;
       this.near = near;
       world.camera = this;
     }
@@ -235,11 +243,14 @@ const fake = vi.hoisted(() => {
     DoubleSide: 2,
   };
   const modules = {
-    // The island draws the night's look on its sea and its ground itself (island.js), which the frames here do not read.
+    // The island draws the night's look on its sea and its ground itself (island.js), which the frames here do not read; and the
+    // ground as a tier draws it, which the landmarks here, the path's stand-ins, are not stood on.
     island: {
       BAND_GLOW,
-      buildIsland: (_scene: unknown, _grid: number, _phone: boolean, _loop: unknown, trunks: unknown, bands: typeof world.bands, crowd: unknown) => {
+      surfaceOf: (grid: number) => Object.assign(() => 0, { grid }),
+      buildIsland: (_scene: unknown, grid: number, _phone: boolean, _loop: unknown, trunks: unknown, bands: typeof world.bands, crowd: unknown) => {
         world.made.push("island");
+        world.islandGrid = grid;
         world.trunks = trunks;
         world.bands = bands;
         world.islandCrowd = crowd;
@@ -280,8 +291,9 @@ const fake = vi.hoisted(() => {
         world.laidOut = tracks.map((t) => t.title);
         return Array.from({ length: tracks.length + 1 }, (_, i) => 0.5 + 0.1 * i);
       },
-      placeLandmarks: (_scene: unknown, _path: unknown, tracks: { title: string }[]) => {
+      placeLandmarks: (_scene: unknown, _path: unknown, tracks: { title: string }[], ...rest: unknown[]) => {
         world.placed = tracks.map((t) => t.title);
+        world.stoodOn = (rest[rest.length - 1] ?? null) as { grid: number } | null;
         return world.landmarks;
       },
       // Where ?pose=near-K stands the visitor. path.js's own answer is tested with path.js; here song k's is the spot a test names, and a
@@ -400,6 +412,10 @@ const fake = vi.hoisted(() => {
           rig: { show: new Float32Array(5), mesh: { visible: false } },
           move: (_dt, _t, beats) => {
             world.beats = beats;
+          },
+          // The canvas's pixel, in rad of the view's height, the band's crash poles are fitted to.
+          fit: (perPx: number) => {
+            world.perPx = perPx;
           },
         };
         return world.stage;
@@ -793,6 +809,19 @@ describe("main.js's frames", () => {
     expect([hill().tier, fake.world.crowdPlain]).toEqual(["phone", true]);
     await startWorld({ search: "?tier=tv" });
     expect([hill().tier, fake.world.crowdPlain]).toEqual(["tv", true]);
+  });
+
+  it("stands the landmarks on the ground as the tier draws it: its rims clear of the island's own cells (path.js rimLift)", async () => {
+    const grids: number[] = [];
+    for (const tier of ["desktop", "phone", "tv"]) {
+      fake.world.stoodOn = null;
+      await startWorld({ search: `?tier=${tier}` });
+      const stoodOn = fake.world.stoodOn as { grid: number } | null;
+      expect(stoodOn?.grid, tier).toBe(fake.world.islandGrid);
+      grids.push(fake.world.islandGrid);
+    }
+    // Each tier draws its own: a desktop's ground on 80 cells a side, a phone's on 52 and a TV's on 64 (quality.js).
+    expect(grids).toEqual([80, 52, 64]);
   });
 
   it("draws a handful of the land's tufts for the draw-call sweep, whose frames are counted and never looked at, and all of them otherwise", async () => {
@@ -1475,6 +1504,20 @@ describe("main.js's frames", () => {
     expect(hill().rung).toBe(1);
     expect(fake.world.thinned).toBe(true);
     expect(hill().crowd.drawn).toBe(made);
+  });
+
+  it("fits the band's crash poles to the canvas's pixel once the stage is built, and again as each rung shrinks the canvas", async () => {
+    // A pixel of the canvas, in rad of the view's height at its middle: the view's height at 1 m over the canvas's rows, which are
+    // the frame's at the render scale (desktop: a 60° view, a 720-px frame and a pixel ratio of 1).
+    const pixel = (scale: number) => (2 * Math.tan(Math.PI / 6)) / Math.round(720 * scale);
+    const page = await startWorld();
+    expect(fake.world.perPx).toBeCloseTo(pixel(1), 12);
+    page.run(DESCENT_S, { ms: 50 });
+    for (const scale of [0.8, 0.64, 0.512, 0.5]) {
+      for (let k = 0; k < 30 && hill().scale !== scale; k++) page.run((WINDOW * 50) / 1000, { ms: 50 });
+      expect(hill().scale).toBe(scale);
+      expect(fake.world.perPx).toBeCloseTo(pixel(scale), 12);
+    }
   });
 
   it("turns off the sun's shadow and the stage light on the way down the downgrade's ladder: at its foot neither is left", async () => {
