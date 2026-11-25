@@ -161,6 +161,7 @@ const fake = vi.hoisted(() => {
     // The grid the island was built on; and the ground the landmarks were stood on, which the island's stand-in made for a grid.
     islandGrid: NaN,
     stoodOn: null as { grid: number } | null,
+    crowdSurface: null as unknown,
   };
   class Scene {
     shown = new Set<unknown>();
@@ -425,9 +426,10 @@ const fake = vi.hoisted(() => {
     crowd: {
       // As many figures as the tier asks for, of which the downgrade may have only the first half drawn, the pose each frame gives
       // them, its parting, and its own word on whether a camera has a figure in view.
-      buildCrowd: (_scene: Scene, { count, plain, seed }: { count: number; plain: boolean; seed: number }) => {
+      buildCrowd: (_scene: Scene, { count, plain, seed, surface }: { count: number; plain: boolean; seed: number; surface?: unknown }) => {
         let shown = count;
         world.crowdSeed = seed;
+        world.crowdSurface = surface ?? null;
         world.crowdBeforeIsland = !world.made.includes("island");
         return {
         ground: (world.crowdGround = { seed }),
@@ -811,13 +813,16 @@ describe("main.js's frames", () => {
     expect([hill().tier, fake.world.crowdPlain]).toEqual(["tv", true]);
   });
 
-  it("stands the landmarks on the ground as the tier draws it: its rims clear of the island's own cells (path.js rimLift)", async () => {
+  it("stands the landmarks and the crowd on the ground as the tier draws it: its rims clear of the island's own cells (path.js rimLift)", async () => {
     const grids: number[] = [];
     for (const tier of ["desktop", "phone", "tv"]) {
       fake.world.stoodOn = null;
+      fake.world.crowdSurface = null;
       await startWorld({ search: `?tier=${tier}` });
       const stoodOn = fake.world.stoodOn as { grid: number } | null;
       expect(stoodOn?.grid, tier).toBe(fake.world.islandGrid);
+      // The crowd stands on that same ground, the one the landmarks were stood on, not the hill's own height (crowd.js buildCrowd).
+      expect(fake.world.crowdSurface, tier).toBe(stoodOn);
       grids.push(fake.world.islandGrid);
     }
     // Each tier draws its own: a desktop's ground on 80 cells a side, a phone's on 52 and a TV's on 64 (quality.js).

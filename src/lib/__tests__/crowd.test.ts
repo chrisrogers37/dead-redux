@@ -99,21 +99,21 @@ const offset: Float32Array = crowd.each.offset;
 
 // Walks the visitor `frames` frames from `[x, z]` along `[wx, wz]`, a unit vector, at 12 m/s: 0.2 m a frame of 1/60 s, held as main.js
 // holds the walker (the crowd's hold before the step, its part after it), their bear's head 0.8 m ahead of its feet (avatar.js). After
-// each frame, `each(i)` for each figure.
-function walk([x, z]: number[], [wx, wz]: number[], frames: number, each: (i: number) => void) {
+// each frame, `each(i)` for each figure. Through the first crowd, or through `among`.
+function walk([x, z]: number[], [wx, wz]: number[], frames: number, each: (i: number) => void, among: typeof crowd = crowd) {
   const walker = { x, z, heading: Math.atan2(-wx, -wz) };
   const visitor = () => {
     const fx = -Math.sin(walker.heading), fz = -Math.cos(walker.heading);
     return { feet: { x: walker.x, z: walker.z }, head: { x: walker.x + 0.8 * fx, z: walker.z + 0.8 * fz } };
   };
-  crowd.part(0, visitor().feet, visitor().head, false);
+  among.part(0, visitor().feet, visitor().head, false);
   for (let f = 0; f < frames; f++) {
     walker.x -= Math.sin(walker.heading) * 0.2;
     walker.z -= Math.cos(walker.heading) * 0.2;
-    crowd.hold(walker);
+    among.hold(walker);
     const v = visitor();
-    crowd.part(1 / 60, v.feet, v.head, false);
-    for (let i = 0; i < crowd.count; i++) each(i);
+    among.part(1 / 60, v.feet, v.head, false);
+    for (let i = 0; i < among.count; i++) each(i);
   }
 }
 
@@ -214,6 +214,32 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect(Math.max(...heads)).toBeGreaterThan(1.05 * PERSON);
     expect(Math.min(...heads)).toBeGreaterThan(0.5 * PERSON);
     expect(Math.min(...heads)).toBeLessThan(0.7 * PERSON);
+  });
+
+  it("parts a tier's crowd on the ground that tier draws: a figure stepped off its seat stands where a phone's ground is, not the hill's own height", () => {
+    // The parting lifts or lowers each figure it steps aside by its ground's rise from its seat (seats.js parting, `ground`). A
+    // phone's ground lies the farthest off the hill's own height, up to half a metre (island.js surfaceOf, 52 cells a side): a phone's
+    // crowd built on it, and the walk across the front rows the test below takes.
+    const surface = surfaceOf(52), small = buildCrowd(new THREE.Scene(), { count: 150, path, line, landmarks, plain: true, surface });
+    expect(kept.options[kept.options.length - 1].ground).toBe(surface);
+    const placed = kept.placed[kept.placed.length - 1], step: Float32Array = small.each.offset;
+    // Over the walk's frames, each figure off its seat, as the parting stepped it, against the ground under it and under its seat.
+    let moved = 0, wrong = 0, apart = 0, most = 0;
+    walk([STAGE[0] + 15 * ux - 20 * nx, STAGE[1] + 15 * uz - 20 * nz], [nx, nz], 200, (i) => {
+      if (step[4 * i] === 0 && step[4 * i + 2] === 0) return;
+      const { x, z } = placed[i], to = [x + step[4 * i], z + step[4 * i + 2]];
+      const drawn = surface(to[0], to[1]) - surface(x, z), own = height(to[0], to[1]) - height(x, z);
+      moved += 1;
+      if (step[4 * i + 1] !== Math.fround(drawn)) wrong += 1;
+      if (Math.abs(drawn - own) > 0.01) apart += 1;
+      most = Math.max(most, Math.abs(drawn - own));
+    }, small);
+    // Each stands by just its ground's rise, as a 32-bit number holds it: 3,889 figures' frames. And that is no rise of the hill's own
+    // height under it: by over a centimetre for 3,120 of them, by as much as 36 cm.
+    expect(moved).toBeGreaterThan(2000);
+    expect(wrong).toBe(0);
+    expect(apart).toBeGreaterThan(moved / 2);
+    expect(most).toBeGreaterThan(0.2);
   });
 
   it("keeps its figures' hands clear of the stage's solids as they make room for a walk across the front rows", () => {
@@ -533,9 +559,11 @@ describe("the crowd, as buildCrowd builds it", () => {
       }
     }
     expect(looked).toBeGreaterThan(3.9e6);
-    // The nearest any of those four million posed corners comes to its figure's sphere is 0.1 m inside it and more: a seated
-    // figure's feet follow the ground's fall ahead of its seat, which differs with the way the gathering faces it, and its knees fall
-    // apart.
+    // The nearest any of those four million posed corners comes to its figure's sphere is 0.136 m inside it: a seated figure's feet
+    // follow the ground's fall ahead of its seat, which differs with the way the gathering faces it, and its legs lean with the ground
+    // across it (aPlace.w), which took that from 0.20 m to under the 0.15 m this test held before (#203). How steeply the ground leans
+    // across under a seat differs by day and by the tier's ground: twelve days' crowds on each tier's leave 0.139 m to 0.22 m. So the
+    // bound is a tenth of a metre, under all of those, and not one fitted to this day's.
     expect(least).toBeGreaterThan(0.1);
     expect(least).toBeLessThan(0.3);
     // Then that `cull` tests those spheres and no others. One figure at a time, the rest stepped ten kilometres off (`cull` counts a
@@ -1646,6 +1674,29 @@ describe("the crowd's shader", () => {
     const sextants = new Set(hues.filter(({ s }) => s > 0.3).map(({ h }) => Math.floor(h * 6)));
     expect(sextants.size).toBeGreaterThanOrEqual(5);
     for (const list of Object.values(COLOURS) as number[][]) for (const hex of list) expect(light(new THREE.Color(hex))).toBeLessThan(0.05);
+  });
+
+  it("dyes no top, trousers or hair near black: on an upright back under the sky's light each reflects as much as the dark grey top, and hair two thirds of it", () => {
+    // The darkness test above reads only the darkest whole figure, and one near-black colour put back among the rest need not dress
+    // it. So each colour alone, as the shader gives it (a top as it is, the rest through its tone), lit as an upright face is by the
+    // hemisphere light (sky.js: half 0xe8b04b, half 0x1a1613), against the dark grey top 0x19191d, which #203 left as it was when it
+    // lifted the near-black ones. No top or trousers reflects under 97 % of that grey, the 3 % a tone may round a channel this deep
+    // by: the navy top lifted off 0x141936 reflected 93 % of it, this warm light taking most of its blue, 0x0d172c 73 % and 0x1f0e23
+    // 80 %, and the trousers lifted off 0x10151e and 0x101012 69 % and 52 %. Hair, less of a figure seen from behind, may be darker
+    // but not under two thirds of the grey: the darkest, lifted off black 0x0b0a0a, reflects 72 %, where that black was 33 % and the
+    // brown lifted off 0x160e0a 58 %.
+    const sky = new THREE.Color(0xe8b04b), ground = new THREE.Color(0x1a1613), out: Rgb = { r: 0, g: 0, b: 0 };
+    const back = ({ r, g, b }: Rgb) => (0.2126 * r * (sky.r + ground.r) + 0.7152 * g * (sky.g + ground.g) + 0.0722 * b * (sky.b + ground.b)) / 2;
+    const toned = (hex: number) => {
+      out.r = 1; out.g = 1; out.b = 1;
+      runTones(null, out, { x: 0, y: 0, z: 1, w: 0 }, null, null, 1, null, { x: 0, y: 0, z: 0, w: 1 }, null, { x: tone(hex), y: 0, z: 0, w: 0 }, 0, 0, 0, 0);
+      return out;
+    };
+    const grey = back(new THREE.Color(0x19191d)), floor = { top: 0.97, legs: 0.97, hair: 2 / 3 };
+    const shares = (["top", "legs", "hair"] as const).flatMap((list) => (COLOURS[list] as number[]).map((hex) =>
+      ({ list, hex, share: back(list === "top" ? new THREE.Color(hex) : toned(hex)) / grey })));
+    expect(shares.length).toBe(COLOURS.top.length + COLOURS.legs.length + COLOURS.hair.length);
+    expect(shares.filter(({ list, share }) => share < floor[list]).map(({ list, hex, share }) => `${list} 0x${hex.toString(16).padStart(6, "0")}: ${share.toFixed(2)}`)).toEqual([]);
   });
 });
 
