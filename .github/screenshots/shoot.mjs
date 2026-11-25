@@ -16,7 +16,7 @@ import {
   sweepSummary,
   walkPoses,
 } from "./assets.mjs";
-import { bandPath } from "./band.mjs";
+import { BAND_DAYS, bandPath } from "./band.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
 import { EASE_MS, press, RECORD_MS, RECORDINGS, step, WORLD_MS, worldStarted } from "./recordings.mjs";
 import { cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, movePointer, pressFailure, pressWorld, rideIdle, ridePages, stillInLook } from "./ride.mjs";
@@ -253,16 +253,18 @@ const PAGES = [
     shots: [],
     steps: [playStep("fixed-crowd-rise", { ms: 8000, shot: "fixed-crowd-rise-8s" })],
   },
-  // The band, close: the fixed day from the front of the crowd (band.mjs), shot whole as the near stills are, while Fire On The
-  // Mountain plays with ?drive=map, so the light panel is lit behind the six players and each reads by an outline. K starts the
-  // show, since the play disc is on a shelf that is away. Both stills are of the show playing: `fixed-band-start` as it starts and
-  // `fixed-band` 8 s and the wait for the world's hour later, some 15 s on, so the pair shows how far the players move. A phone
-  // stands further back, where its narrower view holds all six.
-  // The page names ?at=, so it needs no place an earlier page left. On the desktop the next page that plays names its place too (the
-  // crowd's page of Space), so nothing there resumes from this one; on a phone the next play step is the new day's, which resumes in
-  // this same song, a few seconds on from where the crowd's page of it left it before this page stood here.
-  ...["desktop", "phone"].map((device) => ({
-    path: bandPath(device),
+  // The band, close: from the front of the crowd (band.mjs), shot whole as the near stills are, while the show plays with ?drive=map,
+  // so the light panel is lit behind the players and each reads by an outline. K starts the show, since the play disc is on a shelf
+  // that is away. Both stills are of the show playing: `-start` as it starts and the other 8 s and the wait for the world's hour later,
+  // some 15 s on, so the pair shows how far the players move. A phone stands further back, where its narrower view holds them all.
+  // The band is the day's show's line-up (public/world/lineup.js): the fixed day's six in Fire On The Mountain, then the seven of
+  // 1968 to 1970 and the six of 1972 to 1974, with the piano and the singer, each on a day whose show is theirs (BAND_DAYS).
+  // Each page names ?at=, so it needs no place an earlier page left. On the desktop the next page that plays names its place too (the
+  // crowd's page of Space), so nothing there resumes from these; on a phone the next play step is the new day's, which resumes in the
+  // fixed day's Fire On The Mountain, a few seconds on from where the crowd's page of it left it before the fixed day's band page
+  // stood there. The other days' pages keep their own places (src/components/player/useResume.ts), which no later page reads.
+  ...BAND_DAYS.flatMap((band) => ["desktop", "phone"].map((device) => ({
+    path: bandPath(device, band),
     devices: [device],
     whole: true,
     shots: [],
@@ -273,11 +275,11 @@ const PAGES = [
         waitFor: "[data-state='playing'], [data-state='stalled'], [data-state='error']",
         waitMs: PLAY_WAIT_MS,
         player: true,
-        shot: "fixed-band-start",
-        later: { ms: 8000, shot: "fixed-band", night: true },
+        shot: `${band.shot}-start`,
+        later: { ms: 8000, shot: band.shot, night: true },
       },
     ],
-  })),
+  }))),
   {
     path: "/2026-10-20?pose=crowd&drive=map&at=14",
     devices: ["desktop"],
