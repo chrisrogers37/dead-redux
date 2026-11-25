@@ -107,7 +107,7 @@ function start(gl) {
     plateTop = tops.length ? Math.min(...tops) : frameH;
   }
 
-  /* Fits what of the world is drawn to the canvas's size, once the stage is built: the crashes' poles (band.js). */
+  /* Fits what of the world is drawn to the canvas's size, once the stage is built: the band's thin parts (band.js `fit`). */
   let fitToCanvas = () => {};
   function resize() {
     const w = Math.max(1, container.clientWidth), h = Math.max(1, container.clientHeight);
@@ -187,9 +187,10 @@ function start(gl) {
   const { skyMat, hemi, sun, panelMat, grade } = buildSky(scene, budget.octaves, data.seed);
 
   /* ---------- the stage ---------- */
-  const stage = buildStage(scene, sun, quality.shadows, panelMat, skyMat.uniforms);
-  /* The canvas's pixel, in rad of the view's height at its middle, which the band's crash poles are fitted to: they stay a pixel wide
-     from the back of the crowd as the render scale falls (stepDown). */
+  const stage = buildStage(scene, sun, quality.shadows, panelMat, skyMat.uniforms, data.showDate);
+  /* The canvas's pixel, in rad of the view's height at its middle, which the band's thin parts are fitted to (band.js `fit`): the crashes'
+     poles, the microphones' stands, the keyboard players' lifted forearms and hands, and the tips of the guitars' and the bass's necks
+     hold together from the back of the crowd as the render scale falls (stepDown). */
   fitToCanvas = () => stage.fit((2 * Math.tan((camera.fov * Math.PI) / 360)) / (Math.round(frameH * quality.scale) * budget.pixelRatio));
   fitToCanvas();
   /* The rig's beams draw after the rest of the world's solid things, adding their light to what lies behind them, and the crowd draws

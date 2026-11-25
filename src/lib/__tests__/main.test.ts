@@ -150,8 +150,10 @@ const fake = vi.hoisted(() => {
     // how high in the frame it was asked to keep the visitor's bear.
     drawn: 0,
     tilted: [] as number[],
-    // The canvas's pixel, in rad of the view's height, the stage last fitted the band's crash poles to (band.js).
+    // The canvas's pixel, in rad of the view's height, the stage last fitted the band's thin parts to (band.js `fit`); and the show's
+    // date the stage was built for, whose line-up it stands (lineup.js).
     perPx: NaN,
+    stageShow: null as string | null,
     // The grid the island was built on; and the ground the landmarks were stood on, which the island's stand-in made for a grid.
     islandGrid: NaN,
     stoodOn: null as { grid: number } | null,
@@ -397,8 +399,9 @@ const fake = vi.hoisted(() => {
     },
     stage: {
       // With shadows, the desktop's, the stage has the sun cast its shadow, as stage.js does.
-      buildStage: (_scene: Scene, sun: { castShadow: boolean }, shadows: boolean) => {
+      buildStage: (_scene: Scene, sun: { castShadow: boolean }, shadows: boolean, _panel: unknown, _colors: unknown, showDate: string) => {
         if (shadows) sun.castShadow = true;
+        world.stageShow = showDate;
         world.stage = {
           light: { visible: true, intensity: 60 },
           // The rig's five numbers, as the last frame wrote them, and whether it is drawn.
@@ -406,7 +409,7 @@ const fake = vi.hoisted(() => {
           move: (_dt, _t, beats) => {
             world.beats = beats;
           },
-          // The canvas's pixel, in rad of the view's height, the band's crash poles are fitted to.
+          // The canvas's pixel, in rad of the view's height, the band's thin parts are fitted to.
           fit: (perPx: number) => {
             world.perPx = perPx;
           },
@@ -1487,7 +1490,12 @@ describe("main.js's frames", () => {
     expect(hill().crowd.drawn).toBe(made);
   });
 
-  it("fits the band's crash poles to the canvas's pixel once the stage is built, and again as each rung shrinks the canvas", async () => {
+  it("builds the stage for the show's date, so the band is the line-up that played it (lineup.js)", async () => {
+    await startWorld();
+    expect(fake.world.stageShow).toBe(SHOW);
+  });
+
+  it("fits the band's thin parts (its crashes' poles, its microphones' stands, its lifted hands and its necks' tips) to the canvas's pixel once the stage is built, and again as each rung shrinks the canvas", async () => {
     // A pixel of the canvas, in rad of the view's height at its middle: the view's height at 1 m over the canvas's rows, which are
     // the frame's at the render scale (desktop: a 60° view, a 720-px frame and a pixel ratio of 1).
     const pixel = (scale: number) => (2 * Math.tan(Math.PI / 6)) / Math.round(720 * scale);
