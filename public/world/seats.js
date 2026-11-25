@@ -603,7 +603,7 @@ const STOOD = 0.25;
    Figures whose seats stand nearer than `space` m move as one group; groups nearer each other than that push apart, `passes`
    neighbours out a frame, but for two walking back head on to seats each behind the other, which pass each other while both walk, and
    push apart again once either stands (apart). A figure walks no farther than `most` m from its seat; only a push takes one past
-   that, while the visitor walks into it. It stands on the ground
+   that, while the visitor walks into it. It stands on the ground (`ground`, the island's own height or the ground as a tier draws it)
    wherever it goes and keeps clear of what the seats keep clear of (`keeps`, keepOuts, each [x, z, distance]). A figure stands still
    once it has stepped 0.25 m aside, and so does any within `ring` m of it, fading over the last 0.5 m, and any within a metre past the
    visitor's reach; its arms come down over RISE_EASE s, and go up again over as long once its stillness falls below RISE_HOLD, keeping
@@ -614,13 +614,13 @@ const STOOD = 0.25;
    and returns whether any moved or eased its arms; `over` raises a camera over them, and `ahead` says how far it should climb now for
    them along its way and the most they will ask along it; `hold` stops the visitor's walker against a still figure that could not get
    out of the way; `farthest[0]` is how far the farthest figure stands from its seat. */
-export function parting(placed, { keep, reach, hang, lead, step: pace, back, space, most, passes, ring, top, wide, clear, grade, keeps }) {
+export function parting(placed, { keep, reach, hang, lead, step: pace, back, space, most, passes, ring, top, wide, clear, grade, keeps, ground = height }) {
   const n = placed.length, CELL = 2, span = Math.ceil(space / CELL);
   const sx = new Float64Array(n), sz = new Float64Array(n), sy = new Float64Array(n), offset = new Float32Array(4 * n);
   let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
   for (let i = 0; i < n; i++) {
     const { x, z } = placed[i];
-    sx[i] = x; sz[i] = z; sy[i] = height(x, z);
+    sx[i] = x; sz[i] = z; sy[i] = ground(x, z);
     x0 = Math.min(x0, x); z0 = Math.min(z0, z); x1 = Math.max(x1, x); z1 = Math.max(z1, z);
   }
   /* The grid, over the seats and `most` round them: a point's column and row, or those of the nearest cell off the grid. Where a large
@@ -986,7 +986,7 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
     for (let k = 0; k < movedCount; k++) {
       const i = movedNow[k];
       offset[4 * i + 1] = offset[4 * i] === 0 && offset[4 * i + 2] === 0 ? 0
-        : Math.fround(height(sx[i] + offset[4 * i], sz[i] + offset[4 * i + 2]) - sy[i]);
+        : Math.fround(ground(sx[i] + offset[4 * i], sz[i] + offset[4 * i + 2]) - sy[i]);
     }
     let far = 0;
     for (let k = 0; k < offCount; k++) for (let m = start[list[k]]; m < start[list[k] + 1]; m++) {
@@ -1132,8 +1132,8 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
      round it, as far as a running camera's way reaches past the crowd, read between the four nearest. */
   const MAX_LOOKS = 64, base = new Float64Array(MAX_LOOKS + 1);
   const AWAY = 40, gcols = cols + (2 * AWAY) / CELL + 1, grows = rows + (2 * AWAY) / CELL + 1, gx0 = x0 - AWAY, gz0 = z0 - AWAY;
-  const ground = new Float64Array(gcols * grows);
-  for (let r = 0; r < grows; r++) for (let c = 0; c < gcols; c++) ground[r * gcols + c] = height(gx0 + c * CELL, gz0 + r * CELL);
+  const floor = new Float64Array(gcols * grows);
+  for (let r = 0; r < grows; r++) for (let c = 0; c < gcols; c++) floor[r * gcols + c] = ground(gx0 + c * CELL, gz0 + r * CELL);
 
   /* How much higher than a camera at `point` (x, y and z), moving at way[0-2] m/s, the figures will ask it to stand (over) along that way,
      read at way[4] times (at most MAX_LOOKS) out to way[3] s, less what climbing at way[5] m/s covers by each: raised that far now and
@@ -1149,7 +1149,7 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
       const t = (k * span) / looks, u = (x + vx * t - gx0) / CELL, w = (z + vz * t - gz0) / CELL;
       const c = Math.min(gcols - 2, Math.max(0, Math.floor(u))), rw = Math.min(grows - 2, Math.max(0, Math.floor(w)));
       const fu = Math.min(1, Math.max(0, u - c)), fw = Math.min(1, Math.max(0, w - rw)), q = rw * gcols + c;
-      const under = (ground[q] + (ground[q + 1] - ground[q]) * fu) * (1 - fw) + (ground[q + gcols] + (ground[q + gcols + 1] - ground[q + gcols]) * fu) * fw;
+      const under = (floor[q] + (floor[q + 1] - floor[q]) * fu) * (1 - fw) + (floor[q + gcols] + (floor[q + gcols + 1] - floor[q + gcols]) * fu) * fw;
       if (k === 0) above = y - under;
       else {
         base[k] = Math.min(y + vy * t, under + above);

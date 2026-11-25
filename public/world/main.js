@@ -134,7 +134,9 @@ function start(gl) {
   const builders = makeBuilders(phone);
   const { moving } = builders;
   const placeStart = performance.now();
-  const landmarks = placeLandmarks(scene, path, builtAs.size ? tracks.map((t, k) => ({ ...t, title: landmarkTitle(k) })) : tracks, hasShow, builders, landmarkU, line, surfaceOf(budget.grid));
+  /* The ground as this tier's island draws it, which the landmarks and the crowd stand on (island.js surfaceOf). */
+  const surface = surfaceOf(budget.grid);
+  const landmarks = placeLandmarks(scene, path, builtAs.size ? tracks.map((t, k) => ({ ...t, title: landmarkTitle(k) })) : tracks, hasShow, builders, landmarkU, line, surface);
   /* How long the landmarks took to place, most of it their search for room beside the bears' line; the stats report it. */
   (window.__hill ??= {}).placeMs = Math.round((performance.now() - placeStart) * 10) / 10;
 
@@ -167,7 +169,7 @@ function start(gl) {
 
   /* ---------- the crowd ---------- */
   /* The day's gathering (seats.js), before the ground, which wears it: the grass its people tread and the blankets they sit on. */
-  const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks, plain: tier !== "desktop", seed: data.seed });
+  const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks, plain: tier !== "desktop", seed: data.seed, surface });
 
   /* Nothing grows or lies within TRUNK_ROOM of a trunk. */
   const { caves, shade, flora, lit } = buildIsland(scene, budget.grid, phone, loop, (x, z) => placed.near(x, z, TRUNK_ROOM), bands, crowd.ground);
