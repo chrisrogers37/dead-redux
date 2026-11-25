@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { BAND_POSE, BAND_POSE_PHONE } from "../../../.github/screenshots/band.mjs";
 import { buildBand, STAGING } from "../../../public/world/band.js";
 import { FACING, SHELF_Y, STAGE, TEST_POSES } from "../../../public/world/ground.js";
+import { lineupOn } from "../../../public/world/lineup.js";
 import { budgetFor, stepDown } from "../../../public/world/quality.js";
 import { buildStage, FLOOR, PANEL } from "../../../public/world/stage.js";
 
@@ -234,8 +235,14 @@ function drawWithStage(tris: Tri[], cam: Camera) {
 }
 
 // At rest, as the band is built (and as a visitor who asks for reduced motion sees it), and at four moments through a bar at 96 a
-// minute: each stick at its top once, the strumming arms and the singer's clapping hands at both ends of their swings, and each
-// keyboard player's hands at the top of its lift, the left at 1.25 s and the right at 2.5 s.
+// minute: each stick at its top once, the strumming arms and the singer's clapping hands at both ends of their swings, and the keys
+// player's and the organ's player's hands at the tops of their lifts, the keys' left at 1.25 s and right at 2.5 s and the organ's the
+// other way about (its left a frame short of the top). The pianist's lag puts its lift's top after 3 s, where none of these falls:
+// the lift's test draws it there (liftShown), and the outlines' tests do not. Between these moments the outlines come apart where the
+// tests do not look. Drawn every tenth of a second through 5 s from the back of the crowd on a phone, at the shoot's own place of the
+// grid: a drummer's part through its stroke in five line-ups, the six among them, as main's six do at the same moments, and the
+// organ's player's hand twice at dusk. Drawn at the pianist's top: its lifted hand in December 1971, a pixel at one of the 16 places
+// from the crowd on a desktop.
 const MOMENTS = [0, 0.6, 1.25, 1.9, 2.5];
 const PHASES = [0, 0.25, 0.5, 0.75].flatMap((dx) => [0, 0.25, 0.5, 0.75].map((dy) => [dx, dy]));
 
@@ -246,7 +253,9 @@ const PHASES = [0, 0.25, 0.5, 0.75].flatMap((dx) => [0, 0.25, 0.5, 0.75].map((dy
 // and 69, and 72 and 63, on a phone. The band before it lifted a hand 26 cm, over its trunk from the front, and with its organ as
 // high as it stood (the lower keys at 0.9 m), the body showed 252 and 242 from the front of the crowd on a desktop, 70 and 52 from
 // the stage pose, and 42 and 47 from the front on a phone. An organ's or a piano's player is held to as much as the least of it
-// in any line-up, less a fifth.
+// in any line-up, less a fifth, each at the tops of its own lifts (liftTops). Measured, the least of the organ's arm and body: 147
+// and 355 from the front of the crowd and 28 and 68 from the stage pose on a desktop, and 60 and 53 and 11 and 9 from those on a
+// phone; of the pianist's near arm, the one it lifts, and body: 124 and 338, 21 and 72, 54 and 85, and 7 and 19.
 export type Least = Record<string, { arm: number; body: number }>;
 export const LIFT_LEAST: Record<string, Least> = {
   keys: {
@@ -254,6 +263,18 @@ export const LIFT_LEAST: Record<string, Least> = {
     "desktop band": { arm: 130, body: 340 },
     "phone band": { arm: 55, body: 50 },
     "phone stage": { arm: 10, body: 7 },
+  },
+  organ: {
+    "desktop stage": { arm: 22, body: 54 },
+    "desktop band": { arm: 117, body: 284 },
+    "phone band": { arm: 48, body: 42 },
+    "phone stage": { arm: 8, body: 7 },
+  },
+  piano: {
+    "desktop stage": { arm: 16, body: 57 },
+    "desktop band": { arm: 99, body: 270 },
+    "phone band": { arm: 43, body: 68 },
+    "phone stage": { arm: 5, body: 15 },
   },
 };
 
@@ -263,15 +284,17 @@ export const LIFT_LEAST: Record<string, Least> = {
    the crowd, and a kit meets the next; and which drummers' crashes stand apart from every outline, each as "N crash". */
 type Bars = { lift?: Record<string, Least>; touch?: string[]; apart?: string[] };
 
-/* The rules every line-up keeps, as a describe block of its own: `name` is how the tests name it, `roles` its row of lineup.js. */
-export function outlineChecks(name: string, roles: string[], bars: Bars = {}) {
-  const lift = bars.lift ?? LIFT_LEAST;
+/* The rules every line-up keeps, as a describe block of its own: `name` is how the tests name it, and `day` (YYYY-MM-DD) a date of its
+   row of lineup.js, whose roles it is. */
+export function outlineChecks(name: string, day: string, bars: Bars = {}) {
+  const roles = lineupOn(day).roles as string[];
+  const lift = { ...LIFT_LEAST, ...bars.lift };
   // The players as the band numbers them, from the crowd's left (band.js STAGING), which is not the order of the table's row.
   const order = STAGING[roles.join(" ") as keyof typeof STAGING].players.map(([role]) => String(role));
   const n = roles.length, monitors = n;
   const players = Array.from({ length: n }, (_, k) => k);
   const label = (bits: number) => [...players.filter((k) => bits & (1 << k)).map(String), ...(bits & (1 << monitors) ? ["monitor"] : [])].join(" and ");
-  // The band at the five moments, fitted to a camera's canvas as main.js fits it, made once a canvas.
+  // The band at MOMENTS, fitted to a camera's canvas as main.js fits it, made once a canvas.
   const films = new Map<number, Tri[][]>();
   const drawn = (cam: Camera) => {
     const perPx = pixelOf(cam);
@@ -387,15 +410,16 @@ export function outlineChecks(name: string, roles: string[], bars: Bars = {}) {
       expect([...apart]).toEqual([]);
     }, 120_000);
 
-    const keyboards = order.map((role, k) => [role, k] as const).filter(([role]) => lift[role]);
+    // Every keyboard player of the line-up is held to its role's least (LIFT_LEAST): the keys, the organ and the piano.
+    const keyboards = order.map((role, k) => [role, k] as const).filter(([role]) => KEYBOARDS.includes(role));
     for (const [role, at] of keyboards) {
       it(`shows the ${role} player playing from the front of the crowd and from the stage pose, on a desktop and on a phone: at the top of each lift the forearm and the hand stand against the panel, and the body shows from below the shoulders`, () => {
-        for (const cam of [...CAMERAS.filter((c) => c.pose.startsWith("band") || c.pose === "stage"), ...FLASH_CAMERAS]) {
-          const least = lift[role][cam.name];
-          for (const [side, t] of [["left", 2], ["right", 4]] as [string, number][]) {
-            const { arm, body } = shown(drawn(cam)[t], cam, at, side);
-            expect([cam.name, side, arm >= least.arm, body >= least.body]).toEqual([cam.name, side, true, true]);
-          }
+        const shows = liftShown(roles, at);
+        // Both hands lift, but at the piano only the one nearer the crowd (band.js).
+        expect(shows.map(({ side }) => side)).toEqual(role === "piano" ? ["left"] : ["left", "right"]);
+        for (const { cam, side, arm, body } of shows.flatMap(({ side, at: seen }) => seen.map((m) => ({ side, ...m })))) {
+          const least = lift[role][cam];
+          expect([cam, side, arm >= least.arm, body >= least.body]).toEqual([cam, side, true, true]);
         }
       }, 60_000);
     }
@@ -420,6 +444,45 @@ export function outlineChecks(name: string, roles: string[], bars: Bars = {}) {
       expect(found).toEqual([]);
     }, 120_000);
   });
+}
+
+// The roles that play a keyboard and lift a hand off it (band.js keyboardist).
+const KEYBOARDS = ["keys", "organ", "piano"];
+// The moments at which each hand of keyboard player `at` stands at the top of its lift, played from rest at 96 a minute as `band`
+// plays: for each hand that lifts, the middle frame of its first hold at its highest. Each player lifts at its own lag of the count
+// (band.js DEAL), so no one moment is the top of every keyboard player's lift.
+function liftTops(roles: string[], at: number) {
+  const stage = new THREE.Group();
+  stage.position.set(STAGE[0], SHELF_Y, STAGE[1]);
+  stage.rotation.y = FACING;
+  const built = buildBand(stage, FLOOR, roles), m = new THREE.Matrix4(), v = new THREE.Vector3();
+  const hands = ["left", "right"].map((side) => ({ side, k: built.bones.findIndex((b: { of: number; name: string }) => b.of === at && b.name === `${side} hand`), ys: [] as number[] }));
+  let beats = 0;
+  // Eight seconds at 96 a minute: 12.8 counts, more than a lift's eight.
+  for (let frame = 1; frame <= 8 * 60; frame++) {
+    built.move(1 / 60, frame / 60, (beats += 96 / 3600), true);
+    for (const hand of hands) {
+      built.limbs.getMatrixAt(hand.k, m);
+      hand.ys.push(v.setFromMatrixPosition(m).y);
+    }
+  }
+  return hands.flatMap(({ side, ys }) => {
+    const top = Math.max(...ys);
+    // A hand that lifts rises a metre or so; one that stays on its keys does not move.
+    if (top - Math.min(...ys) < 0.3) return [];
+    const from = ys.findIndex((y) => y > top - 1e-4);
+    let to = from;
+    while (to + 1 < ys.length && ys[to + 1] > top - 1e-4) to++;
+    return [{ side, seconds: (Math.round((from + to) / 2) + 1) / 60 }];
+  });
+}
+// How much of keyboard player `at` shows at the top of each of its lifts, from the front of the crowd and the stage pose, on a desktop
+// and on a phone (`shown`), fitted to each camera's canvas.
+export function liftShown(roles: string[], at: number) {
+  return liftTops(roles, at).map(({ side, seconds }) => ({
+    side,
+    at: [...CAMERAS.filter((c) => c.pose.startsWith("band") || c.pose === "stage"), ...FLASH_CAMERAS].map((cam) => ({ cam: cam.name, ...shown(band(roles, seconds, pixelOf(cam)), cam, at, side) })),
+  }));
 }
 
 // How much of player `at` shows at a moment from a camera, in the canvas's pixels: `arm`, the `side` forearm and hand where, without

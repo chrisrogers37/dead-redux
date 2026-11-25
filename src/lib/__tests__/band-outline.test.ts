@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { SIX } from "../../../public/world/band.js";
 import { FIRST_EYE, height } from "../../../public/world/ground.js";
 import { budgetFor } from "../../../public/world/quality.js";
 import { CAMERAS, FLASH_CAMERAS, outlineChecks, POSES } from "./band-outline";
@@ -38,4 +37,4 @@ describe("the outlines' cameras", () => {
   });
 });
 
-outlineChecks("the six of 1979–90 and 1992–95", SIX, { touch: ["rung 3: 2 and 3"], apart: ["3 crash"] });
+outlineChecks("the six of 1979–90 and 1992–95", "1986-07-04", { touch: ["rung 3: 2 and 3"], apart: ["3 crash"] });

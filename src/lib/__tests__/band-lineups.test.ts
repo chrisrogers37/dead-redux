@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
@@ -43,6 +44,9 @@ const lineups: string[][] = [...new Set((LINEUPS as [string, string, string[]][]
 const NEW = ["organ", "piano", "voice"];
 // A move's counts, as band.js times them: MOVE for a move, LIFT_MOVE for a keyboard player's lift.
 const MOVE = 0.35, LIFT_MOVE = 1;
+
+// The keyboards' roles; and a frame's counts at 96 a minute, the tempo the moves are followed at.
+const KEYBOARDS = ["keys", "organ", "piano"], PER_FRAME = 1.6 / 60;
 
 // A line-up built in a group of the test's own that stands where the stage's does in its own frame, and what plays it: `play` runs
 // frames of 1/60 s at a tempo, as main.js's frame does.
@@ -123,6 +127,49 @@ function microphoneOf(band: Band, k: number) {
 }
 // A point of the stage in a player's own frame and their own metres, where +x is their left and +z the way they face.
 const own = (band: Band, of: number, at: Vec) => new THREE.Vector3(at.x, at.y, at.z).applyMatrix4(band.players[of].g.matrix.clone().invert());
+// The runs of frames in which each part of the players `follow` picks moves, played from rest 3 s and followed 10 s more at 96 a minute
+// (sixteen counts): each bone's two ends, and three corners of a body that moves, by name ("player part end"), each run as the
+// distance its part goes each frame of it, a frame being in a run where its part moves over a micrometre. A run cut off by either end
+// of the ten seconds is left out.
+function moving(roles: string[], follow: (p: Player) => boolean) {
+  const { band, stage, play } = stand(roles);
+  play(3, 96);
+  const players: Player[] = band.players;
+  const followed = players.flatMap((p, k) => (follow(p) ? [k] : []));
+  const series = new Map<string, Vec[]>();
+  const add = (name: string, at: Vec) => series.set(name, [...(series.get(name) ?? []), at]);
+  play(10, 96, true, () => {
+    stage.updateMatrixWorld(true);
+    for (const k of followed) {
+      band.bones.forEach((bone: Bone, n: number) => {
+        if (bone.of !== k) return;
+        const { a, b } = ends(band, n);
+        add(`${k} ${bone.name} a`, a);
+        add(`${k} ${bone.name} b`, b);
+      });
+      const p = players[k];
+      if (!p.still) {
+        const body = p.body.geometry!.getAttribute("position");
+        for (const i of [0, Math.floor(body.count / 2), body.count - 1]) add(`${k} body ${i}`, new THREE.Vector3().fromBufferAttribute(body, i).applyMatrix4(p.body.matrixWorld));
+      }
+    }
+  });
+  const runs = new Map<string, number[][]>();
+  for (const [name, at] of series) {
+    const speed = at.slice(1).map((c, i) => gap(c, at[i])), list: number[][] = [];
+    let run: number[] = [], whole = speed[0] <= 1e-6;
+    for (const v of speed) {
+      if (v > 1e-6) run.push(v);
+      else {
+        if (run.length && whole) list.push(run);
+        run = [];
+        whole = true;
+      }
+    }
+    runs.set(name, list);
+  }
+  return { players, runs };
+}
 
 describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the line-up %s, as it is built", (_, roles) => {
   const built = stand(roles), { band, stage } = built;
@@ -272,6 +319,45 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
       expect(stillOf(band, (name) => name === "keyboard" || name === "kit", k)).toEqual([]);
     });
   });
+
+  // The tip of each guitar's and the bass's neck, its head with it (band.js `fit`, NECK_PX): as wide across the strings as built
+  // where NECK_PX of the canvas's pixel SEEN m off is no wider, widened in step with the pixel past that, and NECK_MOST times as
+  // wide at the most, as from a phone's lower rungs. Measured from the corners `fit` moves, across the way it moves them: at a tenth
+  // of the desktop's pixel, at the desktop's, where the tips are 1.5 to 1.7 times as wide as built, at half as much again, and at a
+  // pixel of a whole rad.
+  it("fits each neck's tip to the canvas's pixel: as built on a fine canvas, wider in step with the pixel, and three times as wide at the most", () => {
+    const fresh: Band = stand(roles).band;
+    const necked = (fresh.players as Player[]).flatMap((p, k) => (p.plays === "guitar" || p.plays === "bass" ? [k] : []));
+    const corners = () => necked.map((k) => Float32Array.from(fresh.players[k].body.geometry.getAttribute("position").array as Float32Array));
+    const fitted = (perPx: number) => {
+      fresh.fit(perPx);
+      return corners();
+    };
+    const built = corners(), most = fitted(1);
+    // The corners `fit` moves, and the way it moves them, from the widest fit.
+    const tips = necked.map((_, j) => {
+      const moved: number[] = [], way = new THREE.Vector3(), d = new THREE.Vector3();
+      for (let i = 0; i < built[j].length / 3; i++) {
+        d.set(most[j][3 * i] - built[j][3 * i], most[j][3 * i + 1] - built[j][3 * i + 1], most[j][3 * i + 2] - built[j][3 * i + 2]);
+        if (d.length() > 1e-6) moved.push(i);
+        if (d.length() > way.length()) way.copy(d);
+      }
+      return { moved, way: way.normalize() };
+    });
+    const spread = (at: Float32Array[], j: number) => {
+      const { moved, way } = tips[j], across = moved.map((i) => at[j][3 * i] * way.x + at[j][3 * i + 1] * way.y + at[j][3 * i + 2] * way.z);
+      return Math.max(...across) - Math.min(...across);
+    };
+    const DESKTOP = (2 * Math.tan(Math.PI / 6)) / 900, NECK_MOST = 3;
+    const [fine, desktop, more, whole] = [DESKTOP / 10, DESKTOP, DESKTOP * 1.5, 1].map((perPx) => {
+      const at = fitted(perPx);
+      return necked.map((_, j) => spread(at, j) / spread(built, j));
+    });
+    necked.forEach((k, j) => {
+      expect([k, tips[j].moved.length > 0, fine[j], desktop[j] > 1.4, more[j] / desktop[j], whole[j]].map((v) => (typeof v === "number" ? Math.round(v * 1e4) / 1e4 : v)))
+        .toEqual([k, true, 1, true, 1.5, NECK_MOST]);
+    });
+  });
 });
 
 describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the line-up %s, playing", (_, roles) => {
@@ -315,49 +401,35 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
   // between frames.
   const mine = [...new Set(roles.filter((role) => NEW.includes(role)))];
   if (mine.length) it(`moves each player of a new role (${mine.join(", ")}) by holds and even moves, each within a third of a count, a keyboard's lift within a count`, () => {
-    const { band, stage, play } = stand(roles);
-    play(3, 96);
-    const players: Player[] = band.players;
-    const followed = players.flatMap((p, k) => (NEW.includes(p.role) ? [k] : []));
-    const series = new Map<string, Vec[]>();
-    const sample = () => {
-      stage.updateMatrixWorld(true);
-      for (const k of followed) {
-        band.bones.forEach((bone: Bone, n: number) => {
-          if (bone.of !== k) return;
-          const { a, b } = ends(band, n);
-          for (const [end, at] of [["a", a], ["b", b]] as const) series.set(`${k} ${bone.name} ${end}`, [...(series.get(`${k} ${bone.name} ${end}`) ?? []), at]);
-        });
-        const p = players[k];
-        if (!p.still) {
-          const body = p.body.geometry!.getAttribute("position"), at = new THREE.Vector3();
-          for (const i of [0, Math.floor(body.count / 2), body.count - 1]) series.set(`${k} body ${i}`, [...(series.get(`${k} body ${i}`) ?? []), at.fromBufferAttribute(body, i).applyMatrix4(p.body.matrixWorld).clone()]);
-        }
-      }
-    };
+    const { players, runs } = moving(roles, (p) => NEW.includes(p.role));
     const seen = new Set<string>();
-    play(10, 96, true, sample);
-    const perFrame = 1.6 / 60;
-    for (const [name, at] of series) {
-      const k = Number(name.split(" ")[0]), role = players[k].role, most = role === "voice" ? MOVE : LIFT_MOVE;
-      const speed = at.slice(1).map((c, i) => gap(c, at[i]));
-      let run: number[] = [];
-      const close = () => {
-        if (run.length > 2) {
-          const inner = run.slice(1, -1), fastest = Math.max(...run);
-          seen.add(role);
-          expect([name, run.length * perFrame <= most + 2 * perFrame, Math.min(...inner) >= fastest / 3]).toEqual([name, true, true]);
-        }
-        run = [];
-      };
-      for (const v of speed) {
-        if (v > 1e-6) run.push(v);
-        else close();
+    for (const [name, list] of runs) {
+      const role = players[Number(name.split(" ")[0])].role, most = role === "voice" ? MOVE : LIFT_MOVE;
+      for (const run of list.filter((r) => r.length > 2)) {
+        const inner = run.slice(1, -1), fastest = Math.max(...run);
+        seen.add(role);
+        expect([name, run.length * PER_FRAME <= most + 2 * PER_FRAME, Math.min(...inner) >= fastest / 3]).toEqual([name, true, true]);
       }
-      close();
     }
     // Each new role moves at all.
     expect([...seen].sort()).toEqual([...mine].sort());
+  });
+
+  // And a keyboard player's lift takes its whole count (band.js LIFT_MOVE), the keys player's as the organ's and the pianist's: every
+  // run of frames in which any part of a keyboard player moves, through sixteen counts at 96 a minute, lasts LIFT_MOVE of a count to
+  // a frame either side, so a lift that set off and stopped sooner fails here as one that took longer does.
+  const keyboards = [...new Set(roles.filter((role) => KEYBOARDS.includes(role)))];
+  if (keyboards.length) it(`lifts each keyboard player's hands (${keyboards.join(", ")}) over a count, no sooner and no later`, () => {
+    const { players, runs } = moving(roles, (p) => KEYBOARDS.includes(p.role));
+    const seen = new Set<string>();
+    for (const [name, list] of runs) {
+      const role = players[Number(name.split(" ")[0])].role;
+      for (const run of list) {
+        seen.add(role);
+        expect([name, Math.abs(run.length * PER_FRAME - LIFT_MOVE) <= 2 * PER_FRAME]).toEqual([name, true]);
+      }
+    }
+    expect([...seen].sort()).toEqual([...keyboards].sort());
   });
 
   it("makes no Vector3, Matrix4, Quaternion, Euler or Float32Array in a frame: six hundred frames of playing, stopping and a change of tempo construct none", () => {
@@ -382,6 +454,22 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
 it("builds every line-up of the table, and refuses one it has no staging for", () => {
   expect(lineups).toHaveLength(Object.keys(STAGING).length);
   expect(() => buildBand(new THREE.Group(), FLOOR, ["lead", "bass", "drums"])).toThrow(/no staging/);
+});
+
+// Each line-up of the table is held to its outlines by a file of its own (band-outline.ts), so that vitest draws them side by side:
+// each band-outline test file calls outlineChecks once, with a day of the line-up's row, and the files' line-ups are the
+// table's, each once. Read from the files themselves: a line-up added to the table with no file, a file dropped, or two files for one
+// line-up fails here.
+it("has a file of outline tests for every line-up of the table, and one only", () => {
+  const here = new URL(".", import.meta.url);
+  const files = readdirSync(here).filter((file) => /^band-outline.*\.test\.ts$/.test(file)).sort();
+  const held = files.map((file) => {
+    const text = readFileSync(new URL(file, here), "utf8");
+    const days = [...text.matchAll(/\boutlineChecks\(\s*"[^"]*",\s*"(\d{4}-\d{2}-\d{2})"/g)].map((m) => m[1]);
+    expect([file, (text.match(/\boutlineChecks\(/g) ?? []).length, days.length]).toEqual([file, 1, 1]);
+    return (lineupOn(days[0]).roles as string[]).join(" ");
+  });
+  expect(held.sort()).toEqual(lineups.map((roles) => roles.join(" ")).sort());
 });
 
 // The stage builds the band itself (stage.js), as the line-up of the show it is given, and the six without one: the stage as main.js
