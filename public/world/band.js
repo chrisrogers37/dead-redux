@@ -63,8 +63,8 @@ export const SCALE = 1.77;
    and stretches its 0.85 of a pixel over the screen, and at every step down of its quality, to half that. A part a pixel or so
    across comes to the screen grey and broken where its pixels meet corner to corner, and what is wider at the end of it, a
    headstock, a hand, a cuff, a stand's foot, is left as a speck of black alone, which comes and goes as the visitor walks. So
-   what stands clear of an outline is short, or is fitted to the canvas: a guitar's or the bass's neck ends a hand past where it
-   is fretted, its head short, and its tip fitted to the canvas (axe, NECK_PX); a crash's pole, a microphone's stand, a keyboard
+   what stands clear of an outline is short, or is fitted to the canvas: what of a guitar's or the bass's neck runs on past where
+   it is fretted, to its head, is fitted to the canvas (axe, NECK_PX); a crash's pole, a microphone's stand, a keyboard
    player's lifted forearm and hand and a tapping foot are each as stout as a pixel of the canvas from the back of the crowd (SEEN,
    `fit`); a fretting hand lies where the arm's bend is filled; a stand and a pole stand on no foot; boots reach up into a long
    coat; a keyboard stands on a cabinet; a cymbal tips toward the crowd, so it shows as a disc; and a drummer's stick is thickest
@@ -388,8 +388,9 @@ const WEDGES = [[-4.5, 3.1, 0.2], [-2.3, 3.4, -0.1], [2.2, 3.3, 0.15]];
    and apart enough that from every pose of the shoot each is an outline of their own, at every rung a phone steps down to but
    where a line-up's test says two meet (band-outline.test.ts and the tests beside it, one a line-up). The places were found by a
    search over them against those tests, and a few were then moved by two to four centimetres, which keeps a part from coming apart
-   at the shoot's own place of the pixel grid. The six stand as #184 stood them, the second guitar 30 cm further out: a guitar a
-   step back, the bass in front, the drummers behind, side by side, the second guitar in front and the keys back by the drummers. */
+   at the shoot's own place of the pixel grid. The six stand as #184 stood them, but the second guitar 5 cm further in, its neck
+   risen steeper (DEAL), so that the longer neck keeps clear of the second drummer's crash: a guitar a step back, the bass in front,
+   the drummers behind, side by side, the second guitar in front and the keys back by the drummers. */
 export const STAGING = {
   "lead rhythm bass drums drums keys": { players: [["lead", -5.9, -1.3, 0.25], ["bass", -3.5, 1.5, 0.1], ["drums", -1.25, -2.5, 0.06],
     ["drums", 1.3, -2.5, -0.06], ["rhythm", 3.85, 0.9, -0.12], ["keys", 6.25, -2, -0.38]], monitors: WEDGES },
