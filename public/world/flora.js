@@ -103,8 +103,8 @@ const FLY_COLOUR = [0.8, 1.0, 0.42];
    centre and the shore's sand lies from `beach[0]` to `beach[1]` m out; `surface(x, z)` is the ground's height as its mesh draws it,
    which all of them stand on; `colour(x, y, z, ny, out)` gives the land's colour at a point,
    `lit(material)` has a material take the light the ground takes (the stage's glow), `clear(x, z)` is false where nothing may
-   stand (a track), and `trodden(x, z)` is true where the turf is trodden and no tuft grows, so no firefly flies (the crowd's ground). A tuft grows on turf, more thickly in some meadows than others, and a stone lies where the turf gives way to bare
-   stone, along the shore's sand, and here and there on the turf. Returns `wind(time)`, which sways the tufts and moves the
+   stand (a track), and `trodden(x, z)` is true where the turf is trodden, so no tuft grows, no stone lies and no firefly flies (the crowd's ground). A tuft grows on turf, more thickly in some meadows than others, and a stone lies where the turf gives way to bare
+   stone, along the shore's sand, and here and there on the turf, but never among the crowd. Returns `wind(time)`, which sways the tufts and moves the
    fireflies at a time; `glow(level)`, which lights the fireflies from 0, by day, to 1; `thin(half)`, which draws half the tufts
    and half the fireflies, or all of them; and `sparse()`, which from then on draws a handful of tufts, for a frame that is only
    counted and never looked at. */
@@ -193,13 +193,13 @@ export function buildFlora(scene, { tufts, stones, flies = 0, extent, beach, sur
   scene.add(tuftMesh);
 
   /* The stones: tried at places scattered over the island, kept where the turf gives way to bare stone, along the shore's sand, and
-     here and there on the turf. Each is sunk a third into the ground and turned its own way. */
+     here and there on the turf, off the crowd's trodden ground. Each is sunk a third into the ground and turned its own way. */
   const stoneMat = lit(new THREE.MeshLambertMaterial({ flatShading: true }));
   const stonePlaces = [];
   for (let k = 0; k < stones * 60 && stonePlaces.length < stones; k++) {
     const r = beach[1] * Math.sqrt(chance(k, 1, 21)), turn = 2 * Math.PI * chance(k, 2, 21);
     const x = r * Math.cos(turn), z = r * Math.sin(turn);
-    if (inCave(x, z) || byStage(x, z, 17) || !clear(x, z)) continue;
+    if (inCave(x, z) || byStage(x, z, 17) || !clear(x, z) || trodden(x, z)) continue;
     const at = land(x, z);
     if (at.y < 0.25) continue;
     const shore = r >= beach[0];

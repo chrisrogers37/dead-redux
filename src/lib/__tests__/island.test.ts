@@ -2,14 +2,15 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
 import {
-  BAND_AMBER, BAND_BLUR, BAND_CORE, BAND_FRAY, BAND_GLOW, BAND_HELD, BAND_LAY, BAND_REACH, BAND_TONE, bandAt,
-  BOLT, BOLT_HALF, buildIsland, FEATHER, grained, landColour, offTracks, PATCH_FROM, PATCH_TO, pixelAngle, RING, SHORE, surfaceOf, takesPool, TRACK, tracksAt, TREAD,
-  troddenAt, WEAR, WEAR_FEATHER, WEAR_GROW, wearAt, WORN,
+  BAND_AMBER, BAND_BLUR, BAND_CORE, BAND_FRAY, BAND_GLOW, BAND_HELD, BAND_LAY, BAND_REACH, BAND_TONE, bandAt, BLANKET_COLOURS, BLANKET_HELD,
+  BLANKET_REACH, BLANKET_RIM, BLANKET_SOFT, blanketAt, blanketEdgeOf, BOLT, BOLT_HALF, borderAt, buildIsland, CROWD_CELL, CROWD_OUT, CROWD_SIDE, crowdAt, crowdMask,
+  FEATHER, grained, landColour, offTracks, pixelAngle, RING, SHORE, surfaceOf, takesPool, TRACK, tracksAt, TREAD, WEAR, wornAt, WORN,
 } from "../../../public/world/island.js";
 import { BAND_RANGE, BAND_SIDE, bandAway, bandMask, buildPath, layout } from "../../../public/world/path.js";
-import { CAVES, height, STAGE } from "../../../public/world/ground.js";
-import { fromStage, offAxis, onCrowdGround, seats, SPANS, WALKS } from "../../../public/world/seats.js";
+import { CAVES, height } from "../../../public/world/ground.js";
+import { BLANKET_TONES, gathering, intoCrowdGround, onAxes, onCrowdGround } from "../../../public/world/seats.js";
 import { lookAt, newLook } from "../../../public/world/night.js";
+import { COLOURS, MOST } from "../../../public/world/crowd.js";
 
 // A number as the shader's text has it, to four places. island.js writes its own with a helper of its own (`f`), which is not
 // imported here, on purpose: were the shader's numbers written to other places, the lines pinned below would say so.
@@ -130,7 +131,7 @@ describe("grained", () => {
       expect(shader.fragmentShader).toContain("float coarseShown = 1.0 - smoothstep(0.2500, 0.6000, covers * 0.9000);");
       expect(shader.fragmentShader).toContain("* (1.0 - smoothstep(0.2500, 0.6000, covers * 5.3000));");
       expect(shader.fragmentShader).toContain("if (coarseShown > 0.0) tussocks = mix(0.5, grain(vPoolAt.xz * 0.9000 + 17.0), coarseShown);");
-      // A grain a pixel cannot hold stands at a half, the even grain, which shades nothing; the worn earth's patches and a lit
+      // A grain a pixel cannot hold stands at a half, the even grain, which shades nothing; the trodden grass's patches and a lit
       // band's edge, which go by the tussock grain, are even there too.
       expect(shader.fragmentShader).toContain("float tussocks = 0.5, blades = 0.5;");
       expect(shader.fragmentShader).toContain("reflectedLight.directDiffuse += uPool");
@@ -321,220 +322,357 @@ describe("the tracks", () => {
   });
 });
 
-describe("the crowd's worn earth", () => {
-  const at = fromStage as (far: number, off: number) => [number, number];
-  const land = (tracked = true) => {
+describe("the crowd's trodden grass and its blankets", () => {
+  type Seat = { x: number; z: number; r: number; sit: boolean; face: number; blanket: number };
+  type Blanket = { x: number; z: number; face: number; wide: number; deep: number; tone: number; rim: number };
+  type Gathered = { seats: Seat[]; blankets: Blanket[]; aisle: number[][] };
+  type Mask = { image: { data: Uint8Array; width: number; height: number } };
+  // Eleven days' gatherings and their masks, the fixed day's (seed 800) among them.
+  const days = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 800].map((seed) => { const g = gathering(seed) as Gathered; return { seed, g, mask: crowdMask(g) as Mask }; });
+  const tones = BLANKET_TONES as number;
+  // The ground's shader, worn with a day's gathering as buildIsland hands it one, or with none.
+  const crowdOf = (mask: Mask) => ({ map: { value: mask }, cloth: { value: (BLANKET_COLOURS as number[]).map((hex) => new THREE.Color(hex)) } });
+  const land = (crowd: ReturnType<typeof crowdOf> | null = crowdOf(days[0].mask), relief = false) => {
     const shader = { uniforms: {} as Record<string, unknown>, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
-    grained(takesPool(new THREE.MeshLambertMaterial(), { value: new THREE.Color() }), false, tracked).onBeforeCompile(shader);
-    return shader.fragmentShader;
+    const material = takesPool(new THREE.MeshLambertMaterial(), { value: new THREE.Color() });
+    (crowd === null ? grained(material, relief, true) : grained(material, relief, true, undefined, null, crowd as never)).onBeforeCompile(shader);
+    return shader;
   };
-  // The crowd's ground, from the seats' own spans of it: how near the stage it comes and how far it reaches, the span that comes
-  // nearest and the widest one.
-  const spans = SPANS as number[][], near = Math.min(...spans.map(([r0]) => r0)), far = Math.max(...spans.map(([, r1]) => r1));
-  const front = spans.reduce((best, span) => (span[0] < best[0] ? span : best)), widest = spans.reduce((best, span) => (span[2] > best[2] ? span : best));
-  // All over the island, every 1.3 m, and 720 points round each span's rim: along its two rings and its two sides, on them and 1
-  // and 2 m to either side.
-  const points: number[][] = [];
-  for (let x = -125; x <= 125; x += 1.3) for (let z = -125; z <= 125; z += 1.3) points.push([x, z]);
-  for (const [r0, r1, a1] of spans) {
-    for (let k = 0; k < 180; k++) {
-      const off = -1.2 + (2.4 * k) / 179, out = r0 - 3 + ((r1 - r0 + 6) * k) / 179, d = (k % 5) - 2;
-      points.push(at(r0 + d, off), at(r1 + d, off), at(out, a1 + d / out), at(out, -a1 - d / out));
-    }
-  }
-  // The first few of a list of points, for a failure to name.
+  // texture2D, as the GPU's linear filter reads the mask's own bytes, all four of a texel, and past the mask's edge the edge's texel:
+  // written here from what a filter is, and not from crowdAt.
+  const texture2D = ({ image: { data, width, height } }: Mask, { x, y }: { x: number; y: number }) => {
+    const s = x * width - 0.5, t = y * height - 0.5, i = Math.floor(s), j = Math.floor(t), a = s - i, b = t - j;
+    const byte = (ix: number, iy: number, c: number) => data[4 * (Math.min(Math.max(iy, 0), height - 1) * width + Math.min(Math.max(ix, 0), width - 1)) + c] / 255;
+    const read = (c: number) => (1 - b) * ((1 - a) * byte(i, j, c) + a * byte(i + 1, j, c)) + b * ((1 - a) * byte(i, j + 1, c) + a * byte(i + 1, j + 1, c));
+    return { r: read(0), g: read(1), b: read(2), a: read(3) };
+  };
+  // A point `side` m across a blanket and `fore` m along the way it faces from its middle.
+  const onBlanket = (b: Blanket, side: number, fore: number) => [b.x + side * Math.cos(b.face) + fore * Math.sin(b.face), b.z - side * Math.sin(b.face) + fore * Math.cos(b.face)] as const;
+  // All over the island, every 1.3 m.
+  const island: number[][] = [];
+  for (let x = -125; x <= 125; x += 1.3) for (let z = -125; z <= 125; z += 1.3) island.push([x, z]);
   const some = (list: number[][]) => list.slice(0, 5).map(([x, z]) => `${x.toFixed(2)}, ${z.toFixed(2)}`);
 
-  it("is reckoned in the shader as wearAt reckons it: the shader's own text, run as it stands, agrees with it all over the island, whatever the grain", () => {
-    const fragment = land();
-    // The shader's three functions, from its text, made to run here (runGlsl). So no number of the shader's is written a second
-    // time here, and a change to either side that the other does not follow fails.
-    const from = fragment.indexOf("float trodden("), to = fragment.indexOf("\n}", fragment.indexOf("float worn(")) + 2;
+  it("is reckoned in the shader as crowdAt, wornAt, blanketAt and borderAt reckon it: the shader's own text, run as it stands on the mask, agrees with them all over the island", () => {
+    const { g, mask } = days[10], fragment = land(crowdOf(mask)).fragmentShader;
+    // The shader's functions, from its text, made to run here (runGlsl), texture2D reading the mask as a filter does.
+    const from = fragment.indexOf("uniform highp sampler2D uCrowd;"), to = fragment.indexOf("\n}", fragment.indexOf("float crowdBorder(")) + 2;
     expect(from).toBeGreaterThan(-1);
     expect(to).toBeGreaterThan(from);
-    const worn = runGlsl<(x: number, z: number, tussocks: number) => number>(fragment.slice(from, to), "return (x, z, tussocks) => worn({ x, y: z }, tussocks);");
-    let inside = 0, feather = 0, apart = 0;
+    type Run = { at: (x: number, z: number) => { r: number; g: number; b: number; a: number }; worn: (t: number, k: number) => number; blanket: (e: number, c: number) => number; border: (e: number, c: number) => number };
+    const run = runGlsl<Run>(fragment.slice(from, to), "return { at: (x, z) => texture2D(uCrowd, vec2(crowdAcross({ x, y: z }), crowdOut({ x, y: z }))), worn: crowdWorn, blanket: crowdBlanket, border: crowdBorder };", { uCrowd: mask, texture2D });
+    // And the pixel's own lines, which read the mask once and lay the grass and the blankets from that reading as below.
+    const worn = new THREE.Color(WORN), lines = [
+      "vec4 crowdRead = texture2D(uCrowd, vec2(crowdAcross(vPoolAt.xz), crowdOut(vPoolAt.xz)));",
+      `diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${n(worn.r)}, ${n(worn.g)}, ${n(worn.b)}), crowdWorn(crowdRead.r, tussocks));`,
+      `float blanketEdge = (crowdRead.g - 0.5) * ${n(2 * BLANKET_REACH)}, cloth = crowdBlanket(blanketEdge, covers);`,
+      `if (cloth > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, mix(uCloth[min(int(crowdRead.b * ${n(tones)}), ${tones - 1})], uCloth[min(int(crowdRead.a * ${n(tones)}), ${tones - 1})], crowdBorder(blanketEdge, covers)), cloth);`,
+    ];
+    for (const line of lines) expect(fragment.split(line)).toHaveLength(2);
+    // The island, and across each blanket and a metre and a half past it every 10 cm.
+    const points = [...island];
+    for (const b of g.blankets) for (let i = -b.wide / 2 - 1.5; i <= b.wide / 2 + 1.5; i += 0.1) for (let j = -b.deep / 2 - 1.5; j <= b.deep / 2 + 1.5; j += 0.1) points.push([...onBlanket(b, i, j)]);
+    let trodden = 0, eased = 0, turf = 0, covered = 0, edged = 0, bordered = 0, apartRead = 0, apartLaid = 0;
     for (const [x, z] of points) {
-      for (const tussocks of [0, 0.5, 1]) apart = Math.max(apart, Math.abs(worn(x, z, tussocks) - wearAt(x, z, tussocks)));
-      const here = troddenAt(x, z);
-      if (here === 1) inside += 1;
-      else if (here > 0) feather += 1;
+      const read = run.at(x, z), want = crowdAt(mask, x, z), edge = (read.g - 0.5) * 2 * BLANKET_REACH;
+      // The shader's numbers are written to four places, which moves where a point reads the mask by a few millimetres.
+      apartRead = Math.max(apartRead, Math.abs(read.r - want.trodden), Math.abs(edge - want.edge) / (2 * BLANKET_REACH));
+      if (want.edge > -BLANKET_REACH) expect([Math.min(Math.floor(read.b * tones), tones - 1), Math.min(Math.floor(read.a * tones), tones - 1)]).toEqual([want.cloth, want.rim]);
+      for (const tussocks of [0, 0.5, 1]) apartLaid = Math.max(apartLaid, Math.abs(run.worn(want.trodden, tussocks) - wornAt(want.trodden, tussocks)));
+      for (const covers of [0, 0.03, 0.1, 0.3, 2, 20]) apartLaid = Math.max(apartLaid, Math.abs(run.blanket(want.edge, covers) - blanketAt(want.edge, covers)), Math.abs(run.border(want.edge, covers) - borderAt(want.edge, covers)));
+      if (want.trodden > 0.8) trodden += 1; else if (want.trodden > 0) eased += 1; else turf += 1;
+      const lies = blanketAt(want.edge);
+      if (lies === 1) covered += 1; else if (lies > 0) edged += 1;
+      if (borderAt(want.edge) === 1) bordered += 1;
     }
-    // The shader's numbers are written to four places, which moves a span's side by a few millimetres.
-    expect(apart).toBeLessThan(5e-3);
-    // The points do try the crowd's ground, its feather and the land beyond.
-    expect(inside).toBeGreaterThan(1000);
-    expect(feather).toBeGreaterThan(1000);
-    expect(points.length - inside - feather).toBeGreaterThan(20000);
-    // A line of the shader to each span of the crowd's ground, and each walk in it, from the seats' own numbers.
-    for (const [r0, r1, a1] of spans) expect(fragment).toContain(`edge = max(edge, min(min(r - ${n(r0)}, ${n(r1)} - r), (${n(a1)} - off) * r));`);
-    for (const walk of WALKS as number[]) expect(fragment).toContain(`abs(r - ${n(walk)})`);
+    expect(apartRead).toBeLessThan(5e-3);
+    expect(apartLaid).toBeLessThan(1e-3);
+    // The points do try hard-trodden grass, grass less trodden, turf, the blankets, their edges and their borders.
+    expect(Math.min(trodden, eased, covered, bordered)).toBeGreaterThan(100);
+    expect(edged).toBeGreaterThan(20);
+    expect(turf).toBeGreaterThan(20000);
   });
 
-  it("lies on the crowd's ground, whole across it, and comes in across 4 m at its rim, inside the band where no tuft grows, and on no track", () => {
-    const outOfRange: number[][] = [], pastTheFeather: number[][] = [], amongTufts: number[][] = [], onTrack: number[][] = [], pastReach: number[][] = [];
-    let deep = 0, leastDeep = 1;
-    for (const [x, z] of points) {
-      const here = troddenAt(x, z);
-      if (!(here >= 0 && here <= 1)) outOfRange.push([x, z]);
-      if (here > 0) {
-        // No further out than 2 m past the ground's rim, which is inside the 4.5 m the tufts keep off: a feather that left the band
-        // would lay earth under the tufts.
-        if (!onCrowdGround(x, z, WEAR_GROW)) pastTheFeather.push([x, z]);
-        if (!onCrowdGround(x, z, 4.5)) amongTufts.push([x, z]);
-        if (tracksAt(x, z) !== 0) onTrack.push([x, z]);
+  it("treads the grass under every one of the day's people, hardest where they stand thickest, in patches and not as one flat patch, and nowhere past the room the tufts keep", () => {
+    let fronts = 0, backs = 0;
+    for (const { seed, g, mask } of days) {
+      // Under every seat, a seated straggler's on a lightly trodden patch among them.
+      const under = g.seats.map((s) => crowdAt(mask, s.x, s.z).trodden);
+      expect([seed, Math.min(...under) > 0.08]).toEqual([seed, true]);
+      // Harder before the stage, where they stand thickest, than up the hill, where they thin out and sit: on every day, and by a
+      // tenth and more over the days, the broad patches falling where they may.
+      const mean = (list: number[]) => list.reduce((sum, t) => sum + t, 0) / list.length;
+      const front = mean(under.filter((_, i) => g.seats[i].r < 22)), back = mean(under.filter((_, i) => g.seats[i].r > 40));
+      expect([seed, front > 0.6, front > back]).toEqual([seed, true, true]);
+      fronts += front; backs += back;
+      // Not one flat patch: of the ground 2 m and more inside the crowd's ground, a tenth or more is hardly trodden at all, where no
+      // one stands, and no more than a fifth is trodden its hardest.
+      let deep = 0, bare = 0, hardest = 0;
+      const pastRoom: number[][] = [];
+      for (const [x, z] of island) {
+        const here = crowdAt(mask, x, z).trodden;
+        if (here > 0 && !onCrowdGround(x, z, 4.5)) pastRoom.push([x, z]);
+        if (intoCrowdGround(x, z) < 2) continue;
+        deep += 1;
+        if (here < 0.2) bare += 1;
+        if (here > 0.95) hardest += 1;
       }
-      // And nothing outside the reach the shader stops reckoning at: 2 m inside the nearest ring to 2 m past the furthest.
-      const { r } = offAxis(x, z);
-      if ((r <= near - WEAR_GROW || r >= far + WEAR_GROW) && here !== 0) pastReach.push([x, z]);
-      // The earth is whole across the crowd's ground: every point with 2 m of that ground all round it is worn through, but for a
-      // corner where a wing ends, which is reckoned a little short. Reckoned a section at a time, the ground was half worn along
-      // the line where one ring of sections ends and the next begins, a green ring round the hill.
-      if (!onCrowdGround(x, z)) continue;
-      if (!Array.from({ length: 32 }, (_, k) => onCrowdGround(x + 2.05 * Math.cos((k * Math.PI) / 16), z + 2.05 * Math.sin((k * Math.PI) / 16))).every(Boolean)) continue;
-      leastDeep = Math.min(leastDeep, here);
-      deep += 1;
+      expect(some(pastRoom)).toEqual([]);
+      expect([seed, bare > 0.1 * deep, hardest < 0.2 * deep]).toEqual([seed, true, true]);
+      // Up the aisle's middle, where the visitor walks, trodden 0.68 or more wherever it crosses the crowd's ground, every 20 cm.
+      let walked = Infinity;
+      for (let k = 0; k + 1 < g.aisle.length; k++) for (let t = 0; t < 1; t += 0.2 / Math.hypot(g.aisle[k + 1][0] - g.aisle[k][0], g.aisle[k + 1][1] - g.aisle[k][1])) {
+        const [x, z] = onAxes(g.aisle[k][0] + (g.aisle[k + 1][0] - g.aisle[k][0]) * t, g.aisle[k][1] + (g.aisle[k + 1][1] - g.aisle[k][1]) * t) as number[];
+        if (onCrowdGround(x, z)) walked = Math.min(walked, crowdAt(mask, x, z).trodden);
+      }
+      expect([seed, walked >= 0.68]).toEqual([seed, true]);
+      // The mask's edge, which all the ground past it reads, is untrodden turf with no blanket near.
+      const { data, width, height } = mask.image;
+      for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) {
+        if (i > 0 && j > 0 && i < width - 1 && j < height - 1) continue;
+        expect([data[4 * (j * width + i)], data[4 * (j * width + i) + 1]]).toEqual([0, 0]);
+      }
     }
-    expect(some(outOfRange)).toEqual([]);
-    expect(some(pastTheFeather)).toEqual([]);
-    expect(some(amongTufts)).toEqual([]);
-    expect(some(onTrack)).toEqual([]);
-    expect(some(pastReach)).toEqual([]);
-    expect(deep).toBeGreaterThan(1000);
-    expect(leastDeep).toBeGreaterThan(0.94);
-    // Across the rim: half worn on it, worn through 2 m inside it and not at all 2 m outside, at the front, at the back and at the
-    // side of the widest span.
-    const inward = WEAR_FEATHER - WEAR_GROW + 0.01, outward = WEAR_GROW + 0.01, middle = (widest[0] + widest[1]) / 2;
-    for (const [on, within, without] of [
-      [at(near, 0), at(near + inward, 0), at(near - outward, 0)],
-      [at(far, 0), at(far - inward, 0), at(far + outward, 0)],
-      [at(middle, widest[2]), at(middle, widest[2] - inward / middle), at(middle, widest[2] + outward / middle)],
-    ]) {
-      expect(troddenAt(...on)).toBeCloseTo(0.5, 6);
-      expect(troddenAt(...within)).toBe(1);
-      expect(troddenAt(...without)).toBe(0);
-    }
-    // All the way up the span that comes nearest the stage, on its axis and to either side of it.
-    for (let out = front[0] + inward + 0.1; out <= front[1] - inward - 0.1; out += 0.25) for (const off of [0, 0.4 * front[2], -0.7 * front[2]]) expect(troddenAt(...at(out, off))).toBe(1);
-    // The stage itself, the hill behind the crowd and the far side of the island are not worn.
-    expect(troddenAt(STAGE[0], STAGE[1])).toBe(0);
-    expect(troddenAt(...at(far + 6, 0))).toBe(0);
-    expect(troddenAt(0, 60)).toBe(0);
+    expect(fronts / days.length).toBeGreaterThan(backs / days.length + 0.1);
   });
 
-  it("is drawn in the ground's own shader where the turf is thin, by how hard the ground is trodden, under the grain, and on no other material", () => {
-    const fragment = land(), worn = new THREE.Color(WORN);
-    // Keyed to the tussock grain as the shader holds it, which fades to a half where a pixel cannot hold it; never to a grain of its
-    // own, which would dither there.
-    const laid = `diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${n(worn.r)}, ${n(worn.g)}, ${n(worn.b)}), worn(vPoolAt.xz, tussocks));`;
-    expect(fragment).toContain(laid);
-    expect(fragment).toContain(`return inside * (1.0 - smoothstep(${n(PATCH_FROM)}, ${n(PATCH_TO)}, tussocks + 0.5 - tread(p, r, along, aside))) * ${n(WEAR)};`);
-    // Three calls of the grain and no more, the tussocks', the blades' and the broad grain's: the earth reads the first and makes none.
-    expect(fragment.split("grain(vPoolAt.xz").length).toBe(4);
-    expect(fragment.split("grain(vPoolAt.xz").length).toBe(land(false).split("grain(vPoolAt.xz").length);
-    // The earth is laid after the tussocks are reckoned and before the grain's own line, so the grain lies on it as on the turf and
-    // the tracks.
-    expect(fragment.indexOf(laid)).toBeGreaterThan(fragment.indexOf("if (coarseShown > 0.0) tussocks = mix(0.5, grain(vPoolAt.xz * 0.9000 + 17.0), coarseShown);"));
-    expect(fragment.indexOf("diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - 0.5) + 0.26 * (blades - 0.5) * fineShown;")).toBeGreaterThan(fragment.indexOf(laid));
-    // The edges of a patch are no nearer than a fifth of the grain apart, so a patch's rim is soft.
-    expect(PATCH_TO - PATCH_FROM).toBeGreaterThanOrEqual(0.2);
-    // A material that is not the ground's wears the grain without it.
-    const plain = land(false);
-    for (const word of ["trodden(", "tread(", "worn("]) expect(plain).not.toContain(word);
+  it("treads the grass in broad patches, the packed front too: under people standing evenly 1.5 m apart, some of it under 0.65 trodden and some over 0.9, a metre and more from each other", () => {
+    // A gathering of people standing on a lattice over the crowd's ground 20 to 32 m out, with its aisle far off to one side.
+    const seats: { x: number; z: number; sit: boolean }[] = [];
+    for (let u = 20; u <= 32; u += 1.5) for (let v = -12; v <= 12; v += 1.5) { const [x, z] = onAxes(u, v) as number[]; seats.push({ x, z, sit: false }); }
+    const mask = crowdMask({ seats, blankets: [], aisle: [[11, 45, 2.5], [58, 45, 2.5]] }) as Mask;
+    const light: number[][] = [], hard: number[][] = [];
+    for (let u = 23; u <= 29; u += 0.25) for (let v = -9; v <= 9; v += 0.25) {
+      const [x, z] = onAxes(u, v) as number[], trodden = crowdAt(mask, x, z).trodden;
+      if (trodden < 0.65) light.push([x, z]); else if (trodden > 0.9) hard.push([x, z]);
+    }
+    expect(light.length).toBeGreaterThan(100);
+    expect(hard.length).toBeGreaterThan(100);
+    // Patches, not a speckle: no hard-trodden point within a metre of a light one.
+    expect(light.some(([x, z]) => hard.some(([a, b]) => Math.hypot(a - x, b - z) < 1))).toBe(false);
   });
 
-  // The measure is against the crowd's turf as a whole, its mean colour, under each light as a luma-weighted sum. Turf varies from
-  // patch to patch by about a sixth, so against the darkest patch the earth is the brighter by up to a sixth; a review measured the
-  // mean ratio at 0.9 to 0.97 with the lights reckoned as the renderer does, and 1.17 against the darkest turf in white light.
-  it("is no brighter than the crowd's turf is on the whole, its mean, under any light of the show, so that figures dancing against it swing the frame no further than against turf", () => {
-    // The turf's own colour, as the ground's vertices carry it, taken evenly over the whole of the crowd's ground.
+  // The tests here read some of these and hold the ground to what they make of them; this holds the values themselves.
+  it("keeps the values the trodden grass and the blankets were judged at, by the frames and the flash counts: a change to any is a change to the look, to be shot and counted again", () => {
+    expect({ WEAR, WORN, TREAD, BLANKET_COLOURS, BLANKET_RIM, BLANKET_SOFT, BLANKET_HELD, BLANKET_REACH, CROWD_CELL, CROWD_SIDE, CROWD_OUT }).toEqual({
+      WEAR: 0.75, WORN: 0x55523c, TREAD: { spread: 2.2, sit: 0.6, hard: 0.35, aisle: 0.7, walked: [0.5, 2.8], rim: [-4.2, -0.6], broad: 0.5, patchy: 0.6 },
+      BLANKET_COLOURS: [0x3b2b28, 0x28303a, 0x332f20, 0x24322e, 0x382b39, 0x3c2a30, 0x312d3e], BLANKET_RIM: [0.12, 0.32], BLANKET_SOFT: [0.02, 0.4],
+      BLANKET_HELD: [0.05, 0.15], BLANKET_REACH: 1, CROWD_CELL: 0.4, CROWD_SIDE: 51.2, CROWD_OUT: 64,
+    });
+  });
+
+  it("has no hard edge: no two neighbouring texels of the trodden grass differ by more than a fifth, so it eases from turf to trodden over 2 m or more, on every day", () => {
+    let steepest = 0;
+    for (const { mask } of days) {
+      const { data, width, height } = mask.image, at = (i: number, j: number) => data[4 * (j * width + i)] / 255;
+      for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) {
+        if (i + 1 < width) steepest = Math.max(steepest, Math.abs(at(i + 1, j) - at(i, j)));
+        if (j + 1 < height) steepest = Math.max(steepest, Math.abs(at(i, j + 1) - at(i, j)));
+      }
+    }
+    expect(steepest).toBeLessThanOrEqual(0.2);
+    expect(CROWD_CELL).toBeLessThanOrEqual(0.4);
+    // And the grain moves the wear as far one way as the other: where a pixel cannot hold the grain it shows the mean, and between
+    // the hollows' and the tussocks' wear, so the grain never steps it.
+    for (const t of [0, 0.1, 0.3, 0.5, 0.7, 1]) {
+      expect(wornAt(t)).toBeCloseTo(WEAR * t, 12);
+      expect(wornAt(t, 0)).toBeGreaterThanOrEqual(wornAt(t, 0.5));
+      expect(wornAt(t, 0.5)).toBeGreaterThanOrEqual(wornAt(t, 1));
+      if (t > 0 && t < 0.6) expect((wornAt(t, 0) + wornAt(t, 1)) / 2).toBeCloseTo(wornAt(t), 12);
+      // By enough to see: the hollows' wear and the tussocks' lie further apart than the mean is from turf.
+      if (t > 0 && t < 0.6) expect(wornAt(t, 0) - wornAt(t, 1)).toBeGreaterThan(wornAt(t));
+    }
+    expect(wornAt(1, 0)).toBe(WEAR);
+    expect(wornAt(0, 0)).toBe(0);
+  });
+
+  // The measure is against the crowd's turf as a whole, its mean colour, under each light as a luma-weighted sum, as the worn earth
+  // that lay there before was held to it.
+  it("is no brighter than the crowd's turf is on the whole, its mean, under any light of the show, nor are the blankets: so figures dancing against them swing the frame no further than against turf", () => {
     const turf = [0, 0, 0], here = new THREE.Color();
     let count = 0;
-    for (let x = -125; x <= 125; x += 1.3) for (let z = -125; z <= 125; z += 1.3) {
-      if (troddenAt(x, z) < 1) continue;
+    for (const [x, z] of island) {
+      if (!onCrowdGround(x, z)) continue;
       const gx = height(x + 0.5, z) - height(x - 0.5, z), gz = height(x, z + 0.5) - height(x, z - 0.5);
       landColour(x, height(x, z), z, 1 / Math.sqrt(1 + gx * gx + gz * gz), here);
       turf[0] += here.r; turf[1] += here.g; turf[2] += here.b;
       count += 1;
     }
     expect(count).toBeGreaterThan(1000);
-    const worn = new THREE.Color(WORN), bare = [worn.r, worn.g, worn.b].map((v, k) => WEAR * v + ((1 - WEAR) * turf[k]) / count);
+    const mean = turf.map((v) => v / count), worn = new THREE.Color(WORN), bare = [worn.r, worn.g, worn.b].map((v, k) => WEAR * v + (1 - WEAR) * mean[k]);
     const lit = (rgb: number[], light: number[]) => 0.2126 * rgb[0] * light[0] + 0.7152 * rgb[1] * light[1] + 0.0722 * rgb[2] * light[2];
     // The lights: white; the stage's glow, as the island hands it to a material; and the sky's key and ambient light at dusk, at
     // the set break, in deep night, at first light and at daybreak (night.js).
     const scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0x000000, 100, 400);
-    const island = buildIsland(scene, 20, true), shader = { uniforms: {} as Record<string, { value: { r: number; g: number; b: number } }>, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
-    island.lit(new THREE.MeshLambertMaterial()).onBeforeCompile(shader);
-    island.shade(lookAt(1, newLook()));
+    const island2 = buildIsland(scene, 20, true), shader = { uniforms: {} as Record<string, { value: { r: number; g: number; b: number } }>, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
+    island2.lit(new THREE.MeshLambertMaterial()).onBeforeCompile(shader);
+    island2.shade(lookAt(1, newLook()));
     const glow = shader.uniforms.uPool.value, lights: [string, number[]][] = [["white", [1, 1, 1]], ["the stage's glow", [glow.r, glow.g, glow.b]]];
     expect(glow.r).toBeGreaterThan(0);
     for (const hour of [0, 0.6, 1, 1.7, 2]) {
       const look = lookAt(hour, newLook());
       lights.push([`the key light at hour ${hour}`, [...look.key]], [`the ambient light at hour ${hour}`, [...look.ambient]]);
     }
-    // Paler earth reads well and costs flashes: an earth a quarter brighter than the turf was counted with scripts/flash, and through
-    // the seeks, the whole frame from behind the crowd, the blocks at 5 swings or more in a second went from 1,048 to 1,370. The
-    // stage's glow is nearly all red, and a brown is redder than turf, so it is the light that holds the earth darkest.
-    const brighter = lights.map(([name, light]) => [name, lit(bare, light) / lit(turf.map((v) => v / count), light)] as const).filter(([, by]) => by > 1.02);
-    expect(brighter).toEqual([]);
-    // And not so dark that a figure is lost on it: no less than four fifths of the turf's brightness by daylight.
-    expect(lit(bare, [1, 1, 1]) / lit(turf.map((v) => v / count), [1, 1, 1])).toBeGreaterThan(0.8);
+    // Paler ground reads well and costs flashes: an earth a quarter brighter than the turf was counted with scripts/flash, and
+    // through the seeks, the whole frame from behind the crowd, the blocks at 5 swings or more in a second went from 1,048 to 1,370.
+    // The stage's glow is nearly all red, so it is the light that holds a brown or a red darkest.
+    const brighter = (rgb: number[], most: number) => lights.map(([name, light]) => [name, lit(rgb, light) / lit(mean, light)] as const).filter(([, by]) => by > most);
+    expect(brighter(bare, 1.02)).toEqual([]);
+    // And darker than the turf by daylight, three quarters of its brightness at the most: a tan as bright as the turf read as sand
+    // under the evening's light, where matted grass reads as trodden. But not so dark that a figure is lost on it: three fifths of
+    // the turf's brightness at the least, where the figures' brightest clothes are a fifth of it (crowd.js MOST).
+    expect(lit(bare, [1, 1, 1]) / lit(mean, [1, 1, 1])).toBeLessThan(0.75);
+    expect(lit(bare, [1, 1, 1]) / lit(mean, [1, 1, 1])).toBeGreaterThan(0.6);
+    // The blankets, one colour to each of the gathering's tones, no two alike: each no brighter than the turf under any light, and
+    // a sixth of it at the least by daylight, as bright as the clothes go, so a blanket reads as cloth and not as a hole in the hill.
+    const cloth = BLANKET_COLOURS as number[];
+    expect(cloth).toHaveLength(tones);
+    expect(new Set(cloth).size).toBe(tones);
+    for (const hex of cloth) {
+      const c = new THREE.Color(hex), rgb = [c.r, c.g, c.b];
+      expect([hex.toString(16), brighter(rgb, 1)]).toEqual([hex.toString(16), []]);
+      expect([hex.toString(16), lit(rgb, [1, 1, 1]) / lit(mean, [1, 1, 1]) > 1 / 6]).toEqual([hex.toString(16), true]);
+    }
+    // The worn grass is browner than the turf and greyer, as sRGB has them: WORN's hue 56° or less, nearer orange than the turf's
+    // near 76°, but no tan, 40° or more, and as saturated as three quarters of the turf at the most; and so the ground where it is
+    // worn hardest.
+    const hsl = (rgb: number[]) => { const out = { h: 0, s: 0, l: 0 }; new THREE.Color().setRGB(rgb[0], rgb[1], rgb[2]).getHSL(out, THREE.SRGBColorSpace); return out; };
+    expect(hsl([worn.r, worn.g, worn.b]).h).toBeLessThan(56 / 360);
+    expect(hsl([worn.r, worn.g, worn.b]).h).toBeGreaterThan(40 / 360);
+    expect(hsl([worn.r, worn.g, worn.b]).s).toBeLessThan(0.75 * hsl(mean).s);
+    expect(hsl(bare).h).toBeLessThan(hsl(mean).h - 0.03);
+    expect(hsl(bare).s).toBeLessThan(hsl(mean).s);
   });
 
-  it("is worn as it is trodden: bare along the aisle and the walks between the rings, barest where they dance, thinner up the hill and out at the wings, and never past WEAR", () => {
-    const walks = WALKS as number[], [aisleIn, aisleOut] = TREAD.aisle as number[];
-    // What a pixel that cannot hold the grain shows (tussocks at a half), which is what the hill shows from its far side. The aisle
-    // the seats leave up the stage's axis is bare from the front rows to the last, and so is each walk, to either side.
-    for (let out = near + 2.5; out <= far - 2; out += 0.5) for (const aside of [0, aisleIn - 0.2]) expect(wearAt(...at(out, aside / out))).toBeCloseTo(WEAR, 6);
-    for (const off of [-0.8, -0.5, -0.2, 0.2, 0.5, 0.8]) for (const walk of walks) expect(wearAt(...at(walk, off * front[2]))).toBeCloseTo(WEAR, 6);
-    // The mean over a patch of the crowd's ground, clear of the aisle and the walks: the rings between the stage, the walks and
-    // the back, 3 m and more from each.
-    const mean = (r0: number, r1: number, a0: number, a1: number, tussocks = 0.5) => {
-      let sum = 0, count = 0;
-      for (let out = r0; out <= r1; out += 0.5) for (let off = a0; off <= a1; off += 0.02) for (const side of [1, -1]) { sum += wearAt(...at(out, side * off), tussocks); count += 1; }
-      return sum / count;
-    };
-    const rings = [near + 0.5, ...walks, far].map((edge, k, edges) => [edges[Math.max(k - 1, 0)] + 3, edge - 3]).slice(1), last = rings[rings.length - 1];
-    expect(rings.length).toBeGreaterThanOrEqual(2);
-    const means = rings.map(([r0, r1]) => mean(r0, r1, 0.25, 0.6));
-    // Front rows swapped with the back, or a hill worn alike all over (the flat patch this is not), would fail here.
-    expect(means[0]).toBeGreaterThan(0.8 * WEAR);
-    for (let k = 1; k < means.length; k++) expect(means[k]).toBeLessThan(means[k - 1] - 0.1);
-    expect(means[means.length - 1]).toBeGreaterThan(0.1 * WEAR);
-    // Out at a wing, by the side of the widest span, the ground is thinner worn than in the middle of the same ring.
-    const ring = rings.find(([r0, r1]) => r0 >= widest[0] && r1 <= widest[1] && r0 > rings[0][0]) ?? rings[0];
-    expect(mean(ring[0], ring[1], widest[2] - 0.1, widest[2] - 0.06)).toBeLessThan(mean(ring[0], ring[1], 0.25, 0.6) - 0.2);
-    // Broad patches: among the sitters some ground is bare and some is turf, a few metres apart.
-    const sitters: number[] = [];
-    for (let out = last[0]; out <= last[1]; out += 0.5) for (let off = 0.25; off <= 0.8; off += 0.02) sitters.push(wearAt(...at(out, off)), wearAt(...at(out, -off)));
-    expect(Math.max(...sitters)).toBeGreaterThan(0.8 * WEAR);
-    expect(Math.min(...sitters)).toBeLessThan(0.1 * WEAR);
-    // Near the eye, where the grain shows: its hollows are bare all over the crowd's ground, and its tussocks stay turf, but on the
-    // aisle and the walks.
-    expect(mean(rings[0][0], last[1], 0.25, 0.6, 0)).toBeGreaterThan(0.95 * WEAR);
-    expect(mean(rings[0][0], rings[0][1], 0.25, 0.6, 1)).toBeLessThan(0.05 * WEAR);
-    expect(wearAt(...at((rings[1][0] + rings[1][1]) / 2, 0), 1)).toBeGreaterThan(0.5 * WEAR);
-    // Left unsaid, the grain is the even one, a half, as a pixel that cannot hold it has it: among the sitters, where the grain
-    // tells turf from earth, that is neither the hollows' wear nor the tussocks'.
-    const among = at((last[0] + last[1]) / 2, 0.5);
-    expect(wearAt(...among)).toBe(wearAt(...among, 0.5));
-    expect(wearAt(...among, 0)).toBeGreaterThan(wearAt(...among, 0.5));
-    expect(wearAt(...among, 0.5)).toBeGreaterThan(wearAt(...among, 1));
-    // Never more than WEAR, never less than none, and none where the ground is not the crowd's, whatever the grain.
-    let least = Infinity, most = -Infinity;
-    const offTheGround: number[][] = [];
-    for (const [x, z] of points) for (const tussocks of [0, 0.5, 1]) {
-      const here = wearAt(x, z, tussocks);
-      least = Math.min(least, here);
-      most = Math.max(most, here);
-      if (troddenAt(x, z) === 0 && here !== 0) offTheGround.push([x, z]);
+  it("dyes the blankets in faded cloth: none brighter than the brightest of the people's clothes, each a dull grey of its hue, and their hues spread round the wheel", () => {
+    const luma = (c: { r: number; g: number; b: number }) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    const clothes = Math.max(...(Object.values(COLOURS) as number[][]).flat().map((hex) => luma(new THREE.Color(hex))));
+    const hues = new Set<number>();
+    for (const hex of BLANKET_COLOURS as number[]) {
+      const c = new THREE.Color(hex), hsl = { h: 0, s: 0, l: 0 };
+      expect([hex.toString(16), luma(c) <= clothes, Math.max(c.r, c.g, c.b) <= MOST]).toEqual([hex.toString(16), true, true]);
+      // Muted, as sRGB has it (getHSL reads the colour as it is written).
+      c.getHSL(hsl, THREE.SRGBColorSpace);
+      expect([hex.toString(16), hsl.s < 0.3]).toEqual([hex.toString(16), true]);
+      hues.add(Math.floor(hsl.h * 6));
     }
-    expect(least).toBe(0);
-    expect(most).toBeCloseTo(WEAR, 12);
-    expect(some(offTheGround)).toEqual([]);
-    // The aisle is the one the seats leave: every seat stands clear of its worn middle.
-    for (const seat of seats({ path: [], line: [], landmarks: [] }) as { x: number; z: number }[]) expect(offAxis(seat.x, seat.z).aside).toBeGreaterThanOrEqual(aisleOut - 0.2);
+    expect(hues.size).toBeGreaterThanOrEqual(5);
+  });
+
+  it("lays each blanket under those who sit on it, in its own colours wherever it is drawn, and nowhere else", () => {
+    for (const { seed, g, mask } of days) {
+      expect([seed, g.blankets.length >= 4]).toEqual([seed, true]);
+      g.blankets.forEach((b, k) => {
+        // Two or more sit on it, and each sits on it 30 cm in from its edge or more, where it reads the blanket's colours.
+        const sitters = g.seats.filter((s) => s.blanket === k);
+        expect(sitters.length).toBeGreaterThanOrEqual(2);
+        for (const s of sitters) {
+          const at = crowdAt(mask, s.x, s.z);
+          expect(s.sit).toBe(true);
+          expect(at.edge).toBeGreaterThan(0.3);
+          expect([at.cloth, at.rim]).toEqual([b.tone, b.rim]);
+        }
+        // Wherever it lies on any part of a pixel, out to the most its edge is eased over (BLANKET_SOFT) and 10 cm past that, every
+        // point reads its colours, so the filter's four texels never blend two blankets'; and within 60 cm of its edge, where it is
+        // eased and bordered, each reads how far in it lies to within 3 cm along a side, and to within 15 cm by a corner, where the
+        // line from the corner, on which two sides are as near, bends the filter's reading.
+        const otherColours: number[][] = [], misread: number[][] = [];
+        for (let i = -1; i <= 1; i += 0.05) for (let j = -1; j <= 1; j += 0.05) {
+          const side = i * (b.wide / 2 + BLANKET_REACH), fore = j * (b.deep / 2 + BLANKET_REACH), [x, z] = onBlanket(b, side, fore), at = crowdAt(mask, x, z);
+          const edge = blanketEdgeOf(b, x, z), across = Math.abs(side) - b.wide / 2, along = Math.abs(fore) - b.deep / 2;
+          const corner = Math.abs(across - along) < 0.6 || (across > 0 && along > 0);
+          if (edge > -(BLANKET_SOFT as number[])[1] - 0.1 && (at.cloth !== b.tone || at.rim !== b.rim)) otherColours.push([side, fore]);
+          if (Math.abs(edge) < 0.6 && !(Math.abs(at.edge - edge) < (corner ? 0.15 : 0.03))) misread.push([side, fore]);
+        }
+        expect([seed, k, otherColours, misread]).toEqual([seed, k, [], []]);
+      });
+      // And no point further than a metre from every blanket has any blanket on it.
+      for (const [x, z] of island) {
+        if (g.blankets.some((b) => blanketEdgeOf(b, x, z) > -BLANKET_REACH - 0.6)) continue;
+        expect(blanketAt(crowdAt(mask, x, z).edge, 0)).toBe(0);
+      }
+    }
+  }, 30000);
+
+  it("eases a blanket's edge across what a pixel takes in, never across less than 4 cm, and draws its border only while a pixel can hold it", () => {
+    const [least, most] = BLANKET_SOFT as number[], [rimIn, rimOut] = BLANKET_RIM as number[], [heldFrom, heldTo] = BLANKET_HELD as number[];
+    expect(least).toBeGreaterThanOrEqual(0.02);
+    for (const covers of [0, 0.01, 0.05, 0.2, 0.8, 5, 50]) {
+      const soft = Math.min(Math.max(0.5 * covers, least), most);
+      // Half on its edge, none a pixel's half outside it and whole a pixel's half inside, and never a step: no more than its share of
+      // the ramp a millimetre at a time.
+      expect(blanketAt(0, covers)).toBeCloseTo(0.5, 12);
+      expect(blanketAt(-soft, covers)).toBeCloseTo(0, 12);
+      expect(blanketAt(soft, covers)).toBeCloseTo(1, 12);
+      let step = 0;
+      for (let e = -1; e <= 1; e += 0.001) step = Math.max(step, Math.abs(blanketAt(e + 0.001, covers) - blanketAt(e, covers)));
+      expect(step).toBeLessThanOrEqual(0.001 / (2 * soft) + 1e-9);
+      // The border: whole across its middle where a pixel holds it, gone at either side of it, and gone where a pixel cannot.
+      const middle = (rimIn + rimOut) / 2;
+      if (covers <= heldFrom) expect(borderAt(middle, covers)).toBe(1);
+      expect(borderAt(rimIn - soft, covers)).toBeCloseTo(0, 12);
+      expect(borderAt(rimOut + soft, covers)).toBeCloseTo(0, 12);
+      if (covers >= heldTo) for (let e = -1; e <= 1; e += 0.01) expect(borderAt(e, covers)).toBe(0);
+    }
+    expect(borderAt((rimIn + rimOut) / 2, 0)).toBe(1);
+    // A pixel takes in more of the ground than the border is wide before the border is gone.
+    expect(heldTo).toBeLessThanOrEqual(rimOut - rimIn);
+  });
+
+  it("is drawn in the ground's own shader from one reading of the mask, over the tracks and under the grain, and changes nothing of a ground handed no gathering", () => {
+    const crowd = crowdOf(days[0].mask), shader = land(crowd), fragment = shader.fragmentShader;
+    expect(shader.uniforms.uCrowd).toBe(crowd.map);
+    expect(shader.uniforms.uCloth).toBe(crowd.cloth);
+    expect(fragment).toContain("uniform highp sampler2D uCrowd;");
+    expect(fragment).toContain(`uniform vec3 uCloth[${tones}];`);
+    // One reading of the mask a pixel, where every pixel of the ground runs, not inside a branch.
+    const read = "vec4 crowdRead = texture2D(uCrowd, vec2(crowdAcross(vPoolAt.xz), crowdOut(vPoolAt.xz)));";
+    expect(fragment.split("texture2D(uCrowd").length).toBe(2);
+    expect(fragment.indexOf(read)).toBeGreaterThan(fragment.indexOf("if (coarseShown > 0.0) tussocks ="));
+    expect(fragment.indexOf(read)).toBeGreaterThan(fragment.indexOf("covers = max(covers,"));
+    expect(fragment.indexOf(read)).toBeGreaterThan(fragment.indexOf("tracks(vPoolAt.xz));"));
+    expect(fragment.indexOf("diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - 0.5) + 0.26 * (blades - 0.5) * fineShown;")).toBeGreaterThan(fragment.indexOf("crowdBorder(blanketEdge, covers)), cloth);"));
+    // The functions run on floats alone, with no loop, and no smoothstep whose edges could come out of order.
+    const written = fragment.slice(fragment.indexOf("float crowdAcross("), fragment.indexOf("\n}", fragment.indexOf("float crowdBorder(")) + 2);
+    expect(glslToJs(written)).toContain("function crowdBorder(edge, covers) {");
+    expect(written).not.toMatch(/\b(for|while|do)\b/);
+    // A ground handed no gathering: none of it, and the text of a ground before it; with one, every line of that, in order.
+    for (const relief of [false, true]) {
+      const plain = land(null, relief), worn = land(crowd, relief);
+      for (const word of ["uCrowd", "uCloth", "crowdRead", "crowdWorn(", "crowdBlanket(", "crowdBorder("]) expect(plain.fragmentShader).not.toContain(word);
+      expect(Object.keys(plain.uniforms)).not.toContain("uCrowd");
+      expect(worn.vertexShader).toBe(plain.vertexShader);
+      const lines = worn.fragmentShader.split("\n"), lost: string[] = [];
+      let from = 0;
+      for (const line of plain.fragmentShader.split("\n")) {
+        const found = lines.indexOf(line, from);
+        if (found < 0) lost.push(line);
+        else from = found + 1;
+      }
+      expect(lost).toEqual([]);
+    }
+  });
+
+  it("is worn by the island's ground and by nothing else, with no mesh of its own, from the gathering buildIsland is handed", () => {
+    const { g } = days[10];
+    const built = (given: Gathered | null) => {
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.Fog(0x000000, 100, 400);
+      buildIsland(scene, 20, true, [], () => false, null, given as never);
+      return scene.children.filter((o: { isMesh?: boolean }) => o.isMesh);
+    };
+    const worn = built(g), bare = built(null);
+    expect(worn).toHaveLength(bare.length);
+    const compile = (o: { material: { onBeforeCompile?: (shader: object) => void; isShaderMaterial?: boolean } }) => {
+      const shader = { uniforms: {} as Record<string, { value: Mask }>, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
+      if (!o.material.isShaderMaterial) o.material.onBeforeCompile?.(shader);
+      return shader;
+    };
+    const wearers = worn.map(compile).filter((s: { uniforms: Record<string, unknown> }) => "uCrowd" in s.uniforms);
+    expect(wearers).toHaveLength(1);
+    expect(Array.from(wearers[0].uniforms.uCrowd.value.image.data)).toEqual(Array.from((crowdMask(g) as Mask).image.data));
+    expect(bare.map(compile).filter((s: { uniforms: Record<string, unknown> }) => "uCrowd" in s.uniforms)).toHaveLength(0);
   });
 });
 
@@ -549,9 +687,11 @@ describe("the lit bands", () => {
   const bandsOf = (size: number): Bands => ({ map: { value: bandMask(path, tracks, u, size) as Mask }, glow: { value: BAND_GLOW } });
   // The ground's shader: with bands, or as it is without. (To the type checker a parameter of the world's that is left null by
   // default takes nothing but null.)
+  // Each wears a day's gathering too, as the island's ground does.
+  const crowd = { map: { value: crowdMask(gathering(0)) }, cloth: { value: (BLANKET_COLOURS as number[]).map((hex) => new THREE.Color(hex)) } };
   const land = (bands: Bands | null) => {
     const shader = { uniforms: {} as Record<string, unknown>, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
-    grained(takesPool(new THREE.MeshLambertMaterial(), { value: new THREE.Color() }), false, true, undefined, bands as never).onBeforeCompile(shader);
+    grained(takesPool(new THREE.MeshLambertMaterial(), { value: new THREE.Color() }), false, true, undefined, bands as never, crowd as never).onBeforeCompile(shader);
     return shader;
   };
   // The shader's own text for the bands, from the mask's uniform to the end of its last function.
@@ -621,7 +761,7 @@ describe("the lit bands", () => {
 
   it.each([512, 256])("are reckoned in the shader as bandAway and bandAt reckon them: the shader's own text, run as it stands on a mask %i texels a side, agrees with them all over the island", { timeout: 20000 }, (size) => {
     const bands = bandsOf(size), mask = bands.map.value, { fragmentShader: fragment } = land(bands);
-    // The shader's three functions, from its text, made to run here as the worn earth's are (runGlsl). texture2D is the GPU's
+    // The shader's three functions, from its text, made to run here as the trodden grass's are (runGlsl). texture2D is the GPU's
     // linear filter over the mask's own bytes, the edge's texel past the edge, written here from what a filter is and not from
     // bandAway.
     expect(glslToJs(text(fragment))).toContain("function bandAway(p) {");
@@ -687,7 +827,7 @@ describe("the lit bands", () => {
     expect(ground.matrixWorld.equals(new THREE.Matrix4())).toBe(true);
   });
 
-  it("are drawn in the ground's own shader, over the tracks and the worn earth and under the grain, with their own glow added, from one reading of the mask", () => {
+  it("are drawn in the ground's own shader, over the tracks and the trodden grass and under the grain, with their own glow added, from one reading of the mask", () => {
     const bands = bandsOf(512), shader = land(bands), fragment = shader.fragmentShader;
     const tone = new THREE.Color(BAND_TONE), amber = new THREE.Color(BAND_AMBER);
     expect(shader.uniforms.uBands).toBe(bands.map);
@@ -707,9 +847,10 @@ describe("the lit bands", () => {
     expect(fragment).toMatch(/float bandLit = 0\.0, bandOff = bandAway\(vPoolAt\.xz\);\s+if \(bandOff < [\d.]+\) \{\s+bandLit = band\(bandOff, covers, tussocks\);\s+diffuseColor\.rgb = mix\([^;]+;\s+\}/);
     expect(text(fragment)).not.toMatch(/dFd[xy]|fwidth/);
     expect(text(fragment).indexOf("texture2D(uBands")).toBeLessThan(text(fragment).indexOf("float bandArea("));
-    // The band is laid once the pixel's reach and the tussock grain are known, after the tracks and the worn earth, and before the
-    // grain's own line, so the grain lies on it as on the turf; and its glow is added where three sums what a surface gives off.
-    const worn = fragment.indexOf("worn(vPoolAt.xz, tussocks));"), grain = fragment.indexOf("diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - 0.5) + 0.26 * (blades - 0.5) * fineShown;");
+    // The band is laid once the pixel's reach and the tussock grain are known, after the tracks, the trodden grass and the blankets,
+    // and before the grain's own line, so the grain lies on it as on the turf; and its glow is added where three sums what a surface
+    // gives off.
+    const worn = fragment.indexOf("crowdBorder(blanketEdge, covers)), cloth);"), grain = fragment.indexOf("diffuseColor.rgb *= 0.95 + 0.2 * (tussocks - 0.5) + 0.26 * (blades - 0.5) * fineShown;");
     expect(worn).toBeGreaterThan(fragment.indexOf("tracks(vPoolAt.xz));"));
     expect(fragment.indexOf(read)).toBeGreaterThan(worn);
     expect(fragment.indexOf(lit)).toBeGreaterThan(fragment.indexOf("covers = max(covers,"));
@@ -759,7 +900,7 @@ describe("the lit bands", () => {
       expect(Object.keys(without.uniforms).sort()).toEqual(Object.keys(before.uniforms).sort());
       for (const word of ["uBands", "uBandGlow", "bandLit", "bandAway(", "bandArea(", "band("]) expect(before.fragmentShader).not.toContain(word);
       // With bands: every line of the shader without them is still there, in its order, so the stage's glow, the grain, the tracks,
-      // the worn earth and the relief are all as they were; and the vertex shader is untouched.
+      // the trodden grass and the relief are all as they were; and the vertex shader is untouched.
       expect(banded.vertexShader).toBe(before.vertexShader);
       const lines = banded.fragmentShader.split("\n");
       let from = 0;
@@ -1005,12 +1146,13 @@ describe("what stands on the land", () => {
       for (let i = 0; i < flora.stones.count; i++) {
         flora.stones.getMatrixAt(i, matrix);
         at.setFromMatrixPosition(matrix);
-        if (onCrowdGround(at.x, at.z)) among += 1;
+        if (onCrowdGround(at.x, at.z, 4.5)) among += 1;
         expect(at.y - surface(at.x, at.z)).toBeGreaterThanOrEqual(0);
         expect(at.y - surface(at.x, at.z)).toBeLessThan(0.2);
       }
-      // Stones lie on the crowd's ground as anywhere.
-      expect(among).toBeGreaterThan(0);
+      // No stone lies on the crowd's ground or within 4.5 m of it, among the figures, and the island has its stones all the same.
+      expect(among).toBe(0);
+      expect(flora.stones.count).toBe(Math.round(grid * (phone ? 2.5 : 4)));
     }
   });
 

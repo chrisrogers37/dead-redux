@@ -4,8 +4,8 @@
    budget is rung 0, and a device that renders slowly steps down one rung at a time and never back up. The frames the world draws while
    it loads decide nothing, so a slow load alone never steps it down. */
 
-/* Rung 0 of each tier. Only the desktop draws a shadow map, the stage's. `crowd` is the most figures that stand on the hill, front first
-   (seats.js); the desktop's is more than there are seats, so it fills them all. */
+/* Rung 0 of each tier. Only the desktop draws a shadow map, the stage's. `crowd` is the most figures that stand on the hill, whole groups
+   of the gathering as it thins (seats.js); the desktop's is more than there are seats, so it fills them all. */
 const BUDGETS = {
   desktop: { scale: 1.0, grid: 80, octaves: 4, bears: 5, fov: 60, shadows: true, crowd: 350 },
   phone: { scale: 0.85, grid: 52, octaves: 3, bears: 3, fov: 75, shadows: false, crowd: 150 },

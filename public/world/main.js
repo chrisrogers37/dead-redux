@@ -134,7 +134,9 @@ function start(gl) {
   const builders = makeBuilders(phone);
   const { moving } = builders;
   const placeStart = performance.now();
-  const landmarks = placeLandmarks(scene, path, builtAs.size ? tracks.map((t, k) => ({ ...t, title: landmarkTitle(k) })) : tracks, hasShow, builders, landmarkU, line, surfaceOf(budget.grid));
+  /* The ground as this tier's island draws it, which the landmarks and the crowd stand on (island.js surfaceOf). */
+  const surface = surfaceOf(budget.grid);
+  const landmarks = placeLandmarks(scene, path, builtAs.size ? tracks.map((t, k) => ({ ...t, title: landmarkTitle(k) })) : tracks, hasShow, builders, landmarkU, line, surface);
   /* How long the landmarks took to place, most of it their search for room beside the bears' line; the stats report it. */
   (window.__hill ??= {}).placeMs = Math.round((performance.now() - placeStart) * 10) / 10;
 
@@ -164,15 +166,17 @@ function start(gl) {
      recording, whose one stand-in track runs into nothing: no show needs telling apart here. */
   const mask = bandMask(path, tracks, landmarkU, phone ? 256 : 512);
   const bands = mask ? { map: { value: mask }, glow: { value: BAND_GLOW } } : null;
+
+  /* ---------- the crowd ---------- */
+  /* The day's gathering (seats.js), before the ground, which wears it: the grass its people tread and the blankets they sit on. */
+  const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks, plain: tier !== "desktop", seed: data.seed, surface });
+
   /* Nothing grows or lies within TRUNK_ROOM of a trunk. */
-  const { caves, shade, flora, lit } = buildIsland(scene, budget.grid, phone, loop, (x, z) => placed.near(x, z, TRUNK_ROOM), bands);
+  const { caves, shade, flora, lit } = buildIsland(scene, budget.grid, phone, loop, (x, z) => placed.near(x, z, TRUNK_ROOM), bands, crowd.ground);
   const trees = buildTrees(scene, placed.spots, { lit, phone });
 
   /* ---------- the bears ---------- */
   const bears = buildBears(scene, budget.bears);
-
-  /* ---------- the crowd ---------- */
-  const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks, plain: tier !== "desktop" });
 
   /* ---------- the visitor's bear ---------- */
   /* The walk's camera keeps out of the landmarks and the stage's column, climbs over the crowd, and among the trees slides round a
@@ -497,7 +501,7 @@ function start(gl) {
     bearSpots.length = bears.length;
     sun.castShadow = quality.shadows;
     stage.light.visible = quality.stageLight;
-    /* The seats run front first, so half the crowd is its front half. */
+    /* The seats come in the order the gathering thins, so half the crowd is the gathering thinned again, by whole groups (seats.js). */
     crowd.show(quality.fullCrowd ? crowd.count : Math.ceil(crowd.count / 2));
     /* The land's tufts and fireflies are the first thing a slow device loses half of: at the ladder's first rung, with the render scale. */
     flora.thin(quality.scale < budget.scale);
@@ -553,7 +557,7 @@ function start(gl) {
     /* Under ?pose=near-K, the song whose landmark the visitor stands by, the title its landmark is built for, and whether no other
        landmark stands in the view of it. */
     near: stat(() => (nearAt === null ? null : { index: nearAt, title: landmarkTitle(nearAt), clear: nearClear })),
-    /* The crowd: how many figures it draws (the tier's, or the front-weighted half of them once the downgrade halves it), how far it
+    /* The crowd: how many figures it draws (the tier's, or about half of them in whole groups once the downgrade halves it), how far it
        dances, the music's factor in, how far it sits, and how many figures stand off their seats for the visitor. */
     crowd: stat(() => ({ drawn: crowd.shown, dance: r3(dancing * layer2.dance), sit: r3(sitting), parted: crowd.parted })),
     /* The rig: how far it is lit; how far its beams are gathered, following the build-up as it rises and opening again over RIG_OPEN_S
