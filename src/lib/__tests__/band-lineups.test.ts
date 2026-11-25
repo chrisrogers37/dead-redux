@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
 import { buildBand, HALF_OVER, SIX, STAGING } from "../../../public/world/band.js";
-import { LINEUPS } from "../../../public/world/lineup.js";
+import { LINEUPS, lineupOn } from "../../../public/world/lineup.js";
 import { PERSON } from "../../../public/world/seats.js";
-import { FLOOR, FLOOR_R, FLOOR_SIDES, PANEL } from "../../../public/world/stage.js";
+import { buildStage, FLOOR, FLOOR_R, FLOOR_SIDES, PANEL } from "../../../public/world/stage.js";
 
 // public/world/band.js builds the band as the show's line-up (lineup.js): every line-up of the table, built here as band.test.ts
 // builds the six, and held to the rules the six keep that are no one line-up's: what it costs to draw, where it stands, how it is
@@ -382,4 +382,20 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
 it("builds every line-up of the table, and refuses one it has no staging for", () => {
   expect(lineups).toHaveLength(Object.keys(STAGING).length);
   expect(() => buildBand(new THREE.Group(), FLOOR, ["lead", "bass", "drums"])).toThrow(/no staging/);
+});
+
+// The stage builds the band itself (stage.js), as the line-up of the show it is given, and the six without one: the stage as main.js
+// builds it, for a show of each of three eras none of whose line-ups is another's or the six, its players' roles against the table's
+// row for the date.
+it("is built by the stage as the line-up of the show on its date, and as the six with no date", () => {
+  const roles = (showDate?: string) => {
+    const built = buildStage(new THREE.Scene(), null, false, new THREE.MeshBasicMaterial(), { uC0: { value: null }, uC1: { value: null } }, showDate);
+    const players: Player[] = built.band.players;
+    expect(players.every((p) => (p.g as unknown as { parent: unknown }).parent === built.group)).toBe(true);
+    return players.map((p) => p.role).sort();
+  };
+  const dates = ["1969-04-17", "1973-03-30", "1977-05-08"];
+  expect(new Set([...dates.map((date) => (lineupOn(date).roles as string[]).join(" ")), SIX.join(" ")]).size).toBe(dates.length + 1);
+  for (const date of dates) expect([date, roles(date)]).toEqual([date, [...(lineupOn(date).roles as string[])].sort()]);
+  expect(roles()).toEqual([...SIX].sort());
 });

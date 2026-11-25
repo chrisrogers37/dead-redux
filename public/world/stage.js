@@ -25,8 +25,8 @@ export const FLOOR = 1.2, FLOOR_R = 9, FLOOR_SIDES = 16;
 
 /* Builds the stage. With `shadows` the sun casts the desktop's one shadow map, framed on the stage alone. `panelMat` is the light panel's
    material (sky.js) and `colors` the sky's uniforms, whose two colours the rig's beams take. Returns the group, the light panel, the stage
-   light (the downgrade turns it off), the rig (rig.js), `move`, which plays the band, and `fit`, which fits its thin parts to the canvas
-   (band.js). The band is the line-up of the show on `showDate` (YYYY-MM-DD); without one, the six of 1979 to 1990. */
+   light (the downgrade turns it off), the rig (rig.js), the band (band.js), `move`, which plays it, and `fit`, which fits its thin parts
+   to the canvas. The band is the line-up of the show on `showDate` (YYYY-MM-DD); without one, the six of 1979 to 1990. */
 export function buildStage(scene, sun, shadows, panelMat, colors, showDate) {
   const group = new THREE.Group();
   group.position.set(STAGE[0], SHELF_Y, STAGE[1]);
@@ -76,5 +76,5 @@ export function buildStage(scene, sun, shadows, panelMat, colors, showDate) {
     sun.shadow.normalBias = 0.02;
   }
 
-  return { group, panel, light, rig, move: band.move, fit: band.fit };
+  return { group, panel, light, rig, band, move: band.move, fit: band.fit };
 }
