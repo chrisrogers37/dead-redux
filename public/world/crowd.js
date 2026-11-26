@@ -897,8 +897,8 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
     if (y < 0.2) {
       /* As it flares out turning, its hem rises, 0.3 of the way it goes out: flared flat, it went 5.5 cm into a phone's ground, which
          lies off the plane its figure stands on further out. */
-      float flare = 0.62 + 0.38 * (1.0 - hem) / 0.907, out = sqrt(x * x + z * z) * flare * swirl;
-      x *= flare * (1.0 + swirl); z *= flare * (1.0 + swirl); y = hem * ${f(LEG)} + 0.3 * out;
+      float flare = 0.62 + 0.38 * (1.0 - hem) / 0.907, spread = sqrt(x * x + z * z) * flare * swirl;
+      x *= flare * (1.0 + swirl); z *= flare * (1.0 + swirl); y = hem * ${f(LEG)} + 0.3 * spread;
     } else if (y < 0.6) {
       float mid = hem < 0.5 ? 0.5 : 0.5 * (1.0 + hem);
       float full = (0.62 + 0.38 * clamp((1.0 - mid) / 0.5, 0.0, 1.0)) * (1.0 + 0.5 * swirl);
