@@ -6,6 +6,7 @@ import {
   buildCrowd, COLOURS, CUT, CYCLE, DROP, FEET, figureGeometry, FOLD, FOOT, groundUnder, HAND, HANG, inView, KNEES, LEG, LYING, MOST, MOVES, only, OUTLINE, outlineOf, PART,
   partingOptions, people, PLAIN_LEAVES_OUT, plainly, poseOf, PROP_EVERY, PROPS, QUIET, SEAT, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, TALL, tone, TOP, wearing, without,
 } from "../../../public/world/crowd.js";
+import { MOVE as STEP, SLOW, STRUM, swing } from "../../../public/world/band.js";
 import { FACING, height, STAGE, STAGE_COLUMN, TEST_POSES } from "../../../public/world/ground.js";
 import { makeBuilders } from "../../../public/world/landmarks.js";
 import { surfaceOf } from "../../../public/world/island.js";
@@ -843,11 +844,13 @@ describe("the crowd's shader", () => {
     const leg = v.mark.x === 1 ? 1 : v.mark.x === 2 ? 2 : 0, arm = v.mark.x === 3 ? -1 : v.mark.x === 4 ? 1 : 0;
     const danced = pose.dance * (1 - (pose.still ?? 0));
     const rise = (pose.rise ?? 0) * (pose.rising ?? 1), sit = Math.max(fig.x, pose.sit ?? 0) * (1 - rise);
-    const bounce = 0.5 + 0.5 * Math.cos(6.2832 * (pose.beat + 0.12 * fig.y));
+    // Main's bob came and went on every beat, and its arms and sway in two: now each comes and goes as the band's moves do (band.js
+    // swing), once in SLOW counts on the figure's own of four, over a quarter of them, held between.
+    const step = swing(pose.beat + 0.12 * fig.y - Math.floor(4 * ((5.3 * fig.y) % 1)), SLOW, SLOW / 4), bounce = 0.5 + 0.5 * step;
     if (arm !== 0) {
       // Main's arms swung out and back on every beat, 0.5 rad at the most (1 - bounce), seated too. They swing with the sway now,
       // once in two beats, each out as the figure leans its way, and hang while it sits.
-      const out = 0.5 + 0.5 * arm * Math.sin(3.1416 * (pose.beat + fig.y));
+      const out = 0.5 + 0.5 * arm * step;
       const swing = rise * 2.7 + (1 - rise) * danced * 0.5 * out * (1 - sit);
       [x, y] = rot(x - arm * SHOULDER_X, y - SHOULDER_Y, arm * swing);
       x += arm * SHOULDER_X; y += SHOULDER_Y;
@@ -875,7 +878,7 @@ describe("the crowd's shader", () => {
         x += Math.sign(v.x) * wide * (t > 0.5 ? 2 - 2 * t : 2 * t);
       }
     } else y -= lower;
-    if (sways) [x, y] = rot(x, y, danced * 0.08 * Math.sin(3.1416 * (pose.beat + fig.y)));
+    if (sways) [x, y] = rot(x, y, danced * 0.08 * step);
     // Standing, the legs lean with the ground's fall ahead of the seat, all of it at the foot and none at the hip (new).
     y -= (leg === 2 ? 1 : leg === 1 ? 1 - clamp(v.y / LEG, 0, 1) : 0) * (1 - sit) * (clamp(fig.w, DROP[0], DROP[1]) * z) / FOOT[0];
     // Main let a seated figure's lap and a tipped heel pass a little under the ground. As far as a figure sits, nothing of it does now.
@@ -893,12 +896,13 @@ describe("the crowd's shader", () => {
 
   it("moves a plain figure that bobs, standing, as every figure moved before, but for its arms, which swing slower and bend at the elbow, its flat feet and its level hems: its bob, the rise and its sway, to a hundredth of a millimetre", () => {
     // The body's vertices, standing on rising and falling ground, through two beats, still and rising and at each end of the crowd;
-    // where the shader's legs or sway went wrong, this figure would no longer dance as main's did. Four things differ, the first two
-    // for the flash count: its arms swing once in two beats and not on every beat (before), and bend at the elbow as it dances, so
-    // they are left out here (the rules below hold them); its feet, which tipped with the sway before, stay flat on the ground, so
-    // they are held to main's without the sway; its legs lean with the ground's fall, so its feet lie on it; and a trouser's hem, the
-    // ring at the foot, stays level as the shin slants, and is left out here. Seated, or as far as it sits, it sits as its stance
-    // sits it, on the ground the stance and ground tests below hold, and is left out here.
+    // where the shader's legs or sway went wrong, this figure would no longer dance as main's did. Five things differ, the first two
+    // for the flash count: it bobs and sways once in four counts, held between, as the band moves (before); its arms swing with its
+    // sway and not on every beat, and bend at the elbow as it dances, so they are left out here (the rules below hold them); its feet,
+    // which tipped with the sway before, stay flat on the ground, so they are held to main's without the sway; its legs lean with the
+    // ground's fall, so its feet lie on it; and a trouser's hem, the ring at the foot, stays level as the shin slants, and is left out
+    // here. Seated, or as far as it sits, it sits as its stance sits it, on the ground the stance and ground tests below hold, and is
+    // left out here.
     const bodyOnly = rich.filter((v) => v.mark.y === 0);
     let worst = 0, looked = 0, feet = 0;
     for (const fig of [{ x: 0, y: 0.37, z: 0, w: 0.11 }, { x: 0, y: 0.81, z: 1, w: -0.07 }, { x: 1, y: 0.15, z: 0.4, w: 0.25 }])
@@ -1350,7 +1354,7 @@ describe("the crowd's shader", () => {
     // One who watches moves its hands the least by far, one who turns carries them round, and one who nods moves its head.
     expect(mean("watch", "hand")).toBe(0);
     expect(mean("spin", "hand")).toBeGreaterThan(mean("sway", "hand"));
-    expect(mean("nod", "head")).toBeGreaterThan(2 * mean("watch", "head"));
+    expect(mean("nod", "head")).toBeGreaterThan(1.5 * mean("watch", "head"));
   });
 
   // A plain standard figure at the front, its phase 0, moving one way; a vertex where it stands in a pose; and how many times a
@@ -1383,6 +1387,46 @@ describe("the crowd's shader", () => {
     const arm = [h.x - a.x, h.y - a.y, h.z - a.z], down = [q.x - n.x, q.y - n.y, q.z - n.z];
     return Math.acos(Math.min(1, (arm[0] * down[0] + arm[1] * down[1] + arm[2] * down[2]) / (Math.hypot(...arm) * Math.hypot(...down))));
   }
+  // How many times a point goes back on its way round a cycle of beats (the last one the first again): where, having moved more than a
+  // thousandth, it next moves more than a thousandth against that. What sweeps once passes each place once; an angle from hanging
+  // turns where an arm swings across its hanging line, and counted that as two.
+  const dot = (p: number[], q: number[]) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+  function backs(points: number[][]) {
+    const one = points.slice(0, -1), back = (series: number[][]) => {
+      let count = 0, from = series[0], way: number[] | null = null;
+      for (const p of series) {
+        const d = [p[0] - from[0], p[1] - from[1], p[2] - from[2]];
+        if (Math.hypot(...d) <= 1e-3) continue;
+        if (way && dot(d, way) < 0) count += 1;
+        way = d; from = p;
+      }
+      return count;
+    };
+    return back([...one, ...one]) - back(one);
+  }
+  // The body's own frame in a pose, from its neck: across its shoulders, down its line to its hips, and ahead; and a way in it.
+  const unit = (p: number[]) => { const l = Math.hypot(...p); return p.map((c) => c / l); };
+  function bodyFrame(f: Figure, at: Pose) {
+    const n = mean(f, neck, at), q = mean(f, seat, at), l = mean(f, arms2[0].top, at), r = mean(f, arms2[1].top, at), down = unit([q.x - n.x, q.y - n.y, q.z - n.z]);
+    const across0 = [r.x - l.x, r.y - l.y, r.z - l.z], across = unit(across0.map((c, i) => c - dot(across0, down) * down[i]));
+    const ahead = [down[1] * across[2] - down[2] * across[1], down[2] * across[0] - down[0] * across[2], down[0] * across[1] - down[1] * across[0]];
+    return { from: n, in: (d: number[]) => [dot(d, across), dot(d, down), dot(d, ahead)] };
+  }
+  // And an arm's turns back: its line from its shoulder to its hand in the body's frame, a thousandth of a radian being a thousandth
+  // along it.
+  function armTurns(f: Figure, k: number, pose: Omit<Pose, "beat">, beats: number[]) {
+    return backs(beats.map((beat) => {
+      const at = { ...pose, beat }, a = mean(f, arms2[k].top, at), h = mean(f, arms2[k].hand, at);
+      return bodyFrame(f, at).in(unit([h.x - a.x, h.y - a.y, h.z - a.z]));
+    }));
+  }
+  // And how many times its knees bend and straighten round the cycle: its hips' distance from its feet, which its lean and its turn
+  // leave as it is, turning by more than a thousandth.
+  const soles = rich.filter((v) => v.mark.x === 2);
+  function kneeTurns(f: Figure, pose: Omit<Pose, "beat">, beats: number[]) {
+    const reach = beats.slice(0, -1).map((beat) => { const q = mean(f, seat, { ...pose, beat }), t = mean(f, soles, { ...pose, beat }); return Math.hypot(q.x - t.x, q.y - t.y, q.z - t.z); });
+    return turns([...reach, ...reach]) - turns(reach);
+  }
   // Every thing carried with every way of moving, as wearing() packs them on the standard figure, whether or not a crowd pairs them;
   // and the states a figure is drawn in: dancing, at the dance's most, seated, as the build-up lifts it and at its peak, and held
   // still by the parting, standing and seated.
@@ -1414,16 +1458,17 @@ describe("the crowd's shader", () => {
     for (const [prop, move, stand, sit] of ROWS) for (const [state, pose] of STATES) {
       const f = carrying(prop, move, { stance: { stand, sit } }), name = `${prop}, ${move}, ${stand}, ${sit}, ${state}`, sits = (pose.sit ?? 0) === 1, held = (pose.still ?? 0) === 1;
       looked += 1;
-      // No arm goes out and back more than once in two beats, whatever it holds: 8 turns in CYCLE beats at the most.
-      const swings = [0, 1].map((k) => turns(through.map((beat) => armAngle(f, k, { ...pose, beat }))));
-      if (Math.max(...swings) > 8) slow.push(`${name}: ${swings}`);
+      // No arm goes out and back more than once in SLOW counts, whatever it holds, 4 turns in CYCLE at the most; but the hands of a
+      // clap and at a drum, before the figure's own body, once in STRUM, 8.
+      const swings = [0, 1].map((k) => armTurns(f, k, pose, through));
+      if (Math.max(...swings) > ((2 * CYCLE) / (move === "clap" || prop === "drum" ? STRUM : SLOW))) slow.push(`${name}: ${swings}`);
       // Held still by the parting, nothing of it moves at all.
-      const knees = turns(through.map((beat) => mean(f, seat, { ...pose, beat }).y));
+      const knees = kneeTurns(f, pose, through);
       if (held && (Math.max(...swings) > 0 || knees > 0)) still.push(name);
-      // Its knees keep every beat only if it bobs: the hips of any other come down once in two beats at the most, whatever it
-      // carries. The build-up before a peak is the one exception, and is kept from before: as it lifts the crowd every figure's
-      // knees come to keep every beat, and at its peak all do.
-      if ((pose.rise ?? 0) === 0 ? move !== "bob" && knees > 8 : pose.rise === 1 && knees !== 16) kneed.push(`${name}: ${knees}`);
+      // Its knees come down and up once in SLOW counts at the most, whatever it carries, one that bobs among them; and as the
+      // build-up before a peak lifts the crowd every figure's knees come to, and at its peak all do: 4 turns in CYCLE. Before, they
+      // kept every beat as it lifted them, and a raised arm crossed one block 7 and 8 times a second against the stage's apron.
+      if (knees > (2 * CYCLE) / SLOW || (pose.rise === 1 && knees !== (2 * CYCLE) / SLOW)) kneed.push(`${name}: ${knees}`);
       // Seated, an arm that holds nothing rests its forearm on its knee, as one that carries nothing does, whatever the figure's way
       // of moving; one that holds a drum or a child's legs stays at them, no hand over its shoulders (a child's legs are at them);
       // the arm that holds a flag's pole or a balloon's string hangs at it, as standing; and the hand that holds a finger up stays up
@@ -1441,14 +1486,13 @@ describe("the crowd's shader", () => {
         if (Math.abs(p.y - v.y) > 1e-9 || Math.abs(Math.hypot(p.x, p.z) - Math.hypot(v.x, v.z)) > 1e-9 || (!turned && (Math.abs(p.x - v.x) > 1e-9 || Math.abs(p.z - v.z) > 1e-9))) { lifted.push(name); break; }
       }
     }
-    // What is carried moves of itself no faster: a flag's free edge, a balloon and a hoop's rim, each against the figure's own neck,
-    // turn no more than 8 times in CYCLE beats along any way, whichever way the figure moves.
+    // What is carried moves of itself no faster: a flag's free edge, a balloon and a hoop's rim, each against the figure's own neck in
+    // its body's frame, go back on their way no more than 4 times in CYCLE counts, whichever way the figure moves.
     const own2: [string, Vertex][] = [["flag", rich.filter((v) => v.mark.y === PART.FLAG).reduce((a, b) => (b.mark.w > a.mark.w ? b : a))],
       ["balloon", rich.filter((v) => v.mark.y === PART.BALLOON).reduce((a, b) => (b.y > a.y ? b : a))], ["hoop", rich.filter((v) => v.mark.y === PART.HOOP).reduce((a, b) => (b.x > a.x ? b : a))]];
     for (const [prop, probe] of own2) for (const move of MOVES as string[]) for (const [state, pose] of STATES.slice(0, 5)) {
-      const f = carrying(prop, move), path2 = through.map((beat) => { const p = { ...put(f, probe, { ...pose, beat }) }, n = mean(f, neck, { ...pose, beat }); return [p.x - n.x, p.y - n.y, p.z - n.z]; });
-      const most = Math.max(...[0, 1, 2].map((k) => turns(path2.map((q) => q[k]))));
-      if (most > 8) slow.push(`${prop} itself, ${move}, ${state}: ${most}`);
+      const f = carrying(prop, move), most = backs(through.map((beat) => { const at = { ...pose, beat }, p = { ...put(f, probe, at) }, body = bodyFrame(f, at); return body.in([p.x - body.from.x, p.y - body.from.y, p.z - body.from.z]); }));
+      if (most > (2 * CYCLE) / SLOW) slow.push(`${prop} itself, ${move}, ${state}: ${most}`);
     }
     expect(looked).toBe((8 * 8 + 13 * 4 + 6 * 2) * 7);
     expect(slow).toEqual([]);
@@ -1456,12 +1500,12 @@ describe("the crowd's shader", () => {
     expect(kneed).toEqual([]);
     expect(raised).toEqual([]);
     expect([...new Set(lifted)]).toEqual([]);
-    // And the rules bite: a seated forearm rests well forward of hanging, a drummer's hands do tap, each once in two beats, a finger
-    // is held up, and one that bobs bends its knees on every beat whatever it carries.
+    // And the rules bite: a seated forearm rests well forward of hanging, a drummer's hands do tap, each once in two counts, a finger
+    // is held up, and one that bobs bends its knees once in four counts whatever it carries.
     for (const k of [0, 1]) expect(resting[k] - hanging[k]).toBeGreaterThan(0.4);
-    expect([0, 1].map((k) => turns(through.map((beat) => armAngle(carrying("drum", "bob"), k, { beat, dance: 1.2 }))))).toEqual([8, 8]);
+    expect([0, 1].map((k) => armTurns(carrying("drum", "bob"), k, { dance: 1.2 }, through))).toEqual([8, 8]);
     expect(mean(carrying("finger", "watch"), arms2[1].hand, { beat: 0, dance: 1.2 }).y).toBeGreaterThan(TALL);
-    for (const prop of CARRIED) expect([prop, turns(through.map((beat) => mean(carrying(prop, "bob"), seat, { beat, dance: 1.2 }).y))]).toEqual([prop, 16]);
+    for (const prop of CARRIED) expect([prop, kneeTurns(carrying(prop, "bob"), { dance: 1.2 }, through)]).toEqual([prop, 4]);
   });
 
   it("keeps a hand at what it holds through every state: the pole of a flag, a balloon's string, the legs of a child on the shoulders, a drum", () => {
@@ -1529,30 +1573,31 @@ describe("the crowd's shader", () => {
     expect(most.top).toBeGreaterThan(0.97 * TOP * BIG);
   }, 60000);
 
-  it("swings no arm out and back more than once in two beats, a clap's among them, bends the knees on every beat only of one that bobs, and keeps a clap inside the figure's own outline", () => {
+  it("swings no arm out and back more than once in four counts but a clap's, before its chest, in two; bends no figure's knees more than once in four; and keeps a clap inside the figure's own outline", () => {
     // The flash bar counts a block's swings in brightness, and a thin limb that passes over lit ground or the stage swings each block
     // on its way twice as it goes and twice as it comes back. Main's arms did that on every beat: 9 and 10 swings a second at one
-    // block from the stage's pose in Drums, by render. So every arm here keeps to a cycle of two beats or longer, a figure that
-    // claps does it on every other beat and before its chest, where its own body covers it, and only one that bobs bends its knees
-    // on every beat. Over CYCLE beats, standing and dancing at the dance's middle: how far each arm stands out from hanging, by its hand
-    // from its shoulder, and how high the hips stand.
+    // block from the stage's pose in Drums, by render; and a bob's knees on every beat carried a raised arm across one block 7 and 8
+    // times a second at a peak. So every arm and every figure's knees here keep to a cycle of SLOW counts, held between (band.js), and
+    // a figure that claps does it on every other count and before its chest, where its own body covers it. Over CYCLE counts, standing
+    // and dancing at the dance's middle: how far each arm stands out from hanging, by its hand from its shoulder, and how high the
+    // hips stand.
     expect([arms2[0].top.length, arms2[0].hand.length, neck.length, seat.length].every((n) => n >= 6)).toBe(true);
     const beats = Array.from({ length: 641 }, (_, k) => 0.2 + (k * CYCLE) / 640);
     const swung: Record<string, number[]> = {};
     for (const move of MOVES as string[]) {
       const f = figureOf(move);
-      swung[move] = [...[0, 1].map((k) => turns(beats.map((beat) => armAngle(f, k, { beat, dance: 1.2 })))), turns(beats.map((beat) => mean(f, seat, { beat, dance: 1.2 }).y))];
+      swung[move] = [...[0, 1].map((k) => armTurns(f, k, { dance: 1.2 }, beats)), kneeTurns(f, { dance: 1.2 }, beats)];
     }
-    // Each turn is half a swing: 8 in CYCLE beats is once out and back in two beats, 16 once a beat.
-    expect(swung.bob).toEqual([8, 8, 16]);
+    // Each turn is half a swing: 4 in CYCLE counts is once out and back in four counts, 8 in two.
+    expect(swung.bob).toEqual([4, 4, 4]);
     expect(swung.wave.slice(0, 2)).toEqual([4, 4]);
     expect(swung.spin.slice(0, 2)).toEqual([4, 4]);
     expect(swung.nod.slice(0, 2)).toEqual([0, 0]);
     expect(swung.watch.slice(0, 2)).toEqual([0, 0]);
     expect(swung.clap.slice(0, 2)).toEqual([8, 8]);
     for (const move of ["sway", "wave", "spin", "nod", "clap", "watch"]) {
-      expect([move, Math.max(swung[move][0], swung[move][1]) <= 8]).toEqual([move, true]);
-      expect([move, swung[move][2] <= 8]).toEqual([move, true]);
+      expect([move, Math.max(swung[move][0], swung[move][1]) <= (move === "clap" ? 8 : 4)]).toEqual([move, true]);
+      expect([move, swung[move][2] <= 4]).toEqual([move, true]);
     }
     // And the clap is inside the outline: seen from behind or before, no part of either arm stands further to the side of its
     // shoulder than the arm is thick, or over the shoulders.
@@ -1568,6 +1613,39 @@ describe("the crowd's shader", () => {
     expect(wide).toBeLessThan(0.09);
     expect(wide).toBeGreaterThan(0.05);
     expect(high).toBeLessThan(0.07);
+  });
+
+  it("moves each figure on its own count as band.js moves the band: every move holds, goes at an even pace over a quarter of its counts and arrives on a count, once in SLOW counts, the turn in twice that, and the hands before the chest in STRUM", () => {
+    // From the stage at a peak a raised arm bobbed on every count across one block of the lit apron, which counted 7 and 8 swings in
+    // a second there, by render (scripts/flash): the class band.js keeps the band out of. So the crowd's moves are band.js's own
+    // (swing): the shader's count terms, run here, are swing's at every 1/40 of a count through CYCLE, for figures of each count of
+    // four; they are the only terms the count reaches; and swing itself holds, goes at an even pace and arrives on a count.
+    expect(dance.match(/\buBeat\b/g)).toHaveLength(1);
+    const at = dance.indexOf("float own ="), timing = asJs(`${dance.slice(at, dance.indexOf("float spin =", at))}\nreturn [own, stride, turned, slow, bounce, fling];`) as unknown as (...reads: unknown[]) => number[];
+    const own0 = (y: number) => 0.12 * y - Math.floor(4 * ((5.3 * y) % 1));
+    let looked = 0, worst = 0;
+    const counts = new Set<number>();
+    for (const y of [0, 0.13, 0.37, 0.52, 0.81, 0.97]) for (let k = 0; k <= 40 * CYCLE; k++) {
+      const beat = k / 40, got = timing(...READS.map((name) => (name === "aFig" ? { x: 0, y, z: 0, w: 0 } : name === "uBeat" ? beat : undefined))), own = got[0];
+      counts.add(Math.round(own - beat - 0.12 * y));
+      const want = [beat + own0(y), swing(own, SLOW, SLOW / 4), swing(own, 2 * SLOW, SLOW / 2), 0.5 + 0.5 * swing(own, STRUM, STEP), 0.5 + 0.5 * swing(own, SLOW, SLOW / 4), 1 - Math.abs(swing(own, 2 * SLOW, SLOW / 2))];
+      worst = Math.max(worst, ...want.map((w, i) => Math.abs(w - got[i])));
+      looked += 1;
+    }
+    expect(looked).toBe(6 * (40 * CYCLE + 1));
+    expect(worst).toBeLessThan(1e-9);
+    // Each figure keeps its own count of four, a whole number of counts from the band's (within JITTER), and the crowd has all four.
+    expect([...counts].sort((a, b) => a - b)).toEqual([-3, -2, -1, 0]);
+    // And swing: over a cycle of `per` counts at 1/80 of a count, it holds at 1 or -1 for all but twice `move` counts, goes between
+    // them at one even pace, and arrives at each end on a count.
+    for (const [per, move] of [[SLOW, SLOW / 4], [2 * SLOW, SLOW / 2], [STRUM, STEP]]) {
+      const n = 80 * per, xs = Array.from({ length: n + 1 }, (_, k) => swing(k / 80, per, move)), held = xs.slice(0, n).filter((v) => Math.abs(v) === 1).length;
+      expect(held / 80).toBeCloseTo(per - 2 * move, 1);
+      const steps = xs.slice(1).map((v, k) => v - xs[k]).filter((d) => Math.abs(d) > 1e-12);
+      expect(Math.max(...steps.map((d) => Math.abs(Math.abs(d) - 2 / (80 * move))))).toBeLessThan(1e-9);
+      expect([0, per / 2, per].map((c) => swing(c, per, move))).toEqual([1, -1, 1]);
+      expect(swing(per / 2 - 1e-9, per, move)).toBeGreaterThan(-1);
+    }
   });
 
   it("brings every figure's arms down when it sits: no hand of one that holds nothing stands over its shoulders, whatever its way of moving", () => {
@@ -1586,7 +1664,7 @@ describe("the crowd's shader", () => {
     expect(over).toBe(0);
   });
 
-  it("claps before its chest on every other beat, waves both arms one way, sways from the hips, turns a skirt out, folds its arms to nod, and stands with its hands on its hips", () => {
+  it("claps before its chest on every other count, waves both arms one way, sways from the hips, turns a skirt out, folds its arms to nod, and stands with its hands on its hips", () => {
     // Each way of moving in turn, at the dance's middle.
     const figure = figureOf;
     const hands = [bodyOf(3).reduce(lowest), bodyOf(4).reduce(lowest)], crown = bodyOf(6).reduce((a, b) => (b.y > a.y ? b : a));
@@ -1611,20 +1689,20 @@ describe("the crowd's shader", () => {
     expect(swing(hip)).toBeGreaterThan(0.15);
     expect(swing(shoulder)).toBeLessThan(0.6 * swing(hip));
     expect(Math.abs(at2(sway, hip, { beat: 0, dance: 1 }).x - at2(sway, hip, { beat: 4, dance: 1 }).x)).toBeLessThan(1e-3);
-    // Turning: the figure faces well round to each side in turn, over eight beats, and its skirt's hem stands further out as it turns
-    // fastest than as it stops to turn back.
+    // Turning: the figure faces well round to each side in turn, over eight counts, and its skirt's hem stands further out as it
+    // turns than as it holds before it turns back.
     const spin = figure("spin", 0, PART.SKIRT as number), nose = rich.filter((v) => v.mark.x === 6 && v.mark.y === 0).reduce((a, b) => (b.z > a.z ? b : a));
     const faces = [2, 6].map((beat) => at2(spin, nose, { beat, dance: 1 }));
     expect(faces[0].x * faces[1].x).toBeLessThan(0);
     expect(Math.abs(Math.atan2(faces[0].x, faces[0].z))).toBeGreaterThan(1.5);
     expect(Math.abs(Math.atan2(faces[0].x, faces[0].z))).toBeLessThan(2.2);
     const hemAt = (beat: number) => Math.max(...rich.filter((v) => v.mark.y === PART.SKIRT && v.y < 0.2).map((v) => { const p = put(spin, v, { beat, dance: 1 }); return Math.hypot(p.x, p.z); }));
-    expect(hemAt(0)).toBeGreaterThan(1.3 * hemAt(2));
-    expect(hemAt(2)).toBeCloseTo(hemAt(6), 4);
-    // Nodding: the head's top goes forward on the beat, and the arms are folded across the chest, dancing or not, until it stands still
-    // beside the visitor's bear.
+    expect(hemAt(3)).toBeGreaterThan(1.3 * hemAt(1));
+    expect(hemAt(1)).toBeCloseTo(hemAt(5), 4);
+    // Nodding: the head's top goes forward on its count and back two counts on, and the arms are folded across the chest, dancing or
+    // not, until it stands still beside the visitor's bear.
     const nod = figure("nod");
-    expect(at2(nod, crown, { beat: 0, dance: 1 }).z - at2(nod, crown, { beat: 0.5, dance: 1 }).z).toBeGreaterThan(0.04);
+    expect(at2(nod, crown, { beat: 0, dance: 1 }).z - at2(nod, crown, { beat: 2.5, dance: 1 }).z).toBeGreaterThan(0.04);
     for (const pose of [{ beat: 0.3, dance: 1 }, { beat: 0, dance: 0 }]) for (const v of hands) {
       const p = at2(nod, v, pose);
       expect(Math.abs(p.x)).toBeLessThan(0.2);
@@ -1716,7 +1794,7 @@ describe("the crowd's shader", () => {
     const widest = (f: Figure, list: Vertex[]) => Math.max(...each(f, list).map((p) => Math.hypot(p.x, p.z)));
     const head = of(0, 6), legs = of(0, 1), body = of(0, 0), belly = body.filter((v) => v.y > 0.9 && v.y < 1.3);
     // How far the hips come down on the beat, for one that bobs, by how hard it dances.
-    const dip = (size2: number) => mean(shaped({ move: "bob", size: size2 }), seat, { beat: 0.5, dance: 1.2 }).y - mean(shaped({ move: "bob", size: size2 }), seat, { beat: 0, dance: 1.2 }).y;
+    const dip = (size2: number) => mean(shaped({ move: "bob", size: size2 }), seat, { beat: 2.5, dance: 1.2 }).y - mean(shaped({ move: "bob", size: size2 }), seat, { beat: 0, dance: 1.2 }).y;
     const rows: [string, number, number, number][] = [
       ["long hair hangs lower than a bob", lowest2(shaped({ parts: P.HAIR, cut: { x: 0.75 } }), of(P.HAIR)), lowest2(shaped({ parts: P.HAIR, cut: { x: 1.3 } }), of(P.HAIR)), -0.15],
       ["a long tail hangs lower than a short one", lowest2(shaped({ parts: P.TAIL, cut: { x: 0.8 } }), of(P.TAIL)), lowest2(shaped({ parts: P.TAIL, cut: { x: 1.4 } }), of(P.TAIL)), -0.2],
@@ -1736,7 +1814,7 @@ describe("the crowd's shader", () => {
       ["a big round head of hair stands out from the head", widest(shaped({}), head), widest(shaped({ cuts: C.AFRO }), head), 0.08],
       ["a shawl is a poncho cut short", lowest2(shaped({ parts: P.PONCHO }), of(P.PONCHO)), lowest2(shaped({ parts: P.PONCHO, cuts: C.SHAWL }), of(P.PONCHO)), 0.15],
       ["a stoop carries the head forward", Math.min(...each(shaped({}), head).map((p) => p.z)), Math.min(...each(shaped({ stoop: 0.12 }), head).map((p) => p.z)), 0.08],
-      ["one that dances harder comes down further on the beat", dip(0.62), dip(1), 0.03],
+      ["one that dances harder comes down further on its count", dip(0.62), dip(1), 0.03],
     ];
     for (const [name, a, b, by] of rows) expect([name, by > 0 ? b - a > by : by < 0 ? b - a < by : b === a]).toEqual([name, true]);
     // And the crowd's figures do differ in each number: no two of the fixed day's in how hard they dance, and a spread of the rest.
@@ -1748,7 +1826,7 @@ describe("the crowd's shader", () => {
     }
     // What a head wears is on the head: as one that nods bows its head, each of them goes with it, as one piece with it.
     const nodding = shaped({ move: "nod", parts: P.BRIM + P.CROWN + P.BILL + P.BAND + P.KNOT + P.WREATH + P.HAIR + P.TAIL + P.TAIL2 + P.BEARD });
-    const crown = head.reduce((a, b) => (b.y > a.y ? b : a)), bowed = (v: Vertex) => [{ ...put(nodding, v, { beat: 0.5, dance: 1.2 }) }, { ...put(nodding, v, { beat: 0, dance: 1.2 }) }];
+    const crown = head.reduce((a, b) => (b.y > a.y ? b : a)), bowed = (v: Vertex) => [{ ...put(nodding, v, { beat: 2.5, dance: 1.2 }) }, { ...put(nodding, v, { beat: 0, dance: 1.2 }) }];
     const [crownUp, crownDown] = bowed(crown);
     expect(crownDown.z - crownUp.z).toBeGreaterThan(0.04);
     for (const name of ["BRIM", "CROWN", "BILL", "BAND", "KNOT", "WREATH", "HAIR", "TAIL", "TAIL2", "BEARD"]) {
