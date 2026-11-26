@@ -377,14 +377,50 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
     });
   });
 
+  // The stands `fit` widens that are new here (band.js): the singer's, which leans, widened across at each height about its own line
+  // so that its foot stays on the floor; the microphone's head at its top, widened every way about its middle; and each of the
+  // organ's legs, upright. At a pixel of a whole rad each is at its most, STOUT_MOST (0.12) in radius in its player's metres: the
+  // stand 0.036 as built, the head 0.04 and a leg 0.036.
+  const stood = roles.includes("voice") || roles.includes("organ");
+  if (stood) it("fits the singer's leaning stand about its own line, the microphone's head every way and each of the organ's legs to the canvas's pixel, each foot staying on the floor", () => {
+    const fresh: Band = stand(roles).band, still = fresh.still.geometry.getAttribute("position"), players = fresh.players as Player[];
+    const picked = (fresh.still.userData.parts as Part[]).filter((part) => part.by !== null && ((players[part.by].role === "voice" && part.of === "microphone") || (players[part.by].role === "organ" && part.as === "leg")));
+    const read = () => picked.map((part) => Array.from({ length: part.count }, (_, i) => own(fresh, part.by!, new THREE.Vector3().fromBufferAttribute(still, part.from + i))));
+    const built = read();
+    fresh.fit(1);
+    const most = read();
+    expect(picked.map((part) => `${players[part.by!].role} ${part.as}`).sort()).toEqual([
+      ...(roles.includes("organ") ? ["organ leg", "organ leg", "organ leg", "organ leg"] : []), ...(roles.includes("voice") ? ["voice microphone", "voice microphone"] : [])].sort());
+    picked.forEach((part, j) => {
+      const name = `${players[part.by!].role} ${j}`, a = built[j], b = most[j], middle = (c: Vec[]) => middleOf(c.map((v) => new THREE.Vector3(v.x, v.y, v.z)));
+      // Its middle stands where it stood, and its foot, if it has one (all but the head, a ball of 240 corners), on the floor.
+      const head = part.as === "microphone" && a.length > 100;
+      expect([name, gap(middle(a), middle(b)) < 1e-4, head || Math.abs(Math.min(...a.map((c) => c.y)) - Math.min(...b.map((c) => c.y))) < 1e-5]).toEqual([name, true, true]);
+      if (head) {
+        // The head: every corner three times as far from the middle (0.12 over 0.04).
+        const ratio = b.map((c, i) => gap(c, middle(b)) / Math.max(1e-9, gap(a[i], middle(a)))).filter((r) => Number.isFinite(r));
+        expect([name, Math.min(...ratio).toFixed(3), Math.max(...ratio).toFixed(3)]).toEqual([name, "3.000", "3.000"]);
+        return;
+      }
+      // A stand or a leg: each corner moves only across, at its own height, 0.12 / 0.036 times as far from the line through its middle
+      // and its foot's (the leaning stand's) or upright (a leg's) as built.
+      const floor = Math.min(...a.map((c) => c.y)), foot = middle(a.filter((c) => c.y < floor + 1e-5)), centre = middle(a);
+      const along = part.as === "leg" ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3().subVectors(centre, foot).normalize();
+      const off = (c: Vec) => { const t = (c.y - centre.y) / along.y; return new THREE.Vector3(c.x - centre.x - along.x * t, 0, c.z - centre.z - along.z * t); };
+      const ratios = a.flatMap((c, i) => (off(c).length() > 0.01 ? [off(b[i]).length() / off(c).length()] : []));
+      expect([name, a.every((c, i) => Math.abs(c.y - b[i].y) < 1e-6), Math.min(...ratios).toFixed(2), Math.max(...ratios).toFixed(2)]).toEqual([name, true, (0.12 / 0.036).toFixed(2), (0.12 / 0.036).toFixed(2)]);
+    });
+  });
+
   // What else `fit` makes as stout as a pixel of the canvas SEEN m off (band.js): each drummer's forearms, each keyboard player's
-  // forearms and hands, even a pianist's hand that never lifts, and each tapping foot. Each is read from the limbs' mesh, across
-  // and through, in its player's own metres: as built on a fine canvas, a tenth of the desktop's pixel; stouter in step with the
-  // pixel from the desktop's, where it is SEEN times the pixel, 5 % over, across LIMB_FLATS of its width, up to its most; and at
-  // its most at a pixel of a whole rad: a drummer's right forearm 0.17 and left 0.12 (DRUM_FOREARM), the rest three times STOUT_MOST. A
-  // drummer's left forearm left as built passed every outline test but a sweep at 960 frames a second, where its wrist stood
-  // alone for 3 ms; this fails it.
-  it("fits each drummer's forearms, each keyboard player's forearms and hands and each tapping foot to the canvas's pixel: as built on a fine canvas, stouter in step with the pixel, and at its most at a pixel of a whole rad", () => {
+  // forearms and hands, even a pianist's hand that never lifts, each tapping foot, and the singer's thighs and shins. Each is read
+  // from the limbs' mesh, across and through, in its player's own metres: as built on a fine canvas, a tenth of the desktop's
+  // pixel; then as stout as SEEN times the pixel, 5 % over, across LIMB_FLATS of its width, and no less than built, up to its most,
+  // at the desktop's pixel, half as much again and three times it, as from the back of the crowd on a phone; and at its most at a
+  // pixel of a whole rad: a drummer's right forearm 0.17 and left 0.12 (DRUM_FOREARM), the rest three times STOUT_MOST. A drummer's
+  // left forearm left as built passed every outline test but a sweep at 960 frames a second, where its wrist stood alone for 3 ms;
+  // this fails it.
+  it("fits each drummer's forearms, each keyboard player's forearms and hands, each tapping foot and the singer's legs to the canvas's pixel: as built on a fine canvas, stouter in step with the pixel, and at its most at a pixel of a whole rad", () => {
     const fresh: Band = stand(roles).band, m = new THREE.Matrix4(), axis = new THREE.Vector3();
     const kept = (bone: Bone) => {
       const role = (fresh.players as Player[])[bone.of].role, side = bone.name.split(" ")[0];
@@ -392,16 +428,18 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
       if (KEYBOARDS.includes(role) && / forearm$/.test(bone.name)) return { built: [0.1, 0.1], most: 0.36 };
       if (KEYBOARDS.includes(role) && / hand$/.test(bone.name)) return { built: [0.085, 0.045], most: 0.36 };
       if (bone.name === "tapping foot") return { built: [0.105, 0.08], most: 0.36 };
+      if (role === "voice" && / thigh$/.test(bone.name)) return { built: [0.2, 0.2], most: 0.36 };
+      if (role === "voice" && / shin$/.test(bone.name)) return { built: [0.148, 0.148], most: 0.36 };
       return null;
     };
     const fitted = (fresh.bones as Bone[]).flatMap((bone, k) => {
       const keep = kept(bone);
       return keep ? [{ k, name: `${(fresh.players as Player[])[bone.of].role} ${bone.of} ${bone.name}`, scale: (fresh.players as Player[])[bone.of].g.scale.x, ...keep }] : [];
     });
-    // Each drummer two forearms, each keyboard player two of each, and a foot for each who taps.
+    // Each drummer two forearms, each keyboard player two of each, a foot for each who taps, and the singer's two thighs and shins.
     const tappers = (fresh.players as Player[]).filter((p) => !["drums", ...KEYBOARDS].includes(p.role)).length;
     const players = fresh.players as Player[];
-    expect(fitted.length).toBe(players.filter((p) => p.role === "drums").length * 2 + players.filter((p) => KEYBOARDS.includes(p.role)).length * 4 + tappers);
+    expect(fitted.length).toBe(players.filter((p) => p.role === "drums").length * 2 + players.filter((p) => KEYBOARDS.includes(p.role)).length * 4 + tappers + players.filter((p) => p.role === "voice").length * 4);
     const sizes = (perPx: number) => {
       fresh.fit(perPx);
       return fitted.map(({ k, scale }) => {
@@ -411,12 +449,14 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
     };
     const DESKTOP = (2 * Math.tan(Math.PI / 6)) / 900, round = (v: number) => Math.round(v * 1e4) / 1e4;
     const least = (perPx: number, scale: number) => (95 * perPx * 1.05) / (0.74 * Math.cos(Math.PI / 6) * scale);
-    const [fine, desktop, more, whole] = [DESKTOP / 10, DESKTOP, DESKTOP * 1.5, 1].map(sizes);
+    const canvases = [DESKTOP, DESKTOP * 1.5, DESKTOP * 3], [fine, whole] = [DESKTOP / 10, 1].map(sizes), coarser = canvases.map(sizes);
     fitted.forEach(({ name, built, most, scale }, j) => {
-      const at = Math.min(most, least(DESKTOP, scale)), on = Math.min(most, least(DESKTOP * 1.5, scale));
-      expect([name, fine[j].map(round), desktop[j].map(round), more[j].map((v, a) => round(v / desktop[j][a])), whole[j].map(round)])
-        .toEqual([name, built, [at, at].map(round), [on / at, on / at].map(round), [most, most]]);
+      const stout = (perPx: number) => built.map((b) => round(Math.max(b, Math.min(most, least(perPx, scale)))));
+      expect([name, fine[j].map(round), ...coarser.map((at) => at[j].map(round)), whole[j].map(round)]).toEqual([name, built, ...canvases.map(stout), [most, most]]);
     });
+    // Stouter than built at the desktop's pixel, so its next test is of the fit: every forearm, hand and foot; the legs from a
+    // phone's pixel on, three times the desktop's or so.
+    expect(fitted.filter(({ built, scale }) => Math.max(...built) >= least(DESKTOP, scale)).map(({ name }) => name).every((name) => / (thigh|shin)$/.test(name))).toBe(true);
   });
 });
 
