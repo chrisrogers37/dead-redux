@@ -36,7 +36,7 @@
     "show": "1973-03-30",
     "windows": {
       "N": { "name": "One More Saturday Night: its peak (176 s), for a count from beside the fingerpost's lantern (pose=near-25)", "track": 25, "from": 170, "to": 182 },
-      "J": { "name": "Jack Straw, where the band's still of the six of 1972-74, with the piano and the singer, is taken (band.mjs)", "track": 17, "from": 130, "to": 142 }
+      "J": { "name": "Jack Straw, 130 to 142 s: where the band's still of the six of 1972-74, with the piano and the singer, is taken (band.mjs), and a count from the stage (pose=stage)", "track": 17, "from": 130, "to": 142 }
     }
   }
 }

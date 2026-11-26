@@ -268,6 +268,9 @@ function start(gl) {
   let map = null, build = 0, tempo = null;
   /* The figures' beat (beat.js), and the time of the last onset it has seen. */
   let figures = { beats: 0, pull: 0, locks: 0 }, seenOnset = null;
+  /* The band's count (band.js `move`), which the crowd dances to: the figures' beat, or half of it when that is fast, so never over
+     HALF_OVER a second, and never back. */
+  let count = 0;
   /* How far the crowd dances and how far it sits, each 0-1, following the track that plays (crowdAt): the dance eases over 0.8 s as the
      players' does, and only while the show plays; the sit over SIT_S, at once under reduced motion, where the crowd never dances. */
   let dancing = 0, sitting = 0;
@@ -656,7 +659,7 @@ function start(gl) {
       const onset = onsetAt();
       figures = beatStep(figures, dt, tempo ?? FIGURES_BPM, tempo !== null && onset !== seenOnset ? (now - onset) / 1000 : null);
       seenOnset = onset;
-      if (!still) stage.move(dt, elapsed, figures.beats, playing);
+      if (!still) count = stage.move(dt, elapsed, figures.beats, playing);
       dancing = toward(dancing, dances, dt / 0.8);
     } else {
       skyMat.uniforms.uTime.value = data.seed;
@@ -792,13 +795,13 @@ function start(gl) {
     }
     cut = false;
 
-    /* The crowd dances to the figures' beat as far as the music's loudness takes it, and rises with the build-up before a peak, as far
+    /* The crowd dances to the band's count as far as the music's loudness takes it, and rises with the build-up before a peak, as far
        as it dances; and it sits. It made room for the visitor's bear, or their eye in first person, as the bear took its place, before the
        camera looked. */
     const sits = crowdAt[index].sit ? 1 : 0;
     sitting = reduced ? sits : toward(sitting, sits, dt / SIT_S);
     if (still) crowd.pose(0, 0, 0, sitting);
-    else crowd.pose(figures.beats, dancing * layer2.dance, dancing * layer2.rise, sitting);
+    else crowd.pose(count, dancing * layer2.dance, dancing * layer2.rise, sitting);
     /* The rig's five numbers (rig.js): the figures' phase in eight beats; how far it is lit, as far as the crowd dances, so while a song
        plays, and under reduced motion at once while one plays, its beams still, and less as day breaks, when the sky's own light
        washes them out (night.js `beams`); how far its beams swing, as far as the crowd dances; the

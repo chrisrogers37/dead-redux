@@ -77,14 +77,14 @@ export const HALF_OVER = 1.75, HALF_UNDER = 1.5;
    block). What shows against the panel takes SLOW counts: a sway once in two counted 8 where an arm passed a trunk, a stroke once in
    two counted 7 to 9 on a phone, and once in four both count 5 at the most. A strum takes STRUM, one way a count: down and up inside
    each count, riding the sway, it counted 6. Only a foot keeps the count itself, against the floor. */
-const SLOW = 4, STRUM = 2;
+export const SLOW = 4, STRUM = 2;
 /* How long a move takes, in counts, at an even pace, so that no edge creeps (above): the GPU puts each corner of a triangle on a grid
    of 1/256 of a pixel, so an edge that creeps over a pixel's middle crosses it to and fro as its corners step. An edge that goes at
    an even pace crosses it once, and one that holds still flips nothing. */
-const MOVE = 0.35;
+export const MOVE = 0.35;
 /* A move that comes and goes once in `per` counts, `counts` into it: it holds at 1 from its count, goes at an even pace to -1 over
    MOVE counts (a quarter of `per` at the most), arriving halfway to the next, holds there, and comes back so, arriving on its count. */
-const swing = (counts, per, move = MOVE) => {
+export const swing = (counts, per, move = MOVE) => {
   const u = counts / per - Math.floor(counts / per), m = Math.min(move, per / 4) / per;
   if (u < 0.5 - m) return 1;
   if (u < 0.5) return 1 - (2 * (u - 0.5 + m)) / m;
