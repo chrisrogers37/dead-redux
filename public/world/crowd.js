@@ -52,8 +52,8 @@ const ARMS = { none: 0, flag: 1, balloon: 1, finger: 2, rider: 3, drum: 4, hoop:
    its weight on its left leg or its right, the hip out over that foot and the other knee bent; a hand on its hip, both on its hips,
    its arms folded, a cup in its right hand, its hands behind its back, an arm round a friend's shoulders, an arm round a friend's
    waist and its head toward them, or its hands in its pockets, each of those on one leg or both. Seated: its knees up and apart, its
-   forearms on them; cross-legged, its hands in its lap; its arms round its knees; leaning back on its hands; kneeling, sitting on
-   its heels; or, on a blanket, lying back on its elbows. */
+   forearms on them; cross-legged, its hands in its lap; its arms round its knees; its body leaning back on its hands; kneeling,
+   sitting on its heels; or, on a blanket, lying back on its elbows. */
 export const STANDS = ["square", "left", "right", "hip", "akimbo", "folded", "cup", "behind", "round", "roundLeft", "waist", "waistLeft", "pockets"];
 export const SITS = ["knees", "cross", "hug", "back", "kneel", "recline"];
 const STAND = Object.fromEntries(STANDS.map((name, k) => [name, k])), SITTING = Object.fromEntries(SITS.map((name, k) => [name, k]));
@@ -247,7 +247,7 @@ export const FOLD = 0.18, STAGGER = 0.5, SEAT = 0.075, FOOT = [0.36, 0.005], SPL
 /* The ground's fall or rise ahead of a seat that a seated figure's feet follow, in the figure's own units, at the most. */
 export const DROP = [-0.12, 0.3];
 /* Where a figure meets the ground, in its own units across and ahead of its seat (groundUnder): standing, the corners of its soles;
-   and seated as its stance sits it (SITS), its thighs and its soles, and its hands leaning back, its shins and knees kneeling, and
+   and seated as its stance sits it (SITS), its thighs and its soles, and the hands of a figure leaning back, its shins and knees kneeling, and
    its seat and forearms lying back. Each is mirrored to the figure's other side. NEARS are where a part comes near the ground and
    must not go far into it, each [x, z, h] h over the ground where the figure rests on it: the back of a seat and a poncho's points
    behind it and ahead, a cross-legged figure's knees and a skirt over them, and a hugging one's feet. */
@@ -327,8 +327,14 @@ export function groundUnder(at, tall, own, other) {
    below bound them all (crowd.test.ts). */
 const BOB = 0.12, ARM_SWING = 0.5, SWAY = 0.08, JITTER = 0.12;
 export const REST = [0.12, 0.55, 0.35];
-/* One that turns on the spot holds its arms out SPIN_OUT rad from its sides, and a little further out and back once a turn. */
-const SPIN_OUT = 0.95;
+/* One that turns on the spot holds its arms out SPIN_OUT rad from its sides, nearly level, and a little further out and back once a
+   turn, the elbows a little bent. One that bobs dances with its elbows bent, BENT[1] rad, its upper arms forward BENT[0] and its forearms
+   turned in BENT[2], not at all, so that a hand swings out from the body's line and never back across it, once in two beats; one
+   that sways, BENT[3]. As the parting stills a figure they straighten, so a still figure's arms hang as they did. */
+const SPIN_OUT = 1.3;
+export const BENT = [0.2, 0.6, 0, 0.35];
+/* The share of the crowd that dances only a little (people). */
+export const QUIET = 0.34;
 /* A stance (STANDS) stands its figure on one leg (WEIGHT, -1 its left and 1 its right): its hips go SHIFT out over that foot and its
    other hip HIP_DROP down, which bends that knee, and above them it tips TILT that way, its head back over its feet. One with an
    arm round a friend's waist leans LEAN_TO toward them, its head HEAD_TO further. Its arms (STAND_ARMS) are each [lift, fore, bend,
@@ -354,11 +360,11 @@ const TOWARD = { waist: 1, waistLeft: -1 };
 const PRESS = [0.05, 0.01];
 export const SIT_POSE = {
   knees: { arms: [...REST, 0], foot: FOOT[0], splay: SPLAY, cross: 0, pitch: 0, hip: SEAT - 0.017, kneel: 0, ahead: 0, hands: 0 },
-  cross: { arms: [0.1, 0.4, 1.1, 0.75], foot: 0.18, splay: 1.25, cross: 0.28, pitch: 0.08, hip: SEAT, kneel: 0, ahead: 0, hands: 0 },
-  hug: { arms: [0.02, 0.95, 0.5, 0.9], foot: 0.28, splay: 0.06, cross: 0, pitch: 0.22, hip: SEAT - 0.031, kneel: 0, ahead: 0, hands: 0 },
+  cross: { arms: [0.1, 0.4, 1.1, 0.75], foot: 0.18, splay: 1.0, cross: 0.28, pitch: 0, hip: SEAT, kneel: 0, ahead: 0, hands: 0 },
+  hug: { arms: [0.02, 0.95, 0.5, 0.9], foot: 0.28, splay: 0.06, cross: 0, pitch: 0.14, hip: SEAT - 0.031, kneel: 0, ahead: 0, hands: 0 },
   back: { arms: [0.12, -0.3, 0, 0], foot: FOOT[0], splay: 0.35, cross: 0, pitch: -0.2, hip: SEAT - 0.023, kneel: 0, ahead: 0, hands: 1 },
   kneel: { arms: [0.05, 0.3, 0.25, 0.3], foot: -0.08, splay: 0.12, cross: 0, pitch: 0, hip: 0.285, kneel: 1, ahead: 0, hands: 0 },
-  recline: { arms: [0.15, -1.05, 1.5, 0], foot: 0.12, splay: 0.3, cross: 0, pitch: -1.1, hip: SEAT, kneel: 0, ahead: 0.24, hands: 1 },
+  recline: { arms: [0.15, -1.05, 1.5, 0], foot: 0.12, splay: 0.2, cross: 0, pitch: -1.1, hip: SEAT, kneel: 0, ahead: 0.22, hands: 1 },
 };
 /* The beats the phase is kept to: the longest move's cycle, the turn's, which every other divides. */
 export const CYCLE = 8;
@@ -376,7 +382,10 @@ const ARM_UP = 2.7, RISE_FROM = 0.3, RISE_SPAN = 0.6, RISE_W = 0.1;
    FEET; KNEES is where the broadest there could be, the stoutest build on the longest legs at the largest's size, then comes to
    (crowd.test.ts). */
 export const HAND = 1.11, TOP = 2.08, HANG = 0.354, FEET = 0.55, KNEES = 0.63;
-const PAST = 0.4;
+/* How far a figure lying back reaches from its axis, in its own units, at the most: its head, behind it. Only one whose breadth keeps
+   that within KNEES lies back (buildCrowd). */
+export const LYING = 0.655;
+const PAST = 0.5;
 /* The visitor's bear reaches 1.98 m from its middle, halfway between its feet and its head (bears.js, avatar.js). */
 const BEAR = 1.98;
 /* The options buildCrowd hands parting() (seats.js) for figures at `scale`, up to the largest's size. A figure keeps 0.15 m past their
@@ -503,7 +512,9 @@ function person(r, sits, prop, stature) {
   p.leg = child ? span(0.86, 0.92) : span(0.93, 1.07);
   p.big = child ? span(1.22, 1.32) : p.stature === "teen" ? span(1.08, 1.12) : span(0.95, 1.05);
   p.stoop = r() < 0.25 ? span(0.06, 0.13) : span(-0.02, 0.04);
-  p.size = span(0.62, 1);
+  /* How far it dances (aWear.w): a third of the crowd only a little, a quarter to a half as far as the rest. */
+  const most = r();
+  p.size = most < QUIET ? 0.25 + 0.25 * most / QUIET : 0.62 + 0.38 * (most - QUIET) / (1 - QUIET);
   p.akimbo = r() < 0.6;
   p.hairLength = { bob: span(0.72, 0.82), long: span(0.95, 1.25), mane: span(1.55, 2.05), tail: span(0.8, 1.4), braids: span(0.9, 1.4) }[p.hair] ?? 1;
   p.hem = { maxi: span(0.093, 0.18), dress: span(0.42, 0.56), tunic: span(0.62, 0.72) }[p.legs] ?? 0.093;
@@ -576,6 +587,13 @@ export function people(placed) {
       clashes += patch(p.move);
       if (clashes < fewest || (clashes === fewest && score < least)) { fewest = clashes; least = score; best = p; }
     }
+    /* Where no draw dressed it unlike every close neighbour, its top takes the first colour none of those in that top wears: a top's
+       colour is no part of its outline. */
+    if (near.some(([other, , share]) => share === SHARE[0] && dressedAlike(best, other))) {
+      const worn = new Set(near.filter(([other, , share]) => share === SHARE[0] && other.top === best.top).map(([other]) => other.colour.top));
+      const free = COLOURS.top.findIndex((_, k) => !worn.has(k));
+      if (free >= 0) best.colour = { ...best.colour, top: free };
+    }
     taken.add(outlineOf(plainly(best)));
     out.push(best);
     nearest.push(own);
@@ -591,8 +609,8 @@ export function people(placed) {
    together as often as PAIRS says: the taller's arm round the other's shoulders, the other's round its waist. Then each figure takes
    the first stance its stream draws (STANDING, SEATED) whose pose no figure within NEIGHBOUR m of it has: standing, what its arms do
    and which leg its weight is on (poseOf); seated, how it sits. A figure whose way of moving keeps its arms, or that holds something,
-   takes only a stance of the legs. Lying back on the elbows is for a blanket; and it, and leaning back on the hands, for one with both
-   hands free, whose hair, hat and pack stay within the seated reaches as it leans (KNEES, and HANG over a seated figure's knees;
+   takes only a stance of the legs. Lying back on the elbows is for a blanket; and it, and the body leaning back on the hands, for one
+   with both hands free, whose hair, hat and pack stay within the seated reaches as it leans (KNEES, and HANG over a seated figure's knees;
    crowd.test.ts), and no one close behind. */
 const NEIGHBOUR = 1.6, PAIRS = 0.75, FREE = ["watch", "sway", "nod", "shift"];
 const STANDING = { square: 4, left: 7, right: 7, hip: 8, akimbo: 6, folded: 7, cup: 6, behind: 5, pockets: 6 };
@@ -617,6 +635,7 @@ export function stances(placed, who, fits = () => true) {
     return d < 1.45 && turn < 0.5 && Math.abs(local(sa, sb)[1]) < 0.4 * d && Math.abs(local(sb, sa)[1]) < 0.4 * d;
   };
   const fitsBack = (p) => p.hair !== "afro" && !["hat", "topper", "floppy", "bandana"].includes(p.head) && (p.back === "none" || p.back === "pack");
+  const fitsForward = (p) => !["hat", "topper", "floppy", "cap"].includes(p.head) && p.hair !== "afro" && p.prop !== "flag" && p.stoop < 0.05;
   const fitsLying = (p) => ["bald", "crop", "tail", "braids"].includes(p.hair) && ["none", "bandana", "band", "wreath"].includes(p.head);
   /* Draws stances by their weights until one is not `taken`, or takes the first drawn where all are. */
   const deal = (r, weights, taken) => {
@@ -660,7 +679,7 @@ export function stances(placed, who, fits = () => true) {
       });
       const free = p.prop === "none" && out[i].stand !== "cup";
       const seated = Object.fromEntries(Object.entries(SEATED).filter(([name]) => (name === "knees" || fits(i, name))
-        && (name === "recline" ? seat.blanket >= 0 && fitsLying(p) && free && !behind(1.8) : name === "back" ? fitsBack(p) && free && !behind(1.1) : true)));
+        && (name === "recline" ? seat.blanket >= 0 && fitsLying(p) && free && !behind(1.8) : name === "back" ? fitsBack(p) && free && !behind(1.1) : name === "hug" ? fitsForward(p) : true)));
       out[i].sit = deal(r, seated, (name) => near.some((j) => sitKey[j] === `${name} ${p.prop}`));
       sitKey[i] = `${out[i].sit} ${p.prop}`;
     }
@@ -700,7 +719,9 @@ export function wearing(p) {
    figure through every pose against the same bounds (crowd.test.ts), which catches a short number where the fit binds. */
 function reaches(p, wear) {
   const has = (name) => (wear.parts & PART[name]) !== 0, forward = Math.max(p.stoop, 0) * 0.95, back = Math.max(-p.stoop, 0) * 0.6;
-  let out = Math.max(SHOULDER_X * p.wide + 0.06, 0.166 * p.girth);
+  /* The shoulders' balls, each 0.06 round and a little ahead of the body's line, carried forward with the stoop from the hips to the
+     shoulders. */
+  let out = Math.max(Math.hypot(SHOULDER_X * p.wide + 0.06, Math.max(p.stoop, 0) * (SHOULDER_Y - LEG) + 0.035), 0.166 * p.girth);
   const reach = (r) => { out = Math.max(out, r); };
   if (has("SKIRT")) reach(Math.max(0.32 * (0.62 + (0.38 * (1 - p.hem)) / 0.907), 0.2 * (1 + 0.65 * Math.max(p.girth - 1, 0))));
   if (has("PONCHO")) reach(0.348);
@@ -865,10 +886,10 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
     bool cupped = ${is("st", STAND.cup)} && side > 0.0;
     float keeps = cupped ? moves : stand;
     if (posed > 0.5 && !(bobber || waver || spinner || clapper)) { lift = poseL * keeps; fore = poseF * keeps; bend = poseB * keeps; inward = poseI; held = cupped ? 1.0 : 0.0; }
-    else if (bobber) lift = dance * ${f(ARM_SWING)} * (0.5 + 0.5 * side * two) * (1.0 - sit);
-    else if (swayer) lift = max(0.05 * stand + side * dance * 0.1 * (1.0 - sit) * sin(quarter - 0.9), -0.04);
+    else if (bobber) { lift = dance * ${f(ARM_SWING)} * (0.5 + 0.5 * side * two) * (1.0 - sit); fore = ${f(BENT[0])} * stand; bend = ${f(BENT[1])} * stand; inward = ${f(BENT[2])}; }
+    else if (swayer) { lift = max(0.05 * stand + side * dance * 0.1 * (1.0 - sit) * sin(quarter - 0.9), -0.04); bend = ${f(BENT[3])} * stand; }
     else if (waver) { lift = aloft * (2.65 + side * 0.3 * min(dance, 1.3) * four); bend = aloft * 0.25; inward = 1.0; }
-    else if (spinner) lift = aloft * (${f(SPIN_OUT)} + 0.2 * abs(cos(eight)));
+    else if (spinner) { lift = aloft * (${f(SPIN_OUT)} + 0.2 * abs(cos(eight))); bend = 0.2 * aloft; }
     else if (nodder) { lift = 0.12 * stand; fore = 0.25 * stand; bend = 1.75 * stand; inward = 0.75; }
     else if (clapper) { fore = 0.6 * aloft; bend = 1.75 * aloft; inward = 0.35 + 0.37 * slow; }
     if (${is("arms", ARMS.flag)} && side > 0.0) { lift = 0.0; fore = 0.0; bend = 0.0; held = 1.0; }
@@ -970,8 +991,10 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
   if (!groundRig) {
     float lean = bobber ? two : swayer ? four * (1.0 + 0.6 * (1.0 - rise) * (1.0 - sit)) : waver ? 0.6 * four : spinner ? 0.0 : nodder ? 0.25 * four : clapper ? 0.3 * four : 0.0;
     /* A foot stays flat where it stands as the figure leans over it: a foot that tipped with the lean lifted an edge off the ground
-       and sank the other in it, which on a phone's small frame flickered against the lit ground. */
-    float tilt = footRig ? 0.0 : dance * ${f(SWAY)} * lean;
+       and sank the other in it, which on a phone's small frame flickered against the lit ground. A figure that leans back on its
+       hands or lies back does not lean, for its hands would go into the ground; and seated, a figure leans from its hips, about them, and
+       its legs stay where they rest, for a knee near the ground went into it as the figure leaned that way. */
+    float tilt = footRig ? 0.0 : dance * ${f(SWAY)} * lean * (1.0 - sit * sitHands) * (onLeg ? 1.0 - sit : 1.0);
     if (!onLeg) {
       /* Above the hips: the stoop, and, for one that sways, the lean back over its feet, most of twice as far as its legs lean out. */
       float over = max(y - legL + lower, 0.0), back = swayer ? -1.8 * tilt * (1.0 - rise) * (1.0 - sit) : 0.0;
@@ -979,7 +1002,7 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
       z += aWear.z * over;
       y += sk * x + (ck - 1.0) * over; x = ck * x - sk * over;
     }
-    float cs = cos(tilt), ss = sin(tilt), tx = cs * x - ss * y, ty = ss * x + cs * y;
+    float pivot = onLeg ? 0.0 : sit * (legL - lower), cs = cos(tilt), ss = sin(tilt), tx = cs * x - ss * (y - pivot), ty = ss * x + cs * (y - pivot) + pivot;
     float turn = spin * 1.6 * min(dance, 1.3) * sin(eight) * (1.0 - sit), cr = cos(turn), sr = sin(turn);
     x = cr * tx + sr * z; y = ty; z = cr * z - sr * tx + sit * sitAhead;
   }
@@ -996,8 +1019,8 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
   else if (groundRig) y -= max(fall * ${f(STAND_Z)} / ${f(FOOT[0])} - rises * ${f(STAND_X)}, 0.0);
   else y = max(y, -fall * z / ${f(FOOT[0])} + rises * x - 0.4 * (1.0 - sit));
   /* The figure's place stands it on the ground as its seat stands or sits it (buildCrowd); the other way, standing to the build-up or
-     sitting through Space, it stands aSize.w higher, as far as it has gone that way. */
-  y += (aFig.x > 0.5 ? 1.0 - sit : sit) * aSize.w;
+     sitting through Space, it stands aSize.w higher, as far as it has gone that way. A taper's stand stays on the ground. */
+  if (!groundRig) y += (aFig.x > 0.5 ? 1.0 - sit : sit) * aSize.w;
   transformed.x = x; transformed.y = y; transformed.z = z;
 }`;
 /* After color_vertex, where the colour is the corner's own, its figure's top's: a face that is not its top's takes one of the
@@ -1089,12 +1112,12 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     const cos = Math.cos(p.face), sin = Math.sin(p.face), wide = tall * broad;
     return (x, z) => surface(p.x + wide * (cos * x + sin * z), p.z + wide * (cos * z - sin * x));
   };
-  /* A figure sits only as the ground under it lets it rest on it, its contacts no more than FLOAT over it; its knees up and apart,
-     anywhere. */
+  /* A figure sits only as the ground under it lets it rest on it, its contacts no more than FLOAT over it, and lies back only if its
+     head then stays within KNEES (LYING); its knees up and apart, anywhere. */
   const grounds = [];
   const dealt = stances(placed, who, (i, name) => {
-    if (!grounds[i]) { const { tall, broad } = sized(plain ? plainly(who[i]) : who[i]); grounds[i] = { tall, at: under(placed[i], tall, broad) }; }
-    return groundUnder(grounds[i].at, grounds[i].tall, name, "stand").spread <= FLOAT;
+    if (!grounds[i]) { const { tall, broad } = sized(plain ? plainly(who[i]) : who[i]); grounds[i] = { tall, wide: tall * broad, at: under(placed[i], tall, broad) }; }
+    return (name !== "recline" || grounds[i].wide * LYING <= KNEES * big) && groundUnder(grounds[i].at, grounds[i].tall, name, "stand").spread <= FLOAT;
   });
   /* The seats come in a random order across the hill, so a figure's place in it picks its turn and its phase, and who it is. */
   placed.forEach((p, i) => {
@@ -1115,8 +1138,8 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     each.aWear.set([worn.parts, worn.style, one.stoop, one.size], 4 * i);
     each.aCut.set([one.hairLength, one.hem, one.crown, one.brim], 4 * i);
     each.aTone.set([tone(COLOURS.legs[one.colour.legs]), tone(COLOURS.hair[one.colour.hair]), tone(COLOURS.self[one.colour.self]), tone(COLOURS.thing[one.colour.thing])], 4 * i);
-    /* The same place as the shader takes it: where it stands and how the ground rises across it, and its breadth, its height and its
-       turn's cosine and sine. */
+    /* The same place as the shader takes it: where it stands and how the ground rises across it; and its breadth, its height, its turn,
+       and how much higher it stands the other way, standing or seated, in its own units. */
     each.aPlace.set([dummy.position.x, dummy.position.y, dummy.position.z, rises], 4 * i);
     each.aSize.set([tall * broad, tall, turn, (other - lift) / tall], 4 * i);
   });

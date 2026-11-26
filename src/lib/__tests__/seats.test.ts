@@ -616,7 +616,9 @@ describe("parting", () => {
 
   // A walk at 12 m/s along `at`, `length` m from its start, the stage's solids and a hand kept clear, as buildCrowd keeps them, then
   // 5 s standing at its end: the most anyone stepped in a frame past the visitor's step, or past the pace it steps aside at where the
-  // visitor's step is less; then how many stand off their seats, and the nearest two.
+  // visitor's step is less; then how many stand off their seats, and the nearest two. A step is read from the offsets as the mesh
+  // takes them, 32-bit numbers, which a figure carried 15 to 23 m up the hill holds to 2 µm: so a step is too far by more than 4 µm.
+  const ROUNDING = 4e-6;
   const walked = (day: Seat[], at: (t: number) => ReturnType<typeof bear>, length: number) => {
     const p = parting(day, { ...OPTS, keeps: [[STAGE[0], STAGE[1], STAGE_COLUMN.r + OPTS.wide]] });
     // The visitor arrives at the walk's start at once, and the figures stand at once where they would end.
@@ -650,7 +652,7 @@ describe("parting", () => {
       for (let off = -14; off <= 14; off += 2) {
         const at = (t: number) => bear(STAGE[0] + (62 - t) * ux - off * uz, STAGE[1] + (62 - t) * uz + off * ux, -ux, -uz);
         const { past, left, nearest } = walked(day, at, 62);
-        if (past > 1e-6 || left > 0 || nearest < APART - 1e-9)
+        if (past > ROUNDING || left > 0 || nearest < APART - 1e-9)
           faults.push(`day ${seed}, ${off} m: a step ${past.toFixed(6)} m too far, ${left} off their seats, the nearest two ${nearest.toFixed(3)} m apart`);
       }
     }
@@ -666,7 +668,7 @@ describe("parting", () => {
     const ax = Math.sin(FACING), az = Math.cos(FACING), nx = az, nz = -ax, faults: string[] = [];
     const check = (name: string, day: Seat[], at: (t: number) => ReturnType<typeof bear>, length: number) => {
       const { past, nearest } = walked(day, at, length);
-      if (past > 1e-6 || nearest < APART - 1e-9) faults.push(`${name}: a step ${past.toFixed(6)} m too far, the nearest two ${nearest.toFixed(3)} m apart`);
+      if (past > ROUNDING || nearest < APART - 1e-9) faults.push(`${name}: a step ${past.toFixed(6)} m too far, the nearest two ${nearest.toFixed(3)} m apart`);
     };
     const up = seats(none, 125) as Seat[];
     for (let off = -14; off <= 14; off += 4)
