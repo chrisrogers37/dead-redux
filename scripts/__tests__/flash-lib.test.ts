@@ -259,9 +259,9 @@ describe("launch", () => {
 
   it("asks for the Mac's GPU under GPU=metal, and otherwise for nothing, with a warning that the renderer is the browser's choice", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect(launch(chromium, "metal")).toEqual({ args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] });
+    expect(launch(chromium, "metal")).toEqual({ args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"], chromiumSandbox: true });
     expect(warn).not.toHaveBeenCalled();
-    expect(launch(chromium, "")).toEqual({ args: [] });
+    expect(launch(chromium, "")).toEqual({ args: [], chromiumSandbox: true });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("counts from different renderers are not comparable"));
     warn.mockRestore();
   });
