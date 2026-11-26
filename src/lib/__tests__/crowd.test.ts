@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
 import {
-  buildCrowd, COLOURS, CUP_ARM, CUT, CYCLE, DROP, FEET, figureGeometry, FOLD, FOOT, FRIEND_REACH, groundUnder, HAND, HANG, inView, KNEES, LEG, LYING, MOST, MOVES, only, OUTLINE, outlineOf, PART,
+  backOf, buildCrowd, COLOURS, CUP_ARM, CUT, CYCLE, DROP, FEET, figureGeometry, FOLD, FOOT, FRIEND_HAND, groundUnder, HAND, HANG, inView, KNEES, LEG, LYING, MOST, MOVES, only, OUTLINE, outlineOf, PART,
   partingOptions, people, PLAIN_LEAVES_OUT, plainly, poseOf, PROP_EVERY, PROPS, QUIET, SEAT, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, TALL, tone, TOP, wearing, without,
 } from "../../../public/world/crowd.js";
 import { MOVE as STEP, SLOW, STRUM, swing } from "../../../public/world/band.js";
@@ -1057,7 +1057,8 @@ describe("the crowd's shader", () => {
         const [wide, tall, turn, other] = c.each.aSize.slice(4 * i, 4 * i + 4), cos = Math.cos(turn), sin = Math.sin(turn);
         const ground = (x: number, z: number) => height(at.x + wide * (cos * x + sin * z), at.z + wide * (cos * z - sin * x));
         const stance = Math.floor(c.each.aWear[4 * i + 1] / 16384), sits = SITS[Math.floor(stance / 16)], seated = c.each.aFig[4 * i] === 1;
-        const fit = groundUnder(ground, tall, seated ? sits : "stand", seated ? "stand" : sits), lift = fit.lift;
+        const worn = { parts: c.each.aWear[4 * i], style: c.each.aWear[4 * i + 1] };
+        const fit = groundUnder(ground, tall, seated ? sits : "stand", seated ? "stand" : sits, worn), lift = fit.lift;
         off = Math.max(off, Math.abs(at.y - ground(0, 0) - lift)); most = Math.max(most, Math.abs(lift));
         plane = Math.max(plane, Math.abs(c.each.aPlace[4 * i + 3] - fit.rises), Math.abs(c.each.aFig[4 * i + 3] - fit.drop), Math.abs(other - (fit.other - lift) / tall));
         tipped = Math.max(tipped, Math.abs(matrix.elements[4]), Math.abs(matrix.elements[6]), Math.abs(matrix.elements[1]), Math.abs(matrix.elements[9]));
@@ -1127,7 +1128,7 @@ describe("the crowd's shader", () => {
     expect(hipsOf(1.6) - hipsOf(1)).toBeCloseTo(0.044 * 0.6, 6);
   });
 
-  it("stands every figure on the ground as its tier draws it, on twelve days' hills, standing, seated, and dancing seated and standing: nothing of it goes more than 3 cm into that ground but the feet of one turning on the spot, 3.5, and its feet, its seat, its knees kneeling and its hands leaning back stand no more than 4 cm over it", () => {
+  it("stands every figure on the ground as its tier draws it, on thirty-eight days' hills, standing, seated, and dancing seated and standing: nothing of it goes more than 3 cm into that ground, and its feet, its seat, its knees kneeling and its hands leaning back stand no more than 4 cm over it, but a seat with its knees up and the feet of one turning on the spot, 5", () => {
     // The island's mesh lies flat between the points of its tier's grid (island.js surfaceOf), up to half a metre over or under the
     // hill's own height on a phone's. A figure stood on the hill's own height went as far into the ground drawn, and a seated one,
     // facing away with its legs hidden, read as sunk to its waist (#203). So each stands on its tier's ground, its legs lean with that
@@ -1135,10 +1136,13 @@ describe("the crowd's shader", () => {
     // within half a unit of its feet, and of its arms, in metres over the drawn ground under that corner, for every figure of the
     // gathering on twelve days, the fixed day's among them, as each tier builds and draws it: standing still, seated (the crowd sits
     // on its spot, aFig.x or uSit), and seated and standing dancing at the dance's most, at the beats it leans and bobs furthest each
-    // way. A taper's stand, which goes down to the ground where it stands, is held above. And no figure of them lies back that is
-    // broader than LYING lets it lie.
+    // way; and on twenty-six days more, standing and seated, and the feet of those that turn as they turn: the days a review measured,
+    // 101 on by sevens, on which a seat stood 4.4 cm over a television's ground and a kneeling figure's skirt went 3 cm into it, and
+    // two a flared cuff went into it on (below). A taper's stand, which goes down to the ground where it stands, is held above. And no
+    // figure of them lies back that is broader than LYING lets it lie.
     // And where it rests on that ground, standing or seated as its seat has it, the lowest corner of each foot, of its seat, of each
     // knee that kneels and of each hand that leans back on the ground, over it: main's stood up to 12 cm over it and sat up to 15.
+    const TWELVE = [800, ...Array.from({ length: 11 }, (_, k) => 3 * k)], MORE = [...Array.from({ length: 24 }, (_, k) => 101 + 7 * k), 103, 202];
     const low: Record<string, number> = {}, high: Record<string, number> = {};
     let looked = 0, lying = 0, broadest = 0;
     vi.stubGlobal("window", { devicePixelRatio: 1 });
@@ -1146,8 +1150,8 @@ describe("the crowd's shader", () => {
     vi.unstubAllGlobals();
     for (const [tier, small] of [["desktop", false], ["tv", true], ["phone", true]] as const) {
       const surface = surfaceOf(budgets[tier].grid), count = budgets[tier].crowd;
-      for (const seed of [800, ...Array.from({ length: 11 }, (_, k) => 3 * k)]) {
-        const c = buildCrowd(new THREE.Scene(), { count, path, line, landmarks: [], plain: small, seed, surface }), e = c.each;
+      for (const seed of [...TWELVE, ...MORE]) {
+        const c = buildCrowd(new THREE.Scene(), { count, path, line, landmarks: [], plain: small, seed, surface }), e = c.each, more = MORE.includes(seed);
         const near = verticesOf(c.figure).filter((v) => v.mark.x !== 7 && (v.y < 0.95 || v.mark.x === 3 || v.mark.x === 4));
         for (const f of figuresOf(c)) if (SITS[Math.floor(Math.floor(f.wear.y / 16384) / 16)] === "recline") { lying += 1; broadest = Math.max(broadest, e.aSize[4 * f.i] * LYING); }
         const poses: [string, Pose][] = [["standing", { beat: 0, dance: 0 }], ["seated", { beat: 0, dance: 0, sit: 1 }],
@@ -1155,6 +1159,7 @@ describe("the crowd's shader", () => {
           ...[0.5, 1, 1.5, 3].map((beat): [string, Pose] => ["dancing standing", { beat, dance: 1.6 }])];
         for (const f of figuresOf(c)) for (const [state, pose] of poses) {
           if ((state === "standing" || state === "dancing standing") && f.fig.x === 1) continue;
+          if (more && state.startsWith("dancing") && !(state === "dancing standing" && MOVES[f.wear.y % 8] === "spin")) continue;
           const [wide, tall, turn] = e.aSize.slice(4 * f.i, 4 * f.i + 3), cos = Math.cos(turn), sin = Math.sin(turn), place = f.place!;
           const sits = SITS[Math.floor(Math.floor(f.wear.y / 16384) / 16)], rests = (state === "standing") === (f.fig.x === 0), lowest: Record<string, number> = {};
           for (const v of near.filter((v) => wears(f, v))) {
@@ -1171,7 +1176,7 @@ describe("the crowd's shader", () => {
             if (contact) lowest[contact] = Math.min(lowest[contact] ?? Infinity, over);
           }
           for (const [contact, over] of Object.entries(lowest)) {
-            const key = `${tier} ${state === "seated" ? sits : "standing"} ${contact.split(" ")[0]}`;
+            const key = `${tier} ${state === "seated" ? sits : MOVES[f.wear.y % 8] === "spin" ? "turning" : "standing"} ${contact.split(" ")[0]}`;
             high[key] = Math.max(high[key] ?? -Infinity, over);
           }
         }
@@ -1181,13 +1186,17 @@ describe("the crowd's shader", () => {
     expect(lying).toBeGreaterThan(10);
     expect(broadest).toBeLessThanOrEqual(KNEES * BIG);
     // Standing and dancing, a trouser's cuff, which tipped with the lean, went 9 cm into the ground, and a skirt flared out flat as
-    // its figure turned 5.5 cm: neither does now, the cuff staying level and the hem rising as it flares. The feet of one that turns
-    // on the spot turn flat about its middle, over ground its plane was fitted to only where they rest, and go 3.2 cm into a phone's.
-    for (const [key, under] of Object.entries(low)) expect([key, under > (key.endsWith("turning") ? -0.035 : -0.03)]).toEqual([key, true]);
+    // its figure turned 5.5 cm: neither does now, the cuff staying level and the hem rising as it flares. And where only a figure's
+    // contacts were looked at, what reaches out past them went into a television's or a phone's ground, which folds between points
+    // further apart: a flared cuff 3.9 cm, a kneeling figure's skirt 5.5, and the feet of one turning on the spot, which sweep round
+    // its middle, 6.2; now they are looked at too (nearing).
+    for (const [key, under] of Object.entries(low)) expect([key, under > -0.03]).toEqual([key, true]);
     expect(Object.keys(low).length).toBe(15);
-    for (const [key, over] of Object.entries(high)) expect([key, over < 0.04]).toEqual([key, true]);
-    // Every tier's feet standing; seated, every stance's seat or knees and feet, and the hands of those that lean back.
-    expect(Object.keys(high).length).toBe(3 * (1 + 2 * 5 + 2 + 2));
+    // A seat with its knees up is dealt anywhere (stances), and over the ground its sweep would go into the feet of one that turns
+    // on the spot stand as high as that ground rises: up to 4.4 and 4.8 cm on these days.
+    for (const [key, over] of Object.entries(high)) expect([key, over < (/ (knees|turning) /.test(key) ? 0.05 : 0.04)]).toEqual([key, true]);
+    // Every tier's feet standing, and turning; seated, every stance's seat or knees and feet, and the hands of those that lean back.
+    expect(Object.keys(high).length).toBe(3 * (2 + 2 * 5 + 2 + 2));
   }, 120000);
 
   it("shows a seated figure's legs from behind it, its knees fallen apart out past its hips, or the arms it leans back on, but for what a pack on its back hides", () => {
@@ -1768,6 +1777,23 @@ describe("the crowd's shader", () => {
     const hemAt = (beat: number) => Math.max(...rich.filter((v) => v.mark.y === PART.SKIRT && v.y < 0.2).map((v) => { const p = put(spin, v, { beat, dance: 1 }); return Math.hypot(p.x, p.z); }));
     expect(hemAt(3)).toBeGreaterThan(1.3 * hemAt(1));
     expect(hemAt(1)).toBeCloseTo(hemAt(5), 4);
+    // And a long skirt's hem rises as it goes out, but every skirt's hem stays under its ring at the knee, at every length a skirt is
+    // cut to, turning or bobbing at the dance's height: at each point round it, more than 0.6 of as far under that ring as it hangs
+    // standing still, or of 1.5 cm (a bent knee draws the two together). A dress's hem, a few centimetres under that ring, rose past
+    // it as it flared and folded the skirt up over itself; and one a centimetre under it, tipped with the shin, stood over it.
+    const ring = (low: number, high: number) => rich.filter((v) => v.mark.y === PART.SKIRT && v.y >= low && v.y < high);
+    const [hemRing, kneeRing] = [ring(-1, 0.2), ring(0.2, 0.6)], ys = (f: Figure, vs: Vertex[], pose: Pose) => vs.map((v) => put(f, v, pose).y);
+    const gap = (f: Figure, pose: Pose) => { const h = ys(f, hemRing, pose); return Math.min(...ys(f, kneeRing, pose).map((y, k) => y - h[k])); };
+    expect(Math.max(...kneeRing.map((v, k) => Math.abs(Math.atan2(v.x, v.z) - Math.atan2(hemRing[k].x, hemRing[k].z))))).toBeLessThan(0.01);
+    let least = Infinity, rose = 0;
+    for (const move of ["spin", "bob"]) for (const hem of [0.093, 0.18, 0.42, 0.45, 0.48, 0.495, 0.5, 0.53, 0.56, 0.62, 0.72]) for (let beat = 0; beat < 8; beat += 1) {
+      const cut = { ...figure(move, 0, PART.SKIRT as number), cut: { ...spin.cut, y: hem } }, still = gap(cut, { beat, dance: 0 });
+      expect(still).toBeGreaterThan(0);
+      least = Math.min(least, gap(cut, { beat, dance: 1.6 }) / Math.min(still, 0.015));
+      if (hem < 0.2) rose = Math.max(rose, Math.max(...ys(cut, hemRing, { beat, dance: 1.6 })) - Math.max(...ys(cut, hemRing, { beat, dance: 0 })));
+    }
+    expect(least).toBeGreaterThan(0.6);
+    expect(rose).toBeGreaterThan(0.06);
     // Nodding: the head's top goes forward on its count and back two counts on, and the arms are folded across the chest, dancing or
     // not, until it stands still beside the visitor's bear.
     const nod = figure("nod");
@@ -1906,9 +1932,11 @@ describe("the crowd's shader", () => {
       ["one that dances harder comes down further on its count", dip(0.62), dip(1), 0.03],
     ];
     for (const [name, a, b, by] of rows) expect([name, by > 0 ? b - a > by : by < 0 ? b - a < by : b === a]).toEqual([name, true]);
-    // And the crowd's figures do differ in each number: no two of the fixed day's in how hard they dance, and a spread of the rest.
-    const real = figuresOf(SHOWS[0].desktop);
-    expect(new Set(real.map((f) => f.wear.w)).size).toBe(real.length);
+    // And the crowd's figures do differ in each number: no two of the fixed day's in how hard they dance, but a friend whose arm is
+    // round the other's waist, who dances as the other does; and a spread of the rest.
+    const real = figuresOf(SHOWS[0].desktop), led = real.filter((f) => (STANDS as string[])[Math.floor(f.wear.y / 16384) % 16].startsWith("waist"));
+    expect(led.length).toBeGreaterThan(0);
+    expect(new Set(real.map((f) => f.wear.w)).size).toBe(real.length - led.length);
     expect([Math.min(...real.map((f) => f.wear.w)) < 0.66, Math.max(...real.map((f) => f.wear.w)) > 0.96]).toEqual([true, true]);
     for (const read of [(f: Figure) => f.body.x, (f: Figure) => f.body.y, (f: Figure) => f.body.z, (f: Figure) => f.body.w, (f: Figure) => f.wear.z, (f: Figure) => f.cut.x, (f: Figure) => f.cut.y]) {
       expect(new Set(real.map(read)).size).toBeGreaterThan(30);
@@ -2154,19 +2182,23 @@ describe("the crowd's people", () => {
     expect((STANDS as string[]).filter((name) => name.startsWith("waist")).reduce((n, name) => n + (share[`stand ${name}`] ?? 0), 0)).toBe(friends);
   });
 
-  it("holds a friend: two friends stand side by side within an arm's reach, and each one's hand rests on the other's back, dancing or not", () => {
-    // Each pair on the hills and the shows' own, as a desktop draws them: the one whose arm is round the other's waist and its
-    // friend, the taller, whose arm is round its shoulders. Each hand's middle, where the shader puts it, against the other's body
-    // where the shader puts that (its torso, hips, neck and shoulders), in the other's own units, through a cycle standing still and
-    // dancing. Friends paired 1.45 m apart, which is up to 1.06 units on a slight figure, faced the ways their seats did and stood
-    // a quarter of a unit ahead of each other, so the hand round a waist stopped 0.3 to 0.56 units short of it.
+  it("holds a friend: two friends stand side by side, each one's hand rests on the other's back, dancing or not, and they dance as one, on twenty-five more days", () => {
+    // Each pair on the hills and the shows' own, and on twenty-five more days' gatherings (seeds 75 to 99), as a desktop draws
+    // them: the one whose arm is round the other's waist and its friend, the taller, whose arm is round its shoulders. Each hand's
+    // middle, where the shader puts it, against the other's body where the shader puts that (its torso, hips, neck and shoulders), in
+    // the other's own units, through a cycle standing still and dancing. Paired by their seats' distance alone, within 0.9 of the
+    // slighter one's own units across, a pair on a slope or of two sizes rested a hand on the other's thighs or over its shoulders,
+    // 0.1 off its back standing still, and dancing each its own way took it 0.27 off (seed 62). On ten of these days a hand went past
+    // the bounds below, as far as 0.12 off (seed 84).
     const stanceOf = (c: typeof crowd, i: number) => (STANDS as string[])[Math.floor(c.each.aWear[4 * i + 1] / 16384) % 16];
     const handOf = (side: number) => rich.filter((v) => v.mark.x === (side < 0 ? 3 : 4) && v.mark.y === 0 && Math.abs(Math.hypot(v.x - side * SHOULDER_X, v.y - (SHOULDER_Y - 0.565), v.z) - 0.05) < 1e-4);
     const position = crowd.figure.getAttribute("position"), marks = crowd.figure.getAttribute("aMark"), body: Vertex[][] = [];
     for (let t = 0; t < position.count; t += 3) if (marks.getX(t) === 0 && marks.getY(t) === 0) body.push([0, 1, 2].map((k) => ({ x: position.getX(t + k), y: position.getY(t + k), z: position.getZ(t + k), mark: vec(marks, t + k) })));
     const m = new THREE.Matrix4(), triangle = new THREE.Triangle(), near = new THREE.Vector3(), normal = new THREE.Vector3();
-    const gaps: number[] = [], seen = new Set<string>();
-    for (const c of [...hills, ...SHOWS.map((s) => s.desktop)]) {
+    const gaps: number[] = [], seen = new Set<string>(), days = Array.from({ length: 25 }, (_, k) => 75 + k);
+    let more = 0, rested = 0, pairs = 0;
+    for (const [day, c] of [...[...hills, ...SHOWS.map((s) => s.desktop)].map((c) => [-1, c] as const),
+      ...days.map((seed) => [seed, buildCrowd(new THREE.Scene(), { count: Infinity, path, line, landmarks: [], seed })] as const)]) {
       const figs = figuresOf(c), seats2 = c.ground.seats as Seat[];
       const at = (f: Figure, v: Vertex, pose: Pose) => { const p = put(f, v, pose); return new THREE.Vector3(p.x, p.y, p.z); };
       for (let i = 0; i < c.count; i++) {
@@ -2175,19 +2207,28 @@ describe("the crowd's people", () => {
           .reduce((a, q) => (a < 0 || Math.hypot(seats2[q].x - seats2[i].x, seats2[q].z - seats2[i].z) < Math.hypot(seats2[a].x - seats2[i].x, seats2[a].z - seats2[i].z) ? q : a), -1);
         expect(j).toBeGreaterThanOrEqual(0);
         seen.add(`${seats2[i].x},${seats2[i].z}`);
-        // Side by side, facing the same way: each stands straight out to the other's side, the side its stance says, within
-        // FRIEND_REACH of its own units across, and the other's.
+        pairs += 1;
+        if (day >= 0) more += 1;
+        // Side by side, facing the same way: each stands straight out to the other's side, the side its stance says. And they dance
+        // as one: the same way, at the same phase and as far.
         for (const [a, b] of [[i, j], [j, i]]) {
           const face = c.each.aSize[4 * a + 2], dx = seats2[b].x - seats2[a].x, dz = seats2[b].z - seats2[a].z;
           const across = Math.cos(face) * dx - Math.sin(face) * dz, ahead = Math.sin(face) * dx + Math.cos(face) * dz;
           expect(Math.abs(ahead)).toBeLessThan(1e-5);
           expect(Math.sign(across)).toBe(stanceOf(c, a).endsWith("Left") ? -1 : 1);
-          expect(Math.abs(across)).toBeLessThan(FRIEND_REACH * Math.min(figs[a].across, figs[b].across));
         }
+        expect([figs[i].wear.y % 8, figs[i].fig.y, figs[i].wear.w]).toEqual([figs[j].wear.y % 8, figs[j].fig.y, figs[j].wear.w]);
         for (const [a, b] of [[i, j], [j, i]]) {
-          const hand = handOf(stanceOf(c, a).endsWith("Left") ? -1 : 1);
+          const side = stanceOf(c, a).endsWith("Left") ? -1 : 1, hand = handOf(side), own = figs[a].body;
           for (const dance of [0, 1.2, 1.6]) for (let beat = 0.1; beat < CYCLE; beat += 0.5) {
             const pose = { beat, dance }, mid = hand.reduce((sum, v) => sum.add(at(figs[a], v, pose)), new THREE.Vector3()).multiplyScalar(1 / hand.length);
+            // Standing still, the hand rests where FRIEND_HAND says, out and up with the figure's shoulders and legs: within 0.05,
+            // for a stout one's belly takes the arm round a waist in by up to 0.045.
+            if (dance === 0 && beat === 0.1) {
+              const [x0, y0, z0] = FRIEND_HAND[stanceOf(c, a).startsWith("round") ? "round" : "waist"];
+              expect(Math.hypot(side * mid.x - x0 - SHOULDER_X * (own.y - 1), mid.y - y0 - LEG * (own.z - 1), mid.z - z0)).toBeLessThan(0.05);
+              rested += 1;
+            }
             mid.applyMatrix4(m.fromArray(c.each.matrix, 16 * a)).applyMatrix4(m.fromArray(c.each.matrix, 16 * b).invert());
             // How far its middle stands out from the other's surface, or (below nought) in under it: by the nearest face, and the
             // way that face looks out.
@@ -2202,13 +2243,18 @@ describe("the crowd's people", () => {
         }
       }
     }
-    // Four pairs; and every hand's middle within the hand's own half-breadth (0.05) of the other's body, out from it or in under
-    // it, so that the hand is on it and never through it: from 0.018 in to 0.049 out. A friend who shifts its weight does so half as
-    // far, for at the whole of it a hand stood 0.007 off.
-    expect(seen.size).toBe(4);
+    // Pairs on the hills and the shows, and at least one a day in two on the twenty-five days (18 on them). Every hand's middle no
+    // further off the other's body than the hand's own half-breadth (0.05), and no more than 0.03 in under it, so that the hand is on
+    // it and its half that faces out shows: from 0.025 in to 0.045 out. A hand 0.05 in, buried to its back, fails.
+    expect(seen.size).toBeGreaterThan(more);
+    expect(more).toBeGreaterThanOrEqual(13);
+    expect(rested).toBe(2 * pairs);
     expect(Math.max(...gaps)).toBeLessThan(0.05);
-    expect(Math.min(...gaps)).toBeGreaterThan(-0.05);
-  });
+    expect(Math.min(...gaps)).toBeGreaterThan(-0.03);
+    // The friend's back, as backOf has it, is the body's own: half its depth behind the spine, at the hips, the middle and under the
+    // shoulders, for the standard figure.
+    expect([backOf(0.93, 1), backOf(1.01, 1), backOf(1.4, 1)].map((v) => Math.round(v * 1000))).toEqual([124, 107, 160]);
+  }, 60000);
 
   it("dance as far as each will: a third only a little, a quarter to a half as far as the rest, and the rest from 0.62 of the way to all of it", () => {
     // How far a figure dances is its aWear.w (DANCE), drawn with its person (QUIET).
@@ -2321,7 +2367,8 @@ describe("the crowd's seats on the hill", () => {
       const [wide, tall, face] = crowd.each.aSize.slice(4 * i, 4 * i + 3), cos = Math.cos(face), sin = Math.sin(face);
       const ground = (x: number, z: number) => height(at.x + wide * (cos * x + sin * z), at.z + wide * (cos * z - sin * x));
       const stance = Math.floor(crowd.each.aWear[4 * i + 1] / 16384), sits = SITS[Math.floor(stance / 16)], seated = fig.getX(i) === 1;
-      expect(fig.getW(i)).toBeCloseTo(groundUnder(ground, tall, seated ? sits : "stand", seated ? "stand" : sits).drop, 5);
+      const worn = { parts: crowd.each.aWear[4 * i], style: crowd.each.aWear[4 * i + 1] };
+      expect(fig.getW(i)).toBeCloseTo(groundUnder(ground, tall, seated ? sits : "stand", seated ? "stand" : sits, worn).drop, 5);
       apart = Math.max(apart, Math.abs(fig.getW(i) - fall));
       // The hill never falls or rises further ahead of a seat than the feet are let to follow.
       expect(fig.getW(i)).toBeGreaterThanOrEqual(DROP[0]);
