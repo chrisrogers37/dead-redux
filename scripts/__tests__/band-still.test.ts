@@ -1,28 +1,55 @@
+import { readFileSync } from "fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import { Group, PerspectiveCamera, Vector3 } from "three";
-import { BAND_AT, BAND_BACK_PHONE, BAND_POSE, BAND_POSE_PHONE, bandPath, bandPose } from "../../.github/screenshots/band.mjs";
+import pickSchedule from "../../data/pick-schedule.json";
+import { BAND_AT, BAND_BACK_PHONE, BAND_DAYS, BAND_POSE, BAND_POSE_PHONE, bandPath, bandPose } from "../../.github/screenshots/band.mjs";
 import { FIXED_DAY, FIXED_TITLES } from "../../.github/screenshots/near.mjs";
-import { buildBand } from "../../public/world/band.js";
+import { buildBand, SIX } from "../../public/world/band.js";
 import { BOUND, FACING, FIRST_EYE, height, SHELF_Y, STAGE, STAGE_REACH } from "../../public/world/ground.js";
+import { lineupOn } from "../../public/world/lineup.js";
 import { budgetFor } from "../../public/world/quality.js";
 import { onCrowdGround } from "../../public/world/seats.js";
 import { FLOOR, PANEL } from "../../public/world/stage.js";
+import { showDateFor } from "../../src/lib/pick-schedule";
 
-// The band's still (.github/screenshots/band.mjs) is taken from a pose given as four plain numbers. Here the stage stands where
-// stage.js builds it, with the band band.js builds on it, and the view is the walk's own in first person (main.js placeWalker): from
-// the pose, FIRST_EYE over the ground, along the heading, tilted by the pitch. A stage, a line-up or a pose that moved would leave the
-// still showing something else, with nothing in the shoot to say so.
+// The band's stills (.github/screenshots/band.mjs) are taken from a pose given as four plain numbers, on three days. Here the stage
+// stands where stage.js builds it, with each day's line-up as band.js builds it (public/world/lineup.js), and the view is the walk's
+// own in first person (main.js placeWalker): from the pose, FIRST_EYE over the ground, along the heading, tilted by the pitch. A stage,
+// a line-up, a day or a pose that moved would leave a still showing something else, with nothing in the shoot to say so.
 
 type Vec = { x: number; y: number; z: number };
 
-// The stage's group as stage.js places it, and the band on its floor.
-const stage = new Group();
-stage.position.set(STAGE[0], SHELF_Y, STAGE[1]);
-stage.rotation.y = FACING;
-const band = buildBand(stage, FLOOR);
-stage.updateMatrixWorld(true);
-
+// The stage's group as stage.js places it, and a line-up on its floor: each day's that the band is shot on (BAND_DAYS).
+type Body = { geometry?: { getAttribute(name: string): { count: number } }; matrixWorld: unknown };
+type Part = { of: string; by: number | null; from: number; count: number };
+function standing(roles: string[]) {
+  const stage = new Group();
+  stage.position.set(STAGE[0], SHELF_Y, STAGE[1]);
+  stage.rotation.y = FACING;
+  const band = buildBand(stage, FLOOR, roles);
+  stage.updateMatrixWorld(true);
+  // Each player's body as it stands in the world, corner by corner (its trunk, head and instrument, and the arm that holds it), and
+  // where they stand on the floor. The organ's player and the pianist hold still, among the still parts, body and all.
+  const still = band.still.geometry.getAttribute("position");
+  const bodies = band.players.map((p: { role: string; plays: string; still: boolean; body: Body; g: { position: Vec } }, k: number) => {
+    const corners: Vec[] = [];
+    if (p.still) {
+      for (const part of band.still.userData.parts as Part[]) if (part.of === "body" && part.by === k) for (let i = part.from; i < part.from + part.count; i++) corners.push(new Vector3().fromBufferAttribute(still, i).applyMatrix4(band.still.matrixWorld));
+    } else {
+      const corner = p.body.geometry!.getAttribute("position");
+      for (let i = 0; i < corner.count; i++) corners.push(new Vector3().fromBufferAttribute(corner, i).applyMatrix4(p.body.matrixWorld));
+    }
+    return { plays: p.plays, role: p.role, corners, feet: stage.localToWorld(new Vector3(p.g.position.x, p.g.position.y, p.g.position.z)) as Vec };
+  });
+  // Everything else of the band that stands still, corner by corner: the kits, the keyboards, the microphones, the monitors.
+  const things: Vec[] = [];
+  for (let i = 0; i < still.count; i++) things.push(new Vector3().fromBufferAttribute(still, i).applyMatrix4(band.still.matrixWorld));
+  return { stage, bodies, things };
+}
+// The line-ups the band is shot as, by day.
+const LINEUPS: [string, string[]][] = BAND_DAYS.map(({ show }: { show: string }) => [show, lineupOn(show).roles as string[]]);
+const { stage } = standing(SIX);
 // The visitor's eye at a pose, and the way they look, which is the same from both: the phone's pose is the desktop's, further back.
 type Pose = { x: number; z: number; heading: number; pitch: number };
 const eyeAt = (pose: Pose) => new Vector3(pose.x, height(pose.x, pose.z) + FIRST_EYE, pose.z);
@@ -32,22 +59,6 @@ const out = { x: Math.sin(FACING), z: Math.cos(FACING) };
 const alongOf = (pose: Pose) => (pose.x - STAGE[0]) * out.x + (pose.z - STAGE[1]) * out.z;
 const acrossOf = (pose: Pose) => (pose.x - STAGE[0]) * out.z - (pose.z - STAGE[1]) * out.x;
 const POSES: [string, Pose][] = [["desktop", BAND_POSE], ["phone", BAND_POSE_PHONE]];
-
-// Each player's body as it stands in the world, corner by corner (its trunk, head and instrument, and the arm that holds it), and where
-// they stand on the floor.
-type Body = { geometry: { getAttribute(name: string): { count: number } }; matrixWorld: unknown };
-const bodies = band.players.map((p: { plays: string; body: Body; g: { position: Vec } }) => {
-  const corner = p.body.geometry.getAttribute("position"), corners: Vec[] = [];
-  for (let i = 0; i < corner.count; i++) corners.push(new Vector3().fromBufferAttribute(corner, i).applyMatrix4(p.body.matrixWorld));
-  return { plays: p.plays, corners, feet: stage.localToWorld(new Vector3(p.g.position.x, p.g.position.y, p.g.position.z)) as Vec };
-});
-// Everything else of the band that stands still, corner by corner: the kits, the keyboards, the microphones, the monitors.
-const things: Vec[] = [];
-{
-  const corner = band.still.geometry.getAttribute("position");
-  for (let i = 0; i < corner.count; i++) things.push(new Vector3().fromBufferAttribute(corner, i).applyMatrix4(band.still.matrixWorld));
-}
-
 // A device's view from the pose: three's own camera, with the tier's field of view (quality.js) and the device's frame (shoot.mjs).
 const DEVICES = { desktop: { tier: "desktop", width: 1440, height: 900, pose: bandPose("desktop") }, phone: { tier: "phone", width: 390, height: 844, pose: bandPose("phone") } };
 function view({ tier, width, height: tall, pose }: { tier: string; width: number; height: number; pose: Pose }) {
@@ -71,20 +82,38 @@ afterAll(() => {
 });
 
 describe("the band's still", () => {
-  it("is taken from a pose main.js takes, on the fixed day, with the map driving the world, in Fire On The Mountain; a phone's from 4 m further back along the same line", () => {
-    for (const [device, pose] of POSES) {
-      const url = new URL(bandPath(device), "https://example.test");
-      expect(url.pathname).toBe(`/${FIXED_DAY}`);
+  it("is taken from a pose main.js takes, on each of its days, with the map driving the world, in the day's song; a phone's from 4 m further back along the same line", () => {
+    for (const band of BAND_DAYS) for (const [device, pose] of POSES) {
+      const url = new URL(bandPath(device, band), "https://example.test");
+      expect(url.pathname).toBe(`/${band.day}`);
       // main.js's own pattern for ?pose=X,Z,HEADING,PITCH, and its limit on the pitch.
       const four = /^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(url.searchParams.get("pose") ?? "");
       expect(four?.slice(1).map(Number)).toEqual([pose.x, pose.z, pose.heading, pose.pitch]);
       expect(Math.abs(pose.pitch)).toBeLessThanOrEqual(0.8);
-      expect([url.searchParams.get("drive"), url.searchParams.get("at"), url.searchParams.get("t")]).toEqual(["map", String(BAND_AT.index), String(BAND_AT.seconds)]);
+      expect([url.searchParams.get("drive"), url.searchParams.get("at"), url.searchParams.get("t")]).toEqual(["map", String(band.index), String(band.seconds)]);
     }
+    expect(bandPath("desktop")).toBe(bandPath("desktop", BAND_DAYS[0]));
+    expect([BAND_DAYS[0].day, BAND_AT]).toEqual([FIXED_DAY, { index: BAND_DAYS[0].index, seconds: BAND_DAYS[0].seconds }]);
     expect(FIXED_TITLES[BAND_AT.index]).toBe("Fire On The Mountain ->");
     expect([bandPose("phone"), bandPose("phone-360"), bandPose("desktop")]).toEqual([BAND_POSE_PHONE, BAND_POSE_PHONE, BAND_POSE]);
     expect([BAND_POSE_PHONE.heading, BAND_POSE_PHONE.pitch]).toEqual([BAND_POSE.heading, BAND_POSE.pitch]);
     expect(alongOf(BAND_POSE_PHONE) - alongOf(BAND_POSE)).toBeCloseTo(BAND_BACK_PHONE, 1);
+  });
+
+  it("is taken on days whose shows are three line-ups of the table: the six of 1979 to 1990, the seven of 1968 to 1970 and the six of 1972 to 1974, each in the song of its show's map it names, well into it", () => {
+    for (const band of BAND_DAYS) {
+      expect([band.day, showDateFor(pickSchedule, band.day)]).toEqual([band.day, band.show]);
+      // The show's map, which ?drive=map plays, and its song at the index, at least a minute longer than the place it is joined at.
+      const map = JSON.parse(readFileSync(`public/maps/${band.show}.json`, "utf8")) as { tracks: { title: string; playingDuration: number }[] };
+      expect([band.show, map.tracks[band.index].title, map.tracks[band.index].playingDuration > band.seconds + 60]).toEqual([band.show, band.title, true]);
+    }
+    expect(LINEUPS).toEqual([
+      ["1986-07-04", SIX],
+      ["1969-04-17", ["lead", "rhythm", "bass", "drums", "drums", "organ", "keys"]],
+      ["1973-03-30", ["lead", "rhythm", "bass", "drums", "piano", "voice"]],
+    ]);
+    // The stills' names, each day's own.
+    expect(new Set(BAND_DAYS.map(({ shot }: { shot: string }) => shot)).size).toBe(BAND_DAYS.length);
   });
 
   it("stands at the front of the crowd, in its aisle on the stage's axis, where the walk's limits move no one", () => {
@@ -108,24 +137,27 @@ describe("the band's still", () => {
     }
   });
 
-  it("holds all six players in the frame from head to foot, and their kits, keyboards and stands, with a tenth of the frame to spare at either side, on a desktop and on a phone", () => {
-    expect(bodies.map((b: { plays: string }) => b.plays)).toEqual(["guitar", "bass", "drums", "drums", "guitar", "keys"]);
-    for (const device of Object.values(DEVICES)) {
-      const seen = view(device);
-      for (const { plays, corners, feet } of bodies) {
-        const out = [...corners, feet].map(seen).filter((at) => !at.ahead || Math.abs(at.x) > 0.9 || Math.abs(at.y) > 0.5);
-        expect([device.tier, plays, out.length]).toEqual([device.tier, plays, 0]);
+  it("holds every player of each day's line-up in the frame from head to foot, and their kits, keyboards and stands, with a tenth of the frame to spare at either side, on a desktop and on a phone", () => {
+    for (const [show, roles] of LINEUPS) {
+      const { bodies, things } = standing(roles);
+      expect([show, bodies.map((b) => b.role).sort()]).toEqual([show, [...roles].sort()]);
+      for (const device of Object.values(DEVICES)) {
+        const seen = view(device);
+        for (const { role, corners, feet } of bodies) {
+          const out = [...corners, feet].map(seen).filter((at) => !at.ahead || Math.abs(at.x) > 0.9 || Math.abs(at.y) > 0.5);
+          expect([show, device.tier, role, corners.length > 100, out.length]).toEqual([show, device.tier, role, true, 0]);
+        }
+        // The keyboard's end was the first thing a phone cut, from where the desktop stands.
+        expect([show, device.tier, things.map(seen).filter((at) => !at.ahead || Math.abs(at.x) > 0.9 || Math.abs(at.y) > 0.5).length]).toEqual([show, device.tier, 0]);
       }
-      // The keyboard's end was the first thing a phone cut, from where the desktop stands.
-      expect([device.tier, things.map(seen).filter((at) => !at.ahead || Math.abs(at.x) > 0.9 || Math.abs(at.y) > 0.5).length]).toEqual([device.tier, 0]);
+      expect(things.length).toBeGreaterThan(5000);
     }
-    expect(things.length).toBeGreaterThan(5000);
   });
 
-  it("sees every player against the light panel: from the eye, each corner of a body from the hips up falls on it", () => {
+  it("sees every player of each day's line-up against the light panel: from the eye, each corner of a body from the hips up falls on it", () => {
     // The panel's plane in the stage's own frame: z = PANEL.z, facing the hill.
     const inStage = (at: Vec) => stage.worldToLocal(new Vector3(at.x, at.y, at.z));
-    for (const [, pose] of POSES) for (const { plays, corners, feet } of bodies) {
+    for (const [show, roles] of LINEUPS) for (const [, pose] of POSES) for (const { role, corners, feet } of standing(roles).bodies) {
       const from = inStage(eyeAt(pose));
       let checked = 0;
       const off: Vec[] = [];
@@ -138,8 +170,7 @@ describe("the band's still", () => {
         checked += 1;
         if (!(t > 1 && Math.abs(hit.x) < PANEL.w / 2 && hit.y > PANEL.y - PANEL.h / 2 && hit.y < PANEL.y + PANEL.h / 2)) off.push(corner);
       }
-      expect(checked).toBeGreaterThan(200);
-      expect([plays, off.length]).toEqual([plays, 0]);
+      expect([show, role, checked > 200, off.length]).toEqual([show, role, true, 0]);
     }
   });
 });

@@ -1,14 +1,16 @@
 /* eslint-disable */
 import * as THREE from "three";
-import { buildBand } from "./band.js";
+import { buildBand, SIX } from "./band.js";
 import { FACING, height, STAGE, SHELF_Y } from "./ground.js";
 import { mesh, mergeStill } from "./landmarks.js";
+import { lineupOn } from "./lineup.js";
 import { buildRig } from "./rig.js";
 
 /* The stage, on its shelf at the island's north-east edge: a platform whose open front faces the island's middle (ground.js); a roof on
    two posts over a back wall with a light panel that plays the sky's liquid light; two PA stacks; a light; the rig's beams under the
-   roof's front edge (rig.js); and the band (band.js): six players as flat black silhouettes, never likenesses, two guitars, a bass, keys
-   and two drummers, with their instruments and the stage's furniture. */
+   roof's front edge (rig.js); and the band (band.js): the line-up that played the show (lineup.js), five to seven players as flat black
+   silhouettes, never likenesses, in its roles (two guitars and a bass, one or two drummers, and the organ, the keys, the piano and a
+   singer as its era had them), with their instruments and the stage's furniture. */
 
 /* The walk's reach round the stage and the column the third-person camera keeps out of, STAGE_REACH and STAGE_COLUMN, are ground.js's:
    they follow the platform's edge, the PA stacks' outer corners and the roof's top built here. */
@@ -23,9 +25,9 @@ export const FLOOR = 1.2, FLOOR_R = 9, FLOOR_SIDES = 16;
 
 /* Builds the stage. With `shadows` the sun casts the desktop's one shadow map, framed on the stage alone. `panelMat` is the light panel's
    material (sky.js) and `colors` the sky's uniforms, whose two colours the rig's beams take. Returns the group, the light panel, the stage
-   light (the downgrade turns it off), the rig (rig.js), `move`, which plays the band, and `fit`, which fits its crashes' poles to the
-   canvas (band.js). */
-export function buildStage(scene, sun, shadows, panelMat, colors) {
+   light (the downgrade turns it off), the rig (rig.js), the band (band.js), `move`, which plays it, and `fit`, which fits its thin parts
+   to the canvas. The band is the line-up of the show on `showDate` (YYYY-MM-DD); without one, the six of 1979 to 1990. */
+export function buildStage(scene, sun, shadows, panelMat, colors, showDate) {
   const group = new THREE.Group();
   group.position.set(STAGE[0], SHELF_Y, STAGE[1]);
   group.rotation.y = FACING;
@@ -56,8 +58,8 @@ export function buildStage(scene, sun, shadows, panelMat, colors) {
   light.position.set(0, 7, 0);
   group.add(panel, light);
 
-  /* The band and its furniture stand on the platform's floor (band.js). */
-  const band = buildBand(group, FLOOR);
+  /* The band and its furniture stand on the platform's floor (band.js), as the show's line-up (lineup.js). */
+  const band = buildBand(group, FLOOR, showDate ? lineupOn(showDate).roles : SIX);
   const rig = buildRig(group, colors);
 
   if (shadows) {
@@ -74,5 +76,5 @@ export function buildStage(scene, sun, shadows, panelMat, colors) {
     sun.shadow.normalBias = 0.02;
   }
 
-  return { group, panel, light, rig, move: band.move, fit: band.fit };
+  return { group, panel, light, rig, band, move: band.move, fit: band.fit };
 }
