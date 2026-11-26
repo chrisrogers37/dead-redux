@@ -1,6 +1,7 @@
 /* eslint-disable */
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { MOVE as STEP, SLOW, STRUM } from "./band.js";
 import { height, STAGE, STAGE_COLUMN, TEST_POSES } from "./ground.js";
 import { gathering, keepOuts, parting, PERSON, seats, wholeGroups } from "./seats.js";
 
@@ -235,28 +236,33 @@ export const DROP = [-0.12, 0.3];
    beside them, where a hand that hangs seated comes down, its knees fallen apart, its seated feet, and its feet standing. */
 export const LIFT_AT = [[0, -0.2], [-0.3, 0], [0.3, 0], [-0.4, 0.3], [0.4, 0.3], [-0.15, FOOT[0]], [0.15, FOOT[0]], [0, FOOT[0] + 0.1],
   [-0.16, -0.07], [0.16, -0.07], [-0.16, 0.14], [0.16, 0.14]];
-/* The dance, on the figures' beat. Each figure moves one way (MOVES), as far as its own size lets it (aWear.w, 1 at the most), and
-   keeps its own phase (aFig.y, 0-1). One that bobs brings its hips down on each beat by BOB of what a fold to FOLD takes, its knees
-   within JITTER of a beat of the rest, sways SWAY rad to each side over two beats and swings each arm out ARM_SWING rad as it leans
-   that way. One that sways leans from the feet over four beats, its hips out and its shoulders back over them; one waves both arms
-   overhead, over four beats; one turns on the spot, there and back over eight beats, a skirt flaring as it turns; one nods with its
-   arms folded; one claps on every other beat, before its chest; one stands and watches, its hands on its hips or at its sides. A stance,
+/* The dance, on the band's count (main.js gives the crowd band.js's, never over HALF_OVER a second and never back). Each figure
+   moves one way (MOVES), as far as its own size lets it (aWear.w, 1 at the most), and on its own count of four (DANCE), within JITTER
+   of a count of the rest. One that bobs brings its hips down on its count by BOB of what a fold to FOLD takes, sways SWAY rad to one
+   side and swings that arm out ARM_SWING rad, and two counts on comes up and leans to the other. One that sways leans from the feet,
+   its hips out and its shoulders back over them, to one side and two counts on to the other; one waves both arms overhead so; one
+   turns on the spot, there and back over eight counts, a skirt flaring and its arms going out as it turns; one nods with its arms
+   folded; one claps on every other count, before its chest; one stands and watches, its hands on its hips or at its sides. A stance,
    folded arms or hands on hips, is kept dancing or not, but let go, like the dance, as the parting stills a figure. Seated, every
    arm but one that holds something (below) rests its forearm on its knee: turned out REST[0] rad at the shoulder and forward REST[1],
    and bent REST[2] forward at the elbow. An arm that hung beside a seated figure put its hand on the ground there, and from behind,
    where the figure's back hides its legs, read as the side of one sunk to its waist.
    A hand that holds something keeps hold of it, standing, seated, as the build-up lifts the rest, and held still by the parting:
    the right hand at the foot of a flag's pole or a balloon's string; both hands at the legs of a child on the shoulders; a
-   drummer's at the drum, each tapping on its own slow beat; and the finger held up stays up, which a figure tucks into its fist
+   drummer's at the drum, each tapping on every other count; and the finger held up stays up, which a figure tucks into its fist
    only as the parting brings that arm down. A hoop is in the hands only at rest: dancing, it goes round the hips and the arms
    stand clear of it.
-   The dance is slow on purpose, for the flash count (CLAUDE.md, motion and flashes): a limb that passes over lit ground or the stage
-   swings each block on its way twice as it goes and twice as it comes back. So no arm goes out and back more than once in two
-   beats, a drummer's among them, and a clap is kept before the chest, where the figure's own body covers it; what keeps every
-   beat is the bob's knees and the nod alone, and every figure's knees as the build-up lifts it (below), as they did before; and no
-   arm is raised by one that sits, as the whole crowd does through Space, but the one held up with a finger, which does not move
-   of itself. It is counted by render, with scripts/flash, and the PR's text holds the counts: a new way of moving is counted the
-   same way before it merges.
+   The dance moves as the band does, for the flash count (CLAUDE.md, motion and flashes; band.js says why). A dark limb that passes
+   over lit ground, the stage's apron or the sky swings each block on its way twice as it goes and twice as it comes back: an arm
+   raised at a peak, its knees bending on every beat, crossed one block 7 and 8 times in a second from the stage and from the front
+   of the crowd. So every move a figure makes is band.js's (swing): it holds still, goes at an even pace and arrives on the figure's
+   count, and holds again, so no edge creeps over a pixel's middle; and what can pass against the light comes and goes once in SLOW
+   counts, its knees, its nod, its arms and its lean, its turn once in twice that, and only the hands of a clap or at a drum, before
+   the figure's own body, once in STRUM, as a strum does. Each move takes a quarter of its counts, a count of the four and two of a
+   turn's eight, and a hand before the chest the band's STEP of a count. And a figure's knees, lean, nod and arms all keep one
+   stride, so it passes a point at most once as it goes and once as it comes back. No arm is raised by one that sits, as the whole
+   crowd does through Space, but the one held up with a finger, which does not move of itself. It is counted by render, with
+   scripts/flash, and the PR's text holds the counts: a new way of moving is counted the same way before it merges.
    No way of moving carries a hand further from the figure's axis than the bob does as the build-up lifts its arms, so the reaches
    below bound them all (crowd.test.ts). */
 const BOB = 0.12, ARM_SWING = 0.5, SWAY = 0.08, JITTER = 0.12;
@@ -577,6 +583,13 @@ uniform float uSit;`;
    pass under the ground. Every figure rises with the build-up as far as aRise lets it: all the way, but with its arms brought down
    while it stands fully still (seats.js). Then its stoop, its lean, which leaves its feet flat on the ground, and its turn. Last, its
    legs lean with the ground under it (aFig.w ahead and aPlace.w across), and nothing of a seated figure passes under that ground. */
+/* band.js's swing as the shader writes it: the expression that a move takes once in `per` counts, `counts` (an expression) into
+   them, held at 1, at an even pace to -1 over `move` counts (a quarter of `per` at the most) arriving halfway, held, and so back,
+   arriving on its count. */
+const swung = (counts, per, move) => {
+  const m = Math.min(move, per / 4) / per, u = `fract((${counts}) / ${f(per)})`;
+  return `(${u} < 0.5 ? clamp(1.0 - 2.0 * (${u} - ${f(0.5 - m)}) / ${f(m)}, -1.0, 1.0) : clamp(-1.0 + 2.0 * (${u} - ${f(1 - m)}) / ${f(m)}, -1.0, 1.0))`;
+};
 const DANCE = `
 float rig = aMark.x, bit = aMark.y, parts = aWear.x;
 {
@@ -596,12 +609,14 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
   float moves = 1.0 - aPart.w, dance = uDance * moves * aWear.w, going = min(2.5 * dance, 1.0);
   float rise = clamp((uRise - ${f(RISE_FROM)} - ${f(RISE_SPAN)} * aFig.z) / ${f(RISE_W)}, 0.0, 1.0) * aRise;
   float sit = max(aFig.x, clamp(uSit * ${f(1 + STAGGER)} - aFig.y * ${f(STAGGER)}, 0.0, 1.0)) * (1.0 - rise);
-  float bounce = 0.5 + 0.5 * cos(6.2832 * (uBeat + ${f(JITTER)} * aFig.y));
-  /* The figure's slow beat: every other beat, its own of the two, 1 on it and 0 on the beat between. */
-  float slow = 0.5 + 0.5 * cos(3.1416 * (uBeat + ${f(JITTER)} * aFig.y + floor(2.0 * fract(5.3 * aFig.y))));
-  /* The figure's place in its slow waves: once round in four beats (quarter) and in eight (eight). */
-  float quarter = 1.5708 * (uBeat + 4.0 * aFig.y), eight = 0.7854 * (uBeat + 8.0 * aFig.y);
-  float two = sin(3.1416 * (uBeat + aFig.y)), four = sin(quarter);
+  /* The figure's own count: the band's, within JITTER of it, and its own of every four (aFig.y). Each move the figure makes comes and
+     goes on it as the band's do (band.js swing), holding at either end, and over a quarter of its counts: its stride (and bounce, 1
+     with its hips down), which its knees, its lean, its nod and its arms all keep, once in SLOW counts; its turn, once in twice
+     SLOW, its arms out and its skirt flaring (fling) as it turns; and only its hands before its chest (slow, 1 with them in), once in
+     STRUM, over the band's STEP of a count. Each arrives on the figure's count, all of them on the same counts. */
+  float own = uBeat + ${f(JITTER)} * aFig.y - floor(4.0 * fract(5.3 * aFig.y));
+  float stride = ${swung("own", SLOW, SLOW / 4)}, turned = ${swung("own", 2 * SLOW, SLOW / 2)};
+  float bounce = 0.5 + 0.5 * stride, slow = 0.5 + 0.5 * ${swung("own", STRUM, STEP)}, fling = 1.0 - abs(turned);
   float spin = spinner ? 1.0 : 0.0;
 
   if (headRig) {
@@ -635,7 +650,7 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
     if (legRig) { z *= thick * flare; y *= aBody.z; }
   }
   if (skirtRig) {
-    float hem = aCut.y, swirl = 0.5 * spin * dance * abs(cos(eight)) * (1.0 - sit);
+    float hem = aCut.y, swirl = 0.5 * spin * dance * fling * (1.0 - sit);
     if (y < 0.2) {
       float full = (0.62 + 0.38 * (1.0 - hem) / 0.907) * (1.0 + swirl);
       x *= full; z *= full; y = hem * ${f(LEG)};
@@ -647,18 +662,18 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
     y = y > ${f(LEG - 0.001)} ? y + up : y * aBody.z;
   }
   if (!legRig && !footRig && !skirtRig && !groundRig) y += up;
-  if (bit == ${B.FLAG}) z += 0.06 * dance * aMark.w * sin(quarter - 2.6 * aMark.w);
+  if (bit == ${B.FLAG}) z += 0.06 * dance * aMark.w * stride;
   if (bit == ${B.FINGER}) y = ${f(HAND_Y)} + (y - ${f(HAND_Y)}) * mix(0.37, 1.0, moves);
-  if (bit == ${B.BALLOON}) { x += 0.06 * dance * aMark.w * four; z += 0.04 * dance * aMark.w * cos(eight); }
-  if (bit == ${B.HOOP}) y += (1.0 - sit) * (0.13 * going + 0.28 * min(dance, 1.2) * (x * cos(quarter) + z * sin(quarter)));
+  if (bit == ${B.BALLOON}) { x += 0.06 * dance * aMark.w * stride; z += 0.04 * dance * aMark.w * stride; }
+  if (bit == ${B.HOOP}) y += (1.0 - sit) * (0.13 * going + 0.28 * min(dance, 1.2) * x * stride);
 
   if (armRig) {
     float side = ${is("rig", RIG.ARM_L)} ? -1.0 : 1.0, stand = moves * (1.0 - sit), aloft = going * (1.0 - sit);
     float lift = 0.0, fore = 0.0, bend = 0.0, inward = 0.0, held = 0.0;
-    if (bobber) lift = dance * ${f(ARM_SWING)} * (0.5 + 0.5 * side * two) * (1.0 - sit);
-    else if (swayer) lift = max(0.05 * stand + side * dance * 0.1 * (1.0 - sit) * sin(quarter - 0.9), -0.04);
-    else if (waver) { lift = aloft * (2.65 + side * 0.3 * min(dance, 1.3) * four); bend = aloft * 0.25; inward = 1.0; }
-    else if (spinner) lift = dance * (0.12 + 0.45 * abs(cos(eight))) * (1.0 - sit);
+    if (bobber) lift = dance * ${f(ARM_SWING)} * (0.5 + 0.5 * side * stride) * (1.0 - sit);
+    else if (swayer) lift = max(0.05 * stand + side * dance * 0.1 * (1.0 - sit) * stride, -0.04);
+    else if (waver) { lift = aloft * (2.65 + side * 0.3 * min(dance, 1.3) * stride); bend = aloft * 0.25; inward = 1.0; }
+    else if (spinner) lift = dance * (0.12 + 0.45 * fling) * (1.0 - sit);
     else if (nodder) { lift = 0.12 * stand; fore = 0.25 * stand; bend = 1.75 * stand; inward = 0.75; }
     else if (clapper) { fore = 0.6 * aloft; bend = 1.75 * aloft; inward = 0.35 + 0.37 * slow; }
     else if (akimbo) { lift = 0.62 * stand; bend = 1.5 * stand; inward = 1.0; }
@@ -692,10 +707,10 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
     y = ${f(NECK_Y)} + up - z * sn + hy * cn; z = z * cn + hy * sn;
   }
 
-  /* The knees: one that bobs bends them on every beat, one that sways, waves or claps on its slow beat and less, and the rest not at
-     all; as the build-up lifts them, all on every beat. */
+  /* The knees: one that bobs bends them on its stride, one that sways a little, and the rest not at all; as the build-up lifts them,
+     all of them, on the stride. */
   float bobs = bobber ? 1.0 : swayer ? 0.35 : 0.0;
-  float dip = mix(bobber ? bounce : slow, bounce, rise);
+  float dip = bounce;
   float bob = (1.0 - sit) * dance * (1.0 + rise) * ${f(BOB)} * dip * mix(bobs, 1.0, rise);
   /* A seat stands as much higher as the thighs are thicker, so that a broad figure's rest on the ground as a slight one's do. */
   float lower = legL * ${f(1 - FOLD)} * bob + (legL - ${f(SEAT)} - 0.044 * max(girth - 1.0, 0.0)) * sit;
@@ -737,7 +752,7 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
   } else if (!groundRig) y -= lower;
 
   if (!groundRig) {
-    float lean = bobber ? two : swayer ? four * (1.0 + 0.6 * (1.0 - rise) * (1.0 - sit)) : waver ? 0.6 * four : spinner ? 0.0 : nodder ? 0.25 * four : clapper ? 0.3 * four : 0.2 * four;
+    float lean = bobber ? stride : swayer ? stride * (1.0 + 0.6 * (1.0 - rise) * (1.0 - sit)) : waver ? 0.6 * stride : spinner ? 0.0 : nodder ? 0.25 * stride : clapper ? 0.3 * stride : 0.2 * stride;
     /* A foot stays flat where it stands as the figure leans over it: a foot that tipped with the lean lifted an edge off the ground
        and sank the other in it, which on a phone's small frame flickered against the lit ground. */
     float tilt = footRig ? 0.0 : dance * ${f(SWAY)} * lean;
@@ -749,7 +764,7 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
       y += sk * x + (ck - 1.0) * over; x = ck * x - sk * over;
     }
     float cs = cos(tilt), ss = sin(tilt), tx = cs * x - ss * y, ty = ss * x + cs * y;
-    float turn = spin * 1.6 * min(dance, 1.3) * sin(eight) * (1.0 - sit), cr = cos(turn), sr = sin(turn);
+    float turn = spin * 1.6 * min(dance, 1.3) * turned * (1.0 - sit), cr = cos(turn), sr = sin(turn);
     x = cr * tx + sr * z; y = ty; z = cr * z - sr * tx;
   }
   /* The ground under the figure falls or rises ahead of its seat as far as its seated feet follow it, and rises across it. The legs
