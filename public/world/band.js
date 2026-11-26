@@ -365,7 +365,7 @@ const DEAL = {
    guitar's and the bass's necks rise steeper, as the rhythm guitar's does in every line-up, so that they reach less far across;
    the first kit's floor tom and the second's crash stand nearer their drummers; and every player stands a twentieth smaller
    (`size`), so that seven stand apart where six did. */
-const CLOSE = { lead: { hold: { rise: 0.95 } }, bass: { hold: { rise: 1.02 } },
+const CLOSE = { lead: { hold: { rise: 0.95 } }, bass: { hold: { rise: 1.04 } },
   drums: [{ floor: { x: 0.42 } }, { crash: { x: 0.52 } }], size: 0.95 };
 /* A player's deal as their line-up stands them: as dealt, with what a close line-up changes, and what their own staging changes. */
 function dealt(role, k, close, over) {
@@ -524,7 +524,7 @@ export function buildBand(stage, floor, roles = SIX) {
       keep(p, `${p.plays} cuff`, [boots ? cuff(ankle, 0.086, boots, 0.074) : cuff(ankle)]);
       if (taps && s > 0) {
         tap = hinge(p, false, heel, BACK, [toe.clone().sub(heel)], [bone(p, "tapping foot", 0.105, 0.08)]);
-        fitted.push({ bone: tap.held[0], wide: 0.105, thick: 0.08, both: true });
+        fitted.push({ bone: tap.held[0], wide: 0.105, thick: 0.08 });
       }
       else keep(p, `${p.plays} shoe`, [shoe(heel, toe)]);
     }
@@ -659,9 +659,10 @@ export function buildBand(stage, floor, roles = SIX) {
         arm: arm(p, name, t.shoulder(side), ARM.upper, ARM.fore, tucked.clone(), [bone(p, `${name} hand`, 0.085, 0.045, [0.02, 0.012])]) };
     });
     const forearm = V();
-    /* A lifted forearm and hand stand clear of the outline against the panel: each is fitted to the canvas (buildBand's `fit`), the
-       forearm both ways and the hand across. */
-    for (const { arm: a } of hands) fitted.push({ bone: a.bones[1], wide: a.bones[1].wide, thick: a.bones[1].thick, both: true }, { bone: a.held[0], wide: a.held[0].wide, thick: a.held[0].thick, both: false });
+    /* A lifted forearm and hand stand clear of the outline against the panel: each is fitted to the canvas (buildBand's `fit`), both
+       ways. A hand fitted only across, as thin as built the other way, came apart from its forearm through a lift, from the back of
+       the crowd on a phone and at its lower rungs, and at the piano, side-on, from the crowd on a desktop. */
+    for (const { arm: a } of hands) fitted.push(...[a.bones[1], a.held[0]].map((b) => ({ bone: b, wide: b.wide, thick: b.thick })));
     if (seated) sit(p, t, 0.34, 0.42);
     else stand(p, t, stance, 0.18, -0.02, false);
     keepHead(p, t);
@@ -818,12 +819,12 @@ export function buildBand(stage, floor, roles = SIX) {
   still.userData.parts = parts;
   stage.add(still);
 
-  /* Fits to the canvas, whose pixel is `perPx` rad high at its middle (main.js), what stands clear of an outline a pixel or so across
-     from the back of the crowd: each crash's pole and each microphone's stand, widened about its own upright axis from the corners
-     it was built with, and the keyboard players' forearms and hands (`fitted`), each as stout as a pixel of it SEEN m off at the
-     least, and no stouter than STOUT_MOST; and the tip of each guitar's and the bass's neck, its head with it, widened across the
-     strings to NECK_PX of a pixel SEEN m off, and no more than NECK_MOST times as wide as built; and lays the bones again, for a band
-     that stands still. */
+  /* Fits to the canvas, whose pixel is `perPx` rad high at its middle (main.js), what stands clear of an outline a pixel or so
+     across from the back of the crowd: each crash's pole and each microphone's stand, widened about its own upright axis from
+     the corners it was built with, and the keyboard players' forearms and hands and each tapping foot (`fitted`), each both ways
+     as stout as a pixel of it SEEN m off at the least, and no stouter than STOUT_MOST; and the tip of each guitar's and the
+     bass's neck, its head with it, widened across the strings to NECK_PX of a pixel SEEN m off, and no more than NECK_MOST times
+     as wide as built; and lays the bones again, for a band that stands still. */
   const corners = still.geometry.getAttribute("position");
   const fits = stands.map(({ at, by, r, sides }) => {
     const { from, count } = parts[at], base = corners.array.slice(from * 3, (from + count) * 3);
@@ -852,10 +853,10 @@ export function buildBand(stage, floor, roles = SIX) {
       at.needsUpdate = true;
       geo.computeBoundingSphere();
     }
-    for (const { bone, wide, thick, both } of fitted) {
+    for (const { bone, wide, thick } of fitted) {
       const least = Math.min(STOUT_MOST * 3, seen / (LIMB_FLATS * players[bone.of].g.scale.x));
       bone.wide = Math.max(wide, least);
-      bone.thick = both ? Math.max(thick, least) : thick;
+      bone.thick = Math.max(thick, least);
     }
     place();
   }
