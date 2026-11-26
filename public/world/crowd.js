@@ -197,7 +197,6 @@ export function figureGeometry(plain = false) {
   add(new THREE.ConeGeometry(0.016, 0.1, 4).rotateX(Math.PI).translate(SHOULDER_X, 0.79, 0), RIG.ARM_R, PART.FINGER, TINT.SELF);
   /* A cup in the right fist, standing out of it the way the forearm bends (CUP_ARM), so it stands upright as the forearm comes up
      level before the figure. */
-  const cupWay = -0.5 * Math.PI * CUP_ARM[3];
   add(new THREE.CylinderGeometry(0.036, 0.028, 0.1, round(6, 5)).rotateX(Math.PI / 2).rotateY(cupWay)
     .translate(SHOULDER_X + 0.045 * Math.sin(cupWay), HAND_Y, 0.045 * Math.cos(cupWay)), RIG.ARM_R, PART.CUP, TINT.THING);
   /* A hoop in the hands at the hips, which a dancer lifts and swings; a hand drum at the left hip. */
@@ -352,9 +351,10 @@ export const QUIET = 0.34;
    arm round a friend's shoulders goes out level and its forearm round behind them, its hand on their back below the shoulders;
    one round a friend's waist goes out low and behind them, its hand on their back at the waist (crowd.test.ts). A cup's right arm
    is CUP_ARM. Each is held as far as the figure stands and dances where it stands, so the parting's stillness and a seat let it go,
-   like the dance: but a cup is held up seated too. */
+   like the dance: but a cup is held up seated too, and as the parting lets its arm down it stays upright in the fist. */
 const SHIFT = 0.045, HIP_DROP = 0.025, TILT = 0.06, LEAN_TO = 0.15, HEAD_TO = 0.22;
 export const CUP_ARM = [0.08, 0.12, 1.45, 0.35];
+const cupWay = -0.5 * Math.PI * CUP_ARM[3];
 const ROUND_ARM = [1.6, 0.32, 1.3, 1.65], WAIST_ARM = [0.76, -0.46, 0.6, -0.6];
 export const STAND_ARMS = {
   hip: { left: [0.62, 0, 1.5, 1] }, akimbo: { left: [0.62, 0, 1.5, 1], right: [0.62, 0, 1.5, 1] },
@@ -841,6 +841,7 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
   /* How far a corner leans with the ground under the figure (below): a leg's or a skirt's by how near the foot it stands, a foot's all
      the way, and the rest of the figure not at all. And how far that ground rises across the figure, to its right, a unit out. */
   float low = footRig ? 1.0 : legRig || skirtRig ? 1.0 - clamp(y / ${f(LEG)}, 0.0, 1.0) : 0.0;
+  bool cuff = legRig && low > 0.999;
   float rises = aPlace.w;
 
   float moves = 1.0 - aPart.w, dance = uDance * moves * aWear.w, going = min(2.5 * dance, 1.0);
@@ -894,8 +895,10 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
   if (skirtRig) {
     float hem = aCut.y, swirl = 0.5 * spin * dance * fling * (1.0 - sit);
     if (y < 0.2) {
-      float full = (0.62 + 0.38 * (1.0 - hem) / 0.907) * (1.0 + swirl);
-      x *= full; z *= full; y = hem * ${f(LEG)};
+      /* As it flares out turning, its hem rises, 0.3 of the way it goes out: flared flat, it went 5.5 cm into a phone's ground, which
+         lies off the plane its figure stands on further out. */
+      float flare = 0.62 + 0.38 * (1.0 - hem) / 0.907, out = sqrt(x * x + z * z) * flare * swirl;
+      x *= flare * (1.0 + swirl); z *= flare * (1.0 + swirl); y = hem * ${f(LEG)} + 0.3 * out;
     } else if (y < 0.6) {
       float mid = hem < 0.5 ? 0.5 : 0.5 * (1.0 + hem);
       float full = (0.62 + 0.38 * clamp((1.0 - mid) / 0.5, 0.0, 1.0)) * (1.0 + 0.5 * swirl);
@@ -943,6 +946,15 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
     lift = mix(lift, ${f(ARM_UP)}, lifted); fore *= 1.0 - lifted; bend *= 1.0 - lifted;
     float sx = side * ${f(SHOULDER_X)} * aBody.y, sy = ${f(SHOULDER_Y)} + up;
     float px = x + side * ${f(SHOULDER_X)} * (aBody.y - 1.0) - sx, py = y - sy, pz = z;
+    /* A cup stands upright in the fist however far the forearm is bent: turned about its middle the way CUP_ARM bends the forearm, as
+       far as the forearm is less bent than that, so that let down by the parting it is held upright beside the hip. Lying the way
+       the forearm hung, it lay flat there. */
+    if (bit == ${B.CUP}) {
+      float up2 = max(${f(CUP_ARM[2])} - bend, 0.0), cx = ${f(Math.sin(cupWay))}, cz = ${f(Math.cos(cupWay))};
+      float along = px * cx + pz * cz - 0.045, down = ${f(HAND_Y - SHOULDER_Y)} - py, cu = cos(up2), su = sin(up2);
+      float along2 = along * cu + down * su, down2 = down * cu - along * su;
+      px += (along2 - along) * cx; pz += (along2 - along) * cz; py = ${f(HAND_Y - SHOULDER_Y)} - down2;
+    }
     float below = -py - ${f(ELBOW)};
     if (below > -0.001 && bend > 0.0) {
       float ix = -side * sin(1.5708 * inward), iz = cos(1.5708 * inward);
@@ -1028,11 +1040,12 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
 
   if (!groundRig) {
     float lean = bobber ? stride : swayer ? stride * (1.0 + 0.6 * (1.0 - rise) * (1.0 - sit)) : waver ? 0.6 * stride : spinner ? 0.0 : nodder ? 0.25 * stride : clapper ? 0.3 * stride : 0.0;
-    /* A foot stays flat where it stands as the figure leans over it: a foot that tipped with the lean lifted an edge off the ground
-       and sank the other in it, which on a phone's small frame flickered against the lit ground. A figure that leans back on its
-       hands or lies back does not lean, for its hands would go into the ground; and seated, a figure leans from its hips, about them, and
-       its legs stay where they rest, for a knee near the ground went into it as the figure leaned that way. */
-    float tilt = footRig ? 0.0 : dance * ${f(SWAY)} * lean * (1.0 - sit * sitHands) * (onLeg ? 1.0 - sit : 1.0);
+    /* A foot stays flat where it stands as the figure leans over it, and so does a trouser's cuff, the ring at the foot: a foot that
+       tipped with the lean lifted an edge off the ground and sank the other in it, which on a phone's small frame flickered against
+       the lit ground, and a flared cuff that tipped went 9 cm into the ground drawn. A figure that leans back on its hands or lies
+       back does not lean, for its hands would go into the ground; and seated, a figure leans from its hips, about them, and its legs
+       stay where they rest, for a knee near the ground went into it as the figure leaned that way. */
+    float tilt = footRig || cuff ? 0.0 : dance * ${f(SWAY)} * lean * (1.0 - sit * sitHands) * (onLeg ? 1.0 - sit : 1.0);
     if (!onLeg) {
       /* Above the hips: the stoop, which one with its arm round a friend straightens, so that the other's arm lies on its back; and,
          for one that sways, the lean back over its feet, most of twice as far as its legs lean out. */

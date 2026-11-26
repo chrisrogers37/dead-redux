@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
 import {
-  buildCrowd, COLOURS, CUT, CYCLE, DROP, FEET, figureGeometry, FOLD, FOOT, FRIEND_REACH, groundUnder, HAND, HANG, inView, KNEES, LEG, LYING, MOST, MOVES, only, OUTLINE, outlineOf, PART,
+  buildCrowd, COLOURS, CUP_ARM, CUT, CYCLE, DROP, FEET, figureGeometry, FOLD, FOOT, FRIEND_REACH, groundUnder, HAND, HANG, inView, KNEES, LEG, LYING, MOST, MOVES, only, OUTLINE, outlineOf, PART,
   partingOptions, people, PLAIN_LEAVES_OUT, plainly, poseOf, PROP_EVERY, PROPS, QUIET, SEAT, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, TALL, tone, TOP, wearing, without,
 } from "../../../public/world/crowd.js";
 import { MOVE as STEP, SLOW, STRUM, swing } from "../../../public/world/band.js";
@@ -1073,13 +1073,13 @@ describe("the crowd's shader", () => {
     expect(children).toBeGreaterThan(20);
   });
 
-  it("keeps every figure of three shows over the ground it stands or sits on: nothing it wears or is passes under the hill but a bent knee's trouser hem, and a taper's stand goes down to the ground", () => {
+  it("keeps every figure of three shows over the ground it stands or sits on: nothing it wears or is passes under the hill, a trouser's hem among them, and a taper's stand goes down to the ground", () => {
     // In the figure's own units over the ground under each vertex, which falls or rises ahead of the seat as the hill does (aFig.w)
     // and rises across it (aPlace.w), for the crowds of 1986-07-04, 1970-08-30 and 1990-12-09 on both tiers, since the landmarks a show raises decide which seats
     // are taken and how the ground lies at each. Standing and dancing: no skirt, poncho, hair, pack or anything it holds is under
-    // it; a trouser's hem dips under as the figure sways and its knees bend, as it did before, a flared hem by a tenth of a unit at
-    // the most. Seated, dancing or held still by the parting: nothing at all is under it, not a lap, a flared hem, a hoop's rim, a
-    // poncho's point or a hanging hand, and a skirt lies a hundredth over it.
+    // it, and nor is a trouser's hem, which tipped with the figure's lean and went under by up to a tenth of a unit, a flared one,
+    // and stays level now as its foot does. Seated, dancing or held still by the parting: nothing at all is under it, not a lap, a
+    // flared hem, a hoop's rim, a poncho's point or a hanging hand, and a skirt lies a hundredth over it.
     const low = { stand: Infinity, hems: Infinity, sit: Infinity, skirt: Infinity, standSkirt: Infinity };
     let stands = 0, looked = 0;
     for (const { desktop, phone: small } of SHOWS) for (const [c, vertices] of [[desktop, rich], [small, plain]] as const) for (const f of figuresOf(c)) {
@@ -1113,8 +1113,7 @@ describe("the crowd's shader", () => {
     expect(put({ ...taper, fig: { x: 0, y: 0, z: 0, w: -0.1 } }, foot, { beat: 0.5, dance: 1.6 }).y).toBe(foot.y);
     expect(put({ ...taper, fig: { x: 0, y: 0, z: 0, w: 0.2 } }, foot, { beat: 0.5, dance: 1.6 }).y).toBeCloseTo(foot.y - (0.2 * 0.22) / FOOT[0], 9);
     expect(low.stand).toBeGreaterThan(-1e-6);
-    expect(low.hems).toBeGreaterThan(-0.1);
-    expect(low.hems).toBeLessThan(-0.01);
+    expect(low.hems).toBeGreaterThan(-1e-6);
     expect(low.standSkirt).toBeGreaterThan(0.012 - 1e-6);
     // Seated the other way, as the whole crowd sits through Space, a figure stands aSize.w higher or lower, so that its seated contacts
     // meet the hill where it bends away from the plane it stands on: a part goes under that plane by a thousandth of a unit at the
@@ -1128,16 +1127,16 @@ describe("the crowd's shader", () => {
     expect(hipsOf(1.6) - hipsOf(1)).toBeCloseTo(0.044 * 0.6, 6);
   });
 
-  it("stands every figure on the ground as its tier draws it, on twelve days' hills, standing, seated and dancing seated: nothing of it goes more than 3 cm into that ground, and its feet, its seat, its knees kneeling and its hands leaning back stand no more than 4 cm over it", () => {
+  it("stands every figure on the ground as its tier draws it, on twelve days' hills, standing, seated, and dancing seated and standing: nothing of it goes more than 3 cm into that ground but the feet of one turning on the spot, 3.5, and its feet, its seat, its knees kneeling and its hands leaning back stand no more than 4 cm over it", () => {
     // The island's mesh lies flat between the points of its tier's grid (island.js surfaceOf), up to half a metre over or under the
     // hill's own height on a phone's. A figure stood on the hill's own height went as far into the ground drawn, and a seated one,
     // facing away with its legs hidden, read as sunk to its waist (#203). So each stands on its tier's ground, its legs lean with that
     // ground across it, and it stands on the plane that fits that ground where it rests on it (groundUnder). Here every corner of it
     // within half a unit of its feet, and of its arms, in metres over the drawn ground under that corner, for every figure of the
     // gathering on twelve days, the fixed day's among them, as each tier builds and draws it: standing still, seated (the crowd sits
-    // on its spot, aFig.x or uSit) and seated dancing at the dance's most, at the beats it leans and bobs furthest each way. A taper's
-    // stand, which goes down to the ground where it stands, is held above. And no figure of them lies back that is broader than LYING
-    // lets it lie.
+    // on its spot, aFig.x or uSit), and seated and standing dancing at the dance's most, at the beats it leans and bobs furthest each
+    // way. A taper's stand, which goes down to the ground where it stands, is held above. And no figure of them lies back that is
+    // broader than LYING lets it lie.
     // And where it rests on that ground, standing or seated as its seat has it, the lowest corner of each foot, of its seat, of each
     // knee that kneels and of each hand that leans back on the ground, over it: main's stood up to 12 cm over it and sat up to 15.
     const low: Record<string, number> = {}, high: Record<string, number> = {};
@@ -1152,15 +1151,17 @@ describe("the crowd's shader", () => {
         const near = verticesOf(c.figure).filter((v) => v.mark.x !== 7 && (v.y < 0.95 || v.mark.x === 3 || v.mark.x === 4));
         for (const f of figuresOf(c)) if (SITS[Math.floor(Math.floor(f.wear.y / 16384) / 16)] === "recline") { lying += 1; broadest = Math.max(broadest, e.aSize[4 * f.i] * LYING); }
         const poses: [string, Pose][] = [["standing", { beat: 0, dance: 0 }], ["seated", { beat: 0, dance: 0, sit: 1 }],
-          ...[0.5, 1, 1.5, 3].map((beat): [string, Pose] => ["dancing seated", { beat, dance: 1.6, sit: 1 }])];
+          ...[0.5, 1, 1.5, 3].map((beat): [string, Pose] => ["dancing seated", { beat, dance: 1.6, sit: 1 }]),
+          ...[0.5, 1, 1.5, 3].map((beat): [string, Pose] => ["dancing standing", { beat, dance: 1.6 }])];
         for (const f of figuresOf(c)) for (const [state, pose] of poses) {
-          if (state === "standing" && f.fig.x === 1) continue;
+          if ((state === "standing" || state === "dancing standing") && f.fig.x === 1) continue;
           const [wide, tall, turn] = e.aSize.slice(4 * f.i, 4 * f.i + 3), cos = Math.cos(turn), sin = Math.sin(turn), place = f.place!;
           const sits = SITS[Math.floor(Math.floor(f.wear.y / 16384) / 16)], rests = (state === "standing") === (f.fig.x === 0), lowest: Record<string, number> = {};
           for (const v of near.filter((v) => wears(f, v))) {
             const p = put(f, v, pose), x = place.x + wide * (cos * p.x + sin * p.z), z = place.z + wide * (cos * p.z - sin * p.x), key = `${tier} ${state}`;
             const over = place.y + tall * p.y - surface(x, z), side = v.x > 0 ? "right" : "left";
-            low[key] = Math.min(low[key] ?? Infinity, over);
+            const turning = state === "dancing standing" && v.mark.x === 2 && MOVES[f.wear.y % 8] === "spin" ? `${key}, its feet turning` : key;
+            low[turning] = Math.min(low[turning] ?? Infinity, over);
             looked += 1;
             if (!rests || state === "dancing seated") continue;
             const contact = v.mark.x === 2 ? `foot ${side}` : state !== "seated" ? null
@@ -1179,8 +1180,11 @@ describe("the crowd's shader", () => {
     expect(looked).toBeGreaterThan(6e6);
     expect(lying).toBeGreaterThan(10);
     expect(broadest).toBeLessThanOrEqual(KNEES * BIG);
-    for (const [key, under] of Object.entries(low)) expect([key, under > -0.03]).toEqual([key, true]);
-    expect(Object.keys(low).length).toBe(9);
+    // Standing and dancing, a trouser's cuff, which tipped with the lean, went 9 cm into the ground, and a skirt flared out flat as
+    // its figure turned 5.5 cm: neither does now, the cuff staying level and the hem rising as it flares. The feet of one that turns
+    // on the spot turn flat about its middle, over ground its plane was fitted to only where they rest, and go 3.2 cm into a phone's.
+    for (const [key, under] of Object.entries(low)) expect([key, under > (key.endsWith("turning") ? -0.035 : -0.03)]).toEqual([key, true]);
+    expect(Object.keys(low).length).toBe(15);
     for (const [key, over] of Object.entries(high)) expect([key, over < 0.04]).toEqual([key, true]);
     // Every tier's feet standing; seated, every stance's seat or knees and feet, and the hands of those that lean back.
     expect(Object.keys(high).length).toBe(3 * (1 + 2 * 5 + 2 + 2));
@@ -1323,6 +1327,19 @@ describe("the crowd's shader", () => {
       }
     expect(looked).toBeGreaterThan(1e6);
     expect(far).toBe(0);
+    // And seated, a hoop lies at rest in the figure's lap as it dances, where it lies seated with no dance: in its body's frame, every
+    // corner of it, whichever way the figure moves, through the cycle. Standing, a dancer lifts it and swings it (the rules below).
+    const hoop = rich.filter((v) => v.mark.y === PART.HOOP);
+    let moved = 0;
+    for (const move of MOVES as string[]) {
+      const f = carrying("hoop", move), rest = { beat: 0, dance: 0, sit: 1 }, frame0 = bodyFrame(f, rest);
+      const at0 = hoop.map((v) => { const p = { ...put(f, v, rest) }; return frame0.in([p.x - frame0.from.x, p.y - frame0.from.y, p.z - frame0.from.z]); });
+      for (const dance of [0.6, 1.2, 1.6]) for (const beat of [0.3, 1.1, 2.6, 3.9, 5.4, 7.2]) {
+        const at = { beat, dance, sit: 1 }, frame = bodyFrame(f, at);
+        hoop.forEach((v, k) => { const p = { ...put(f, v, at) }, q = frame.in([p.x - frame.from.x, p.y - frame.from.y, p.z - frame.from.z]); moved = Math.max(moved, Math.hypot(q[0] - at0[k][0], q[1] - at0[k][1], q[2] - at0[k][2])); });
+      }
+    }
+    expect(moved).toBeLessThan(1e-9);
   }, 120000);
 
   it("brings every way of moving round whole in CYCLE beats, so the phase's turn from CYCLE back to 0 moves nothing", () => {
@@ -1787,6 +1804,16 @@ describe("the crowd's shader", () => {
     expect(hand(cupped, 1).z).toBeGreaterThan(0.2);
     expect(Math.hypot(mid(cupped, cup).x - hand(cupped, 1).x, mid(cupped, cup).y - hand(cupped, 1).y, mid(cupped, cup).z - hand(cupped, 1).z)).toBeLessThan(0.08);
     expect(hand(cupped, 0).y).toBeLessThan(0.9);
+    // The cup stands upright in the fist, its rim the way up and within 0.2 rad of straight up (0.12 at the most), held up before the
+    // figure, seated, and let down as the parting stills it, part of the way or all: let down, it lay flat at the hip.
+    const cupWay = -0.5 * Math.PI * CUP_ARM[3], ends = [1, -1].map((end) => cup.filter((v) => end * ((v.x - SHOULDER_X) * Math.sin(cupWay) + v.z * Math.cos(cupWay) - 0.045) > 0.01));
+    for (const pose of [still, { beat: 1.3, dance: 1.6 }, { beat: 0, dance: 1, sit: 1 }, { beat: 0, dance: 0, still: 0.5 }, { beat: 0, dance: 0, still: 1, rising: 0 }, { beat: 0, dance: 1, sit: 1, still: 1, rising: 0 }] as Pose[]) {
+      const [rim, foot] = ends.map((list) => mid(cupped, list, pose)), axis = { x: rim.x - foot.x, y: rim.y - foot.y, z: rim.z - foot.z };
+      expect([pose, Math.acos(axis.y / Math.hypot(axis.x, axis.y, axis.z)) < 0.2]).toEqual([pose, true]);
+      // Let down all the way, it stands beside the fist, out of the forearm that comes down into it, and not over it.
+      const c = mid(cupped, cup, pose), h = mid(cupped, arms2[1].hand, pose);
+      if (pose.still === 1) expect([pose, Math.hypot(c.x - h.x, c.z - h.z) > 0.035, c.y - h.y < 0.03]).toEqual([pose, true, true]);
+    }
     for (const k of [0, 1]) expect(hand(stanced("behind"), k).z).toBeLessThan(-0.1);
     for (const k of [0, 1]) { const p = hand(stanced("pockets"), k); expect([Math.abs(p.x) < 0.3, p.y > 0.7 && p.y < 1]).toEqual([true, true]); }
     // An arm round a friend: round the shoulders of one to its right, the right arm out level to the side and its forearm round
