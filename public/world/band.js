@@ -726,9 +726,9 @@ export function buildBand(stage, floor, roles = SIX) {
      from an elbow out to the side and as high as the chin. The right hand holds a tambourine before the right thigh, a disc that
      faces the crowd and stands out past the thigh. The arms are the body's, the bend of each filled, so no pocket opens between an
      arm and the trunk. The hips sway once in four counts, as a guitarist's do, under a head that stays at the microphone, and the
-     hand at the microphone with it, a few millimetres a sway; the tambourine rides the sway; one foot taps the count. The stand and
-     the microphone's head are fitted to the canvas (`fit`): the stand widened across at each height, so its foot stays on the
-     floor, and the head every way. */
+     hand at the microphone with it, two or three centimetres a sway; the tambourine rides the sway; one foot taps the count. The
+     stand and the microphone's head are fitted to the canvas (`fit`): the stand widened across at each height, so its foot stays
+     on the floor, and the head every way. */
   function singer(role, spot, facing, { size, broad, hair, skirt, stance, toes, sway, tap, lag, mic }) {
     const p = player(role, "voice", spot, facing, size);
     p.lag = lag;
