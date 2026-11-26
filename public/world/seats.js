@@ -589,9 +589,6 @@ const RISE_EASE = 0.25, RISE_HOLD = 0.5, RISE_KEEP = 0.5;
 /* A group in a pass that moves less than half the pace it walks back at for STOOD s stands: the pass ends, and the group passes no
    one again until it is back on its seat or needs room (parting, apart). */
 const STOOD = 0.25;
-/* A group that needed room, or that the visitor's reach pushed, waits BACK_HOLD s before it walks back, and comes up to its pace over
-   BACK_EASE s more, so that it does not turn back on itself the moment the visitor stops, nor push a neighbour that turned. */
-export const BACK_HOLD = 0.5, BACK_EASE = 0.5;
 
 /* The parting: the figures make room for the visitor. Each keeps `keep` m from the visitor's middle, halfway between their bear's feet
    and its head. Ahead of the visitor, as far as they walk in `lead` s, a figure steps across their way, and beside or behind them
@@ -690,10 +687,6 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
      and whether it stood there too long to pass anyone again (apart). */
   const passing = new Int32Array(groups).fill(-1), metAt = new Uint32Array(groups), stood = new Float64Array(groups);
   const halted = new Uint8Array(groups);
-  /* When each group last moved away from its seat or needed room, in s of the walk, and how far up to its pace walking back it is
-     this frame (0-1: BACK_HOLD, BACK_EASE); 1 throughout a walk at once. */
-  const awayAt = new Float64Array(groups).fill(-Infinity), backBy = new Float64Array(groups).fill(1);
-  let atOnce = false, waiting = false;
   const visit = (g) => {
     if (seen[g] !== stamp) { seen[g] = stamp; near[count++] = g; qx[g] = gx[g]; qz[g] = gz[g]; ownX[g] = 0; ownZ[g] = 0; needy[g] = 0; }
   };
@@ -867,7 +860,7 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
   let changed = false;
   function walk(relax) {
     const mx = at[0], mz = at[1], wx = at[4], wz = at[5], dt = at[6], ahead = at[7];
-    stamp += 1; count = 0; actCount = 0; waiting = false;
+    stamp += 1; count = 0; actCount = 0;
     for (let k = 0; k < offCount; k++) visit(list[k]);
     /* The seats from `keep` behind the middle to `ahead` in front of it and `keep` to either side, and `space` round that. */
     const ex = Math.abs(wz) * keep + space, ez = Math.abs(wx) * keep + space;
@@ -912,9 +905,7 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
       if (need > most) { tx *= most / need; tz *= most / need; }
       /* At `pace`, or as fast as it must to be out of the way before the visitor's reach gets there, up to the visitor's own pace. */
       const ax = tx - gx[g], az = tz - gz[g], w = Math.sqrt(ax * ax + az * az);
-      const waited = Math.min(1, Math.max(0, (at[12] - awayAt[g] - BACK_HOLD) / BACK_EASE));
-      backBy[g] = need > 0 || atOnce ? 1 : waited * waited * (3 - 2 * waited);
-      const cap = need === 0 ? back * dt * backBy[g]
+      const cap = need === 0 ? back * dt
         : late[g] === LATE ? Math.max(pace * dt, Math.min(at[9], (w * dt) / Math.max(dt, (soon - reach) / speed))) : pace * dt;
       const t = w > cap ? cap / w : 1;
       ownX[g] = ax * t; ownZ[g] = az * t;
@@ -969,15 +960,12 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
       const g = act[k];
       const ax = gx[g] - qx[g], az = gz[g] - qz[g], o = Math.sqrt(gx[g] * gx[g] + gz[g] * gz[g]);
       far = Math.max(far, Math.sqrt(ax * ax + az * az));
-      /* A group in a pass stands while it moves less than half the pace it walks back at, as far up to that pace as it is. A pass ends
-         where the two did not meet this frame, or either is back on its seat or stood in it STOOD s; one that stood passes no one again
-         until it is back on its seat or needs room. A group that needs room or that the reach pushed waits to walk back, and the
-         frames go on while one waits. */
+      /* A group in a pass stands while it moves less than half the pace it walks back at. A pass ends where the two did not meet this
+         frame, or either is back on its seat or stood in it STOOD s; one that stood passes no one again until it is back on its seat or
+         needs room. */
       if (!relax) {
-        if (needy[g] !== 0 || o > Math.sqrt(qx[g] * qx[g] + qz[g] * qz[g]) + 1e-4) awayAt[g] = at[12];
-        else if (o >= 1e-4 && backBy[g] < 1) waiting = true;
         if (needy[g] !== 0 || o < 1e-4) { stood[g] = 0; halted[g] = 0; }
-        else if (passing[g] < 0 || Math.sqrt(ax * ax + az * az) >= 0.5 * back * at[6] * backBy[g]) stood[g] = 0;
+        else if (passing[g] < 0 || Math.sqrt(ax * ax + az * az) >= 0.5 * back * at[6]) stood[g] = 0;
         else if ((stood[g] += at[6]) >= STOOD) halted[g] = 1;
         const mate = passing[g];
         if (mate >= 0 && (metAt[g] !== stamp || o < 1e-4 || passing[mate] !== g || halted[g] !== 0 || halted[mate] !== 0)) passing[g] = -1;
@@ -1030,14 +1018,14 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
     /* At once, the figures walk on in 1/30 s steps, the visitor standing, until none moves a millimetre or a second has passed: where the
        walk would leave them; then they space themselves out where they stand. */
     if (now) {
-      at[6] = 1 / 30; at[7] = keep; atOnce = true;
+      at[6] = 1 / 30; at[7] = keep;
       for (let k = 0; k < 30; k++) { walk(false); if (at[8] <= 1e-3) break; }
       at[6] = 0; walk(true);
-      moved = false; atOnce = false;
+      moved = false;
     } else {
       at[6] = dt; at[7] = keep + (speed > 0.5 ? speed * lead : 0);
       walk(false);
-      moved = at[8] > 0 || waiting;
+      moved = at[8] > 0;
     }
     if (changed) { place(); stand(); follow(); }
     at[11] = now ? 1 : dt / RISE_EASE;
