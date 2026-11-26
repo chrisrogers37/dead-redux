@@ -17,6 +17,7 @@ import {
   walkPoses,
 } from "./assets.mjs";
 import { bandPath } from "./band.mjs";
+import { shaderProblem } from "./shader.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
 import { EASE_MS, press, RECORD_MS, RECORDINGS, step, WORLD_MS, worldStarted } from "./recordings.mjs";
 import { cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, movePointer, pressFailure, pressWorld, rideIdle, ridePages, stillInLook } from "./ride.mjs";
@@ -624,6 +625,8 @@ const showWhole = async (page, whole, where) => {
 // or a page response without the site's security headers.
 const policyProblems = new Map();
 const policyProblem = (text, where) => policyProblems.set(text, (policyProblems.get(text) ?? new Set()).add(where));
+// Each world shader that did not compile or link, with the devices and pages where it happened (shader.mjs).
+const shaderProblems = new Map();
 // How many requests the pages made to each origin, by the kind of request: what the Content-Security-Policy has to allow.
 const loaded = new Map();
 let responsesChecked = 0;
@@ -648,7 +651,11 @@ const watchPolicies = async (context, device) => {
   });
   context.on("console", (message) => {
     const text = message.text();
-    if (text.startsWith("securitypolicyviolation ") && text.includes(VERCEL_TOOLBAR)) {
+    const shader = shaderProblem(message.type(), text);
+    if (shader) {
+      const places = shaderProblems.get(shader) ?? new Set();
+      shaderProblems.set(shader, places.add(where(device, message.page())));
+    } else if (text.startsWith("securitypolicyviolation ") && text.includes(VERCEL_TOOLBAR)) {
       toolbarRefusals += 1;
     } else if (/^securitypolicyviolation |permissions[- ]policy/i.test(text)) {
       policyProblem(text.replace(/^securitypolicyviolation /, "Content-Security-Policy: "), where(device, message.page()));
@@ -1109,6 +1116,11 @@ try {
   } The policy refused Vercel's preview toolbar ${toolbarRefusals} time(s), which the run does not count.`;
   console.log(`policies: ${verdict}`);
   for (const [text, places] of policyProblems) {
+    const list = [...places];
+    failures.push(`${text}, at ${list.slice(0, 5).join(", ")}${list.length > 5 ? ` and ${list.length - 5} more` : ""}`);
+  }
+  console.log(`shaders: ${shaderProblems.size === 0 ? "every world shader compiled and linked." : `${shaderProblems.size} shader problem(s); each has its own "failure" line.`}`);
+  for (const [text, places] of shaderProblems) {
     const list = [...places];
     failures.push(`${text}, at ${list.slice(0, 5).join(", ")}${list.length > 5 ? ` and ${list.length - 5} more` : ""}`);
   }
