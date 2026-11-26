@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
 import { buildAvatar, keepOutBox } from "../../../public/world/avatar.js";
-import { hull, outside, standClear } from "../../../public/world/collide.js";
+import { CLEAR, hull, outside, standClear } from "../../../public/world/collide.js";
 import { FIRST_EYE, height } from "../../../public/world/ground.js";
 import { makeBuilders, mergeLandmarks, mergeStill, mesh, songKey, STONE_KINDS, stoneKind, titleHash } from "../../../public/world/landmarks.js";
 // The builders' own depths and tones, which the newest five's tests read and do not state again.
@@ -97,8 +97,41 @@ for (let d = 0; d < line.length; d += 0.25) { const at = line.at(d); linePoints.
 type Stand = { x: number; z: number; cos: number; sin: number; own: number; off: number };
 type Rim = [number[][], number][] | undefined;
 const DRAWN = { false: surfaceOf(80), true: surfaceOf(52) };
+// standClear is most of what a stand costs. It reads only the place on the path, the outline and the line's points, so the tests
+// hand it the same spot it gives for the whole line, for less:
+// - Each spot it gives is kept, by the place and the outline's every corner. A desktop's outline is often a phone's, and the
+//   tests stand the same outlines at the same places again and again.
+// - It is asked first with only the line's points that could come within CLEAR of the outline at the place: those nearer the
+//   place than the outline's reach, CLEAR and half a metre. The rest lie half a metre and more further off than CLEAR. If it
+//   stands the landmark at its place with those, it does with the whole line too, as no other point comes within CLEAR there.
+//   And if no spot of its search is clear of those, none is clear of the whole line, and it stays at its place either way.
+// - Else it is asked again with the points it keeps of the whole line, those nearer than the outline's reach, CLEAR and the
+//   20 m it searches (NEAR's points, or every point for an outline too wide for them). Their order does not change what it
+//   gives: it reads how far each lies only to say whether one is within CLEAR, or the least of them all.
+const NEAR = 48;
+const CLEARED = new Map<string, Map<number, { x: number; z: number }>>(), NEAREST = new Map<number, { d: Float64Array; pts: [number, number][] }>();
+const nearest = (u: number, x: number, z: number) => {
+  let near = NEAREST.get(u);
+  if (!near) {
+    const d = linePoints.map(([px, pz]) => Math.hypot(px - x, pz - z)), order = linePoints.map((_, i) => i).filter((i) => d[i] < NEAR).sort((i, j) => d[i] - d[j] || i - j);
+    NEAREST.set(u, (near = { d: Float64Array.from(order, (i) => d[i]), pts: order.map((i) => linePoints[i]) }));
+  }
+  return near;
+};
+const clearOf = (u: number, outline: number[][], at: { x: number; z: number }, turn: number) => {
+  const key = outline.join(" "), spots = CLEARED.get(key) ?? (CLEARED.set(key, new Map()).get(key) as Map<number, { x: number; z: number }>);
+  let spot = spots.get(u);
+  if (!spot) {
+    const reach = Math.max(0, ...outline.map(([px, pz]) => Math.hypot(px, pz))), { d, pts } = nearest(u, at.x, at.z);
+    const within = (r: number) => { const n = d.findIndex((v) => v >= r); return r < NEAR ? pts.slice(0, n < 0 ? d.length : n) : linePoints; };
+    const close = standClear(at.x, at.z, turn, outline, within(reach + CLEAR + 0.5));
+    spot = close.x === at.x && close.z === at.z ? close : standClear(at.x, at.z, turn, outline, within(reach + CLEAR + 21));
+    spots.set(u, spot);
+  }
+  return spot;
+};
 const standAt = (u: number, outline: number[][], rim?: Rim, phone = false): Stand => {
-  const at = path.at(u), t = path.tangentAt(u), turn = Math.atan2(t.x, t.z), stood = standClear(at.x, at.z, turn, outline, linePoints);
+  const at = path.at(u), t = path.tangentAt(u), turn = Math.atan2(t.x, t.z), stood = clearOf(u, outline, at, turn);
   return { x: stood.x, z: stood.z, cos: Math.cos(turn), sin: Math.sin(turn), own: height(stood.x, stood.z) + rimLift(rim, stood.x, stood.z, turn, DRAWN[`${phone}`]), off: Math.hypot(stood.x - at.x, stood.z - at.z) };
 };
 // How high the ground under a place of a landmark's own frame stands over the landmark's own ground: it stands level, turned
