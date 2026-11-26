@@ -336,8 +336,9 @@ const BOB = 0.12, ARM_SWING = 0.5, SWAY = 0.08, JITTER = 0.12;
 export const REST = [0.12, 0.55, 0.35];
 /* One that turns on the spot holds its arms out SPIN_OUT rad from its sides, nearly level, and a little further out and back once a
    turn, the elbows a little bent. One that bobs dances with its elbows bent, BENT[1] rad, its upper arms forward BENT[0] and its forearms
-   turned in BENT[2], not at all, so that a hand swings out from the body's line and never back across it, once in four counts; one
-   that sways, BENT[3]. As the parting stills a figure they straighten, so a still figure's arms hang as they did. */
+   turned in BENT[2], not at all, so that a hand swings out from the body's line and never back across it, once in four counts, on
+   the side it leans to: a swing out the other way ended past the lean carrying it back, and went back on itself a few millimetres
+   as the lean held. One that sways, BENT[3]. As the parting stills a figure they straighten, so a still figure's arms hang as they did. */
 const SPIN_OUT = 1.3;
 export const BENT = [0.2, 0.6, 0, 0.35];
 /* The share of the crowd that dances only a little (people). */
@@ -902,7 +903,7 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
     bool cupped = ${is("st", STAND.cup)} && side > 0.0;
     float keeps = cupped ? moves : stand;
     if (posed > 0.5 && !(bobber || waver || spinner || clapper)) { lift = poseL * keeps; fore = poseF * keeps; bend = poseB * keeps; inward = poseI; held = cupped ? 1.0 : 0.0; }
-    else if (bobber) { lift = dance * ${f(ARM_SWING)} * (0.5 + 0.5 * side * stride) * (1.0 - sit); fore = ${f(BENT[0])} * stand; bend = ${f(BENT[1])} * stand; inward = ${f(BENT[2])}; }
+    else if (bobber) { lift = dance * ${f(ARM_SWING)} * (0.5 - 0.5 * side * stride) * (1.0 - sit); fore = ${f(BENT[0])} * stand; bend = ${f(BENT[1])} * stand; inward = ${f(BENT[2])}; }
     /* One that sways swings the arm on the side it leans out, and the other in no further than 0.04 rad inside hanging, arriving
        there as the stride does, so that it never holds while the lean goes on and carries it back. */
     else if (swayer) {

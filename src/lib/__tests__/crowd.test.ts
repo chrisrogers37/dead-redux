@@ -1420,6 +1420,30 @@ describe("the crowd's shader", () => {
       return bodyFrame(f, at).in(unit([h.x - a.x, h.y - a.y, h.z - a.z]));
     }));
   }
+  // And how many times each corner of an arm turns back along the line it mostly moves on round the cycle, as the figure's own units
+  // have it, its lean and all but its turn on the spot, which is a move of its own (above). A bob's arm swung out against its lean
+  // once ended past it, and came back 2.7 mm across as the lean held: 8 turns in CYCLE, where the arm's line turned 4. A part that
+  // swings or leans goes round an arc, which passes each place once: up and down, a lean's arc dips at either end and so turns
+  // within each move, but along its own line it does not.
+  function cornerTurns(f: Figure, k: number, pose: Omit<Pose, "beat">, beats: number[]) {
+    const corners = bodyOf(k === 0 ? 3 : 4), paths = corners.map(() => [] as number[][]);
+    for (const beat of beats.slice(0, -1)) {
+      const at = { ...pose, beat }, l = mean(f, arms2[0].top, at), r = mean(f, arms2[1].top, at), a = Math.atan2(r.z - l.z, r.x - l.x), c = Math.cos(a), s = Math.sin(a);
+      corners.forEach((v, j) => { const p = put(f, v, at); paths[j].push([c * p.x + s * p.z, p.y, c * p.z - s * p.x]); });
+    }
+    return paths.map((path) => {
+      // The line it mostly moves on: the widest way of its spread about its middle.
+      const mid = [0, 1, 2].map((i) => path.reduce((sum, p) => sum + p[i], 0) / path.length), off = path.map((p) => p.map((c2, i) => c2 - mid[i]));
+      let way = [1, 0.5, 0.25];
+      for (let n = 0; n < 40; n++) {
+        const next = [0, 1, 2].map((i) => off.reduce((sum, d) => sum + d[i] * dot(d, way), 0)), length = Math.hypot(...next);
+        if (length < 1e-12) return 0;
+        way = next.map((c2) => c2 / length);
+      }
+      const along = off.map((d) => dot(d, way));
+      return turns([...along, ...along]) - turns(along);
+    });
+  }
   // And how many times its knees bend and straighten round the cycle: its hips' distance from its feet, which its lean and its turn
   // leave as it is, turning by more than a thousandth.
   const soles = rich.filter((v) => v.mark.x === 2);
@@ -1460,8 +1484,13 @@ describe("the crowd's shader", () => {
       looked += 1;
       // No arm goes out and back more than once in SLOW counts, whatever it holds, 4 turns in CYCLE at the most; but the hands of a
       // clap and at a drum, before the figure's own body, once in STRUM, 8.
-      const swings = [0, 1].map((k) => armTurns(f, k, pose, through));
-      if (Math.max(...swings) > ((2 * CYCLE) / (move === "clap" || prop === "drum" ? STRUM : SLOW))) slow.push(`${name}: ${swings}`);
+      const swings = [0, 1].map((k) => armTurns(f, k, pose, through)), most = (2 * CYCLE) / (move === "clap" || prop === "drum" ? STRUM : SLOW);
+      if (Math.max(...swings) > most) slow.push(`${name}: ${swings}`);
+      // And no corner of an arm turns back along its way more often (cornerTurns), its lean and all.
+      if (!held) for (const k of [0, 1]) {
+        const crossed = cornerTurns(f, k, pose, through);
+        if (Math.max(...crossed) > most) slow.push(`${name}, ${k === 0 ? "left" : "right"} arm's corners: ${Math.max(...crossed)}`);
+      }
       // Held still by the parting, nothing of it moves at all.
       const knees = kneeTurns(f, pose, through);
       if (held && (Math.max(...swings) > 0 || knees > 0)) still.push(name);
@@ -1506,7 +1535,7 @@ describe("the crowd's shader", () => {
     expect([0, 1].map((k) => armTurns(carrying("drum", "bob"), k, { dance: 1.2 }, through))).toEqual([8, 8]);
     expect(mean(carrying("finger", "watch"), arms2[1].hand, { beat: 0, dance: 1.2 }).y).toBeGreaterThan(TALL);
     for (const prop of CARRIED) expect([prop, kneeTurns(carrying(prop, "bob"), { dance: 1.2 }, through)]).toEqual([prop, 4]);
-  });
+  }, 60000);
 
   it("keeps a hand at what it holds through every state: the pole of a flag, a balloon's string, the legs of a child on the shoulders, a drum", () => {
     // How far the middle of each holding hand stands from the nearest corner of the thing, through the eight beats of every state,
