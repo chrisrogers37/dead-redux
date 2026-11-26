@@ -1340,6 +1340,20 @@ describe("the crowd's shader", () => {
       }
     }
     expect(moved).toBeLessThan(1e-9);
+    // And its legs and feet, which stay where they rest as a seated figure leans from its hips: every corner of them, for every
+    // figure of the test hills, dancing seated at four beats, where they lie seated with no dance. Since a cuff stays level as the
+    // figure leans, legs that leaned with it sink no cuff into the ground, so the ground test no longer catches them.
+    let legs = 0, legsLooked = 0;
+    for (const f of figures) for (const v of rich.filter((v) => (v.mark.x === 1 || v.mark.x === 2) && wears(f, v))) {
+      const rest = { ...put(f, v, { beat: 0, dance: 0, sit: 1 }) };
+      for (const [beat, dance] of [[0.5, 1.6], [1.5, 1.6], [3, 1.2], [5.4, 1.6]]) {
+        const p = put(f, v, { beat, dance, sit: 1 });
+        legs = Math.max(legs, Math.hypot(p.x - rest.x, p.y - rest.y, p.z - rest.z));
+        legsLooked += 1;
+      }
+    }
+    expect(legsLooked).toBeGreaterThan(5e4);
+    expect(legs).toBe(0);
   }, 120000);
 
   it("brings every way of moving round whole in CYCLE beats, so the phase's turn from CYCLE back to 0 moves nothing", () => {
@@ -1824,6 +1838,10 @@ describe("the crowd's shader", () => {
     expect([waist.x < -SHOULDER_X - 0.3, waist.y > 0.85 && waist.y < 1.2, waist.z < -0.08]).toEqual([true, true, true]);
     const head = bodyOf(6), tilted = mid(stanced("waistLeft"), head);
     expect(tilted.x).toBeLessThan(mid(square, head).x - 0.03);
+    // Both friends lean toward each other from the hips, and only the one whose arm is round the other's waist lays its head on
+    // further, HEAD_TO, which takes its head 0.018 on past the other's; the other's own stays up, its arm over that head.
+    expect(mid(stanced("waist"), head).x - mid(stanced("round"), head).x).toBeGreaterThan(0.012);
+    expect(mid(stanced("waistLeft"), head).x - mid(stanced("roundLeft"), head).x).toBeLessThan(-0.012);
     // Every arm of a stance hangs again as the parting stills the figure, and the cup stays held.
     for (const stand of STANDS as string[]) for (const k of [0, 1]) {
       const f = stanced(stand, "watch", stand === "cup" ? (PART.CUP as number) : 0), p = at2(f, hands[k], { beat: 0, dance: 0, still: 1, rising: 0 });
