@@ -454,8 +454,8 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
       const stout = (perPx: number) => built.map((b) => round(Math.max(b, Math.min(most, least(perPx, scale)))));
       expect([name, fine[j].map(round), ...coarser.map((at) => at[j].map(round)), whole[j].map(round)]).toEqual([name, built, ...canvases.map(stout), [most, most]]);
     });
-    // Stouter than built at the desktop's pixel, so its next test is of the fit: every forearm, hand and foot; the legs from a
-    // phone's pixel on, three times the desktop's or so.
+    // The parts the desktop's pixel leaves as built are all legs: every forearm, hand and foot is stouter than built there, so its
+    // next test is of the fit; the legs are only from a phone's pixel on, three times the desktop's or so.
     expect(fitted.filter(({ built, scale }) => Math.max(...built) >= least(DESKTOP, scale)).map(({ name }) => name).every((name) => / (thigh|shin)$/.test(name))).toBe(true);
   });
 });
