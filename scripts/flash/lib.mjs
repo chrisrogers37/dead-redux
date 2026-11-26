@@ -158,7 +158,7 @@ export function matrixJobs(name) {
 // The browser. GPU=metal renders on a Mac's GPU; unset, the browser picks its own renderer, which each result names.
 export function launch(chromium, gpu) {
   if (gpu !== "metal") console.warn("GPU is unset: the browser picks its renderer, and counts from different renderers are not comparable");
-  return chromium.launch({ args: gpu === "metal" ? ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] : [], chromiumSandbox: true });
+  return chromium.launch({ args: gpu === "metal" ? ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] : [], chromiumSandbox: !process.env.GITHUB_ACTIONS });
 }
 
 // The stepper, installed before any of the page's scripts. performance.now() is a virtual clock that only a step moves, and

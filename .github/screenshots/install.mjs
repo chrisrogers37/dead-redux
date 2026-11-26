@@ -58,9 +58,9 @@ await api.dispose();
 // Chrome answers the installability question, from a profile of its own: a browser context is off the record, and Chrome does not
 // install from there. The headless shell the shoot uses may not answer; then its answer is logged as such.
 const profile = await mkdtemp(join(tmpdir(), "install-"));
-const context = await chromium.launchPersistentContext(profile, { channel: "chrome", chromiumSandbox: true }).catch((error) => {
+const context = await chromium.launchPersistentContext(profile, { channel: "chrome", chromiumSandbox: !process.env.GITHUB_ACTIONS }).catch((error) => {
   console.log(`chrome unavailable: ${error.message.split("\n")[0]}; using the headless shell`);
-  return chromium.launchPersistentContext(profile, { chromiumSandbox: true });
+  return chromium.launchPersistentContext(profile, { chromiumSandbox: !process.env.GITHUB_ACTIONS });
 });
 try {
   const page = context.pages()[0] ?? (await context.newPage());

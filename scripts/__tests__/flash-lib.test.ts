@@ -256,14 +256,23 @@ describe("runFolder", () => {
 describe("launch", () => {
   // A browser that launches nothing and hands back what it was asked for.
   const chromium = { launch: (options: { args: string[] }) => options };
+  afterEach(() => vi.unstubAllEnvs());
 
   it("asks for the Mac's GPU under GPU=metal, and otherwise for nothing, with a warning that the renderer is the browser's choice", () => {
+    vi.stubEnv("GITHUB_ACTIONS", "");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     expect(launch(chromium, "metal")).toEqual({ args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"], chromiumSandbox: true });
     expect(warn).not.toHaveBeenCalled();
     expect(launch(chromium, "")).toEqual({ args: [], chromiumSandbox: true });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("counts from different renderers are not comparable"));
     warn.mockRestore();
+  });
+
+  it("asks for the browser's sandbox everywhere but on GitHub's runners", () => {
+    vi.stubEnv("GITHUB_ACTIONS", "");
+    expect(launch(chromium, "metal").chromiumSandbox).toBe(true);
+    vi.stubEnv("GITHUB_ACTIONS", "true");
+    expect(launch(chromium, "metal").chromiumSandbox).toBe(false);
   });
 });
 
