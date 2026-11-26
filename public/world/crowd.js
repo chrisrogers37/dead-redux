@@ -301,13 +301,15 @@ export function groundUnder(at, tall, own, other) {
   return { drop, rises, lift, other: highest(other, rises, fall), spread: lift - Math.min(...fit.map((c) => over(c, rises, fall))) };
 }
 
-/* The dance, on the figures' beat. Each figure moves one way (MOVES), as far as its own size lets it (aWear.w, 1 at the most), and
-   keeps its own phase (aFig.y, 0-1). One that bobs brings its hips down on each beat by BOB of what a fold to FOLD takes, its knees
+/* The dance, on the band's count (main.js gives the crowd band.js's, never over HALF_OVER a second and never back). Each figure
+   moves one way (MOVES), as far as its own size lets it (aWear.w, 1 at the most, and a quarter to a half for a third of them,
+   QUIET), and keeps its own phase (aFig.y, 0-1). One that bobs brings its hips down on each beat by BOB of what a fold to FOLD takes, its knees
    within JITTER of a beat of the rest, sways SWAY rad to each side over two beats and swings each arm out ARM_SWING rad as it leans
    that way. One that sways leans from the feet over four beats, its hips out and its shoulders back over them; one waves both arms
-   overhead, over four beats; one turns on the spot, there and back over eight beats, a skirt flaring as it turns; one nods with its
-   arms folded; one claps on every other beat, before its chest; one stands and watches, its hands on its hips or at its sides. A stance,
-   folded arms or hands on hips, is kept dancing or not, but let go, like the dance, as the parting stills a figure. Seated, every
+   overhead, over four beats; one turns on the spot, there and back over eight beats, its arms out and a skirt flaring as it turns;
+   one nods; one claps on every other beat, before its chest; one shifts its weight from one foot to the other and back over eight
+   beats; and one stands and watches, still. A stance, a hand on a hip, folded arms, a cup or an arm round a friend, is kept dancing
+   or not, but let go, like the dance, as the parting stills a figure. Seated, every
    arm but one that holds something (below) rests its forearm on its knee: turned out REST[0] rad at the shoulder and forward REST[1],
    and bent REST[2] forward at the elbow. An arm that hung beside a seated figure put its hand on the ground there, and from behind,
    where the figure's back hides its legs, read as the side of one sunk to its waist.
