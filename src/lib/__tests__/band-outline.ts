@@ -182,9 +182,10 @@ export function specks(tris: Tri[], cam: Camera, dx: number, dy: number, tone: S
 // pose, where a phone stretches its canvas over its screen and a pixel alone at a corner of an outline shows as a speck; at 60 for
 // every other camera, the desktops', the phone's at the stage pose and at every rung, where what is counted is the canvas's own
 // pieces. A speck that shows for 1/240 s, or for 1/60 s, is in a frame of the film, at the places of the grid it shows at. Played
-// at 960 a second, from every camera and in every line-up, the band showed none that the film does not; played at 60 for the
-// phone's screens too, it missed two: a pixel of the bass's outline, edge-on from the band pose, alone for 6 ms in two sevens, and
-// a drummer's left wrist from the back of the crowd for 3 ms, which 960 found and 240 did not (both since fitted: band.js).
+// at 960 a second, from every camera and in every line-up, the band showed no speck, no piece apart and no two players meeting that
+// the film does not; played at 60 for the phone's screens too, the film missed two specks: a pixel of the bass's outline, edge-on
+// from the band pose, alone for 6 ms in two sevens, and a drummer's left wrist from the back of the crowd for 3 ms, which 960 found
+// and 240 did not (both since fitted: band.js).
 //
 // Each frame is drawn as `draw` draws it, pixel for pixel, but in two parts: what stands still once, and what moves (the bodies that
 // move and every bone) each frame. Between two frames only the pixels where what moves has changed can change, and a piece of black
@@ -198,8 +199,10 @@ export function specks(tris: Tri[], cam: Camera, dx: number, dy: number, tone: S
 //     and each frame in which one shows at the shoot's own place of the grid (0, 0);
 //   - `alone`: the pieces of black that hold no player's trunk at the shoot's own place, from every camera but a rung;
 //   - `apart`: the pieces of black with no trunk from every phone's camera and rung at every place, but a monitor and a crash on its
-//     pole.
-type Film = { specks: string[]; counts: Map<string, number[]>; own: Map<string, string[]>; alone: Set<string>; apart: Set<string> };
+//     pole;
+//   - `joined` and `touched`: the pieces of black that hold two players' trunks or more at the shoot's own place: from every camera
+//     but a rung, each with its frame; and at a rung, the players each holds, two at a time in turn from the crowd's left.
+type Film = { specks: string[]; counts: Map<string, number[]>; own: Map<string, string[]>; alone: Set<string>; apart: Set<string>; joined: string[]; touched: Set<string> };
 const SCREENS = ["phone band", "phone crowd", "phone-360 crowd"];
 const RATE = (cam: Camera) => (CAMERAS.includes(cam) && SCREENS.includes(cam.name) ? 240 : 60);
 type Box = { x0: number; y0: number; x1: number; y1: number };
@@ -359,12 +362,37 @@ function piecesNear(w: number, h: number, on: Uint8Array, seeds: ArrayLike<numbe
   return found;
 }
 
+// The 8-connected pieces of what `on` marks in a w-by-h grid that hold a pixel of `seeds`, each followed whole: the players whose
+// trunks it holds (`trunks`, a bit a player), told to `held` where there are two or more.
+function heldTogether(w: number, h: number, on: Uint8Array, seeds: ArrayLike<number>, marks: Marks, [mine, theirs]: Uint16Array[], held: (bits: number) => void) {
+  const since = marks.n + 1, at = marks.at, stack = marks.stack;
+  for (let n = 0; n < seeds.length; n++) {
+    const s = seeds[n];
+    if (at[s] >= since || on[s] === 0) continue;
+    const me = ++marks.n;
+    let top = 0, count = 1, bits = 0;
+    stack[0] = s;
+    at[s] = me;
+    while (top < count) {
+      const o = stack[top++], x = o % w, y = (o - x) / w;
+      bits |= mine[o] | theirs[o];
+      for (let v = Math.max(0, y - 1); v <= Math.min(h - 1, y + 1); v++) for (let u = Math.max(0, x - 1); u <= Math.min(w - 1, x + 1); u++) {
+        const q = v * w + u;
+        if (at[q] >= since || on[q] === 0) continue;
+        at[q] = me;
+        stack[count++] = q;
+      }
+    }
+    if (bits & (bits - 1)) held(bits);
+  }
+}
+
 // The film, for the line-up `roles`, from each of `cams`; `label` names a piece by the players and monitors it is of. The cameras
 // whose canvases have one pixel and that play at one rate (`rate`) are played as one band, which is fitted to it (`fit`, as main.js
 // fits it unless the test says).
 export function filmOf(roles: string[], label: (bits: number) => string, cams: Camera[], { rate = RATE, seconds = 5.8, fit = pixelOf } = {}): Film {
-  const monitor = 1 << roles.length;
-  const film: Film = { specks: [], counts: new Map(), own: new Map(), alone: new Set(), apart: new Set() };
+  const monitor = 1 << roles.length, players = roles.map((_, k) => k);
+  const film: Film = { specks: [], counts: new Map(), own: new Map(), alone: new Set(), apart: new Set(), joined: [], touched: new Set() };
   const fitted = new Map<string, Camera[]>();
   for (const cam of cams) fitted.set(`${fit(cam)} ${rate(cam)}`, [...(fitted.get(`${fit(cam)} ${rate(cam)}`) ?? []), cam]);
   for (const group of fitted.values()) {
@@ -385,7 +413,7 @@ export function filmOf(roles: string[], label: (bits: number) => string, cams: C
     }
     played = playing(roles, perPx, steps);
     const views = group.map((cam) => {
-      const rung = / at rung \d$/.test(cam.name), phone = cam.name.startsWith("phone"), shot = CAMERAS.includes(cam);
+      const step = / at rung (\d)$/.exec(cam.name)?.[1], rung = !!step, phone = cam.name.startsWith("phone"), shot = CAMERAS.includes(cam);
       const band = shot && cam.name === "phone band", crowd = shot && phone && cam.name.endsWith("crowd"), screen = band || crowd, k = cam.screen, project = projector(cam);
       // The window of the canvas the band can cover, from every place of the grid, and two pixels round it: round the still parts and
       // the corners of each moving group's box on the canvas.
@@ -502,6 +530,13 @@ export function filmOf(roles: string[], label: (bits: number) => string, cams: C
                 if (phone && owners !== monitor && !(kit === 3 && crash)) film.apart.add(`${cam.name} at ${at(f)}, ${dx},${dy}: ${label(owners)}${kit ? ` (${["", "cymbal", "pole", "cymbal and pole"][kit]})` : ""}`);
               }, near);
             }
+            // The pieces that hold two players' trunks or more, at the shoot's own place of the grid: what the changed pixels are of
+            // now, for a piece can only come to hold another's trunk where it gains a pixel or a trunk's pixel.
+            if (home) heldTogether(W, win.h, on, changed, marks, [still.trunks, trunks], (bits) => {
+              const whose = players.filter((k) => bits & (1 << k));
+              if (step) for (let a = 0; a + 1 < whose.length; a++) film.touched.add(`rung ${step}: ${whose[a]} and ${whose[a + 1]}`);
+              else film.joined.push(`${cam.name} at ${at(f)}: ${whose.join(" and ")}`);
+            });
             // On a phone's screen, what of it the changed pixels reach, drawn again at night and at dusk, as `specks` mixes the four
             // canvas pixels round each; and its specks counted on.
             if (screen) {
@@ -625,14 +660,16 @@ function drawWithStage(tris: Tri[], cam: Camera) {
   return { W, H, shows, whose };
 }
 
-// The moments at which the tests see whether two players' outlines meet and whether the band keeps clear of the stage's black: at
-// rest, as the band is built (and as a visitor who asks for reduced motion sees it), and at four moments through a bar at 96 a
-// minute: each stick at its top once, the strumming arms and the singer's clapping hands at both ends of their swings, and the keys
-// player's and the organ's player's hands at the tops of their lifts, the keys' left at 1.25 s and right at 2.5 s and the organ's the
-// other way about (its left a frame short of the top). The pianist's lag puts its lift's top after 3 s, where none of these falls:
-// the lift's test draws it there (liftShown). What comes apart the film finds, in every frame (filmOf): looked for at these moments
-// alone, it was missed between them, a drummer's wrist from the back of the crowd on a phone in seven line-ups of the ten, main's
-// six among them, and the December 1971 pianist's lifted hand, a pixel at one of the 16 places from the crowd on a desktop.
+// The moments at which the tests see whether the band keeps clear of the stage's black: at rest, as the band is built (and as a
+// visitor who asks for reduced motion sees it), and at four moments through a bar at 96 a minute: each stick at its top once, the
+// strumming arms and the singer's clapping hands at both ends of their swings, and the keys player's and the organ's player's hands
+// at the tops of their lifts, the keys' left at 1.25 s and right at 2.5 s and the organ's the other way about (its left a frame short
+// of the top). The pianist's lag puts its lift's top after 3 s, where none of these falls: the lift's test draws it there
+// (liftShown). Drawn in every frame at 60 a second, from every camera and rung at the shoot's own place of the grid, no line-up came
+// within two pixels of the stage's black. What comes apart, and where two players meet, the film finds in every frame (filmOf):
+// looked for at these moments alone, a drummer's wrist from the back of the crowd on a phone was missed between them in seven
+// line-ups of the ten, main's six among them, and the December 1971 pianist's lifted hand, a pixel at one of the 16 places from the
+// crowd on a desktop; and so was the bass of the sevens of 1968-70 and 1990-92 meeting the first drummer at a phone's rungs.
 const MOMENTS = [0, 0.6, 1.25, 1.9, 2.5];
 export const PHASES = [0, 0.25, 0.5, 0.75].flatMap((dx) => [0, 0.25, 0.5, 0.75].map((dy) => [dx, dy]));
 
@@ -731,23 +768,9 @@ export function outlineChecks(name: string, day: string, bars: Bars = {}) {
 
     // And at every rung a phone steps down to, where #184's review found a player's head 6 px from the keys player's lifted hand at rung
     // 2: there two outlines may meet only where the line-up's test says so (`touch`).
-    it("keeps each player an outline of their own from every pose, at rest and through a bar, and meets another at a phone's lower rungs only where it says: no piece of black holds two players' trunks, and in no frame does one hold no trunk but a crash on its pole", () => {
-      const merged: string[] = [], touched = new Set<string>();
-      for (const cam of [...CAMERAS, ...FLASH_CAMERAS, ...RUNGS]) {
-        const rung = / at rung (\d)$/.exec(cam.name)?.[1];
-        drawn(cam).forEach((tris, t) => {
-          const { W, H, mask, trunks } = draw(tris, cam);
-          for (const piece of pieces(W, H, (o) => mask[o] !== 0)) {
-            let trunk = 0;
-            for (const o of piece) trunk |= trunks[o];
-            const whose = players.filter((k) => trunk & (1 << k));
-            if (whose.length > 1 && rung) for (let a = 0; a + 1 < whose.length; a++) touched.add(`rung ${rung}: ${whose[a]} and ${whose[a + 1]}`);
-            else if (whose.length > 1) merged.push(`${cam.name} at ${MOMENTS[t]} s: ${whose.join(" and ")}`);
-          }
-        });
-      }
-      expect(merged).toEqual([]);
-      expect([...touched].sort()).toEqual([...(bars.touch ?? [])].sort());
+    it("keeps each player an outline of their own from every pose, at rest and through a bar, and meets another at a phone's lower rungs only where it says: in no frame does a piece of black hold two players' trunks, or hold no trunk but a crash on its pole", () => {
+      expect(film().joined).toEqual([]);
+      expect([...film().touched].sort()).toEqual([...(bars.touch ?? [])].sort());
       // What stands apart is a drummer's crash on its pole, which stands out past its kit on the drummer's left, clear of every outline,
       // so that it reads as a cymbal, and a monitor at the stage's lip, which is no one's: which crashes, the line-up's test says
       // (`apart`). With the six it is the second drummer's; the first's stands on its kit's floor tom.

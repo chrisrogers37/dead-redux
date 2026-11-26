@@ -371,11 +371,12 @@ const DEAL = {
 /* What a player changes in a line-up that stands close (STAGING `close`), the sevens, for whom the light panel is narrow: the lead
    guitar's and the bass's necks rise steeper, as the rhythm guitar's does in every line-up, so that they reach less far across;
    the first kit's floor tom and the second's crash stand nearer their drummers; and every player stands a twentieth smaller
-   (`size`), so that seven stand apart where six did. The bass's rises to 1.07: edge-on from a phone's band pose, a pixel of the
-   bass's outline stood alone for a frame as it took up playing at 1.02, and for 6 ms at 1.04; at 1.05 the bass met the first
-   drummer at the phone's first rung down, and at 1.06 its neck's head stood as high as the organ's player's head. At 1.07 it
-   meets the first drummer at no rung. */
-const CLOSE = { lead: { hold: { rise: 0.95 } }, bass: { hold: { rise: 1.07 } },
+   (`size`), so that seven stand apart where six did. The bass's rises to 1.09, between what fails each way: below it, edge-on
+   from a phone's band pose, a pixel of the bass's outline stood alone as it took up playing (for a frame at 1.02, 6 ms at 1.04),
+   and the bass met the first drummer at a phone's lower rungs (at 1.07, from the stage pose at the first rung down and from the
+   back of the crowd at the last); above it, from the back of the crowd on a phone at dusk, a speck stood alone at the shoot's own
+   place of the pixel grid (1.11). */
+const CLOSE = { lead: { hold: { rise: 0.95 } }, bass: { hold: { rise: 1.09 } },
   drums: [{ floor: { x: 0.42 } }, { crash: { x: 0.52 } }], size: 0.95 };
 /* A player's deal as their line-up stands them: as dealt, with what a close line-up changes, and what their own staging changes. */
 function dealt(role, k, close, over) {

@@ -43,15 +43,19 @@ describe("the outlines' cameras", () => {
 // This holds it to drawing each frame whole, as `draw` does, and counting as `specks` and `pieces` do: with the six as built, not
 // fitted to the canvas, so that their parts come apart: from the path on a desktop drawn at a quarter of its pixels each way, from
 // the band pose and the back of the crowd on a phone, and from there at the phone's lowest rung, through the first quarter of a
-// second, at three places of the grid.
+// second, at three places of the grid; and from a camera so small that they meet.
 describe("the outlines' film", () => {
-  it("finds frame by frame what drawing each frame whole finds: the same specks, the same counts of them and the same pieces with no trunk", () => {
+  it("finds frame by frame what drawing each frame whole finds: the same specks, the same counts of them, the same pieces with no trunk and the same that hold two players' trunks", () => {
     const roles = ["lead", "rhythm", "bass", "drums", "drums", "keys"], n = roles.length, seconds = 0.25, places = [[0, 0], [0.5, 0.25], [0.75, 0.75]];
     const label = (bits: number) => [...roles.map((_, k) => k).filter((k) => bits & (1 << k)).map(String), ...(bits & (1 << n) ? ["monitor"] : [])].join(" and ");
     const path = CAMERAS.find((c) => c.name === "desktop path")!, small = { ...path, name: "desktop path at a quarter", cols: path.cols / 4, rows: path.rows / 4 };
-    const cams = [small, ...["phone band", "phone crowd", "phone crowd at rung 3"].map((name) => [...CAMERAS, ...RUNGS].find((c) => c.name === name)!)];
+    const [band, crowd, low] = ["phone band", "phone crowd", "phone crowd at rung 3"].map((name) => [...CAMERAS, ...RUNGS].find((c) => c.name === name)!);
+    // Where the band is a pixel or two a player, so that they meet: the back of the crowd on a phone at a sixth of its lowest rung's
+    // pixels each way, taken as a rung and as not.
+    const least = { ...low, name: "phone crowd at rung 9", cols: Math.round(low.cols / 6), rows: Math.round(low.rows / 6) }, tiny = { ...least, name: "phone crowd at a sixth of rung 3" };
+    const cams = [small, tiny, band, crowd, low, least];
     const film = filmOf(roles, label, cams, { rate: () => 60, seconds, fit: () => 0 }), played = playing(roles, 0);
-    const found = { specks: [] as string[], counts: [] as string[], apart: new Set<string>(), alone: new Set<string>() }, got = { counts: [] as string[] };
+    const found = { specks: [] as string[], counts: [] as string[], apart: new Set<string>(), alone: new Set<string>(), joined: new Set<string>(), touched: new Set<string>() }, got = { counts: [] as string[] };
     for (let f = 0; f <= seconds * 60; f++) {
       played.to(f);
       const tris = Array.from({ length: played.n }, (_, t) => ({ at: [0, 1, 2].map((c) => new THREE.Vector3(...played.world.slice(t * 9 + c * 3, t * 9 + c * 3 + 3))), owner: played.owner[t], trunk: played.trunk[t] === 1, crash: ["", "cymbal", "pole"][played.crash[t]], bone: "" }));
@@ -71,6 +75,9 @@ describe("the outlines' film", () => {
         for (const piece of pieces(W, H, (o) => mask[o] !== 0)) {
           let trunk = 0, owners = 0, kit = 0;
           for (const o of piece) { trunk |= trunks[o]; owners |= mask[o]; kit |= crashes[o]; }
+          const whose = roles.map((_, k) => k).filter((k) => trunk & (1 << k));
+          if (dx === 0 && dy === 0 && whose.length > 1 && rung) for (let a = 0; a + 1 < whose.length; a++) found.touched.add(`rung ${cam.name.slice(-1)}: ${whose[a]} and ${whose[a + 1]}`);
+          else if (dx === 0 && dy === 0 && whose.length > 1) found.joined.add(`${cam.name} at ${at}: ${whose.join(" and ")}`);
           if (trunk) continue;
           const crash = piece.every((o) => crashes[o]);
           if (dx === 0 && dy === 0 && !rung) found.alone.add(`${label(owners)}${crash ? " crash" : ""}`);
@@ -79,8 +86,8 @@ describe("the outlines' film", () => {
       }
     }
     const atPlaces = (line: string) => places.some(([dx, dy]) => line.includes(`, ${dx},${dy},`) || line.includes(`, ${dx},${dy}:`));
-    // As built, the six come apart in every one of these ways.
-    expect([found.specks.length > 0, found.counts.some((line) => !line.endsWith(": 0")), found.apart.size > 0]).toEqual([true, true, true]);
+    // As built, the six come apart in every one of these ways; and they meet, at a rung and not.
+    expect([found.specks.length > 0, found.counts.some((line) => !line.endsWith(": 0")), found.apart.size > 0, found.joined.size > 0, found.touched.size > 0]).toEqual([true, true, true, true, true]);
     expect(film.specks.filter(atPlaces).sort()).toEqual(found.specks.sort());
     expect(got.counts).toEqual(found.counts);
     // The film tells of a piece with no trunk in the frame it comes, or changes, in; drawn whole, in every frame it stands.
@@ -88,6 +95,10 @@ describe("the outlines' film", () => {
     expect(apart.filter((line) => !found.apart.has(line))).toEqual([]);
     expect([...new Set([...found.apart].map(timeless))].sort()).toEqual([...new Set(apart.map(timeless))].sort());
     expect([...film.alone].sort()).toEqual([...found.alone].sort());
+    // So too a piece that holds two players' trunks, but at a rung, where the pairs that meet are told.
+    expect(film.joined.filter((line) => !found.joined.has(line))).toEqual([]);
+    expect([...new Set([...found.joined].map((line) => line.replace(/ at [\d.]+ s:/, ":")))].sort()).toEqual([...new Set(film.joined.map((line) => line.replace(/ at [\d.]+ s:/, ":")))].sort());
+    expect([...film.touched].sort()).toEqual([...found.touched].sort());
   }, 60_000);
 });
 
