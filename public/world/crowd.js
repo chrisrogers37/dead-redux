@@ -604,7 +604,7 @@ export function people(placed) {
 
 /* How each of the people `who` at the seats `placed` stands and sits, its stance (STANDS, SITS), the same for the same seats every
    day. It is dealt a group at a time, in the seats' order, so a crowd of whole groups (wholeGroups) stands as a larger one's first
-   groups do; and no figure within NEIGHBOUR m of another is in another group (seats.js). In a group, two friends side by side, of a
+   groups do, its neighbours in the groups before it among those it is unlike. In a group, two friends side by side, of a
    height, facing the same way, neither a child nor holding anything, whose ways of moving leave their arms to them (FREE), stand
    together as often as PAIRS says: the taller's arm round the other's shoulders, the other's round its waist. Then each figure takes
    the first stance its stream draws (STANDING, SEATED) whose pose no figure within NEIGHBOUR m of it has: standing, what its arms do
@@ -664,7 +664,7 @@ export function stances(placed, who, fits = () => true) {
     for (let i = g0; i < g1; i++) {
       const p = who[i], seat = placed[i], r = stream(0x6c8e9cf5 * (i + 1));
       const near = [];
-      for (let j = g0; j < g1; j++) if (j !== i && (j < i || paired.has(j)) && Math.hypot(placed[j].x - seat.x, placed[j].z - seat.z) < NEIGHBOUR) near.push(j);
+      for (let j = 0; j < g1; j++) if (j !== i && (j < i || paired.has(j)) && Math.hypot(placed[j].x - seat.x, placed[j].z - seat.z) < NEIGHBOUR) near.push(j);
       if (!paired.has(i)) {
         const legsOnly = p.prop !== "none" || !FREE.includes(p.move);
         const weights = Object.fromEntries(Object.entries(STANDING).filter(([name]) => (!legsOnly || LEGS_ONLY.includes(name)) && !(name === "cup" && young(p)))

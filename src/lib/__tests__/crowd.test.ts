@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import {
   buildCrowd, COLOURS, CUT, CYCLE, DROP, FEET, figureGeometry, FOLD, FOOT, groundUnder, HAND, HANG, inView, KNEES, LEG, LYING, MOST, MOVES, only, OUTLINE, outlineOf, PART,
-  partingOptions, people, PLAIN_LEAVES_OUT, plainly, PROP_EVERY, PROPS, SEAT, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, TALL, tone, TOP, wearing, without,
+  partingOptions, people, PLAIN_LEAVES_OUT, plainly, poseOf, PROP_EVERY, PROPS, QUIET, SEAT, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, TALL, tone, TOP, wearing, without,
 } from "../../../public/world/crowd.js";
 import { FACING, height, STAGE, STAGE_COLUMN, TEST_POSES } from "../../../public/world/ground.js";
 import { makeBuilders } from "../../../public/world/landmarks.js";
@@ -299,6 +299,13 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect(crowd.mesh.children).toEqual([]);
     expect(Array.isArray(crowd.mesh.material)).toBe(false);
     expect(crowd.mesh.geometry.groups).toEqual([]);
+    // So on every tier, a desktop's, a TV's and a phone's, its stances and its cup with the rest: a scene with the crowd in it and nothing
+    // else draws one thing.
+    for (const [count, plain] of [[Infinity, false], [250, true], [150, true]] as const) {
+      const own = new THREE.Scene(), c = buildCrowd(own, { count, path, line, landmarks, plain });
+      expect([own.children.length, own.children[0] === c.mesh, c.mesh.children.length, Array.isArray(c.mesh.material), c.mesh.geometry.groups.length]).toEqual([1, true, 0, false, 0]);
+      expect(c.figure.getAttribute("aMark").array.some((_: number, k: number) => k % 4 === 1 && c.figure.getAttribute("aMark").array[k] === PART.CUP)).toBe(true);
+    }
     expect(crowd.count).toBe(placedOf.get(crowd)!.length);
     expect(phone.count).toBe(wholeGroups(placedOf.get(crowd)!, 150));
     expect(phone.count).toBeGreaterThan(144);
@@ -1936,6 +1943,56 @@ describe("the crowd's people", () => {
       expect([seed, patches]).toEqual([seed, 0]);
     }
   }, 30000);
+
+  it("stand and sit each unlike its neighbours: no two within 1.6 m share a pose, standing or seated, and every way of standing and sitting has its share", () => {
+    // A figure's pose standing is what its arms do and which leg its weight is on (poseOf); seated, how it sits and what it holds. Read
+    // from each figure's own numbers on three hills, a desktop's whole crowd each.
+    const stanceOf = (c: typeof crowd, i: number) => { const st = Math.floor(c.each.aWear[4 * i + 1] / 16384); return { stand: (STANDS as string[])[st % 16], sit: (SITS as string[])[Math.floor(st / 16)] }; };
+    const share: Record<string, number> = {};
+    let clashes = 0, pairs = 0, standing = 0, seated = 0, friends = 0;
+    for (const c of hills) {
+      const placed = placedOf.get(c)!, who = peopleOf(c), dealt = placed.map((_, i) => stanceOf(c, i));
+      placed.forEach((seat, i) => {
+        const key = `${seat.sit ? "sit" : "stand"} ${seat.sit ? dealt[i].sit : dealt[i].stand}`;
+        share[key] = (share[key] ?? 0) + 1;
+        if (seat.sit) seated += 1; else standing += 1;
+        if (["round", "roundLeft"].includes(dealt[i].stand)) friends += 1;
+        for (let j = i + 1; j < placed.length; j++) {
+          if (Math.hypot(placed[j].x - seat.x, placed[j].z - seat.z) >= 1.6) continue;
+          pairs += 1;
+          if (poseOf(who[i], dealt[i].stand) === poseOf(who[j], dealt[j].stand)) clashes += 1;
+          if (`${dealt[i].sit} ${who[i].prop}` === `${dealt[j].sit} ${who[j].prop}`) clashes += 1;
+        }
+      });
+    }
+    expect(pairs).toBeGreaterThan(300);
+    expect(clashes).toBe(0);
+    // Every way of standing and of sitting is there; on one leg or the other, about half of those that stand; none is over 40 % of its
+    // kind, and the least is one in a hundred: the arm round a friend, in pairs, and lying back, on a blanket.
+    for (const stand of STANDS as string[]) expect([stand, (share[`stand ${stand}`] ?? 0) > 0]).toEqual([stand, true]);
+    for (const sit of SITS as string[]) expect([sit, (share[`sit ${sit}`] ?? 0) > 0]).toEqual([sit, true]);
+    const of = (kind: string, names: string[]) => names.reduce((n, name) => n + (share[`${kind} ${name}`] ?? 0), 0) / (kind === "sit" ? seated : standing);
+    expect(of("stand", ["left", "right"])).toBeGreaterThan(0.4);
+    expect(of("stand", ["left", "right"])).toBeLessThan(0.65);
+    expect(Math.max(...(STANDS as string[]).map((name) => of("stand", [name])), ...(SITS as string[]).map((name) => of("sit", [name])))).toBeLessThan(0.4);
+    expect(of("sit", ["recline"])).toBeGreaterThan(0.005);
+    expect(friends).toBeGreaterThan(1);
+    // Friends stand in twos: as many hold the other round its waist as round its shoulders.
+    expect((STANDS as string[]).filter((name) => name.startsWith("waist")).reduce((n, name) => n + (share[`stand ${name}`] ?? 0), 0)).toBe(friends);
+  });
+
+  it("dance as far as each will: a third only a little, a quarter to a half as far as the rest, and the rest from 0.62 of the way to all of it", () => {
+    // How far a figure dances is its aWear.w (DANCE), drawn with its person (QUIET).
+    const sizes = [...SHOWS.flatMap(({ desktop }) => figuresOf(desktop)), ...figures].map((f) => f.wear.w);
+    const quiet = sizes.filter((w) => w < 0.5);
+    expect(sizes.length).toBeGreaterThan(900);
+    expect(quiet.length / sizes.length).toBeGreaterThan(QUIET - 0.06);
+    expect(quiet.length / sizes.length).toBeLessThan(QUIET + 0.06);
+    expect(Math.min(...sizes)).toBeGreaterThanOrEqual(0.25);
+    expect(Math.min(...sizes.filter((w) => w >= 0.5))).toBeGreaterThanOrEqual(0.62);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(1);
+    expect(QUIET).toBeCloseTo(1 / 3, 1);
+  });
 
   it("move in a mix: no figure's four nearest all move its way, a few children stand among the adults, and no child carries more than a balloon", () => {
     for (const { who, placed } of all) {
