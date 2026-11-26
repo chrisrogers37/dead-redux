@@ -39,11 +39,25 @@ export const PART = {
   PACK: 4096, ROLL: 8192, POLE: 16384, FLAG: 32768, STAND: 65536, BALLOON: 131072, HOOP: 262144, DRUM: 524288, RIDER: 1048576,
   FINGER: 2097152, CUP: 4194304,
 };
-export const PLAIN_LEAVES_OUT = ["WREATH", "TAIL2", "BEARD", "ROLL", "HOOP", "DRUM", "RIDER"];
+export const PLAIN_LEAVES_OUT = ["WREATH", "TAIL2", "BEARD", "ROLL", "HOOP", "DRUM"];
+/* Some parts come in several shapes, its forms, each its own piece of the one geometry: a figure that wears the part wears one of
+   them, and buildCrowd puts that one in the mesh for it and no other, so a form costs triangles only for the figures that wear it.
+   The first of each list is the part as it was. A crown is a hat's, a tall knit cap's, a jester's three points or a hat's with a
+   plume; a wreath is a lumpy ring or flowers that stand up from it; the hair down the back of the head is a tube, dreadlocks or a high
+   bun; a pole stands straight up beside the head or leans in over it; on it flies a flag, cut square, with a swallowtail, as a
+   pennant or as streamers, or stands a star, a moon, a parasol or a puppet's head; a balloon is one or three; and the hand held up
+   holds up a finger, a hat or a tambourine. A vertex carries its form in aMark.z, over the tint (TINTS). */
+export const FORMS = {
+  CROWN: ["crown", "knit", "jester", "plume"], WREATH: ["wreath", "flowers"], HAIR: ["hair", "dreads", "bun"], POLE: ["straight", "lean"],
+  FLAG: ["oblong", "swallowtail", "pennant", "streamer", "star", "moon", "parasol", "puppet"], BALLOON: ["one", "bunch"], FINGER: ["finger", "aloft", "tambourine"],
+};
+const FORM = Object.fromEntries(Object.entries(FORMS).map(([name, list]) => [name, Object.fromEntries(list.map((form, k) => [form, k]))]));
+/* aMark.z is a tint (TINT) and TINTS times a form. */
+export const TINTS = 16;
 /* How a part hangs on the figure (aMark.x): with its body, on a leg or a foot, on an arm, round the legs as a skirt does, on its head,
    or standing on the ground beside it. */
 const RIG = { BODY: 0, LEG: 1, FOOT: 2, ARM_L: 3, ARM_R: 4, SKIRT: 5, HEAD: 6, GROUND: 7 };
-/* Whose colour a face takes (aMark.z): its top's (the figure's own colour, at each corner), or one of the four tones the figure carries (aTone): its
+/* Whose colour a face takes (aMark.z, in its ones of TINTS): its top's (the figure's own colour, at each corner), or one of the four tones the figure carries (aTone): its
    legs', its hair's, its own dark and its things'. A shin is bare under shorts, a forearm under short sleeves, a skirt is a long
    shirt's tail on some, and a scalp is bare on the bald. */
 const TINT = { TOP: 0, LEGS: 1, HAIR: 2, SELF: 3, THING: 4, SHIN: 5, FOREARM: 6, SKIRT: 7, SCALP: 8, SHOE: 9 };
@@ -54,7 +68,8 @@ export const CUT = { BELLS: 1, SHORTS: 2, BARE: 4, TUNIC: 8, AFRO: 16, BALD: 32,
    hold a finger up, hold a child's legs, drum, or lift a hoop. */
 export const MOVES = ["bob", "sway", "wave", "spin", "nod", "clap", "watch", "shift"];
 const MOVE = Object.fromEntries(MOVES.map((name, k) => [name, k]));
-const ARMS = { none: 0, flag: 1, balloon: 1, finger: 2, rider: 3, drum: 4, hoop: 5, stand: 0 };
+const ARMS = { none: 0, flag: 1, swallowtail: 1, pennant: 1, streamer: 1, star: 1, moon: 1, parasol: 1, puppet: 1, balloon: 1, bunch: 1, finger: 2, aloft: 2,
+  tambourine: 2, rider: 3, drum: 4, hoop: 5, stand: 0 };
 /* How a figure stands (STANDS) and how it sits (SITS), its stance, which no neighbour shares (stances). Standing: square on both feet;
    its weight on its left leg or its right, the hip out over that foot and the other knee bent; a hand on its hip, both on its hips,
    its arms folded, a cup in its right hand, its hands behind its back, an arm round a friend's shoulders, an arm round a friend's
@@ -102,26 +117,36 @@ function rope(points, radii, sides) {
   return new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(out), 3));
 }
 
+/* A flat piece cut to the outline `points` ([x, y] each, in turn round it), `thick` through about the depth `z`. */
+function slab(points, z, thick) {
+  const shape = new THREE.Shape(points.map(([x, y]) => new THREE.Vector2(x, y)));
+  return new THREE.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: false, steps: 1, curveSegments: 1 }).translate(0, 0, z - thick / 2);
+}
+
 /* Where the hair starts on a head and a tail on its back, the foot of a hat's crown, a tail's place to one side, and how far a big
    round head of hair stands out from the head. */
 const HAIR_TOP = 1.775, TAIL_TOP = 1.6, CROWN_FOOT = 1.7076, TAIL_X = 0.09, AFRO = 0.75;
+/* How small a hat or a tambourine held up is in the fist, as it is built and as the parting brings the arm down: the shader grows it
+   to its size as the arm goes up. */
+const TUCK = 0.25;
 /* How far a head's vertex is hair, 0 at the face and 1 over the top and the back: where a big round head of hair grows from. */
 const hairy = (x, y, z) => Math.min(1, Math.max(0, 0.5 + ((y - HEAD_Y) * 0.9 - z) / 0.12));
 
-/* The figure's geometry: the body, then every part of PART, each vertex marked (aMark) with how it hangs (RIG), its part's bit (0 for
-   the body), whose colour its face takes (TINT) and, where a part bends or flies, how far along it the vertex lies. `plain` builds a
-   plain one. Nothing on a figure reads a texture, so its vertices carry no texture coordinates. */
+/* The figure's geometry: the body, then every form of every part of PART, each vertex marked (aMark) with how it hangs (RIG), its
+   part's bit (0 for the body), whose colour its face takes (TINT) and which form of its part it is (FORMS), and, where a part bends or
+   flies, how far along it the vertex lies. `plain` builds a plain one. Nothing on a figure reads a texture, so its vertices carry no
+   texture coordinates. */
 export function figureGeometry(plain = false) {
   const parts = [], leftOut = new Set(plain ? PLAIN_LEAVES_OUT.map((name) => PART[name]) : []);
-  /* Adds a piece: its corners alone, each marked. A face's colour is `tint`, or what `tint` makes of the middle of the face. A plain
-     figure takes no piece of a part it leaves out. */
-  const add = (geo, rig, bit, tint, weight = null) => {
+  /* Adds a piece, of its part's form `form`: its corners alone, each marked. A face's colour is `tint`, or what `tint` makes of the
+     middle of the face. A plain figure takes no piece of a part it leaves out. */
+  const add = (geo, rig, bit, tint, weight = null, form = 0) => {
     if (leftOut.has(bit)) return;
     const g = geo.index ? geo.toNonIndexed() : geo;
     for (const name of ["uv", "normal"]) g.deleteAttribute(name);
     const p = g.attributes.position, m = new Float32Array(4 * p.count), middle = (t, k) => (p.getComponent(t, k) + p.getComponent(t + 1, k) + p.getComponent(t + 2, k)) / 3;
     for (let t = 0; t < p.count; t += 3) {
-      const tone = typeof tint === "function" ? tint(middle(t, 0), middle(t, 1), middle(t, 2)) : tint;
+      const tone = (typeof tint === "function" ? tint(middle(t, 0), middle(t, 1), middle(t, 2)) : tint) + TINTS * form;
       for (let k = t; k < t + 3; k++) m.set([rig, bit, tone, weight ? weight(p.getX(k), p.getY(k), p.getZ(k)) : 0], 4 * k);
     }
     g.setAttribute("aMark", new THREE.BufferAttribute(m, 4));
@@ -187,12 +212,13 @@ export function figureGeometry(plain = false) {
   add(new THREE.CylinderGeometry(0.062, 0.062, 0.36, 6).rotateZ(Math.PI / 2).translate(0, 1.5, -0.19), RIG.BODY, PART.ROLL, TINT.LEGS);
 
   /* In the hands and overhead. A pole in the right hand, and a flag on it over the head, which waves from the pole out (its weight
-     along it); a balloon over the right shoulder on a string from that hand, which leans from the hand up. */
+     along it); a balloon over the right shoulder on a string from that hand, which goes up past the head a hand's breadth out and
+     leans from the hand up. */
   add(new THREE.CylinderGeometry(0.015, 0.015, 1.38, round(4, 3)).translate(0.3, 1.55, 0.075), RIG.BODY, PART.POLE, TINT.SHOE);
   add(new THREE.BoxGeometry(0.5, 0.38, 0.014, round(3, 1), 1, 1).translate(0.05, 2.045, 0.075), RIG.BODY, PART.FLAG, TINT.THING, (x) => (0.3 - x) / 0.5);
   const lift = (x, y) => Math.min(1, Math.max(0, (y - 0.885) / 1.1));
   add(new THREE.SphereGeometry(0.12, round(7, 6), 4).scale(1, 1.18, 1).translate(0.2, 2.098, -0.03), RIG.BODY, PART.BALLOON, TINT.THING, lift);
-  add(rope([[0.285, 0.885, 0.03], [0.2, 1.96, -0.03]], [0.008, 0.008], 3), RIG.BODY, PART.BALLOON, TINT.SHOE, lift);
+  add(rope([[0.285, 0.885, 0.03], [0.3, 1.7, 0], [0.2, 1.96, -0.03]], [0.008, 0.008, 0.008], 3), RIG.BODY, PART.BALLOON, TINT.SHOE, lift);
   /* A taper's stand before the left foot, on the ground: a pole to over the head, a bar across its top and, but on a plain figure, a
      microphone at each end. */
   add(new THREE.CylinderGeometry(0.014, 0.014, 2.2, 4, 1, true).translate(STAND_X, 1.1, STAND_Z), RIG.GROUND, PART.STAND, TINT.SHOE);
@@ -215,18 +241,83 @@ export function figureGeometry(plain = false) {
     add(rope([[side * 0.06, 1.58, -0.06], [side * 0.115, 1.57, 0.11], [side * 0.115, 1.33, 0.16]], [0.04, 0.036, 0.03], 3), RIG.BODY, PART.RIDER, TINT.LEGS);
     add(rope([[side * 0.1, 1.8, -0.1], [side * 0.2, 2.03, -0.08]], [0.03, 0.024], 3), RIG.BODY, PART.RIDER, TINT.THING);
   }
+  /* The other forms of a crown, each on the head as a hat's crown is and raised from CROWN_FOOT as its own number says (aCut.z): a
+     tall knit cap whose tip bends back, with a bobble on it; a jester's cap, its three points out to either side and up behind, each
+     with a bell; and a hat's crown with a plume standing up from its band and curling back. */
+  add(tube([{ y: 2.02, rx: 0.025, cz: -0.12 }, { y: 1.95, rx: 0.07, cz: -0.06 }, { y: 1.85, rx: 0.12, rz: 0.125, cz: -0.015 }, { y: 1.72, rx: 0.145, rz: 0.152 }],
+    round(8, 6), { top: true }), RIG.HEAD, PART.CROWN, TINT.THING, null, FORM.CROWN.knit);
+  add(new THREE.IcosahedronGeometry(0.042, 0).translate(0, 2.035, -0.135), RIG.HEAD, PART.CROWN, TINT.LEGS, null, FORM.CROWN.knit);
+  add(tube([{ y: 1.83, rx: 0.1, rz: 0.105, cz: -0.01 }, { y: 1.72, rx: 0.145, rz: 0.152 }], round(8, 6), { top: true }), RIG.HEAD, PART.CROWN, TINT.THING, null, FORM.CROWN.jester);
+  for (const [point, tint] of [[[[-0.07, 1.8, 0], [-0.19, 1.88, -0.01], [-0.27, 1.82, -0.02], [-0.29, 1.71, -0.03]], TINT.THING],
+    [[[0.07, 1.8, 0], [0.19, 1.88, -0.01], [0.27, 1.82, -0.02], [0.29, 1.71, -0.03]], TINT.LEGS], [[[0, 1.82, -0.05], [0, 1.95, -0.1], [0, 2.0, -0.19], [0, 1.94, -0.25]], TINT.THING]]) {
+    add(rope(point, [0.05, 0.035, 0.022, 0.012], round(4, 3)), RIG.HEAD, PART.CROWN, tint, null, FORM.CROWN.jester);
+    add(new THREE.OctahedronGeometry(0.032, 0).translate(...point[3]), RIG.HEAD, PART.CROWN, TINT.SHOE, null, FORM.CROWN.jester);
+  }
+  add(new THREE.CylinderGeometry(0.118, 0.137, 0.1, round(8, 6)).translate(0, TALL - 0.05, 0), RIG.HEAD, PART.CROWN, TINT.THING, null, FORM.CROWN.plume);
+  add(rope([[0.11, 1.78, -0.03], [0.14, 1.9, -0.08], [0.15, 2.0, -0.16], [0.13, 2.05, -0.24]], [0.02, 0.03, 0.022, 0.006], round(4, 3)), RIG.HEAD, PART.CROWN, TINT.LEGS,
+    null, FORM.CROWN.plume);
+  /* Flowers on the crown of the head: a thin ring and seven blooms standing up and out from it. */
+  add(new THREE.TorusGeometry(0.118, 0.02, 3, round(7, 6)).rotateX(Math.PI / 2).translate(0, HEAD_Y + 0.11, 0), RIG.HEAD, PART.WREATH, TINT.LEGS, null, FORM.WREATH.flowers);
+  for (let k = 0; k < 7; k++) {
+    const a = (2 * Math.PI * k) / 7 + 0.22;
+    add(new THREE.OctahedronGeometry(0.044, 0).translate(0.125 * Math.sin(a), HEAD_Y + 0.15, 0.125 * Math.cos(a)), RIG.HEAD, PART.WREATH, TINT.THING, null, FORM.WREATH.flowers);
+  }
+  /* Dreadlocks, from round the back and sides of the head out and down: the long ones behind, which the figure's own length lets down
+     (their weight, aMark.w), and the short ones at the sides, which end over the shoulders whatever it. A high bun on the crown. */
+  const LOCKS = plain ? [[0, 1.38, 0.2, 1], [0.8, 1.42, 0.21, 0.9], [1.6, 1.58, 0.18, 0]]
+    : [[0, 1.38, 0.2, 1], [0.5, 1.4, 0.2, 1], [1, 1.44, 0.21, 0.8], [1.5, 1.58, 0.18, 0], [2, 1.6, 0.16, 0]];
+  for (const [turn, end, out, long] of LOCKS) for (const side of turn === 0 ? [1] : [-1, 1]) {
+    const at = (r, y) => [r * side * Math.sin(turn), y, -r * Math.cos(turn) - 0.03];
+    add(rope([at(0.11, 1.77), at(0.165, 1.63), at(out, end)], [0.03, 0.027, 0.02], 3), RIG.HEAD, PART.HAIR, TINT.HAIR, () => long, FORM.HAIR.dreads);
+  }
+  add(new THREE.IcosahedronGeometry(0.08, round(1, 0)).scale(1, 0.9, 1).translate(0, 1.86, -0.05), RIG.HEAD, PART.HAIR, TINT.HAIR, null, FORM.HAIR.bun);
+
+  /* A pole that leans in from the hand to stand its top over the head, and what stands on it: a star, a moon on its back, a parasol and
+     a puppet's head in a ruff. And what else flies from a straight pole, from its top out over the head: a swallowtail, a pennant and
+     two streamers, which wave from the pole out as the square flag does. None of them is printed with anything. */
+  const flies = (x) => Math.min(1, Math.max(0, (0.3 - x) / 0.56));
+  add(rope([[0.3, 0.86, 0.075], [0.14, 2.24, 0]], [0.015, 0.015], round(4, 3)), RIG.BODY, PART.POLE, TINT.SHOE, null, FORM.POLE.lean);
+  add(slab([[0.3, 1.86], [0.3, 2.235], [-0.22, 2.235], [-0.07, 2.0475], [-0.22, 1.86]], 0.075, 0.014), RIG.BODY, PART.FLAG, TINT.THING, flies, FORM.FLAG.swallowtail);
+  add(slab([[0.3, 1.99], [0.3, 2.235], [-0.26, 2.11]], 0.075, 0.014), RIG.BODY, PART.FLAG, TINT.THING, flies, FORM.FLAG.pennant);
+  for (const [y, wide, far, tint] of [[2.2, 0.035, -0.28, TINT.THING], [2.07, 0.03, -0.2, TINT.LEGS]]) {
+    const along = Array.from({ length: 6 }, (_, k) => [0.3 + ((far - 0.3) * k) / 5, y + 0.03 * Math.sin(2.4 * k)]), half = (k) => wide * (1 - 0.7 * (k / 5));
+    add(slab([...along.map(([x, v], k) => [x, v + half(k)]), ...along.map(([x, v], k) => [x, v - half(k)]).reverse()], 0.075, 0.012), RIG.BODY, PART.FLAG, tint, flies, FORM.FLAG.streamer);
+  }
+  const star = Array.from({ length: 10 }, (_, k) => [0.14 + (k % 2 ? 0.072 : 0.17) * Math.sin((Math.PI * k) / 5), 2.3 + (k % 2 ? 0.072 : 0.17) * Math.cos((Math.PI * k) / 5)]);
+  add(slab(star, 0, 0.02), RIG.BODY, PART.FLAG, TINT.THING, null, FORM.FLAG.star);
+  /* The moon: the part of a circle 0.15 round (0.14, 2.34) outside one 0.125 round a point 0.075 over that, its thick middle below. */
+  const arc = (cy, r, from, to) => Array.from({ length: 9 }, (_, k) => { const a = from + ((to - from) * k) / 8; return [0.14 + r * Math.cos(a), cy + r * Math.sin(a)]; });
+  const horn = Math.atan2(0.0833, 0.1247), inner = Math.atan2(0.0083, 0.1247);
+  add(slab([...arc(2.34, 0.15, Math.PI - horn, 2 * Math.PI + horn), ...arc(2.415, 0.125, inner, -Math.PI - inner).slice(1, -1)], 0, 0.02), RIG.BODY, PART.FLAG, TINT.THING, null, FORM.FLAG.moon);
+  add(tube([{ y: 2.31, rx: 0.02, cx: 0.14 }, { y: 2.27, rx: 0.15, cx: 0.14 }, { y: 2.2, rx: 0.21, cx: 0.14 }], round(8, 6), { top: true, bottom: true }), RIG.BODY, PART.FLAG, TINT.THING, null, FORM.FLAG.parasol);
+  add(new THREE.IcosahedronGeometry(0.15, round(1, 0)).scale(1, 1.3, 1).translate(0.14, 2.26, 0), RIG.BODY, PART.FLAG, TINT.THING, null, FORM.FLAG.puppet);
+  add(tube([{ y: 2.1, rx: 0.06, cx: 0.14 }, { y: 2.065, rx: 0.13, cx: 0.14 }, { y: 2.03, rx: 0.05, cx: 0.14 }], round(8, 6)), RIG.BODY, PART.FLAG, TINT.LEGS, null, FORM.FLAG.puppet);
+  /* Three balloons on three strings from the one hand, each its own colour, at three heights over the shoulder: each string passes the
+     head a hand's breadth out. */
+  for (const [x, y, z, r, tint] of [[0.24, 2.0, 0.06, 0.09, TINT.THING], [0.13, 2.2, -0.08, 0.09, TINT.TOP], [0.27, 2.33, 0.02, 0.08, TINT.LEGS]]) {
+    add((plain ? new THREE.IcosahedronGeometry(r, 0) : new THREE.SphereGeometry(r, 7, 4)).scale(1, 1.18, 1).translate(x, y, z), RIG.BODY, PART.BALLOON, tint, lift, FORM.BALLOON.bunch);
+    add(rope([[0.285, 0.885, 0.03], [0.3, 1.7, 0], [x, y - 1.18 * r, z]], [0.008, 0.008, 0.008], 3), RIG.BODY, PART.BALLOON, TINT.SHOE, lift, FORM.BALLOON.bunch);
+  }
+  /* What the hand held up holds up, past it as the hand hangs, so over it once raised: a hat, its brim flat and its crown on top, or a
+     tambourine's ring, seen whole from behind. Each is built in the fist, TUCK of its size. */
+  const fisted = (geo) => geo.translate(-SHOULDER_X, -HAND_Y, 0).scale(TUCK, TUCK, TUCK).translate(SHOULDER_X, HAND_Y, 0);
+  add(fisted(new THREE.CylinderGeometry(0.12, 0.12, 0.014, round(10, 8)).translate(SHOULDER_X, HAND_Y - 0.13, 0)), RIG.ARM_R, PART.FINGER, TINT.THING, null, FORM.FINGER.aloft);
+  add(fisted(new THREE.CylinderGeometry(0.07, 0.078, 0.075, round(8, 6)).translate(SHOULDER_X, HAND_Y - 0.175, 0)), RIG.ARM_R, PART.FINGER, TINT.THING, null, FORM.FINGER.aloft);
+  add(fisted(new THREE.TorusGeometry(0.085, 0.018, 3, round(10, 8)).translate(SHOULDER_X, HAND_Y - 0.11, 0)), RIG.ARM_R, PART.FINGER, TINT.THING, null, FORM.FINGER.tambourine);
+
   /* The corners and their marks are all a figure's geometry holds. The material shades each face flat, from the face itself, so it
      reads no normal to light one, and none is kept. */
   return mergeGeometries(parts);
 }
 
-/* The faces of a figure's geometry that are one part's (`bit`, 0 for the body), with their corners shared: a corner that several
-   faces meet at with one mark is kept once, and worked out once a frame and not once for each face. `position` and `mark` are the
-   corners, three and four numbers each, and `index` three corners to a face. */
-export function pieces(figure, bit) {
+/* The faces of a figure's geometry that are one form of one part's (`bit`, 0 for the body, and `form`), with their corners shared: a
+   corner that several faces meet at with one mark is kept once, and worked out once a frame and not once for each face. `position`
+   and `mark` are the corners, three and four numbers each, and `index` three corners to a face. */
+export const formOfMark = (z) => Math.floor(z / TINTS);
+export function pieces(figure, bit, form = 0) {
   const position = figure.getAttribute("position"), mark = figure.getAttribute("aMark"), at = [], marks = [], index = [], seen = new Map();
   for (let k = 0; k < position.count; k++) {
-    if (mark.getY(k - (k % 3)) !== bit) continue;
+    if (mark.getY(k - (k % 3)) !== bit || formOfMark(mark.getZ(k - (k % 3))) !== form) continue;
     const corner = [position.getX(k), position.getY(k), position.getZ(k), mark.getX(k), mark.getY(k), mark.getZ(k), mark.getW(k)], key = corner.join();
     if (!seen.has(key)) { seen.set(key, at.length / 3); at.push(corner[0], corner[1], corner[2]); marks.push(corner[3], corner[4], corner[5], corner[6]); }
     index.push(seen.get(key));
@@ -468,25 +559,34 @@ const CHOICES = {
   build: [["slight", 22], ["average", 32], ["stout", 16], ["broad", 14], ["pear", 16]],
   legs: [["jeans", 28], ["bells", 20], ["shorts", 14], ["maxi", 14], ["dress", 12], ["tunic", 12]],
   top: [["shirt", 38], ["tee", 30], ["poncho", 16], ["shawl", 16]],
-  hair: [["bald", 7], ["crop", 18], ["bob", 8], ["long", 22], ["mane", 11], ["tail", 13], ["braids", 11], ["afro", 10]],
-  head: [["none", 54], ["hat", 9], ["topper", 3], ["floppy", 8], ["cap", 9], ["bandana", 7], ["band", 5], ["wreath", 5]],
+  hair: [["bald", 6], ["crop", 15], ["bob", 7], ["long", 18], ["mane", 9], ["tail", 11], ["braids", 9], ["afro", 10], ["dreads", 8], ["bun", 7]],
+  head: [["none", 32], ["hat", 8], ["topper", 4], ["floppy", 8], ["cap", 7], ["bandana", 6], ["band", 5], ["wreath", 4], ["knit", 8], ["jester", 4], ["plumed", 5],
+    ["flowers", 6]],
   back: [["none", 66], ["pack", 17], ["roll", 8], ["both", 9]],
   move: [["bob", 24], ["sway", 19], ["wave", 7], ["spin", 6], ["nod", 12], ["clap", 6], ["watch", 15], ["shift", 11]],
 };
-/* What a few carry, one figure in PROP_EVERY taking the next of these in turn, so there are a few of each across the hill; and those
-   of them that stand over a head, which no one in the way of a test pose's view of the band carries (inView). */
-export const PROPS = ["flag", "stand", "balloon", "finger", "hoop", "rider", "drum"], PROP_EVERY = 8;
-const OVERHEAD = ["flag", "stand", "balloon", "rider"];
+/* What some carry, one figure in PROP_EVERY taking the next of these in turn, so there are a few of each across the hill; and those
+   of them that stand over a head, which no one in the way of a test pose's view of the band carries (inView). What flies from a
+   straight pole (FLIES) and what stands on one leaning in over the head (STANDS_ON) keep clear of what the head wears (person). */
+export const PROPS = ["flag", "parasol", "balloon", "aloft", "stand", "puppet", "swallowtail", "finger", "rider", "star", "pennant", "bunch", "hoop", "moon",
+  "streamer", "tambourine", "drum"], PROP_EVERY = 3;
+export const OVERHEAD = PROPS.filter((prop) => !["finger", "hoop", "drum"].includes(prop));
+const FLIES = ["flag", "swallowtail", "pennant", "streamer"], STANDS_ON = ["star", "moon", "parasol", "puppet"], BALLOONS = ["balloon", "bunch"];
 /* The one way of moving each of these props leaves its holder (person); any other prop leaves it to sway or to watch. */
 const MOVES_HOLDING = { stand: ["watch"], rider: ["sway"], hoop: ["sway"], drum: ["bob"] };
 /* What makes a figure's outline, which no two figures of a crowd share (people). */
 export const OUTLINE = ["stature", "build", "legs", "top", "hair", "beard", "head", "back", "prop"];
-/* A person as a plain figure shows them: without what its geometry leaves out, a wreath a band, braids one tail, a bedroll a pack. */
+/* A person as a plain figure shows them: without what its geometry leaves out, a wreath or flowers a band, braids one tail, a bedroll
+   a pack. A child on the shoulders stays, for it is what stands up on a phone. */
 export function plainly(p) {
-  return { ...p, head: p.head === "wreath" ? "band" : p.head, hair: p.hair === "braids" ? "tail" : p.hair, beard: false,
-    back: p.back === "none" ? "none" : "pack", prop: ["hoop", "rider", "drum"].includes(p.prop) ? "none" : p.prop };
+  return { ...p, head: p.head === "wreath" || p.head === "flowers" ? "band" : p.head, hair: p.hair === "braids" ? "tail" : p.hair, beard: false,
+    back: p.back === "none" ? "none" : "pack", prop: ["hoop", "drum"].includes(p.prop) ? "none" : p.prop };
 }
 export const outlineOf = (p) => OUTLINE.map((slot) => p[slot]).join(" ");
+/* What rises over a figure's shoulders, its crest: what it wears on its head, its hair, what it holds up (a hoop and a drum are held
+   low) and its stature. No two figures within CREST m of each other share one, on a desktop or as a phone draws them (people). */
+export const CREST = 8;
+export const crestOf = (p) => `${p.head} ${p.hair} ${p.prop === "hoop" || p.prop === "drum" ? "none" : p.prop} ${p.stature}`;
 
 /* Whether a seat stands in a test pose's view of the band: within a strip from the pose to the stage, 2 m to either side of the pose
    and widening to the band's 7 m at the stage. */
@@ -518,8 +618,13 @@ export const only = (list, names) => list.filter(([name]) => names.includes(name
 export const without = (list, names) => list.filter(([name]) => !names.includes(name));
 
 /* One person from a stream `r`, for a seat that sits or stands, and a stature and a prop already given it ("none" for most). What it
-   holds decides some of the rest: a child rides on bare shoulders, a flag flies over no tall hat, the one with a hoop or beside a
-   stand wears nothing it would catch on, and whoever turns on the spot mostly wears a skirt to flare. */
+   holds decides some of the rest: a child rides on bare shoulders; what flies from a pole flies over no crown, big round head of hair
+   or bun, and what stands on a pole leaning in over the head over no dreadlocks either; a balloon goes up over no big round head of
+   hair, bun or tall knit cap, and its string past no brim, jester's point or flowers; the one with a hoop or beside a stand wears
+   nothing it would catch on; and whoever turns on the spot mostly wears a skirt to flare. A bun wears no hat, and a child no top hat,
+   jester's cap or plume. What stands up from the head (TALL_HEADS, TALL_HAIR) is for those who stand, the crowd's skyline: one
+   seated low on the hill keeps the hair and hats it had, so it can still lean back or lie back on a blanket (stances). */
+const TALL_HEADS = ["knit", "jester", "plumed", "flowers"], TALL_HAIR = ["dreads", "bun"];
 function person(r, sits, prop, stature) {
   const p = { prop, stature };
   const child = p.stature === "child", small = child || p.stature === "teen";
@@ -530,10 +635,13 @@ function person(r, sits, prop, stature) {
   p.legs = p.move === "spin" && r() < 0.85 ? choose(r, only(CHOICES.legs, ["maxi", "dress"]))
     : prop === "stand" ? choose(r, without(CHOICES.legs, ["maxi"])) : choose(r, CHOICES.legs);
   p.top = prop === "hoop" || prop === "drum" || prop === "stand" ? choose(r, only(CHOICES.top, ["shirt", "tee"])) : choose(r, CHOICES.top);
-  p.hair = prop === "rider" ? choose(r, only(CHOICES.hair, ["bald", "crop", "bob"])) : prop === "flag" ? choose(r, without(CHOICES.hair, ["afro"]))
-    : child ? choose(r, without(CHOICES.hair, ["bald"])) : choose(r, CHOICES.hair);
-  p.head = p.hair === "afro" ? "none" : prop === "rider" ? choose(r, only(CHOICES.head, ["none", "bandana", "band"]))
-    : prop === "flag" ? choose(r, without(CHOICES.head, ["topper"])) : choose(r, CHOICES.head);
+  const hairs = sits ? without(CHOICES.hair, TALL_HAIR) : CHOICES.hair, heads = sits ? without(CHOICES.head, TALL_HEADS) : CHOICES.head;
+  const kept = (list) => (child ? without(list, ["bald", "topper", "jester", "plumed"]) : list);
+  p.hair = prop === "rider" ? choose(r, only(hairs, ["bald", "crop", "bob"])) : FLIES.includes(prop) || BALLOONS.includes(prop) ? choose(r, kept(without(hairs, ["afro", "bun"])))
+    : STANDS_ON.includes(prop) ? choose(r, without(hairs, ["afro", "dreads", "bun"])) : choose(r, kept(hairs));
+  p.head = p.hair === "afro" ? "none" : prop === "rider" ? choose(r, only(heads, ["none", "bandana", "band"]))
+    : FLIES.includes(prop) || STANDS_ON.includes(prop) || p.hair === "bun" ? choose(r, only(heads, ["none", "bandana", "band", "wreath", "flowers"]))
+    : BALLOONS.includes(prop) ? choose(r, kept(without(heads, ["hat", "topper", "floppy", "plumed", "jester", "flowers", "knit"]))) : choose(r, kept(heads));
   p.beard = !small && r() < 0.16;
   p.back = prop === "rider" ? choose(r, only(CHOICES.back, ["none", "pack"])) : choose(r, CHOICES.back);
   /* Its numbers: how tall beside the standard figure, and how its body is built. */
@@ -549,9 +657,11 @@ function person(r, sits, prop, stature) {
   const most = r();
   p.size = most < QUIET ? 0.25 + 0.25 * most / QUIET : 0.62 + 0.38 * (most - QUIET) / (1 - QUIET);
   p.akimbo = r() < 0.6;
-  p.hairLength = { bob: span(0.72, 0.82), long: span(0.95, 1.25), mane: span(1.55, 2.05), tail: span(0.8, 1.4), braids: span(0.9, 1.4) }[p.hair] ?? 1;
+  p.hairLength = { bob: span(0.72, 0.82), long: span(0.95, 1.25), mane: span(1.55, 2.05), tail: span(0.8, 1.4), braids: span(0.9, 1.4), dreads: span(0.9, 1.5),
+    bun: span(0.9, 1.3), afro: span(0.8, 1.3) }[p.hair] ?? 1;
   p.hem = { maxi: span(0.093, 0.18), dress: span(0.42, 0.56), tunic: span(0.62, 0.72) }[p.legs] ?? 0.093;
-  [p.crown, p.brim] = { hat: [span(1, 1.25), span(0.95, 1.1)], topper: [span(2.3, 2.7), span(0.72, 0.8)], floppy: [span(1, 1.1), span(1.3, 1.45)] }[p.head] ?? [1, 1];
+  [p.crown, p.brim] = { hat: [span(1, 1.25), span(0.95, 1.1)], topper: [span(2.3, 2.7), span(0.72, 0.8)], floppy: [span(1, 1.1), span(1.3, 1.45)],
+    knit: [span(0.85, 1.3), 1], jester: [span(0.95, 1.1), 1], plumed: [span(1, 1.2), span(0.95, 1.1)] }[p.head] ?? [1, 1];
   p.colour = Object.fromEntries(Object.entries(COLOURS).map(([name, list]) => [name, Math.floor(r() * list.length)]));
   return p;
 }
@@ -574,14 +684,26 @@ export const movingAlike = (a, b) => a.move === b.move && a.legs === b.legs && a
    the order seeds its own stream, so the first so many of a larger crowd are the same people as a smaller crowd's. Its stature comes
    first, so that children stay few. Of the TRIES people its stream then draws, a figure is the one least like those already standing
    within NEAR m of it, nearer ones counting for more; never one whose outline another figure has, on a desktop or a phone, so every
-   figure of a crowd is a different person; and, drawing on until it finds one, never one that shares more than SHARE[1] of the
-   OUTLINE with a figure within NEAR m, or more than SHARE[0] with one within CLOSE m, or that is dressed or moves like one that
-   close, or that moves as all four of its nearest so far do, or as all four of another's would with it among them. */
+   figure of a crowd is a different person; and, drawing on until it finds one, never one whose crest a figure within CREST m has,
+   on a desktop or a phone, or that shares more than SHARE[1] of the OUTLINE with a figure within NEAR m, or more than SHARE[0] with
+   one within CLOSE m, or that is dressed or moves like one that close, or that moves as all four of its nearest so far do, or as all
+   four of another's would with it among them. */
 const TRIES = 20, NEAR = 8, CLOSE = 4;
 export const SHARE = [4, 5];
+/* Whether each seat stands beside another of its group as two friends could stand together (stances): both standing, near, facing
+   nearly the same way, square to the line between them. A friend holds nothing, so such a seat is left for a friend, and what it
+   would have carried goes to the next. */
+function besides(placed) {
+  const ahead = (from, to) => Math.cos(from.face ?? 0) * (to.z - from.z) + Math.sin(from.face ?? 0) * (to.x - from.x);
+  return placed.map((a, i) => !a.sit && placed.some((b, j) => {
+    if (j === i || b.sit || b.group !== a.group) return false;
+    const d = Math.hypot(b.x - a.x, b.z - a.z), turn = Math.abs(Math.atan2(Math.sin(b.face - a.face), Math.cos(b.face - a.face)));
+    return d < 1.45 && turn < 0.5 && Math.abs(ahead(a, b)) < 0.4 * d && Math.abs(ahead(b, a)) < 0.4 * d;
+  }));
+}
 export function people(placed) {
-  const out = [], taken = new Set();
-  const due = [];
+  const out = [], taken = new Set(), crests = [];
+  const due = [], paired = besides(placed);
   /* Each figure's four nearest of those placed so far, nearest first, as [distance, index]. */
   const nearest = [], fourth = (list) => (list.length < 4 ? Infinity : list[3][0]);
   const closer = (list, d, j) => [...list, [d, j]].sort((a, b) => a[0] - b[0]).slice(0, 4);
@@ -591,27 +713,29 @@ export function people(placed) {
     let own = [];
     for (let j = 0; j < i; j++) {
       const d = Math.hypot(placed[j].x - seat.x, placed[j].z - seat.z);
-      if (d < NEAR) near.push([out[j], 1 / (1 + d), SHARE[d < CLOSE ? 0 : 1]]);
+      if (d < NEAR) near.push([out[j], 1 / (1 + d), SHARE[d < CLOSE ? 0 : 1], d < CREST && !seat.sit ? crests[j] : null]);
       if (d < fourth(own)) own = closer(own, d, j);
       if (d < fourth(nearest[j])) joins.push([j, closer(nearest[j], d, i)]);
     }
     const patch = (move) => (own.length === 4 && own.every(([, j]) => out[j].move === move) ? 1 : 0)
       + joins.filter(([j, list]) => list.length === 4 && out[j].move === move && list.every(([, k]) => k === i || out[k].move === move)).length;
     /* The next prop due goes to the first figure that can carry it: one that stands, for what stands over a head out of the test poses'
-       view of the band, and that can move a way the prop leaves it (person) as neither its four nearest nor another's would. */
-    const k = due.findIndex((prop) => !(seat.sit && prop !== "stand" && prop !== "finger") && !(OVERHEAD.includes(prop) && inView(seat.x, seat.z))
+       view of the band, that stands where no friend could stand beside it (besides), and that can move a way the prop leaves it
+       (person) as neither its four nearest nor another's would. */
+    const k = due.findIndex((prop) => !(seat.sit && prop !== "stand" && prop !== "finger") && !(OVERHEAD.includes(prop) && inView(seat.x, seat.z)) && !paired[i]
       && (MOVES_HOLDING[prop] ?? ["sway", "watch"]).some((move) => patch(move) === 0));
     const prop = k < 0 ? "none" : due.splice(k, 1)[0];
     const r = stream(0x9e3779b1 * (i + 1));
-    /* A child holds a balloon or nothing, and half the balloons are children's. */
+    /* A child holds a balloon, a bunch of them or nothing, and half the single balloons are children's. */
     const drawn = choose(r, CHOICES.stature);
-    const stature = prop === "balloon" ? (r() < 0.5 ? "child" : drawn) : prop !== "none" && drawn === "child" ? "short" : drawn;
+    const stature = prop === "balloon" ? (r() < 0.5 ? "child" : drawn) : prop !== "none" && prop !== "bunch" && drawn === "child" ? "short" : drawn;
     let best = null, least = Infinity, fewest = Infinity;
     for (let t = 0; t < TRIES || best === null || (fewest > 0 && t < 40 * TRIES); t++) {
-      const p = person(r, seat.sit, prop, stature), outline = outlineOf(plainly(p));
+      const p = person(r, seat.sit, prop, stature), outline = outlineOf(plainly(p)), crest = [crestOf(p), crestOf(plainly(p))];
       if (taken.has(outline)) continue;
       let score = 0, clashes = 0;
-      for (const [other, weight, share] of near) {
+      for (const [other, weight, share, its] of near) {
+        if (its && (its[0] === crest[0] || its[1] === crest[1])) clashes += 100;
         if (OUTLINE.filter((slot) => p[slot] === other[slot]).length > share) clashes += 100;
         if (share === SHARE[0] && (dressedAlike(p, other) || movingAlike(p, other))) clashes += 1;
         const a = alike(p, other);
@@ -628,6 +752,7 @@ export function people(placed) {
       if (free >= 0) best.colour = { ...best.colour, top: free };
     }
     taken.add(outlineOf(plainly(best)));
+    crests.push(seat.sit ? null : [crestOf(best), crestOf(plainly(best))]);
     out.push(best);
     nearest.push(own);
     for (const [j, list] of joins) nearest[j] = list;
@@ -645,8 +770,8 @@ export function people(placed) {
    the first stance its stream draws (STANDING, SEATED) whose pose no figure within NEIGHBOUR m of it has: standing, what its arms do
    and which leg its weight is on (poseOf); seated, how it sits. A figure whose way of moving keeps its arms, or that holds something,
    takes only a stance of the legs. Lying back on the elbows is for a blanket; and it, and the body leaning back on the hands, for one
-   with both hands free, whose hair, hat and pack stay within the seated reaches as it leans (KNEES, and HANG over a seated figure's knees;
-   crowd.test.ts), and no one close behind. Hugging the knees is for one without a full poncho: from behind, a poncho's point
+   with both hands free, whose hair and hat stay within the seated reaches as it leans (KNEES, and HANG over a seated figure's knees;
+   crowd.test.ts), with nothing on its back, which leaning back carried 2 cm past them, and no one close behind. Hugging the knees is for one without a full poncho: from behind, a poncho's point
    reaches the ground behind a seated figure and its sides stand past the hugged knees and the feet, and it hid all but half a
    percent of them. Each way of sitting is for a seat whose ground it fits (`fits`), and one that fits no way stands. */
 const NEIGHBOUR = 1.6, PAIRS = 1, FREE = ["watch", "sway", "nod", "shift"];
@@ -691,8 +816,8 @@ export function stances(placed, who, fits = () => true, holds = () => true) {
     const right = Math.atan2(-dz, dx), off = (f) => Math.abs(Math.atan2(Math.sin(f - mid), Math.cos(f - mid)));
     return off(right) <= off(right + Math.PI) ? right : Math.atan2(Math.sin(right + Math.PI), Math.cos(right + Math.PI));
   };
-  const fitsBack = (p) => p.hair !== "afro" && !["hat", "topper", "floppy", "bandana"].includes(p.head) && (p.back === "none" || p.back === "pack");
-  const fitsForward = (p) => !["hat", "topper", "floppy", "cap"].includes(p.head) && p.hair !== "afro" && p.prop !== "flag" && p.stoop < 0.05;
+  const fitsBack = (p) => !["afro", "dreads"].includes(p.hair) && !["hat", "topper", "floppy", "bandana", "knit", "jester", "plumed"].includes(p.head) && p.back === "none";
+  const fitsForward = (p) => !["hat", "topper", "floppy", "cap", "plumed"].includes(p.head) && p.hair !== "afro" && !FLIES.includes(p.prop) && !STANDS_ON.includes(p.prop) && p.stoop < 0.05;
   const fitsLying = (p) => ["bald", "crop", "tail", "braids"].includes(p.hair) && ["none", "bandana", "band", "wreath"].includes(p.head);
   /* Draws stances by their weights until one is not `taken`, or takes the first drawn where all are. */
   const deal = (r, weights, taken) => {
@@ -750,15 +875,19 @@ export function stances(placed, who, fits = () => true, holds = () => true) {
 }
 
 /* What a figure wears, as the numbers it carries: the sum of its parts' bits, and its style (STYLE). WEARS says which parts
-   each choice of a person's wears, and CUTS how a choice cuts the figure (CUT); a beard and hands on the hips are a person's own. */
+   each choice of a person's wears, each named with its form after a point where it is not the first (FORMS), and CUTS how a choice
+   cuts the figure (CUT); a beard and hands on the hips are a person's own. */
 const WEARS = {
   stand: { cup: ["CUP"] },
-  head: { hat: ["BRIM", "CROWN"], topper: ["BRIM", "CROWN"], floppy: ["BRIM", "CROWN"], cap: ["CROWN", "BILL"], band: ["BAND"], bandana: ["BAND", "KNOT"], wreath: ["WREATH"] },
-  hair: { bob: ["HAIR"], long: ["HAIR"], mane: ["HAIR"], tail: ["TAIL"], braids: ["TAIL", "TAIL2"] },
+  head: { hat: ["BRIM", "CROWN"], topper: ["BRIM", "CROWN"], floppy: ["BRIM", "CROWN"], cap: ["CROWN", "BILL"], band: ["BAND"], bandana: ["BAND", "KNOT"], wreath: ["WREATH"],
+    knit: ["CROWN.knit"], jester: ["CROWN.jester"], plumed: ["BRIM", "CROWN.plume"], flowers: ["WREATH.flowers"] },
+  hair: { bob: ["HAIR"], long: ["HAIR"], mane: ["HAIR"], tail: ["TAIL"], braids: ["TAIL", "TAIL2"], dreads: ["HAIR.dreads"], bun: ["HAIR.bun"] },
   legs: { maxi: ["SKIRT"], dress: ["SKIRT"], tunic: ["SKIRT"] },
   top: { poncho: ["PONCHO"], shawl: ["PONCHO"] },
   back: { pack: ["PACK"], roll: ["ROLL"], both: ["PACK", "ROLL"] },
-  prop: { flag: ["POLE", "FLAG"], stand: ["STAND"], balloon: ["BALLOON"], finger: ["FINGER"], hoop: ["HOOP"], rider: ["RIDER"], drum: ["DRUM"] },
+  prop: { flag: ["POLE", "FLAG"], swallowtail: ["POLE", "FLAG.swallowtail"], pennant: ["POLE", "FLAG.pennant"], streamer: ["POLE", "FLAG.streamer"],
+    star: ["POLE.lean", "FLAG.star"], moon: ["POLE.lean", "FLAG.moon"], parasol: ["POLE.lean", "FLAG.parasol"], puppet: ["POLE.lean", "FLAG.puppet"], stand: ["STAND"],
+    balloon: ["BALLOON"], bunch: ["BALLOON.bunch"], finger: ["FINGER"], aloft: ["FINGER.aloft"], tambourine: ["FINGER.tambourine"], hoop: ["HOOP"], rider: ["RIDER"], drum: ["DRUM"] },
 };
 const CUTS = {
   hair: { afro: "AFRO", bald: "BALD" },
@@ -768,12 +897,21 @@ const CUTS = {
 export function wearing(p) {
   const stand = p.stance?.stand ?? "square", sits = p.stance?.sit ?? "knees", own = { ...p, stand };
   let parts = p.beard ? PART.BEARD : 0, cut = 0;
-  for (const slot in WEARS) for (const name of WEARS[slot][own[slot]] ?? []) parts += PART[name];
+  for (const slot in WEARS) for (const name of WEARS[slot][own[slot]] ?? []) parts += PART[name.split(".")[0]];
   for (const slot in CUTS) cut += CUT[CUTS[slot][p[slot]]] ?? 0;
   return { parts, style: MOVE[p.move] + STYLE.ARMS * ARMS[p.prop] + STYLE.CUT * cut + STYLE.STANCE * (STAND[stand] + STYLE.SITS * SITTING[sits]) };
 }
 /* What groundUnder takes of a figure: what it wears and how it moves, and how broad its shoulders are (aBody.y). */
 export const fitted = (p) => ({ ...wearing(p), wide: p.wide ?? 1 });
+/* The form of each part a person wears in other than its first form, as { bit: form }: empty for most. */
+export function formsOf(p) {
+  const forms = {};
+  for (const slot in WEARS) for (const name of WEARS[slot][p[slot]] ?? []) {
+    const [part, form] = name.split(".");
+    if (form) forms[PART[part]] = FORM[part][form];
+  }
+  return forms;
+}
 
 /* How far a figure's rest reaches from its axis in its own units, standing still with its arms down, and how high over its feet at the
    most, its arms up: what buildCrowd fits inside HANG and TOP. Each part's number is its farthest vertex, as it is built and as the
@@ -781,8 +919,11 @@ export const fitted = (p) => ({ ...wearing(p), wide: p.wide ?? 1 });
    on the safe side, and not a tight one: a figure's breadth is its build's before it is the reach's (buildCrowd), so most figures
    stand some 10 cm inside HANG, and a number here that fell a little short would pass unseen on them. The unit tests stand every
    figure through every pose against the same bounds (crowd.test.ts), which catches a short number where the fit binds. */
-function reaches(p, wear) {
+function reaches(p, wear, forms = formsOf(p)) {
   const has = (name) => (wear.parts & PART[name]) !== 0, forward = Math.max(p.stoop, 0) * 0.95, back = Math.max(-p.stoop, 0) * 0.6;
+  const form = (name) => (has(name) ? forms[PART[name]] ?? 0 : -1);
+  /* What stands over the head is carried forward with the stoop from the hips, 1.6 units under it at the most. */
+  const ahead = Math.max(p.stoop, 0) * 1.6;
   /* The shoulders' balls, each 0.06 round and a little ahead of the body's line, carried forward with the stoop from the hips to the
      shoulders. */
   let out = Math.max(Math.hypot(SHOULDER_X * p.wide + 0.06, Math.max(p.stoop, 0) * (SHOULDER_Y - LEG) + 0.035), 0.166 * p.girth);
@@ -790,11 +931,19 @@ function reaches(p, wear) {
   if (has("SKIRT")) reach(Math.max(0.32 * (0.62 + (0.38 * (1 - p.hem)) / 0.907), 0.2 * (1 + 0.65 * Math.max(p.girth - 1, 0))));
   if (has("PONCHO")) reach(0.348);
   if (has("BRIM")) reach(0.21 * p.brim * p.big + forward);
+  if (form("CROWN") === FORM.CROWN.knit) reach(0.18 * p.big + forward);
+  if (form("CROWN") === FORM.CROWN.jester) reach(0.33 * p.big + forward);
+  if (form("CROWN") === FORM.CROWN.plume) reach(0.28 * p.big + forward);
+  if (form("WREATH") === FORM.WREATH.flowers) reach(0.17 * p.big + forward);
   if (has("BILL")) reach(0.29 * p.big + forward);
   if (has("HAIR") || has("TAIL")) reach(0.26 * p.big + back);
   if (p.hair === "afro") reach(0.26 * p.big + back);
   if (has("PACK") || has("ROLL")) reach(0.315 + back);
   if (has("POLE")) reach(0.335 + forward);
+  const stood = [null, null, null, null, 0.17, 0.15, 0.21, 0.15][form("FLAG")];
+  if (stood) reach(Math.hypot(0.14, ahead) + stood);
+  else if (has("FLAG")) reach(Math.hypot(0.3, 0.085 + ahead));
+  if (form("FINGER") > 0) reach(Math.hypot(SHOULDER_X * p.wide + 0.04, Math.max(p.stoop, 0) * (SHOULDER_Y - LEG) + 0.04));
   if (has("STAND")) reach(0.35);
   if (has("BALLOON")) reach(0.335 + back);
   if (has("HOOP")) reach(0.33);
@@ -803,9 +952,14 @@ function reaches(p, wear) {
   if (has("CUP")) reach(0.34);
   /* The top: its hands at the rise's peak, and what stands over its head, each as far up as the sway lifts its far side. */
   const lift = LEG * (p.leg - 1);
-  let top = SHOULDER_Y + lift + 0.64 + (has("FINGER") ? 0.14 : 0);
-  if (has("POLE")) top = Math.max(top, 2.295 + lift);
-  if (has("BALLOON")) top = Math.max(top, 2.335 + lift);
+  let top = SHOULDER_Y + lift + 0.64 + [0, 0.14, 0.32, 0.32][form("FINGER") + 1];
+  if (has("FLAG")) top = Math.max(top, [2.295, 2.295, 2.295, 2.31, 2.53, 2.48, 2.37, 2.515][form("FLAG")] + lift);
+  if (has("BALLOON")) top = Math.max(top, [2.335, 2.445][form("BALLOON")] + lift);
+  /* And what is on the head: a crown, raised from its foot as the figure's own number says, and a bun, as its length does, each with
+     the head as big as it is. */
+  const onHead = (y) => NECK_Y + (y - NECK_Y) * p.big + lift + 0.04;
+  if (has("CROWN")) top = Math.max(top, onHead(CROWN_FOOT + ([1.8576, 2.077, 2.03, 2.06][form("CROWN")] - CROWN_FOOT) * p.crown));
+  if (form("HAIR") === FORM.HAIR.bun) top = Math.max(top, onHead(HAIR_TOP + 0.16 * p.hairLength));
   if (has("STAND")) top = Math.max(top, 2.25);
   if (has("RIDER")) top = Math.max(top, 2.12 + lift);
   /* Its feet, seated, their toes tipped down the steepest fall: a broad figure's stand further apart. */
@@ -862,7 +1016,7 @@ const swung = (counts, per, move) => {
   return `(${u} < 0.5 ? clamp(1.0 - 2.0 * (${u} - ${f(0.5 - m)}) / ${f(m)}, -1.0, 1.0) : clamp(-1.0 + 2.0 * (${u} - ${f(1 - m)}) / ${f(m)}, -1.0, 1.0))`;
 };
 const DANCE = `
-float rig = aMark.x, bit = aMark.y, parts = aWear.x;
+float rig = aMark.x, bit = aMark.y, parts = aWear.x, form = floor(aMark.z / ${n(TINTS)});
 {
   float x = transformed.x, y = transformed.y, z = transformed.z;
   float kind = mod(aWear.y, ${n(STYLE.ARMS)}), arms = mod(floor(aWear.y / ${n(STYLE.ARMS)}), ${n(STYLE.CUT / STYLE.ARMS)});
@@ -904,7 +1058,8 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
   float friend = standing * toward, weight = standing * (shifter ? going * turned * (1.0 - 0.5 * abs(toward)) : leaning);
 
   if (headRig) {
-    if (bit == ${B.HAIR}) y = ${f(HAIR_TOP)} - (${f(HAIR_TOP)} - y) * aCut.x;
+    /* Dreadlocks are let down as far as each lock's weight says, and the rest of the hair all the way. */
+    if (bit == ${B.HAIR}) y = ${f(HAIR_TOP)} - (${f(HAIR_TOP)} - y) * (${is("form", FORM.HAIR.dreads)} ? mix(1.0, aCut.x, aMark.w) : aCut.x);
     if (bit == ${B.TAIL} || bit == ${B.TAIL2}) {
       y = ${f(TAIL_TOP)} - (${f(TAIL_TOP)} - y) * min(aCut.x, 1.5);
       if (mod(floor(parts / ${B.TAIL2}), 2.0) < 0.5) { x = (x - ${f(TAIL_X)}) * 1.6; y += 0.07; }
@@ -915,7 +1070,7 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
       x *= aCut.w; z *= aCut.w; y -= rim * 0.22 * max(aCut.w - 1.2, 0.0);
     }
     if (afro && aMark.w > 0.0) {
-      float puff = 1.0 + ${f(AFRO)} * aMark.w;
+      float puff = 1.0 + ${f(AFRO)} * aCut.x * aMark.w;
       x *= puff; z *= puff; y = ${f(HEAD_Y)} + (y - ${f(HEAD_Y)}) * puff;
     }
     x *= aBody.w; z *= aBody.w; y = ${f(NECK_Y)} + (y - ${f(NECK_Y)}) * aBody.w;
@@ -955,8 +1110,15 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
     y += hz * sin(hf) + hy * cos(hf) + ${f(SHOULDER_Y - HAND_Y)}; z += hz * cos(hf) - hy * sin(hf);
   }
   if (bit == ${B.FLAG}) z += 0.06 * dance * aMark.w * stride;
-  if (bit == ${B.FINGER}) y = ${f(HAND_Y)} + (y - ${f(HAND_Y)}) * mix(0.37, 1.0, moves);
-  if (bit == ${B.BALLOON}) { x += 0.06 * dance * aMark.w * stride; z += 0.04 * dance * aMark.w * stride; }
+  /* The finger goes into the fist along the arm as the parting brings it down; what else the hand holds up, built in the fist, grows
+     every way to its size as the arm goes up. */
+  if (bit == ${B.FINGER}) {
+    if (form > 0.5) {
+      float grow = mix(1.0, ${f(1 / TUCK)}, moves);
+      x = ${f(SHOULDER_X)} + (x - ${f(SHOULDER_X)}) * grow; y = ${f(HAND_Y)} + (y - ${f(HAND_Y)}) * grow; z *= grow;
+    } else y = ${f(HAND_Y)} + (y - ${f(HAND_Y)}) * mix(0.37, 1.0, moves);
+  }
+  if (bit == ${B.BALLOON}) { x += 0.03 * dance * aMark.w * stride; z += 0.05 * dance * aMark.w * stride; }
   if (bit == ${B.HOOP}) y += (1.0 - sit) * (0.13 * going + 0.28 * min(dance, 1.2) * x * stride);
 
   if (armRig) {
@@ -1131,7 +1293,7 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x;
 /* After color_vertex, where the colour is the corner's own, its figure's top's: a face that is not its top's takes one of the
    figure's four tones (aTone, each as tone() packs it), or a shoe's near black. */
 const TONE = `
-float tint = aMark.z;
+float tint = mod(aMark.z, ${n(TINTS)});
 if (!(${is("tint", TINT.TOP)})) {
   float cutting = mod(floor(aWear.y / ${n(STYLE.CUT)}), ${n(STYLE.STANCE / STYLE.CUT)});
   bool shorts = ${has("cutting", CUT.SHORTS)}, bare = ${has("cutting", CUT.BARE)}, tunic = ${has("cutting", CUT.TUNIC)}, bald = ${has("cutting", CUT.BALD)};
@@ -1201,7 +1363,7 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
      and the parting's own two rows, where it has stepped each figure and how far it lets its arms rise. */
   const each = { count: n, matrix: new Float32Array(16 * n), colour: new Float32Array(3 * n), aFig: new Float32Array(4 * n), aBody: new Float32Array(4 * n),
     aWear: new Float32Array(4 * n), aCut: new Float32Array(4 * n), aTone: new Float32Array(4 * n), aPlace: new Float32Array(4 * n), aSize: new Float32Array(4 * n),
-    offset: parts.offset, rising: parts.rising, ball: new Float32Array(4 * n) };
+    forms: new Array(n), offset: parts.offset, rising: parts.rising, ball: new Float32Array(4 * n) };
   const near = Math.min(...placed.map((p) => p.r)), far = Math.max(...placed.map((p) => p.r));
   const dummy = new THREE.Object3D(), color = new THREE.Color();
   const who = mix(people(placed), placed);
@@ -1267,6 +1429,7 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     each.aBody.set([one.girth, one.wide, one.leg, one.big], 4 * i);
     each.aWear.set([worn.parts, worn.style, one.stoop, one.size], 4 * i);
     each.aCut.set([one.hairLength, one.hem, one.crown, one.brim], 4 * i);
+    each.forms[i] = formsOf(one);
     each.aTone.set([tone(COLOURS.legs[one.colour.legs]), tone(COLOURS.hair[one.colour.hair]), tone(COLOURS.self[one.colour.self]), tone(COLOURS.thing[one.colour.thing])], 4 * i);
     /* The same place as the shader takes it: where it stands and how the ground rises across it; and its breadth, its height, its turn,
        and how much higher it stands the other way, standing or seated, in its own units. */
@@ -1274,12 +1437,16 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     each.aSize.set([tall * broad, tall, turn, (other - lift) / tall], 4 * i);
   });
 
-  /* The mesh: every figure's body and the parts it wears, and nothing it does not, one figure after another in the seats' order.
-     Each corner carries its figure's numbers beside its own place and mark. */
-  const kit = new Map([0, ...Object.values(PART)].map((bit) => [bit, pieces(figure, bit)]).filter(([, piece]) => piece.index.length > 0));
+  /* The mesh: every figure's body and the parts it wears, each in its form, and nothing it does not, one figure after another in the
+     seats' order. Each corner carries its figure's numbers beside its own place and mark. */
+  const kit = new Map([[0, 0], ...Object.values(PART).flatMap((bit) => {
+    const name = Object.keys(PART).find((k) => PART[k] === bit);
+    return (FORMS[name] ?? [0]).map((_, form) => [bit, form]);
+  })].map(([bit, form]) => [`${bit} ${form}`, pieces(figure, bit, form)]).filter(([, piece]) => piece.index.length > 0));
   /* What a figure wears goes before its body, so a renderer that tests depth before it shades a pixel passes by what of the body
      its clothes cover. */
-  const wornBy = (i) => [...[...kit.keys()].filter((bit) => bit !== 0 && Math.floor(each.aWear[4 * i] / bit) % 2 === 1), 0];
+  const wornBy = (i) => [...Object.values(PART).filter((bit) => Math.floor(each.aWear[4 * i] / bit) % 2 === 1).map((bit) => `${bit} ${each.forms[i][bit] ?? 0}`)
+    .filter((key) => kit.has(key)), "0 0"];
   const corners = new Uint32Array(n + 1), faces = new Uint32Array(n + 1);
   for (let i = 0; i < n; i++) {
     corners[i + 1] = corners[i]; faces[i + 1] = faces[i];
