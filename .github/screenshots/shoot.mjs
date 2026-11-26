@@ -1119,7 +1119,7 @@ try {
     const list = [...places];
     failures.push(`${text}, at ${list.slice(0, 5).join(", ")}${list.length > 5 ? ` and ${list.length - 5} more` : ""}`);
   }
-  console.log(`shaders: ${shaderProblems.size === 0 ? "every world shader compiled and linked." : `${shaderProblems.size} shader problem(s); each has its own "failure" line.`}`);
+  console.log(`shaders: ${shaderProblems.size === 0 ? "every shader the shoot drew compiled and linked." : `${shaderProblems.size} shader problem(s); each has its own "failure" line.`}`);
   for (const [text, places] of shaderProblems) {
     const list = [...places];
     failures.push(`${text}, at ${list.slice(0, 5).join(", ")}${list.length > 5 ? ` and ${list.length - 5} more` : ""}`);
