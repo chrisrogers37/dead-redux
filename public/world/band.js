@@ -68,9 +68,9 @@ export const SCALE = 1.77;
    player's lifted forearm and hand, a drummer's forearms and a tapping foot are each as stout as a pixel of the canvas from the
    back of the crowd (SEEN, `fit`); a fretting hand lies where the arm's bend is filled; a stand and a pole stand on no foot;
    boots reach up into a long coat; a keyboard stands on a cabinet; a cymbal tips toward the crowd, so it shows as a disc; and a
-   drummer's stick is thickest at its tip, which is what shows of it. And nothing comes within two pixels of the stage's own black, where it would read as
-   part of the wall or a PA stack. `band-outline.ts` draws each line-up with the stage as the shoot's devices draw them, and
-   counts the specks. */
+   drummer's stick is thickest at its tip, which is what shows of it. And nothing comes within two pixels of the stage's own
+   black, where it would read as part of the wall or a PA stack. `band-outline.ts` draws each line-up with the stage as the
+   shoot's devices draw them, and counts the specks. */
 export const HALF_OVER = 1.75, HALF_UNDER = 1.5;
 
 /* The counts in which a move comes and goes once, each set by a count of flashes (scripts/flash; the bar is 6 swings a second at a
@@ -305,10 +305,10 @@ const pole = (x, z, top) => [bar(V(x, 0, z), V(x, top, z), POLE, POLE, 8)];
    (buildBand's `fit`): a crash's pole, a microphone's stand, a keyboard player's lifted forearm and hand, a drummer's forearms
    (DRUM_FOREARM), and a tapping foot, whose toe stood a pixel off the floor as it lifted from the back of the crowd and came apart
    from the shin. Each is as stout as a pixel of it SEEN m off, as far as the path's pose stands from the band, so that it holds
-   together from the back of the crowd however small the canvas, and no thinner than it was built, nor than STOUT_MOST in radius. A drawn part is a pixel wide where
-   its middle is a pixel's, so each is 5 % over a pixel across its flats (LIMB_FLATS of a limb's width, for a limb's six). On a
-   phone at full scale a crash's pole is 21 cm across and at half scale 38 cm, where each crash stood alone in the air, its pole
-   under half a pixel; and there a lifted hand stood apart from its arm. */
+   together from the back of the crowd however small the canvas, and no thinner than it was built, nor than STOUT_MOST in radius.
+   A drawn part is a pixel wide where its middle is a pixel's, so each is 5 % over a pixel across its flats (LIMB_FLATS of a
+   limb's width, for a limb's six). On a phone at full scale a crash's pole is 21 cm across and at half scale 38 cm, where each
+   crash stood alone in the air, its pole under half a pixel; and there a lifted hand stood apart from its arm. */
 const SEEN = 95, STOUT_MOST = 0.12, LIMB_FLATS = 0.74 * Math.cos(Math.PI / 6);
 /* A drummer's forearm, fitted so, is no stouter than this across, the right and the left: its wrist's end, a pixel across from the
    back of the crowd on a phone as built, met the forearm only corner to corner through a stroke and came to the screen as a speck
