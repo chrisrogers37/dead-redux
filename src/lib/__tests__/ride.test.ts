@@ -1111,9 +1111,10 @@ describe("createRide", () => {
   it("leaves the settled page settled under a key that moves focus, only modifies another, or is the focused control's own; every other key wakes it", () => {
     type Key = [string, string, string, Fields?];
     // Tab and Shift+Tab move focus among the settled look's controls; Enter and Space press a link or a button; the slider's keys
-    // are its own; and a shortcut is the browser's.
+    // are its own; and a shortcut is the browser's. Either Shift: the shoot holds the right one down for its stills of the awake
+    // look (HOLD in .github/screenshots/ride.mjs), which must not wake a page that has settled before it.
     const quiet: Key[] = [
-      ["Tab", "Tab", "div"], ["ShiftLeft", "Shift", "div"], ["Tab", "Tab", "button", { shiftKey: true }], ["ControlLeft", "Control", "div"], ["AltLeft", "Alt", "div"], ["MetaLeft", "Meta", "div"],
+      ["Tab", "Tab", "div"], ["ShiftLeft", "Shift", "div"], ["ShiftRight", "Shift", "div"], ["Tab", "Tab", "button", { shiftKey: true }], ["ControlLeft", "Control", "div"], ["AltLeft", "Alt", "div"], ["MetaLeft", "Meta", "div"],
       ["Enter", "Enter", "a[href]"], ["Enter", "Enter", "button"], ["NumpadEnter", "Enter", "button"], ["Space", " ", "button"], ["Space", " ", "a[href]"],
       ["ArrowRight", "ArrowRight", "input"], ["KeyX", "x", "input"], ["KeyR", "r", "div", { metaKey: true }], ["KeyL", "l", "div", { ctrlKey: true }],
     ];

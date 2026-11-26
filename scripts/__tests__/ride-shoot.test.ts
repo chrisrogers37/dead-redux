@@ -1,9 +1,9 @@
 import { spawnSync } from "child_process";
-import { readFileSync } from "fs";
+import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EASE_MS, RECORDINGS } from "../../.github/screenshots/recordings.mjs";
-import { cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, movePointer, pressFailure, pressWorld, RIDE, rideFailure, rideIdle, rideNow, ridePages, rideSteps, stillInLook } from "../../.github/screenshots/ride.mjs";
+import { awakeHolds, cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, HOLD, keyHold, movePointer, pressFailure, pressWorld, RIDE, rideFailure, rideIdle, rideNow, ridePages, rideSteps, stillInLook } from "../../.github/screenshots/ride.mjs";
 import { planFailures } from "../../.github/screenshots/shards.mjs";
 import { IDLE_S, watchIdle } from "../../src/components/world/ride";
 
@@ -31,9 +31,19 @@ const shoot = readFileSync(join(__dirname, "../../.github/screenshots/shoot.mjs"
 // A page's stills, each with the look it needs: a step's own, and a later one's after it.
 const stills = (page: Page) => page.steps.flatMap((step) => [[step.shot, step.ride], ...(step.later ? [[step.later.shot, step.later.ride]] : [])]);
 
-// What the shoot measured on CI's software renderer (the Screenshots run of 33ddbf6), in seconds: the longest span from a press to
-// the end of the still after it, on a desktop (the TV took no longer) and on any other device.
-const SLOWEST_S = { desktop: 6.4, other: 2.3 };
+// The waits before a ride settles are sized in frames of CI's software renderer, since what the shoot does after a step's act is
+// so many of them. A frame at 2 s is the figure the recordings' holds are reckoned at (FRAME_MS in recordings.mjs), over twice the
+// slowest a desktop drew in CI's logs (0.78 s, on 2026-11-22, 23 and 26; a phone's was 0.07 s and the TV's 0.25 s on the 26th).
+// Between a step's act and HOLD's press there are two at most: the act's own end and the key's (ride.mjs).
+const SLOW_FRAME_S = 2;
+const ACT_TO_HOLD_FRAMES = 2;
+// The frame page's steps as the shoot has them (shoot.mjs): the shelf's tab away, the ride's, and the tab back while the ride is awake.
+const FRAME_BACK = '{ ...shelfStep("player", "out", "fixed-shelf-frame-back"), from: "awake", ride: "awake" }';
+const frameSteps = (): Step[] => [
+  { click: "[data-shelf-tab='player']", required: true, shot: "fixed-shelf-frame" },
+  ...pages.frame.steps,
+  { click: "[data-shelf-tab='player']", required: true, from: "awake", ride: "awake", shot: "fixed-shelf-frame-back" },
+];
 
 describe("the shoot's stills of the ride", () => {
   it("takes every still the pull request's table names, each on the devices it names and in the look its name says", () => {
@@ -147,8 +157,9 @@ describe("the shoot's stills of the ride", () => {
         // still of the page left alone.
         expect([step.click, step.tap, step.press, step.move, step.world].filter(Boolean).length, where).toBeLessThanOrEqual(1);
         if (step.click || step.tap || step.focus || step.waitFor) expect(step.required, where).toBe(true);
-        // A tap is of a control in one look: it says which.
+        // A tap is of a control in one look: it says which. A press that says its look says one of the two.
         if (step.tap) expect(step.from, where).toBe("settled");
+        if (step.from) expect(["awake", "settled"], where).toContain(step.from);
         // A still's name says its look: settled, slept, arrived, or settled with the cursor back; the others are awake.
         expect(step.ride, where).toBe(/-settled$|-tapped$|-moved$|^fixed-cursor-back$/.test(step.shot) ? "settled" : "awake");
       }
@@ -168,22 +179,167 @@ describe("the shoot's stills of the ride", () => {
     // A still whose camera never reaches the crane fails the run, by the wait a recording of the ease has: it is not shot as if it had.
     expect(shoot).toContain("{ timeout: EASE_MS })\n            .catch(() => {\n              console.log(`${step.shot}: the camera had not reached the crane`);\n              perFile.fail(`${device}-${step.shot}.png`, `the camera had not reached the crane ${EASE_MS} ms after the page settled`);");
     expect(EASE_MS).toBe(120_000);
-    // A settled still's wait outlasts the longest wait to settle, with the slowest awake still before it.
-    expect(settled.waitMs! / 1000).toBeGreaterThan(rideIdle("desktop") + 2 * SLOWEST_S.desktop);
+    // A settled still's wait is over twice the longest wait to settle, which runs from HOLD's letting go just after the awake still
+    // before it.
+    expect(settled.waitMs! / 1000).toBeGreaterThan(2 * rideIdle("desktop"));
   });
 
-  it("sizes the wait before a ride settles to the device: over twice the slowest step CI's renderer took, on a desktop and a TV and on the others", () => {
+  it("keeps the waits before a ride settles, a desktop's and a TV's and the others', each over what is left of an awake step once it has acted: its act's end and HOLD's press, at 2 s a frame", () => {
     expect([rideIdle("desktop"), rideIdle("tv")]).toEqual([15, 15]);
-    for (const device of ["phone", "phone-360", "phone-landscape", "desktop-reduced", "desktop-nowebgl", "phone-nowebgl"]) expect(rideIdle(device), device).toBe(6);
-    expect(rideIdle("desktop")).toBeGreaterThan(2 * SLOWEST_S.desktop);
-    expect(rideIdle("phone")).toBeGreaterThan(2 * SLOWEST_S.other);
-    // The sleep timer's later still, 30 s of timer after its press, is of a page that has settled: its wait is past both the timer
-    // and the desktop's wait to settle with a slow still before it.
+    const others = ["phone", "phone-360", "phone-landscape", "desktop-reduced", "desktop-nowebgl", "phone-nowebgl"];
+    for (const device of others) expect(rideIdle(device), device).toBe(6);
+    for (const device of ["desktop", "tv", ...others]) expect(rideIdle(device), device).toBeGreaterThan(ACT_TO_HOLD_FRAMES * SLOW_FRAME_S);
+    // The sleep timer's later still, 30 s of timer after its press, is of a page that has settled: its wait, from HOLD's letting go
+    // just after the still before it, is past both the timer and the desktop's wait to settle.
     const later = pages.sleep.steps.find((step) => step.later)!.later!;
     expect(later.ms).toBeGreaterThan(30_000);
-    expect(later.ms / 1000).toBeGreaterThan(rideIdle("desktop") + 2 * SLOWEST_S.desktop);
+    expect(later.ms / 1000).toBeGreaterThan(rideIdle("desktop"));
     // One page keeps the page's own ten seconds: the phones' shelf, whose steps CI took 2.8 s apiece.
     expect(Object.entries(pages).filter(([, page]) => page.ownIdle).map(([name]) => name)).toEqual(["frame"]);
+  });
+
+  it("takes each still that needs the ride awake with HOLD down from its step's act, and makes a press on a control of the awake look with it still down", () => {
+    // On CI's renderer of 2026-11-26 a desktop took some 15 s from the ride's press to the end of its still, of a wait of 15, and
+    // the sleep timer's press came after the wait was over: the page had settled, and its still was of the settled look.
+    expect(HOLD).toBe("ShiftRight");
+    const all: [string, Step[]][] = [...Object.entries(pages).map(([name, page]) => [name, page.steps] as [string, Step[]]), ["frame, as the shoot has it", frameSteps()]];
+    for (const [name, steps] of all) {
+      const holds = awakeHolds(steps);
+      steps.forEach((step, i) => {
+        const where = `${name}: ${step.shot}`;
+        // Held from the act of each step whose still needs the ride awake, and of no other.
+        expect(holds[i].hold, where).toBe(step.ride === "awake");
+        // Let go once each still has been read back, but where the next step's press needs the ride awake.
+        expect(holds[i].letGo, where).toBe(steps[i + 1]?.from !== "awake");
+        // A press made with HOLD down is a click on a control of the awake look, which Shift does not change; it follows a still
+        // taken with HOLD down that has no later still, since a later one waits with nothing held. No key is pressed with it down.
+        if (step.from === "awake") {
+          expect(step.click, where).toBeTruthy();
+          expect(step.press, where).toBeUndefined();
+          expect(holds[i - 1], where).toEqual({ hold: true, letGo: false });
+          expect(steps[i - 1].later, where).toBeUndefined();
+        }
+        // A later still is taken with HOLD let go, so none needs the ride awake.
+        if (step.later) expect(step.later.ride, where).toBe("settled");
+      });
+    }
+    // The sleep timer's page: the ride's press and its still, the timer's press and its still with HOLD still down, let go before
+    // the later still; nothing held for the cursor; and the letter's press and its still.
+    expect(awakeHolds(pages.sleep.steps)).toEqual([{ hold: true, letGo: false }, { hold: true, letGo: true }, { hold: false, letGo: true }, { hold: true, letGo: true }]);
+    expect(pages.sleep.steps[1]).toMatchObject({ click: "[data-action='sleep']", from: "awake", ride: "awake", shot: "fixed-sleep-30" });
+    expect(awakeHolds(frameSteps())).toEqual([{ hold: false, letGo: true }, { hold: true, letGo: false }, { hold: true, letGo: true }]);
+    expect(shoot).toContain(`steps: [shelfStep("player", "in", "fixed-shelf-frame"), ...RIDE_PAGES.frame.steps, ${FRAME_BACK}],`);
+    // The shoot does as keyHold says (below): HOLD down straight after the act, before any wait; and let go once the still is read
+    // back, before the reads of the page after it, where a step is skipped without a still, and at the end of the page's steps.
+    expect(shoot).toContain("const hold = keyHold(page, steps ?? []);");
+    const down = shoot.indexOf("await hold.acted(n);");
+    expect(down).toBeGreaterThan(shoot.indexOf("if (step.world) await pressWorld(page, Boolean(options.hasTouch));"));
+    expect(down).toBeLessThan(shoot.indexOf("if (step.near !== undefined) {\n          const from"));
+    expect(shoot).toContain("${rideNote(step.ride, wrongLook, hold.held())}`);\n        await hold.after(n);\n        const stats = await logStats(page, file);");
+    expect(shoot).toContain("console.log(`${step.shot}: no still, the world is not drawing`);\n            await hold.after(n);\n            continue;");
+    expect(shoot).toContain("      }\n      await hold.done();\n      // The view and the shelves");
+    expect(shoot.match(/await hold\.after\(n\);/g)).toHaveLength(3);
+    // Nothing else in the shoot presses or lets go of it.
+    expect(shoot).not.toMatch(/keyboard\.(down|up)\(/);
+    // What Shift is to the world: the run of a walk, which alone is no control (input.js), and no control held, so a world under
+    // reduced motion draws no frame for it; it is read nowhere but in a walk's pace (main.js). To the page it is a key that only
+    // modifies another (ride.ts), and nothing in the page or the world reads a press's shiftKey: neither of the two presses made with
+    // HOLD down, the sleep timer's button and the shelf's tab, both buttons, does anything else for it.
+    const world = (file: string) => readFileSync(join(__dirname, "../../public/world", file), "utf8");
+    expect(world("input.js")).toContain('ShiftLeft: "run", ShiftRight: "run"');
+    expect(world("input.js")).toContain('if (k !== "run") userInput(k);');
+    expect(world("main.js")).toMatch(/const held = \(\) => keys\.fwd \|\| [^;]*stick\.turn !== 0;/);
+    expect(world("main.js").match(/const held = \(\) => [^;]*;/)![0]).not.toContain("keys.run");
+    expect(world("main.js").match(/keys\.run/g)).toEqual(["keys.run"]);
+    expect(world("main.js")).toContain("const pace = 12 * (keys.run ? 1.6 : 1) * dt;");
+    const sources = [
+      ...readdirSync(join(__dirname, "../../src"), { recursive: true, encoding: "utf8" }).filter((f) => /\.tsx?$/.test(f) && !f.includes("__tests__")).map((f) => join("src", f)),
+      ...readdirSync(join(__dirname, "../../public/world")).filter((f) => f.endsWith(".js")).map((f) => join("public/world", f)),
+    ];
+    expect(sources.length).toBeGreaterThan(40);
+    for (const file of sources) expect(readFileSync(join(__dirname, "../..", file), "utf8"), file).not.toMatch(/shiftKey/);
+    expect(pages.sleep.steps[1].click).toBe("[data-action='sleep']");
+    // And the step's line of the log says the look either side and the key held: a still in the wrong look has its own line.
+    expect(shoot).toContain("const rideNote = (need, failure, held) => `${need && !failure ? `  ride ${need} either side` : \"\"}${held ? `  ${HOLD} held` : \"\"}`;");
+  });
+
+  it("keeps an awake page awake under HOLD however long it is down, and the page settles its whole wait after HOLD is let go (watchIdle in ride.ts)", () => {
+    // A settled page is left as it is under HOLD: Shift is a key that only modifies another, which src/lib/__tests__/ride.test.ts
+    // holds the page to, the right one with the left.
+    vi.useFakeTimers();
+    try {
+      const MS = rideIdle("desktop") * 1000, win = new EventTarget(), told: boolean[] = [];
+      const stop = watchIdle(win, { ms: MS, settled: false, onChange: (settled) => told.push(settled) });
+      const key = (type: string) => win.dispatchEvent(Object.assign(new Event(type), { code: HOLD, key: "Shift" }));
+      key("keydown");
+      vi.advanceTimersByTime(10 * MS);
+      expect(told).toEqual([]);
+      key("keyup");
+      vi.advanceTimersByTime(MS - 1);
+      expect(told).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(told).toEqual([true]);
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // A page's steps as the shoot's loop goes through them (shoot.mjs), with keyHold on a page that only records the key's presses and
+  // lettings go: each step is skipped (`skip`), or acts, takes its still, and then its later one. What is seen is each press a step
+  // makes, each still and each cursor read, with whether HOLD was down at it.
+  async function throughSteps(steps: Step[], skip = -1) {
+    const calls: string[] = [], seen: string[] = [];
+    const hold = keyHold({ keyboard: { down: async (key: string) => void calls.push(`down ${key}`), up: async (key: string) => void calls.push(`up ${key}`) } }, steps);
+    for (const [n, step] of steps.entries()) {
+      if (n === skip) {
+        await hold.after(n);
+        continue;
+      }
+      if (step.click || step.tap || step.press || step.move || step.world) seen.push(`press ${step.shot} ${hold.held()}`);
+      await hold.acted(n);
+      if (step.cursor) seen.push(`cursor ${step.shot} ${hold.held()}`);
+      seen.push(`still ${step.shot} ${hold.held()}`);
+      await hold.after(n);
+      if (step.later?.cursor) seen.push(`cursor ${step.later.shot} ${hold.held()}`);
+      if (step.later) seen.push(`still ${step.later.shot} ${hold.held()}`);
+    }
+    await hold.done();
+    return { calls, seen, held: hold.held() };
+  }
+
+  it("lets HOLD go on every way out of a step, so no later still, cursor, key or page after has it down: a still taken, a step skipped, and the page's end", async () => {
+    // The sleep timer's page: down for the ride's still and on through the timer's press and still, up before the later still and
+    // the cursor's step, and down again for the letter's still.
+    const sleep = await throughSteps(pages.sleep.steps);
+    expect(sleep.calls).toEqual([`down ${HOLD}`, `up ${HOLD}`, `down ${HOLD}`, `up ${HOLD}`]);
+    expect(sleep.seen).toEqual([
+      "press fixed-sleep-ride false", "still fixed-sleep-ride true",
+      "press fixed-sleep-30 true", "still fixed-sleep-30 true", "cursor fixed-slept false", "still fixed-slept false",
+      "press fixed-cursor-back false", "cursor fixed-cursor-back false", "still fixed-cursor-back false",
+      "press fixed-key-woken false", "still fixed-key-woken true",
+    ]);
+    const all: [string, Step[]][] = [...Object.entries(pages).map(([name, page]) => [name, page.steps] as [string, Step[]]), ["frame, as the shoot has it", frameSteps()]];
+    for (const [name, steps] of all) {
+      // Every step taken, and then each one skipped in turn.
+      for (let skip = -1; skip < steps.length; skip++) {
+        const { calls, seen, held } = await throughSteps(steps, skip);
+        const where = `${name}, skipping ${skip}`;
+        // Up at the end, as often let go as pressed, and never pressed while down.
+        expect(held, where).toBe(false);
+        expect(calls.filter((call) => call.startsWith("down")).length, where).toBe(calls.filter((call) => call.startsWith("up")).length);
+        calls.forEach((call, i) => expect(call, where).toBe(`${i % 2 === 0 ? "down" : "up"} ${HOLD}`));
+        // Each still that needs the ride awake has it down; no still that needs it settled, no later still and no cursor's reading.
+        for (const step of steps) {
+          if (seen.includes(`still ${step.shot} ${step.ride !== "awake"}`)) throw new Error(`${where}: ${step.shot} taken with HOLD ${step.ride === "awake" ? "up" : "down"}`);
+          if (step.later) expect(seen, where).not.toContain(`still ${step.later.shot} true`);
+          expect(seen.filter((one) => one.startsWith(`cursor ${step.shot} true`) || one.startsWith(`cursor ${step.later?.shot} true`)), where).toEqual([]);
+          // A press with it down is one that needs the ride awake; no key's press, a pointer's move or a press on the world.
+          if (step.press || step.move || step.world) expect(seen, where).not.toContain(`press ${step.shot} true`);
+          if (seen.includes(`press ${step.shot} true`)) expect(step.from, where).toBe("awake");
+        }
+      }
+    }
   });
 
   it("says what is wrong with a still taken in another look, whichever side of it the page changed, and nothing of one taken in the look it needs", () => {
@@ -248,8 +404,14 @@ describe("the shoot's stills of the ride", () => {
     for (const now of ["awake", undefined]) {
       expect(await pressFailure(waiting([now], false), "settled")).toBe(`the press needs the ride settled, and the page had it ${now ?? "none"}`);
     }
-    // That wait outlasts the longest wait to settle, with the slowest awake still before it.
-    expect(40_000 / 1000).toBeGreaterThan(rideIdle("desktop") + 2 * SLOWEST_S.desktop);
+    // That wait is over twice the longest wait to settle, which runs from HOLD's letting go after the awake still before the press.
+    expect(40_000 / 1000).toBeGreaterThan(2 * rideIdle("desktop"));
+    // Only input wakes a page, so a press of a control of the awake look waits for nothing: the page is awake as it is made, or the
+    // run fails.
+    waits.length = 0;
+    expect(await pressFailure(waiting(["awake"], true), "awake")).toBe(null);
+    expect(await pressFailure(waiting(["settled"], true), "awake")).toBe("the press needs the ride awake, and the page had it settled");
+    expect(waits).toEqual([]);
   });
 
   it("gives a still one failure line, its first, which says why; and a still that was not taken for a reason said there is not listed again by the plan's check for being missing", () => {
@@ -312,14 +474,14 @@ describe("the shoot's stills of the ride", () => {
     const read = shoot.indexOf("const cursorRead = step.cursor ? await cursorNow(page) : null;");
     expect(read).toBeGreaterThan(shoot.indexOf("if (step.move) await movePointer(page);"));
     expect(shoot).toContain(
-      "const cursorRead = step.cursor ? await cursorNow(page) : null;\n        const cursorWrong = step.cursor ? cursorFailure(step.cursor, cursorRead) : null;\n        if (cursorWrong) perFile.fail(`${device}-${step.shot}.png`, cursorWrong);\n        if (step.near === undefined) await page.waitForTimeout(STEP_SETTLE_MS);\n        const file = `${device}-${step.shot}.png`;\n        await takeStill(page, file, step.ride,",
+      "const cursorRead = step.cursor ? await cursorNow(page) : null;\n        const cursorWrong = step.cursor ? cursorFailure(step.cursor, cursorRead) : null;\n        if (cursorWrong) perFile.fail(`${device}-${step.shot}.png`, cursorWrong);\n        if (step.near === undefined) await page.waitForTimeout(STEP_SETTLE_MS);\n        const file = `${device}-${step.shot}.png`;\n        const wrongLook = await takeStill(page, file, step.ride,",
     );
-    expect(shoot).toContain('`waited for ${step.waitFor}`)}${cursorRead ? `  cursor ${cursorRead} as the step acted` : ""}`);');
+    expect(shoot).toContain('`waited for ${step.waitFor}`)}${cursorRead ? `  cursor ${cursorRead} as the step acted` : ""}${rideNote(step.ride, wrongLook, hold.held())}`);');
     // The later still's, read just before it.
     expect(shoot).toContain(
-      "const laterCursorRead = step.later.cursor ? await cursorNow(page) : null;\n          const laterCursorWrong = step.later.cursor ? cursorFailure(step.later.cursor, laterCursorRead) : null;\n          if (laterCursorWrong) perFile.fail(laterFile, laterCursorWrong);\n          await takeStill(page, laterFile, step.later.ride,",
+      "const laterCursorRead = step.later.cursor ? await cursorNow(page) : null;\n          const laterCursorWrong = step.later.cursor ? cursorFailure(step.later.cursor, laterCursorRead) : null;\n          if (laterCursorWrong) perFile.fail(laterFile, laterCursorWrong);\n          const laterWrongLook = await takeStill(page, laterFile, step.later.ride,",
     );
-    expect(shoot).toContain('console.log(`${laterFile}  ${url}  ${selector}${laterCursorRead ? `  cursor ${laterCursorRead} before the still` : ""}`);');
+    expect(shoot).toContain('console.log(`${laterFile}  ${url}  ${selector}${laterCursorRead ? `  cursor ${laterCursorRead} before the still` : ""}${rideNote(step.later.ride, laterWrongLook, hold.held())}`);');
   });
 
   // A mouse as Playwright moves it, from where it was, in so many steps, each a move the window hears; its click, a press and a
@@ -397,10 +559,10 @@ describe("the shoot's stills of the ride", () => {
     expect(shoot).toContain("await takeStill(page, laterFile, step.later.ride,");
     // A still in the wrong look is a failure of the run, which the shoot's last lines throw for: one line for the still.
     expect(shoot).toContain("const perFile = fileFailures(failures);");
-    expect(shoot).toContain("const failure = await stillInLook(page, need, () => page.screenshot(options));\n  if (!failure) return;\n  perFile.fail(file, failure);");
+    expect(shoot).toContain("const failure = await stillInLook(page, need, () => page.screenshot(options));\n  if (!failure) return null;\n  perFile.fail(file, failure);");
     // So is a step's control that is not on the page, for the still it would have taken and for its later one, neither of them
     // taken; and a state a required step waits for that never comes.
-    expect(shoot).toContain("for (const shot of [step.shot, step.later?.shot].filter(Boolean)) perFile.fail(`${device}-${shot}.png`, `${selector} absent, so the still was not taken`, false);\n          console.log(`${step.shot}: ${selector} absent`);\n          continue;");
+    expect(shoot).toContain("for (const shot of [step.shot, step.later?.shot].filter(Boolean)) perFile.fail(`${device}-${shot}.png`, `${selector} absent, so the still was not taken`, false);\n          console.log(`${step.shot}: ${selector} absent`);\n          await hold.after(n);\n          continue;");
     expect(shoot).toContain("if (step.required) perFile.fail(`${device}-${step.shot}.png`, `never reached ${step.waitFor}`);");
     // The stills that were not taken have said why, and the plan's check at the run's end does not list them again.
     expect(shoot).toContain("failures.push(...planFailures(planFiles(plan), await writtenSince(outDir, began), perFile.untaken));");
@@ -411,8 +573,9 @@ describe("the shoot's stills of the ride", () => {
     expect(shoot).toContain("else if (step.tap) await page.tap(selector);");
     expect(shoot).toContain("const pressedWrong = step.from ? await pressFailure(page, step.from) : null;\n        if (pressedWrong) perFile.fail(`${device}-${step.shot}.png`, pressedWrong);\n        if (step.focus)");
     expect(shoot).toContain("FOCUS_STOPS.map((_, i) => ({ press: \"Tab\", shot: `fixed-focus-${i + 1}` }))");
-    // The shelf's tab back, the one other step of a ride page, needs the ride awake too: the tab is there only while it is.
-    expect(shoot).toContain('{ ...shelfStep("player", "out", "fixed-shelf-frame-back"), ride: "awake" }');
+    // The shelf's tab back, the one other step of a ride page, needs the ride awake too: the tab is there only while it is, so it
+    // is pressed with the ride's key still held.
+    expect(shoot).toContain(FRAME_BACK);
     // And no step of the shoot's own presses the ride's button, names its looks or sets its wait: they are all here.
     expect(shoot).not.toMatch(/data-action='ride'|data-ride=|idle=/);
   });

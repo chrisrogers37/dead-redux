@@ -19,7 +19,7 @@ import {
 import { BAND_DAYS, bandPath } from "./band.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
 import { EASE_MS, press, RECORD_MS, RECORDINGS, step, WORLD_MS, worldStarted } from "./recordings.mjs";
-import { cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, movePointer, pressFailure, pressWorld, rideIdle, ridePages, stillInLook } from "./ride.mjs";
+import { cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, HOLD, keyHold, movePointer, pressFailure, pressWorld, rideIdle, ridePages, stillInLook } from "./ride.mjs";
 import { planFailures, planFiles, shardPlan, writtenSince } from "./shards.mjs";
 
 const DEVICES = {
@@ -482,14 +482,15 @@ const PAGES = [
   // at the foot of the frame. The first shot comes before the first move, while the hint is up. The ride then starts the
   // show, which takes the hint away, and puts the camera behind the bears: on the upright phone the visitor's bear stands above the
   // stick, and on its side, where the page shows no stick, as low as the frame's foot. The stats line's `avatar.clear` reads whether
-  // its feet land in the frame above that. Then the tab brings the player back, the ride still awake: the tab is there only while it is.
+  // its feet land in the frame above that. Then the tab brings the player back, the ride still awake: the tab is there only while it is,
+  // so it is pressed with the ride's HOLD still down (`from`, ride.mjs).
   {
     path: "/2026-10-20",
     devices: RIDE_PAGES.frame.devices,
     ownIdle: RIDE_PAGES.frame.ownIdle,
     ready: "#world[data-world='ready']",
     shots: [],
-    steps: [shelfStep("player", "in", "fixed-shelf-frame"), ...RIDE_PAGES.frame.steps, { ...shelfStep("player", "out", "fixed-shelf-frame-back"), ride: "awake" }],
+    steps: [shelfStep("player", "in", "fixed-shelf-frame"), ...RIDE_PAGES.frame.steps, { ...shelfStep("player", "out", "fixed-shelf-frame-back"), from: "awake", ride: "awake" }],
   },
   // The walk's draw calls on the fixed day, from ?pose=sweep: the visitor's bear at each of the sweep's poses, with the world on the
   // day's first track and then on Drums (index 13), where the left cave lights. The log names each device's peak and the pose that
@@ -577,13 +578,19 @@ const logStats = async (page, file) => {
 };
 
 // Takes a still. One that needs the ride in a look (`need`, a step's `ride`) fails the run where the page marks any other just before
-// it or just after (stillInLook in ride.mjs): the page changes look on a timer, and a slow renderer can be late for it.
+// it or just after (stillInLook in ride.mjs): the page changes look on a timer, and a slow renderer can be late for it. Returns what
+// is wrong with the still, or null.
 const takeStill = async (page, file, need, options) => {
   const failure = await stillInLook(page, need, () => page.screenshot(options));
-  if (!failure) return;
+  if (!failure) return null;
   perFile.fail(file, failure);
   console.log(`${file}: ${failure}`);
+  return failure;
 };
+
+// What a still's line of the log says of the ride: the look the page marked either side of the still, where the still needs one and
+// had it (a still in another look has its own line, above), and HOLD where it was down as the still was taken.
+const rideNote = (need, failure, held) => `${need && !failure ? `  ride ${need} either side` : ""}${held ? `  ${HOLD} held` : ""}`;
 
 // The HUD's shelves, by their tabs' names (src/components/world/shelves.ts).
 const SHELVES = ["title", "actions", "player"];
@@ -864,7 +871,12 @@ try {
         if (i === 0) await logBoxes(page, file);
       }
 
-      for (const step of steps ?? []) {
+      // HOLD, down from the act of a step whose still needs the ride awake until that still is read back, or on through the next
+      // step's press where that needs the ride awake too (keyHold in ride.mjs). Every way out of a step lets it go where awakeHolds
+      // says: a still taken, in its look or not, and a step skipped for its missing control or a world that is not drawing; and the
+      // page's steps end with it up. An error stops the shoot, and with it every page.
+      const hold = keyHold(page, steps ?? []);
+      for (const [n, step] of (steps ?? []).entries()) {
         const selector = step.click ?? step.tap ?? step.focus;
         // A control missing from the page is logged and the step skipped; a step that only presses a key has none to miss. Its
         // untaken stills fail the run, each in one line that says why (perFile.fail), and are not listed again at the run's end, when
@@ -872,6 +884,7 @@ try {
         if (selector && (await page.locator(selector).count()) === 0) {
           for (const shot of [step.shot, step.later?.shot].filter(Boolean)) perFile.fail(`${device}-${shot}.png`, `${selector} absent, so the still was not taken`, false);
           console.log(`${step.shot}: ${selector} absent`);
+          await hold.after(n);
           continue;
         }
         // A press that is of a control in one look of the ride waits for that look, and fails the run where the page is in another as it
@@ -894,6 +907,9 @@ try {
         // (ride.mjs).
         if (step.move) await movePointer(page);
         if (step.world) await pressWorld(page, Boolean(options.hasTouch));
+        // A still that needs the ride awake is taken with HOLD down from here, straight after the act: the page cannot settle under it,
+        // however many frames the still and its reads take, and a page that has settled already is not woken by it (ride.mjs).
+        await hold.acted(n);
         // A near step stands the visitor by another song's landmark and waits for the frames that draw the cut and the bears there:
         // frames, since a software renderer draws two a second and a GPU sixty. They are its settle. A world that is not drawing
         // has no still to take: the step fails the run and is skipped, at once where there is no world at all.
@@ -909,6 +925,7 @@ try {
           if (!drawn) {
             failures.push(`${device}-${step.shot}.png: ${from === null ? "the page has no world" : `the world drew fewer than ${NEAR_FRAMES} frames in 30 s`} after the move to song ${step.near}`);
             console.log(`${step.shot}: no still, the world is not drawing`);
+            await hold.after(n);
             continue;
           }
         }
@@ -949,8 +966,9 @@ try {
         if (cursorWrong) perFile.fail(`${device}-${step.shot}.png`, cursorWrong);
         if (step.near === undefined) await page.waitForTimeout(STEP_SETTLE_MS);
         const file = `${device}-${step.shot}.png`;
-        await takeStill(page, file, step.ride, { path: join(outDir, file), fullPage: true, clip });
-        console.log(`${file}  ${url}  ${step.near !== undefined ? `near ${step.near}` : selector ?? (step.press ? `press ${step.press}` : step.move ? "a pointer's move" : step.world ? "a press on the world" : `waited for ${step.waitFor}`)}${cursorRead ? `  cursor ${cursorRead} as the step acted` : ""}`);
+        const wrongLook = await takeStill(page, file, step.ride, { path: join(outDir, file), fullPage: true, clip });
+        console.log(`${file}  ${url}  ${step.near !== undefined ? `near ${step.near}` : selector ?? (step.press ? `press ${step.press}` : step.move ? "a pointer's move" : step.world ? "a press on the world" : `waited for ${step.waitFor}`)}${cursorRead ? `  cursor ${cursorRead} as the step acted` : ""}${rideNote(step.ride, wrongLook, hold.held())}`);
+        await hold.after(n);
         const stats = await logStats(page, file);
         // A near still of the wrong song fails the run: the stats say which song the visitor stands by. Its page plays nothing, so the
         // player's lines are left out: each read of the page waits on a frame, and a software renderer's frame is a third of a second.
@@ -973,8 +991,8 @@ try {
           const laterCursorRead = step.later.cursor ? await cursorNow(page) : null;
           const laterCursorWrong = step.later.cursor ? cursorFailure(step.later.cursor, laterCursorRead) : null;
           if (laterCursorWrong) perFile.fail(laterFile, laterCursorWrong);
-          await takeStill(page, laterFile, step.later.ride, { path: join(outDir, laterFile), fullPage: true, clip });
-          console.log(`${laterFile}  ${url}  ${selector}${laterCursorRead ? `  cursor ${laterCursorRead} before the still` : ""}`);
+          const laterWrongLook = await takeStill(page, laterFile, step.later.ride, { path: join(outDir, laterFile), fullPage: true, clip });
+          console.log(`${laterFile}  ${url}  ${selector}${laterCursorRead ? `  cursor ${laterCursorRead} before the still` : ""}${rideNote(step.later.ride, laterWrongLook, hold.held())}`);
           await logStats(page, laterFile);
           await logPage(page, laterFile);
           // Serialised in the page, so each reading prints as one line of JSON.
@@ -1001,6 +1019,7 @@ try {
           if (routed) failures.push(`${laterFile}: ${routed}`);
         }
       }
+      await hold.done();
       // The view and the shelves are handed back to the page after, unless it is shot whole too: they would only be put away again.
       if (whole && !pages[k + 1]?.whole) await showWhole(page, false, `${device} ${path}, after its steps`);
 

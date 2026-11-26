@@ -7,6 +7,10 @@
 // which says why (fileFailures).
 // A settled page is used as it is: a pointer that moves only shows its cursor, and a press on one of its controls does that
 // control's work. What wakes it is a press on the bare world, or a key that is no control's. The steps below try each of these.
+// An awake page settles a wait after its last input, and the shoot's own work after a press takes the renderer's frames: a still
+// of the world is several of them to draw and save, and each read of the page waits for one. On a slow runner that work outlasted
+// the wait. So a still that needs the ride awake is taken with a key held down from its step's act (HOLD, awakeHolds), which an
+// awake page cannot settle under and a settled page is not woken by.
 // scripts/__tests__/ride-shoot.test.ts holds every step to that, and the stills' names to the list there. The ride's recordings are
 // in the shoot's one list of them, with the button and the looks named here (RECORDINGS in recordings.mjs).
 
@@ -14,11 +18,12 @@ export const RIDE = "[data-action='ride']";
 export const AWAKE = "main[data-ride='awake']", SETTLED = "main[data-ride='settled']";
 
 // How long a ride waits to settle on a page the shoot takes its stills from, by device, in seconds (?idle=, on previews), in place of
-// the page's own ten. The wait runs from the last input, which is a step's press, and an awake still must be taken, and its look
-// read back, before it is over. In CI's software renderer (the Screenshots run of 33ddbf6) the press on the ride's button to the
-// end of its still took a desktop 5.3 to 6.4 s, since a still of the world takes it some four seconds to draw and save, and the
-// TV no longer; the next step's press came a second after that. A phone took at most 2.3 s, and a page with reduced motion or
-// without WebGL 1.2 s. So a desktop and a TV wait 15 s, and the others 6 s: each over twice the longest span measured there.
+// the page's own ten. The wait runs from the last input. It used to have to hold from a step's press to the end of its still: on CI's
+// software renderer that was 5.3 to 6.4 s on a desktop in the Screenshots run of 33ddbf6, and up to some 15 s on 2026-11-26, when
+// a desktop's frame took 0.55 to 0.77 s and the sleep timer's press came after the wait was over. Now a still that needs the ride
+// awake is taken under HOLD, pressed straight after the step's act, so the wait has only to outlast the act's end and that one key,
+// a frame or two (awakeHolds). The waits stay as they were, a desktop and a TV 15 s and the others 6 s, since a settled still and
+// the sleep timer's later one are timed by them.
 const RIDE_IDLE_S = { desktop: 15, tv: 15 };
 const RIDE_IDLE_ELSE_S = 6;
 export const rideIdle = (device) => RIDE_IDLE_S[device] ?? RIDE_IDLE_ELSE_S;
@@ -59,14 +64,54 @@ export async function stillInLook(page, need, take) {
   return need ? rideFailure(need, before, await rideNow(page)) : null;
 }
 
-// How long a press that needs the ride in a look waits for the page to come to it: a page a step has woken settles again in its
-// device's wait, 15 s at most, and this is the wait a settled still gets (rideSteps).
+// The key the shoot holds down while it takes a still that needs the ride awake. The page counts a key held down as input for as
+// long as it is held (watchIdle in ride.ts), so an awake page does not settle under it, however long the still takes; Shift is a
+// key the settled look leaves as it is (quietKey there), so a page that has settled already stays so, and its still fails; and
+// Shift alone gives the world no control (public/world/input.js). The ride-settle-wake recording holds it for the same reason. The
+// right one, since a step of the sleep timer's page presses the left.
+export const HOLD = "ShiftRight";
+
+// For each of a page's steps, what the shoot does with HOLD. `hold`: it presses it straight after the step's act, where the step's
+// still needs the ride awake (a press that wakes the page, or one on a control of the awake look, comes first). `letGo`: once the
+// step's still has been read back it lets it go, unless the next step's press needs the ride awake too (`from: "awake"`), a press
+// on a control only the awake look shows, which is then made with HOLD still down. Let go, the page settles its own wait later,
+// which a settled still and a later one wait for with nothing held.
+export const awakeHolds = (steps) => steps.map((step, i) => ({ hold: step.ride === "awake", letGo: steps[i + 1]?.from !== "awake" }));
+
+// HOLD over one page's steps as awakeHolds says, for the shoot's step loop: `acted(n)` once step n has acted, `after(n)` once its
+// still has been read back or the step has been skipped without one, and `done()` once the page's steps are over, so the key is
+// never down for the page after. `held()` says whether it is down now.
+export function keyHold(page, steps) {
+  const holds = awakeHolds(steps);
+  let down = false;
+  const up = async () => {
+    if (!down) return;
+    down = false;
+    await page.keyboard.up(HOLD);
+  };
+  return {
+    held: () => down,
+    async acted(n) {
+      if (!holds[n].hold || down) return;
+      await page.keyboard.down(HOLD);
+      down = true;
+    },
+    after: async (n) => {
+      if (holds[n].letGo) await up();
+    },
+    done: up,
+  };
+}
+
+// How long a press that needs the ride settled waits for the page to come to it: a page a step has woken settles again in its
+// device's wait, 15 s at most, and this is the wait a settled still gets (rideSteps). Nothing but input wakes a page, so a press
+// that needs the ride awake waits for nothing.
 const LOOK_WAIT_MS = 40_000;
 
-// What is wrong with a press that needs the ride in the look `from` as it is made, a press on a control of the settled look: null
-// where the page marks that look, once it has had `waitMs` to come to it.
-export async function pressFailure(page, from, waitMs = LOOK_WAIT_MS) {
-  await page.waitForSelector(`main[data-ride='${from}']`, { timeout: waitMs }).catch(() => {});
+// What is wrong with a press that needs the ride in the look `from` as it is made, a press on a control of one look: null where the
+// page marks that look, once a press that needs it settled has had `waitMs` to come to it.
+export async function pressFailure(page, from, waitMs = from === "settled" ? LOOK_WAIT_MS : 0) {
+  if (waitMs > 0) await page.waitForSelector(`main[data-ride='${from}']`, { timeout: waitMs }).catch(() => {});
   const now = await rideNow(page);
   return now === from ? null : `the press needs the ride ${from}, and the page had it ${now}`;
 }
@@ -155,24 +200,26 @@ export const ridePages = (playWaitMs) => ({
       { tap: NEXT_LINK, from: "settled", required: true, waitFor: ARRIVED, waitMs: playWaitMs, player: true, ride: "settled", shot: "fixed-newday-tapped" },
     ],
   },
-  // The sleep timer counting seconds: the ride's own row has it while the page is awake, and one press sets 30 s. The later still
-  // comes 32 s after that one: the show is paused, and with no input since the press the ride has settled and the cursor is hidden.
-  // Focus on the settled look's sleep timer and a key that only modifies another bring the cursor back and leave the look. Then a
-  // letter that is no control's wakes the page, the ride still on.
+  // The sleep timer counting seconds: the ride's own row has it while the page is awake, so it is pressed with HOLD still down from
+  // the ride's still (`from`), and one press sets 30 s. The later still comes 32 s after that one, HOLD let go between them: the
+  // show is paused, and with no input since, the ride has settled and the cursor is hidden. Focus on the settled look's sleep timer
+  // and a key that only modifies another bring the cursor back and leave the look. Then a letter that is no control's wakes the
+  // page, the ride still on.
   sleep: {
     devices: ["desktop"],
     steps: [
       { click: RIDE, required: true, waitFor: AWAKE, ride: "awake", shot: "fixed-sleep-ride" },
-      { click: SLEEP, required: true, ride: "awake", shot: "fixed-sleep-30", later: { ms: 32_000, shot: "fixed-slept", ride: "settled", cursor: "hidden" } },
+      { click: SLEEP, from: "awake", required: true, ride: "awake", shot: "fixed-sleep-30", later: { ms: 32_000, shot: "fixed-slept", ride: "settled", cursor: "hidden" } },
       { focus: SLEEP, press: "ShiftLeft", required: true, cursor: "shown", ride: "settled", shot: "fixed-cursor-back" },
       { press: "KeyX", waitFor: AWAKE, required: true, ride: "awake", shot: "fixed-key-woken" },
     ],
   },
   // The look-up failed: the plate that says so, in a ride awake and settled.
   lookup: { devices: ["desktop", "phone", "phone-360"], steps: rideSteps("fixed-lookup-failed-ride") },
-  // The player's shelf away, on a phone and a phone on its side: the ride puts the camera behind the bears. This page keeps the
-  // page's own ten seconds (`ownIdle`): CI's phones took 2.8 s a step here, so the tab's press, the step after the ride's, came
-  // under 5 s after it.
+  // The player's shelf away, on a phone and a phone on its side: the ride puts the camera behind the bears. The tab's press, the
+  // step after the ride's (shoot.mjs), is made with HOLD still down, since the tab is there only while the ride is awake. This page
+  // keeps the page's own ten seconds (`ownIdle`): CI's phones took 2.8 s a step here, so the tab's press came under 5 s after the
+  // ride's.
   frame: {
     devices: ["phone", "phone-landscape"],
     ownIdle: true,
