@@ -825,7 +825,7 @@ describe("parting", () => {
     const raised = (x: number, z: number, y = h + 1.2) => { const point = { x, y, z }; p.over(point); return point.y; };
     expect(raised(s.x + edge - 0.01, s.z)).toBe(top);
     expect(raised(s.x, s.z + edge + 1)).toBeCloseTo(top - 1.5, 9);
-    expect(raised(s.x + 5.8, s.z)).toBe(h + 1.2);
+    expect(raised(s.x + 6.8, s.z)).toBe(h + 1.2);
     // A camera far below the figure: the slope reaches it 10 m out, with nothing cut off.
     expect(raised(s.x - 10, s.z, h - 10)).toBeCloseTo(top - 1.5 * (10 - edge), 9);
     expect(raised(s.x - 20, s.z, h - 10)).toBe(h - 10);

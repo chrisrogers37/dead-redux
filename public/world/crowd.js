@@ -214,11 +214,11 @@ export function figureGeometry(plain = false) {
   /* In the hands and overhead. A pole in the right hand, and a flag on it over the head, which waves from the pole out (its weight
      along it); a balloon over the right shoulder on a string from that hand, which goes up past the head a hand's breadth out and
      leans from the hand up. */
-  add(new THREE.CylinderGeometry(0.015, 0.015, 1.38, round(4, 3)).translate(0.3, 1.55, 0.075), RIG.BODY, PART.POLE, TINT.SHOE);
-  add(new THREE.BoxGeometry(0.5, 0.38, 0.014, round(3, 1), 1, 1).translate(0.05, 2.045, 0.075), RIG.BODY, PART.FLAG, TINT.THING, (x) => (0.3 - x) / 0.5);
+  add(new THREE.CylinderGeometry(0.015, 0.015, 2.04, round(4, 3)).translate(0.3, 1.88, 0.075), RIG.BODY, PART.POLE, TINT.SHOE);
+  add(new THREE.BoxGeometry(0.64, 0.5, 0.014, round(3, 1), 1, 1).translate(-0.02, 2.65, 0.075), RIG.BODY, PART.FLAG, TINT.THING, (x) => (0.3 - x) / 0.64);
   const lift = (x, y) => Math.min(1, Math.max(0, (y - 0.885) / 1.1));
-  add(new THREE.SphereGeometry(0.12, round(7, 6), 4).scale(1, 1.18, 1).translate(0.2, 2.098, -0.03), RIG.BODY, PART.BALLOON, TINT.THING, lift);
-  add(rope([[0.285, 0.885, 0.03], [0.3, 1.7, 0], [0.2, 1.96, -0.03]], [0.008, 0.008, 0.008], 3), RIG.BODY, PART.BALLOON, TINT.SHOE, lift);
+  add(new THREE.SphereGeometry(0.13, round(7, 6), 4).scale(1, 1.18, 1).translate(0.2, 2.6, -0.03), RIG.BODY, PART.BALLOON, TINT.THING, lift);
+  add(rope([[0.285, 0.885, 0.03], [0.3, 1.7, 0], [0.2, 2.447, -0.03]], [0.008, 0.008, 0.008], 3), RIG.BODY, PART.BALLOON, TINT.SHOE, lift);
   /* A taper's stand before the left foot, on the ground: a pole to over the head, a bar across its top and, but on a plain figure, a
      microphone at each end. */
   add(new THREE.CylinderGeometry(0.014, 0.014, 2.2, 4, 1, true).translate(STAND_X, 1.1, STAND_Z), RIG.GROUND, PART.STAND, TINT.SHOE);
@@ -275,26 +275,26 @@ export function figureGeometry(plain = false) {
   /* A pole that leans in from the hand to stand its top over the head, and what stands on it: a star, a moon on its back, a parasol and
      a puppet's head in a ruff. And what else flies from a straight pole, from its top out over the head: a swallowtail, a pennant and
      two streamers, which wave from the pole out as the square flag does. None of them is printed with anything. */
-  const flies = (x) => Math.min(1, Math.max(0, (0.3 - x) / 0.56));
-  add(rope([[0.3, 0.86, 0.075], [0.14, 2.24, 0]], [0.015, 0.015], round(4, 3)), RIG.BODY, PART.POLE, TINT.SHOE, null, FORM.POLE.lean);
-  add(slab([[0.3, 1.86], [0.3, 2.235], [-0.22, 2.235], [-0.07, 2.0475], [-0.22, 1.86]], 0.075, 0.014), RIG.BODY, PART.FLAG, TINT.THING, flies, FORM.FLAG.swallowtail);
-  add(slab([[0.3, 1.99], [0.3, 2.235], [-0.26, 2.11]], 0.075, 0.014), RIG.BODY, PART.FLAG, TINT.THING, flies, FORM.FLAG.pennant);
-  for (const [y, wide, far, tint] of [[2.2, 0.035, -0.28, TINT.THING], [2.07, 0.03, -0.2, TINT.LEGS]]) {
+  const flies = (x) => Math.min(1, Math.max(0, (0.3 - x) / 0.64));
+  add(rope([[0.3, 0.86, 0.075], [0.14, 2.6, 0]], [0.015, 0.015], round(4, 3)), RIG.BODY, PART.POLE, TINT.SHOE, null, FORM.POLE.lean);
+  add(slab([[0.3, 2.42], [0.3, 2.9], [-0.34, 2.9], [-0.14, 2.66], [-0.34, 2.42]], 0.075, 0.014), RIG.BODY, PART.FLAG, TINT.THING, flies, FORM.FLAG.swallowtail);
+  add(slab([[0.3, 2.56], [0.3, 2.9], [-0.34, 2.73]], 0.075, 0.014), RIG.BODY, PART.FLAG, TINT.THING, flies, FORM.FLAG.pennant);
+  for (const [y, wide, far, tint] of [[2.83, 0.045, -0.34, TINT.THING], [2.66, 0.04, -0.27, TINT.LEGS]]) {
     const along = Array.from({ length: 6 }, (_, k) => [0.3 + ((far - 0.3) * k) / 5, y + 0.03 * Math.sin(2.4 * k)]), half = (k) => wide * (1 - 0.7 * (k / 5));
     add(slab([...along.map(([x, v], k) => [x, v + half(k)]), ...along.map(([x, v], k) => [x, v - half(k)]).reverse()], 0.075, 0.012), RIG.BODY, PART.FLAG, tint, flies, FORM.FLAG.streamer);
   }
-  const star = Array.from({ length: 10 }, (_, k) => [0.14 + (k % 2 ? 0.072 : 0.17) * Math.sin((Math.PI * k) / 5), 2.3 + (k % 2 ? 0.072 : 0.17) * Math.cos((Math.PI * k) / 5)]);
+  const star = Array.from({ length: 10 }, (_, k) => [0.14 + (k % 2 ? 0.085 : 0.2) * Math.sin((Math.PI * k) / 5), 2.75 + (k % 2 ? 0.085 : 0.2) * Math.cos((Math.PI * k) / 5)]);
   add(slab(star, 0, 0.02), RIG.BODY, PART.FLAG, TINT.THING, null, FORM.FLAG.star);
-  /* The moon: the part of a circle 0.15 round (0.14, 2.34) outside one 0.125 round a point 0.075 over that, its thick middle below. */
+  /* The moon: the part of a circle 0.2 round (0.14, 2.76) outside one 0.1667 round a point 0.1 over that, its thick middle below. */
   const arc = (cy, r, from, to) => Array.from({ length: 9 }, (_, k) => { const a = from + ((to - from) * k) / 8; return [0.14 + r * Math.cos(a), cy + r * Math.sin(a)]; });
   const horn = Math.atan2(0.0833, 0.1247), inner = Math.atan2(0.0083, 0.1247);
-  add(slab([...arc(2.34, 0.15, Math.PI - horn, 2 * Math.PI + horn), ...arc(2.415, 0.125, inner, -Math.PI - inner).slice(1, -1)], 0, 0.02), RIG.BODY, PART.FLAG, TINT.THING, null, FORM.FLAG.moon);
-  add(tube([{ y: 2.31, rx: 0.02, cx: 0.14 }, { y: 2.27, rx: 0.15, cx: 0.14 }, { y: 2.2, rx: 0.21, cx: 0.14 }], round(8, 6), { top: true, bottom: true }), RIG.BODY, PART.FLAG, TINT.THING, null, FORM.FLAG.parasol);
-  add(new THREE.IcosahedronGeometry(0.15, round(1, 0)).scale(1, 1.3, 1).translate(0.14, 2.26, 0), RIG.BODY, PART.FLAG, TINT.THING, null, FORM.FLAG.puppet);
-  add(tube([{ y: 2.1, rx: 0.06, cx: 0.14 }, { y: 2.065, rx: 0.13, cx: 0.14 }, { y: 2.03, rx: 0.05, cx: 0.14 }], round(8, 6)), RIG.BODY, PART.FLAG, TINT.LEGS, null, FORM.FLAG.puppet);
+  add(slab([...arc(2.76, 0.2, Math.PI - horn, 2 * Math.PI + horn), ...arc(2.86, 0.1667, inner, -Math.PI - inner).slice(1, -1)], 0, 0.02), RIG.BODY, PART.FLAG, TINT.THING, null, FORM.FLAG.moon);
+  add(tube([{ y: 2.71, rx: 0.02, cx: 0.14 }, { y: 2.67, rx: 0.15, cx: 0.14 }, { y: 2.6, rx: 0.21, cx: 0.14 }], round(8, 6), { top: true, bottom: true }), RIG.BODY, PART.FLAG, TINT.THING, null, FORM.FLAG.parasol);
+  add(new THREE.IcosahedronGeometry(0.2, round(1, 0)).scale(1, 1.3, 1).translate(0.14, 2.72, 0), RIG.BODY, PART.FLAG, TINT.THING, null, FORM.FLAG.puppet);
+  add(tube([{ y: 2.5, rx: 0.08, cx: 0.14 }, { y: 2.46, rx: 0.17, cx: 0.14 }, { y: 2.42, rx: 0.065, cx: 0.14 }], round(8, 6)), RIG.BODY, PART.FLAG, TINT.LEGS, null, FORM.FLAG.puppet);
   /* Three balloons on three strings from the one hand, each its own colour, at three heights over the shoulder: each string passes the
      head a hand's breadth out. */
-  for (const [x, y, z, r, tint] of [[0.24, 2.0, 0.06, 0.09, TINT.THING], [0.13, 2.2, -0.08, 0.09, TINT.TOP], [0.27, 2.33, 0.02, 0.08, TINT.LEGS]]) {
+  for (const [x, y, z, r, tint] of [[0.215, 2.4, 0.06, 0.11, TINT.THING], [0.12, 2.62, -0.08, 0.11, TINT.TOP], [0.23, 2.78, 0.02, 0.1, TINT.LEGS]]) {
     add((plain ? new THREE.IcosahedronGeometry(r, 0) : new THREE.SphereGeometry(r, 7, 4)).scale(1, 1.18, 1).translate(x, y, z), RIG.BODY, PART.BALLOON, tint, lift, FORM.BALLOON.bunch);
     add(rope([[0.285, 0.885, 0.03], [0.3, 1.7, 0], [x, y - 1.18 * r, z]], [0.008, 0.008, 0.008], 3), RIG.BODY, PART.BALLOON, TINT.SHOE, lift, FORM.BALLOON.bunch);
   }
@@ -498,14 +498,15 @@ export const CYCLE = 8;
    something. */
 const ARM_UP = 2.7, RISE_FROM = 0.3, RISE_SPAN = 0.6, RISE_W = 0.1;
 /* How far a figure reaches in its own units, over every pose: its farthest vertex HAND from its axis (its arms level partway up the
-   rise, swaying at the dance's widest), its highest TOP over its feet (its hands up at the rise's peak), and PAST beyond the bounds it
+   rise, swaying at the dance's widest), its highest TOP over its feet (what it holds up over the heads round it, half a figure's
+   height over the tallest of them, its hands up at the rise's peak well under that), and PAST beyond the bounds it
    stands in; and HANG with its arms hanging, as one standing fully still (aPart.w, seats.js) holds them. A seated figure's feet reach
    further than HANG ahead of it, FEET from its axis, and its knees, fallen apart, with the forearms on them and a skirt over them,
    KNEES out at the most, but all of it low along the ground, under where a bear's reach is its snout. Whatever a figure wears or
    carries stays inside these: buildCrowd makes each as broad and as tall as they let the largest be, and no more, its feet fitted to
    FEET; KNEES is where the broadest there could be, the stoutest build on the longest legs at the largest's size, then comes to
    (crowd.test.ts). */
-export const HAND = 1.11, TOP = 2.08, HANG = 0.354, FEET = 0.55, KNEES = 0.63;
+export const HAND = 1.11, TOP = 2.8, HANG = 0.354, FEET = 0.55, KNEES = 0.63;
 /* How far a figure lying back reaches from its axis, in its own units, at the most: its head, behind it. Only one whose breadth keeps
    that within KNEES lies back (buildCrowd). */
 export const LYING = 0.655;
@@ -575,7 +576,7 @@ const SEATED_CHOICES = {
    of them that stand over a head, which no one in the way of a test pose's view of the band carries (inView). What flies from a
    straight pole (FLIES) and what stands on one leaning in over the head (STANDS_ON) keep clear of what the head wears (person). */
 export const PROPS = ["flag", "parasol", "balloon", "aloft", "stand", "puppet", "swallowtail", "finger", "rider", "star", "pennant", "bunch", "hoop", "moon",
-  "streamer", "tambourine", "drum"], PROP_EVERY = 3;
+  "streamer", "tambourine", "rider", "drum"], PROP_EVERY = 3;
 export const OVERHEAD = PROPS.filter((prop) => !["finger", "hoop", "drum"].includes(prop));
 const FLIES = ["flag", "swallowtail", "pennant", "streamer"], STANDS_ON = ["star", "moon", "parasol", "puppet"], BALLOONS = ["balloon", "bunch"];
 /* The one way of moving each of these props leaves its holder (person); any other prop leaves it to sway or to watch. */
@@ -658,6 +659,8 @@ function person(r, sits, prop, stature) {
   p.leg = child ? span(0.86, 0.92) : span(0.93, 1.07);
   p.big = child ? span(1.22, 1.32) : p.stature === "teen" ? span(1.08, 1.12) : span(0.95, 1.05);
   p.stoop = r() < 0.25 ? span(0.06, 0.13) : span(-0.02, 0.04);
+  /* One who holds something up over the heads stands up straight under it, its top a figure's height over its hips. */
+  if (OVERHEAD.includes(prop)) p.stoop = Math.min(p.stoop, 0.02);
   /* How far it dances (aWear.w): a third of the crowd only a little, a quarter to a half as far as the rest. */
   const most = r();
   p.size = most < QUIET ? 0.25 + 0.25 * most / QUIET : 0.62 + 0.38 * (most - QUIET) / (1 - QUIET);
@@ -692,7 +695,9 @@ export const movingAlike = (a, b) => a.move === b.move && a.legs === b.legs && a
    figure of a crowd is a different person; and, drawing on until it finds one, never one whose crest a figure within CREST m has,
    on a desktop or a phone, or that shares more than SHARE[1] of the OUTLINE with a figure within NEAR m, or more than SHARE[0] with
    one within CLOSE m, or that is dressed or moves like one that close, or that moves as all four of its nearest so far do, or as all
-   four of another's would with it among them. */
+   four of another's would with it among them; and where three seats before it stand within NEIGHBOUR m, never one that could sit
+   through Space neither with its body leaning back nor hugging its knees (fitsBack, fitsForward), or where four, one that could not
+   do both, so that it has a way to sit none of them has. */
 const TRIES = 20, NEAR = 8, CLOSE = 4;
 export const SHARE = [4, 5];
 /* Whether each seat stands beside another of its group as two friends could stand together (stances): both standing, near, facing
@@ -709,6 +714,9 @@ function besides(placed) {
 export function people(placed) {
   const out = [], taken = new Set(), crests = [];
   const due = [], paired = besides(placed);
+  /* How many seats before a standing seat stand within NEIGHBOUR m of it, each of which may sit through Space a way of its own: only
+     those before it, so that a smaller crowd's people are a larger one's first. */
+  const crowded = placed.map((a, i) => (a.sit ? 0 : placed.slice(0, i).filter((b) => Math.hypot(b.x - a.x, b.z - a.z) < NEIGHBOUR).length));
   /* Each figure's four nearest of those placed so far, nearest first, as [distance, index]. */
   const nearest = [], fourth = (list) => (list.length < 4 ? Infinity : list[3][0]);
   const closer = (list, d, j) => [...list, [d, j]].sort((a, b) => a[0] - b[0]).slice(0, 4);
@@ -725,17 +733,17 @@ export function people(placed) {
     const patch = (move) => (own.length === 4 && own.every(([, j]) => out[j].move === move) ? 1 : 0)
       + joins.filter(([j, list]) => list.length === 4 && out[j].move === move && list.every(([, k]) => k === i || out[k].move === move)).length;
     /* The next prop due goes to the first figure that can carry it: one that stands, for what stands over a head out of the test poses'
-       view of the band, that stands where no friend could stand beside it (besides), and that can move a way the prop leaves it
-       (person) as neither its four nearest nor another's would. */
+       view of the band, that stands where no friend could stand beside it (besides), that has no one within CLOSE m carrying the
+       same, and that can move a way the prop leaves it (person) as neither its four nearest nor another's would. */
     const k = due.findIndex((prop) => !(seat.sit && prop !== "stand" && prop !== "finger") && !(OVERHEAD.includes(prop) && inView(seat.x, seat.z)) && !paired[i]
-      && (MOVES_HOLDING[prop] ?? ["sway", "watch"]).some((move) => patch(move) === 0));
+      && !near.some(([other, , share]) => share === SHARE[0] && other.prop === prop) && (MOVES_HOLDING[prop] ?? ["sway", "watch"]).some((move) => patch(move) === 0));
     const prop = k < 0 ? "none" : due.splice(k, 1)[0];
     const r = stream(0x9e3779b1 * (i + 1));
     /* A child holds a balloon, a bunch of them or nothing, and half the single balloons are children's. */
     const drawn = choose(r, CHOICES.stature);
     const stature = prop === "balloon" ? (r() < 0.5 ? "child" : drawn) : prop !== "none" && prop !== "bunch" && drawn === "child" ? "short" : drawn;
     let best = null, least = Infinity, fewest = Infinity;
-    for (let t = 0; t < TRIES || best === null || (fewest > 0 && t < 40 * TRIES); t++) {
+    for (let t = 0; t < TRIES || best === null || (fewest > 0 && t < 40 * TRIES) || (fewest >= 100 && t < 400 * TRIES); t++) {
       const p = person(r, seat.sit, prop, stature), outline = outlineOf(plainly(p)), crest = [crestOf(p), crestOf(plainly(p))];
       if (taken.has(outline)) continue;
       let score = 0, clashes = 0;
@@ -747,6 +755,7 @@ export function people(placed) {
         score += weight * a * a;
       }
       clashes += patch(p.move);
+      if ((crowded[i] === 3 && !fitsBack(p) && !fitsForward(p)) || (crowded[i] === 4 && !(fitsBack(p) && fitsForward(p)))) clashes += 100;
       if (clashes < fewest || (clashes === fewest && score < least)) { fewest = clashes; least = score; best = p; }
     }
     /* Where no draw dressed it unlike every close neighbour, its top takes the first colour none of those in that top wears: a top's
@@ -778,7 +787,8 @@ export function people(placed) {
    with both hands free, whose hair and hat stay within the seated reaches as it leans (KNEES, and HANG over a seated figure's knees;
    crowd.test.ts), with no pack on its back, which the body leaning back carried 2 cm past them, and no one close behind. Hugging
    the knees is for one without a full poncho: from behind, a poncho's point reaches the ground behind a seated figure and its sides
-   stand past the hugged knees and the feet, and it hid all but half a percent of them. Each way of sitting is for a seat whose ground it fits (`fits`), and one that fits no way stands. */
+   stand past the hugged knees and the feet, and it hid all but half a percent of them. Each way of sitting is for a seat whose
+   ground it fits (`fits`), and one that fits no way stands. */
 const NEIGHBOUR = 1.6, PAIRS = 1, FREE = ["watch", "sway", "nod", "shift"];
 /* Where the middle of the hand of an arm round a friend rests, the figure standing still: [out to the friend's side, up, behind], in
    its own units, for the standard figure's shoulders and legs; out further by SHOULDER_X for each unit wider its shoulders (aBody.y),
@@ -794,6 +804,12 @@ export const ON_BACK = { waist: [0.84, 1.25], round: [1.0, 1.42], across: [-0.13
    a belly's share behind (figureGeometry, the crowd's shader). */
 export const backOf = (y, girth) => (y < 1.01 ? 0.74 * (0.17 - (0.005 * (y - 0.845)) / 0.17) : 0.68 * (0.158 + (0.092 * (y - 1.01)) / 0.46))
   * (1 + 0.35 * (girth - 1) * Math.max(1 - Math.abs(y - 1.02) / 0.4, 0));
+/* Whether one seated can lean its body back on its hands, its hair and hat within the seated reaches as it leans, and hug its knees
+   leaning forward, with nothing held up over its head going forward with it and no full poncho (stances; people deals the crowded
+   ones a head that does one). */
+const fitsBack = (p) => !["afro", "dreads"].includes(p.hair) && !["hat", "topper", "floppy", "bandana", "knit", "jester", "plumed"].includes(p.head) && p.back === "none";
+const fitsForward = (p) => !["hat", "topper", "floppy", "cap", "plumed"].includes(p.head) && p.hair !== "afro" && !FLIES.includes(p.prop) && !STANDS_ON.includes(p.prop) && !BALLOONS.includes(p.prop)
+  && p.top !== "poncho" && p.stoop < 0.05;
 const STANDING = { square: 4, left: 7, right: 7, hip: 8, akimbo: 6, folded: 7, cup: 6, behind: 5, pockets: 6 };
 const SEATED = { knees: 6, cross: 6, hug: 5, back: 4, kneel: 4, recline: 4 };
 const LEGS_ONLY = ["square", "left", "right"];
@@ -821,8 +837,6 @@ export function stances(placed, who, fits = () => true, holds = () => true) {
     const right = Math.atan2(-dz, dx), off = (f) => Math.abs(Math.atan2(Math.sin(f - mid), Math.cos(f - mid)));
     return off(right) <= off(right + Math.PI) ? right : Math.atan2(Math.sin(right + Math.PI), Math.cos(right + Math.PI));
   };
-  const fitsBack = (p) => !["afro", "dreads"].includes(p.hair) && !["hat", "topper", "floppy", "bandana", "knit", "jester", "plumed"].includes(p.head) && p.back === "none";
-  const fitsForward = (p) => !["hat", "topper", "floppy", "cap", "plumed"].includes(p.head) && p.hair !== "afro" && !FLIES.includes(p.prop) && !STANDS_ON.includes(p.prop) && p.prop !== "bunch" && p.stoop < 0.05;
   const fitsLying = (p) => ["bald", "crop", "tail", "braids"].includes(p.hair) && ["none", "bandana", "band", "wreath"].includes(p.head);
   /* Draws stances by their weights until one is not `taken`, or takes the first drawn where all are. */
   const deal = (r, weights, taken) => {
@@ -869,7 +883,7 @@ export function stances(placed, who, fits = () => true, holds = () => true) {
       });
       const free = p.prop === "none" && out[i].stand !== "cup";
       const fitting = Object.fromEntries(Object.entries(SEATED).filter(([name]) => fits(i, name, faced.face)
-        && (name === "recline" ? seat.blanket >= 0 && fitsLying(p) && free && !behind(1.8) : name === "back" ? fitsBack(p) && free && !behind(1.1) : name === "hug" ? fitsForward(p) && p.top !== "poncho" : true)));
+        && (name === "recline" ? seat.blanket >= 0 && fitsLying(p) && free && !behind(1.8) : name === "back" ? fitsBack(p) && free && !behind(1.1) : name === "hug" ? fitsForward(p) : true)));
       const none = Object.keys(fitting).length === 0;
       if (none && seat.sit) out[i].stands = true;
       out[i].sit = deal(r, none ? { knees: SEATED.knees } : fitting, (name) => near.some((j) => sitKey[j] === `${name} ${p.prop}`));
@@ -927,8 +941,8 @@ export function formsOf(p) {
 function reaches(p, wear, forms = formsOf(p)) {
   const has = (name) => (wear.parts & PART[name]) !== 0, forward = Math.max(p.stoop, 0) * 0.95, back = Math.max(-p.stoop, 0) * 0.6;
   const form = (name) => (has(name) ? forms[PART[name]] ?? 0 : -1);
-  /* What stands over the head is carried forward with the stoop from the hips, 1.6 units under it at the most. */
-  const ahead = Math.max(p.stoop, 0) * 1.6;
+  /* What stands over the head is carried forward with the stoop from the hips, 2.15 units under it at the most. */
+  const ahead = Math.max(p.stoop, 0) * 2.15;
   /* The shoulders' balls, each 0.06 round and a little ahead of the body's line, carried forward with the stoop from the hips to the
      shoulders. */
   let out = Math.max(Math.hypot(SHOULDER_X * p.wide + 0.06, Math.max(p.stoop, 0) * (SHOULDER_Y - LEG) + 0.035), 0.166 * p.girth);
@@ -944,13 +958,13 @@ function reaches(p, wear, forms = formsOf(p)) {
   if (has("HAIR") || has("TAIL")) reach(0.26 * p.big + back);
   if (p.hair === "afro") reach(0.26 * p.big + back);
   if (has("PACK") || has("ROLL")) reach(0.315 + back);
-  if (has("POLE")) reach(0.335 + forward);
-  const stood = [null, null, null, null, 0.17, 0.15, 0.21, 0.15][form("FLAG")];
+  if (has("POLE")) reach(0.335 + ahead);
+  const stood = [null, null, null, null, 0.2, 0.2, 0.21, 0.2][form("FLAG")];
   if (stood) reach(Math.hypot(0.14, ahead) + stood);
-  else if (has("FLAG")) reach(Math.hypot(0.3, 0.085 + ahead));
+  else if (has("FLAG")) reach(Math.hypot(0.34, 0.085 + ahead));
   if (form("FINGER") > 0) reach(Math.hypot(SHOULDER_X * p.wide + 0.04, Math.max(p.stoop, 0) * (SHOULDER_Y - LEG) + 0.04));
   if (has("STAND")) reach(0.35);
-  if (has("BALLOON")) reach(0.335 + back);
+  if (has("BALLOON")) reach(0.335 + ahead + back);
   if (has("HOOP")) reach(0.33);
   if (has("DRUM")) reach(0.345 + forward);
   if (has("RIDER")) reach(0.27 + back);
@@ -958,8 +972,8 @@ function reaches(p, wear, forms = formsOf(p)) {
   /* The top: its hands at the rise's peak, and what stands over its head, each as far up as the sway lifts its far side. */
   const lift = LEG * (p.leg - 1);
   let top = SHOULDER_Y + lift + 0.64 + [0, 0.14, 0.32, 0.32][form("FINGER") + 1];
-  if (has("FLAG")) top = Math.max(top, [2.295, 2.295, 2.295, 2.31, 2.53, 2.48, 2.37, 2.515][form("FLAG")] + lift);
-  if (has("BALLOON")) top = Math.max(top, [2.335, 2.445][form("BALLOON")] + lift);
+  if (has("FLAG")) top = Math.max(top, [2.96, 2.96, 2.96, 2.96, 3.01, 2.93, 2.77, 3.04][form("FLAG")] + lift);
+  if (has("BALLOON")) top = Math.max(top, [2.85, 2.92][form("BALLOON")] + lift);
   /* And what is on the head: a crown, raised from its foot as the figure's own number says, and a bun, as its length does, each with
      the head as big as it is. */
   const onHead = (y) => NECK_Y + (y - NECK_Y) * p.big + lift + 0.04;

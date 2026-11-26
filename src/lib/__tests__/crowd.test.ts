@@ -1564,7 +1564,7 @@ describe("the crowd's shader", () => {
   // Every thing carried with every way of moving, as wearing() packs them on the standard figure, whether or not a crowd pairs them;
   // and the states a figure is drawn in: dancing, at the dance's most, seated, as the build-up lifts it and at its peak, and held
   // still by the parting, standing and seated.
-  const CARRIED = ["none", ...(PROPS as string[])];
+  const CARRIED = ["none", ...new Set(PROPS as string[])];
   // What is held up on a pole, in its forms' order (FORMS.FLAG), and on a string; each held in the right hand.
   const POLED = ["flag", "swallowtail", "pennant", "streamer", "star", "moon", "parasol", "puppet"], HELD_UP = [...POLED, "balloon", "bunch"];
   const BASE = BASE_FIGURE;
@@ -2187,9 +2187,11 @@ describe("the crowd's people", () => {
   it("carry a few of each thing across the hill, sparingly, and nothing overhead between a test pose and the band", () => {
     for (const { who, placed } of all) {
       const carried = (list: typeof who) => Object.fromEntries((PROPS as string[]).map((prop) => [prop, list.filter((p) => p.prop === prop).length]));
-      // One figure in PROP_EVERY at the most carries something, each thing in its turn: three to seven of each on a desktop.
-      const counts = carried(who);
-      for (const prop of PROPS as string[]) { expect([prop, counts[prop] >= 3]).toEqual([prop, true]); expect([prop, counts[prop] <= 7]).toEqual([prop, true]); }
+      // One figure in PROP_EVERY at the most carries something, each thing in its turn: three to seven of each on a desktop for each
+      // time it comes in the turn, a child on the shoulders twice.
+      const counts = carried(who), turns = (prop: string) => (PROPS as string[]).filter((other) => other === prop).length;
+      expect(turns("rider")).toBe(2);
+      for (const prop of PROPS as string[]) { expect([prop, counts[prop] >= 3 * turns(prop)]).toEqual([prop, true]); expect([prop, counts[prop] <= 7 * turns(prop)]).toEqual([prop, true]); }
       expect(who.filter((p) => p.prop !== "none").length).toBeLessThanOrEqual(Math.ceil(who.length / PROP_EVERY));
       // A phone's 150 have at least one of each that a phone draws, which is all but a hoop and a drum: what rises over the heads,
       // a child on the shoulders among it, is the skyline a phone keeps.
@@ -2513,8 +2515,8 @@ describe("the crowd's skyline", () => {
       expect(kinds).toBeGreaterThan(0.7 * standing.length);
       counts.push(`${kinds}/${standing.length}`);
     }
-    // And they are many: on the first hill, of 195 standing on a desktop, 165 crests; of the phone's 117, 95.
-    expect(counts.slice(0, 2)).toEqual(["165/195", "95/117"]);
+    // And they are many: on the first hill, of 195 standing on a desktop, 160 crests; of the phone's 117, 96.
+    expect(counts.slice(0, 2)).toEqual(["160/195", "96/117"]);
     // What makes a crest has its kinds: twelve heads, ten heads of hair, fifteen things held up and five heights, each worn standing.
     const who = all[0].who.filter((_, i) => !all[0].placed[i].sit);
     expect([new Set(who.map((p) => p.head)).size, new Set(who.map((p) => p.hair)).size, new Set(who.map((p) => p.prop)).size, new Set(who.map((p) => p.stature)).size]).toEqual([12, 10, 18, 5]);
@@ -2560,28 +2562,46 @@ describe("the crowd's skyline", () => {
     expect(least).toBeLessThan(0.1);
   }, 120000);
 
-  it("holds what it holds up clear of every head round it: nothing held up comes within a neighbour's head, its hat or its hair, but over it", () => {
+  it("holds what it holds up clear of every head round it: nothing held up passes through a neighbour's head, its hat or its hair, or comes within a centimetre of it", () => {
     // Each figure that holds something up, and each figure within 2 m of it, both as the shader puts them in the world through the same
-    // beats: where a corner of what is held up stands within the reach of the other's head across, it stands over the top of it.
+    // beats: no edge of what is held up (its pole, what flies or stands on it, its balloons and their strings, and what a raised hand
+    // holds) passes through a face of the other's head, what it wears there or its hair, and no corner of it comes within a centimetre
+    // of one. And they come near: what is held up stands within 0.5 m across of a neighbour's head's reach.
     const hits: string[] = [];
     let pairs = 0, closest = Infinity;
-    const m = new THREE.Matrix4(), w = new THREE.Vector3();
+    const m = new THREE.Matrix4(), ray = new THREE.Ray(), q = new THREE.Vector3(), b = new THREE.Vector3(), triangle = new THREE.Triangle(), near = new THREE.Vector3();
     for (const c of crowds) {
-      const figs = figuresOf(c), seats2 = c.ground.seats as Seat[], verts = verticesOf(c.figure);
-      const worldOf = (f: Figure, v: Vertex, pose: Pose) => { const p = put(f, v, pose); return w.set(p.x, p.y, p.z).applyMatrix4(m.fromArray(c.each.matrix, 16 * f.i)).clone(); };
-      for (const f of figs.filter(carriesOver)) {
-        const held = verts.filter((v) => wears(f, v) && OVER.includes(v.mark.y) && v.mark.x !== HEAD);
-        for (const g of figs) {
-          if (g.i === f.i || Math.hypot(seats2[g.i].x - seats2[f.i].x, seats2[g.i].z - seats2[f.i].z) > 2) continue;
-          pairs += 1;
-          const head = verts.filter((v) => v.mark.x === HEAD && wears(g, v));
-          for (const [state, pose] of POSES) {
-            const H = head.map((v) => worldOf(g, v, pose)), skull = H.reduce((s, p) => s.add(p), new THREE.Vector3()).multiplyScalar(1 / H.length);
-            const out = Math.max(...H.map((p) => Math.hypot(p.x - skull.x, p.z - skull.z))), top = Math.max(...H.map((p) => p.y));
-            for (const v of held) {
-              const p = worldOf(f, v, pose), d = Math.hypot(p.x - skull.x, p.z - skull.z);
-              closest = Math.min(closest, d - out);
-              if (d < out + 0.02 && p.y < top + 0.02) hits.push(`${f.i} over ${g.i}, ${state}: ${(d - out).toFixed(3)} in, ${(top - p.y).toFixed(3)} under`);
+      const figs = figuresOf(c), seats2 = c.ground.seats as Seat[], all2 = trianglesOf(c);
+      // Each figure's head and what it holds up, as triangles in the world in each pose, worked out once.
+      const placed = new Map<string, THREE.Vector3[][]>();
+      const inWorld = (f: Figure, which: string, k: number) => {
+        const key = `${f.i} ${which} ${k}`;
+        if (!placed.has(key)) {
+          m.fromArray(c.each.matrix, 16 * f.i);
+          const mine = all2.filter((t) => wears(f, t[0]) && (which === "head" ? t[0].mark.x === HEAD : OVER.includes(t[0].mark.y) && t[0].mark.x !== HEAD));
+          placed.set(key, mine.map((t) => t.map((v) => { const p = put(f, v, POSES[k][1]); return new THREE.Vector3(p.x, p.y, p.z).applyMatrix4(m); })));
+        }
+        return placed.get(key)!;
+      };
+      for (const f of figs.filter(carriesOver)) for (const g of figs) {
+        if (g.i === f.i || Math.hypot(seats2[g.i].x - seats2[f.i].x, seats2[g.i].z - seats2[f.i].z) > 2) continue;
+        pairs += 1;
+        for (const [k, [state]] of POSES.entries()) {
+          const H = inWorld(g, "head", k), O = inWorld(f, "held", k), corners = H.flat(), box = new THREE.Box3().setFromPoints(corners).expandByScalar(0.02);
+          const skull = corners.reduce((sum, p) => sum.add(p), new THREE.Vector3()).multiplyScalar(1 / corners.length);
+          const out = Math.max(...corners.map((p) => Math.hypot(p.x - skull.x, p.z - skull.z)));
+          for (const o of O) {
+            for (const p of o) closest = Math.min(closest, Math.hypot(p.x - skull.x, p.z - skull.z) - out);
+            if (!box.intersectsBox(new THREE.Box3().setFromPoints(o))) continue;
+            for (const h of H) {
+              triangle.set(h[0], h[1], h[2]);
+              for (const p of o) if (triangle.closestPointToPoint(p, near).distanceTo(p) < 0.01) hits.push(`${f.i} by ${g.i}, ${state}: a corner ${near.distanceTo(p).toFixed(3)} off`);
+              for (let e = 0; e < 3; e++) {
+                const a = o[e], length = a.distanceTo(o[(e + 1) % 3]);
+                if (length < 1e-9) continue;
+                ray.set(a, b.copy(o[(e + 1) % 3]).sub(a).normalize());
+                if (ray.intersectTriangle(h[0], h[1], h[2], false, q) && q.distanceTo(a) <= length) hits.push(`${f.i} by ${g.i}, ${state}: an edge through it`);
+              }
             }
           }
         }
@@ -2590,5 +2610,47 @@ describe("the crowd's skyline", () => {
     expect([...new Set(hits)].slice(0, 10)).toEqual([]);
     expect(pairs).toBeGreaterThan(100);
     expect(closest).toBeLessThan(0.5);
-  }, 120000);
+  }, 240000);
+
+  it("holds things up well over the heads, from the hill: a sixth of those who stand hold something 90 cm over every head within 2 m, children on the shoulders among them, on a desktop and nearly as many on a phone", () => {
+    // Each standing figure, as the shader stands it still, and the highest point of what it holds up (a pole and what flies or stands
+    // on it, its balloons and a child on its shoulders) against the highest head within 2 m of it, its own among them: the fixed day's
+    // whole crowd and another hill's on a desktop, and the fixed day's on a phone, where a figure stands 3.15 m (PERSON). The crowd
+    // before this held a few things up, none of them 90 cm over the heads round it: the top of a pole stood no higher than the hands'
+    // own reach up (TOP was 2.08), which the tallest stood within.
+    const UP = [PART.FLAG, PART.BALLOON, PART.POLE, PART.RIDER] as number[], pose = { beat: 0, dance: 0 };
+    const m = new THREE.Matrix4(), w = new THREE.Vector3();
+    const shares: string[] = [];
+    for (const [c, vertices] of [[crowd, rich], [hills[1], rich], [phone, plain]] as const) {
+      const figs = figuresOf(c), seats2 = c.ground.seats as Seat[];
+      const highest = (f: Figure, which: (v: Vertex) => boolean) => {
+        m.fromArray(c.each.matrix, 16 * f.i);
+        let y = -Infinity;
+        for (const v of vertices) if (which(v) && wears(f, v)) { const p = put(f, v, pose); y = Math.max(y, w.set(p.x, p.y, p.z).applyMatrix4(m).y); }
+        return y;
+      };
+      const heads = figs.map((f) => highest(f, (v) => v.mark.x === HEAD)), held = figs.map((f) => highest(f, (v) => UP.includes(v.mark.y)));
+      const standing = figs.filter((f) => f.fig.x !== 1), riders = standing.filter((f) => carries(f, PART.RIDER as number)).length;
+      const over = standing.filter((f) => held[f.i] - Math.max(...figs.filter((g) => Math.hypot(seats2[g.i].x - seats2[f.i].x, seats2[g.i].z - seats2[f.i].z) <= 2).map((g) => heads[g.i])) >= 0.9);
+      expect(over.length).toBeGreaterThan((c === phone ? 0.15 : 0.165) * standing.length);
+      expect(riders).toBeGreaterThanOrEqual(c === phone ? 4 : 8);
+      shares.push(`${over.length}/${standing.length} ${riders}`);
+    }
+    // On the fixed day's hill 34 of 195 standing on a desktop, nine children on the shoulders among them; on the other hill 48 of 237;
+    // and on a phone 18 of 117, four.
+    expect(shares).toEqual(["34/195 9", "48/237 10", "18/117 4"]);
+  }, 60000);
+
+  it("spreads what is held up across the hill: nine in ten of those who stand out of the test poses' view of the band have something held up within 4.5 m, or 5.5 m on a phone", () => {
+    // Where things stand over the heads, rather than in a clump of them: the fixed day's and two other hills' crowds, and the fixed
+    // day's on a phone, from each standing figure's seat to the nearest seat whose figure holds something up over its head.
+    for (const [c, far] of [[crowd, 4.5], [hills[1], 4.5], [hills[2], 4.5], [phone, 5.5]] as const) {
+      const who = peopleOf(c), placed = placedOf.get(c)!;
+      const up = placed.map((_, i) => i).filter((i) => !placed[i].sit && (OVERHEAD as string[]).includes(who[i].prop));
+      const gaps = placed.map((_, i) => i).filter((i) => !placed[i].sit && !inView(placed[i].x, placed[i].z))
+        .map((i) => Math.min(...up.filter((j) => j !== i).map((j) => Math.hypot(placed[j].x - placed[i].x, placed[j].z - placed[i].z)))).sort((a, b) => a - b);
+      expect(gaps.length).toBeGreaterThan(c === phone ? 80 : 120);
+      expect(gaps[Math.floor(0.9 * (gaps.length - 1))]).toBeLessThan(far);
+    }
+  });
 });
