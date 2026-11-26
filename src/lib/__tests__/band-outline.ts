@@ -16,9 +16,9 @@ import { buildStage, FLOOR, PANEL } from "../../../public/world/stage.js";
 // canvas, the light panel behind it 150 to 166 and the floor 40 to 74 at night, so a screen pixel of the band reads near-black where
 // it is two thirds band or more over the panel, and a quarter or more over the floor.
 //
-// Here the band stands where stage.js builds it and is drawn from the shoot's own cameras at the stage's poses, at 16 places of the
-// pixel grid under it (a quarter of a pixel apart each way), at rest and through a bar of playing, with what main.js fits to the
-// canvas fitted to each camera's (band.js `fit`). band-outline.test.ts holds the cameras to their poses, and the six to these rules;
+// Here the band stands where stage.js builds it and is drawn from the shoot's own cameras at the stage's poses, at the shoot's own
+// place of the pixel grid under it, or at 16 (a quarter of a pixel apart each way, FILM_PLACES), at rest and through a bar of
+// playing, with what main.js fits to the canvas fitted to each camera's (band.js `fit`). band-outline.test.ts holds the cameras to their poses, and the six to these rules;
 // each other band-outline-*.test.ts holds a line-up of its own, so that vitest draws them side by side.
 
 type Vec = { x: number; y: number; z: number };
@@ -45,7 +45,7 @@ export const FLASH_CAMERAS: Camera[] = [
   { name: "phone stage", pose: "stage", at: [34.634, 24.776, -30.111], look: [0.6872, -0.41303, -0.59763], fov: 75, aspect: 0.46209, cols: 332, rows: 717, screen: 780 / 332 },
 ];
 // The canvas's pixel, in rad of the view's height at its middle, which main.js fits the band to (band.js `fit`).
-const pixelOf = (cam: Camera) => (2 * Math.tan((cam.fov * Math.PI) / 360)) / cam.rows;
+export const pixelOf = (cam: Camera) => (2 * Math.tan((cam.fov * Math.PI) / 360)) / cam.rows;
 // A phone's cameras at each render scale its quality steps down through (quality.js stepDown), to half its pixels from rung 3 on,
 // where the crashes stood alone in the air without their poles from the back of the crowd: the same view on a smaller canvas, which
 // the browser scales up the more.
@@ -177,8 +177,8 @@ export function specks(tris: Tri[], cam: Camera, dx: number, dy: number, tone: S
 }
 
 // The film the outlines' tests read: every frame of the band played from rest at 96 a minute, through its EASE and on through a
-// whole bar of eight counts, 0 to 5.8 s, after which it moves as it moved (band.js), each camera's canvas at each of the 16 places
-// of the grid. It plays at RATE frames a second: at 240 for the screens of a phone from the back of the crowd and from the band
+// whole bar of eight counts, 0 to 5.8 s, after which it moves as it moved (band.js), each camera's canvas at each of the places of
+// the grid it is given (`places`). It plays at RATE frames a second: at 240 for the screens of a phone from the back of the crowd and from the band
 // pose, where a phone stretches its canvas over its screen and a pixel alone at a corner of an outline shows as a speck; at 60 for
 // every other camera, the desktops', the phone's at the stage pose and at every rung, where what is counted is the canvas's own
 // pieces. A speck that shows for 1/240 s, or for 1/60 s, is in a frame of the film, at the places of the grid it shows at. Played
@@ -207,10 +207,10 @@ const SCREENS = ["phone band", "phone crowd", "phone-360 crowd"];
 const RATE = (cam: Camera) => (CAMERAS.includes(cam) && SCREENS.includes(cam.name) ? 240 : 60);
 type Box = { x0: number; y0: number; x1: number; y1: number };
 
-// The band played from rest at 96 a minute in `steps` frames a second, fitted to a canvas whose pixel is `perPx` rad, as `band`
-// plays it at 60: its triangles' corners in the world (`world`, nine numbers a triangle, in `band`'s order), the still parts' from
+// The band played from rest at 96 a minute in `steps` frames a second, or at `tempo(frame)` a minute in each frame, fitted to a canvas
+// whose pixel is `perPx` rad, as `band` plays it at 60: its triangles' corners in the world (`world`, nine numbers a triangle, in `band`'s order), the still parts' from
 // the first, and `to(frame)`, which plays it on to that frame and lays the corners of what moves, from triangle `still` on.
-export function playing(roles: string[], perPx: number, steps = 60) {
+export function playing(roles: string[], perPx: number, steps = 60, tempo: (frame: number) => number = () => 96) {
   const stage = new THREE.Group();
   stage.position.set(STAGE[0], SHELF_Y, STAGE[1]);
   stage.rotation.y = FACING;
@@ -245,20 +245,58 @@ export function playing(roles: string[], perPx: number, steps = 60) {
   const still = at / 3, groups = [still];
   for (const { k, corner } of bodies) { for (let t = at / 3; t < (at + corner.count) / 3; t++) { owner[t] = k; trunk[t] = 1; } at += corner.count; groups.push(at / 3); }
   built.bones.forEach((bone: { of: number }) => { for (let t = at / 3; t < (at + limb.count) / 3; t++) owner[t] = bone.of; at += limb.count; groups.push(at / 3); });
-  const m = new THREE.Matrix4();
+  // Each group's matrix as it was last laid, and whether it changed then (`moved`): a group's corners are its matrix's, so a group
+  // whose matrix stands as it did stands where it did, and is not laid again.
+  const m = new THREE.Matrix4(), many = groups.length - 1, was = new Float64Array(many * 16).fill(NaN), moved = new Uint8Array(many);
+  const laid = (g: number, e: number[]) => {
+    let same = true;
+    for (let k = 0; k < 16; k++) if (was[g * 16 + k] !== e[k]) { same = false; was[g * 16 + k] = e[k]; }
+    moved[g] = same ? 0 : 1;
+    return !same;
+  };
   let frame = 0, beats = 0;
   const to = (f: number) => {
-    while (frame < f) { frame++; built.move(1 / steps, frame / steps, (beats += 96 / (60 * steps)), true); }
+    while (frame < f) { frame++; built.move(1 / steps, frame / steps, (beats += tempo(frame) / (60 * steps)), true); }
     stage.updateMatrixWorld(true);
-    let i = still * 3;
-    for (const { p, corner } of bodies) { lay(corner.array, 0, corner.count, (p.body.matrixWorld as { elements: number[] }).elements, i); i += corner.count; }
+    let i = still * 3, g = 0;
+    for (const { p, corner } of bodies) {
+      const e = (p.body.matrixWorld as { elements: number[] }).elements;
+      if (laid(g++, e)) lay(corner.array, 0, corner.count, e, i);
+      i += corner.count;
+    }
     for (let k = 0; k < built.bones.length; k++) {
       built.limbs.getMatrixAt(k, m);
-      lay(limb.array, 0, limb.count, m.premultiply(stage.matrixWorld).elements, i);
+      const e = m.premultiply(stage.matrixWorld).elements;
+      if (laid(g++, e)) lay(limb.array, 0, limb.count, e, i);
       i += limb.count;
     }
   };
-  return { n, still, groups, world, owner, trunk, crash, to };
+  return { n, still, groups, world, owner, trunk, crash, to, moved };
+}
+
+// Where each group of what moves reaches in the world, as a box (six numbers a group: the least x, y and z, then the most), played
+// from rest at `steps` frames a second through `frames` frames with every fitted part as stout as it can be (`fit` at a pixel of a
+// whole rad), which holds every part as any canvas fits it: a fitted bone is a bar about its own axis, a neck's tip widens across
+// its strings and a stand about its upright, each the more the coarser the pixel. Made once a line-up and a rate.
+const REACHES = new Map<string, Float64Array>();
+function reachOf(roles: string[], steps: number, frames: number) {
+  const key = `${roles.join(" ")} ${steps} ${frames}`, made = REACHES.get(key);
+  if (made) return made;
+  const played = playing(roles, 1, steps), groups = played.groups, many = groups.length - 1, reach = new Float64Array(many * 6).fill(Infinity);
+  for (let g = 0; g < many; g++) reach.fill(-Infinity, g * 6 + 3, g * 6 + 6);
+  for (let f = 0; f < frames; f++) {
+    played.to(f);
+    for (let g = 0; g < many; g++) {
+      if (!played.moved[g]) continue;
+      for (let i = groups[g] * 9; i < groups[g + 1] * 9; i++) {
+        const a = i % 3, v = played.world[i];
+        if (v < reach[g * 6 + a]) reach[g * 6 + a] = v;
+        if (v > reach[g * 6 + 3 + a]) reach[g * 6 + 3 + a] = v;
+      }
+    }
+  }
+  REACHES.set(key, reach);
+  return reach;
 }
 
 // Each corner of `world` from `from` to `to` on a camera's canvas, unshifted, as `draw` puts it (Vector3.project, then the canvas).
@@ -390,7 +428,7 @@ function heldTogether(w: number, h: number, on: Uint8Array, seeds: ArrayLike<num
 // The film, for the line-up `roles`, from each of `cams`; `label` names a piece by the players and monitors it is of. The cameras
 // whose canvases have one pixel and that play at one rate (`rate`) are played as one band, which is fitted to it (`fit`, as main.js
 // fits it unless the test says).
-export function filmOf(roles: string[], label: (bits: number) => string, cams: Camera[], { rate = RATE, seconds = 5.8, fit = pixelOf } = {}): Film {
+export function filmOf(roles: string[], label: (bits: number) => string, cams: Camera[], { rate = RATE, seconds = 5.8, fit = pixelOf, places = (_: Camera) => PHASES } = {}): Film {
   const monitor = 1 << roles.length, players = roles.map((_, k) => k);
   const film: Film = { specks: [], counts: new Map(), own: new Map(), alone: new Set(), apart: new Set(), joined: [], touched: new Set() };
   const fitted = new Map<string, Camera[]>();
@@ -398,20 +436,9 @@ export function filmOf(roles: string[], label: (bits: number) => string, cams: C
   for (const group of fitted.values()) {
     const perPx = fit(group[0]), steps = rate(group[0]), frames = Math.round(seconds * steps) + 1;
     const at = (f: number) => `${(f / steps).toFixed(3)} s`;
-    // Where each group of what moves reaches in the world over the film, as a box.
-    let played = playing(roles, perPx, steps);
-    const groups = played.groups, many = groups.length - 1, last = new Float64Array(played.world.length), moved = new Uint8Array(many);
-    const reach = new Float64Array(many * 6).fill(Infinity);
-    for (let g = 0; g < many; g++) reach.fill(-Infinity, g * 6 + 3, g * 6 + 6);
-    for (let f = 0; f < frames; f++) {
-      played.to(f);
-      for (let g = 0; g < many; g++) for (let i = groups[g] * 9; i < groups[g + 1] * 9; i++) {
-        const a = i % 3, v = played.world[i];
-        if (v < reach[g * 6 + a]) reach[g * 6 + a] = v;
-        if (v > reach[g * 6 + 3 + a]) reach[g * 6 + 3 + a] = v;
-      }
-    }
-    played = playing(roles, perPx, steps);
+    const played = playing(roles, perPx, steps), groups = played.groups, many = groups.length - 1, moved = played.moved;
+    // Where each group of what moves reaches in the world over the film (reachOf).
+    const reach = reachOf(roles, steps, frames);
     const views = group.map((cam) => {
       const step = / at rung (\d)$/.exec(cam.name)?.[1], rung = !!step, phone = cam.name.startsWith("phone"), shot = CAMERAS.includes(cam);
       const band = shot && cam.name === "phone band", crowd = shot && phone && cam.name.endsWith("crowd"), screen = band || crowd, k = cam.screen, project = projector(cam);
@@ -439,7 +466,7 @@ export function filmOf(roles: string[], label: (bits: number) => string, cams: C
       const cols = spans(us, win.x0, win.w), rows = spans(vs, win.y0, win.h);
       const marks = marksFor(size), smarks = marksFor(sW * sH);
       const whole = { x0: win.x0, y0: win.y0, x1: win.x0 + win.w - 1, y1: win.y0 + win.h - 1 };
-      const tracks = PHASES.map(([dx, dy]) => {
+      const tracks = places(cam).map(([dx, dy]) => {
         const still = { mask: new Uint16Array(size), trunks: new Uint16Array(size), crashes: new Uint8Array(size) }, lit = new Uint8Array(screen ? size : 0);
         drawInto(xy, played, 0, played.still, dx, dy, cam, win, still.mask, still.trunks, still.crashes);
         if (screen) { const panel = panelOn(cam, dx, dy); for (let j = 0; j < win.h; j++) for (let i = 0; i < win.w; i++) lit[j * W + i] = panel(win.x0 + i + 0.5, win.y0 + j + 0.5) ? 1 : 0; }
@@ -450,9 +477,11 @@ export function filmOf(roles: string[], label: (bits: number) => string, cams: C
       // Each group's box on the canvas, unshifted, this frame and the last.
       const boxes = [new Float64Array(many * 4), new Float64Array(many * 4)], pixels = [new Int32Array(many * 4), new Int32Array(many * 4)];
       return (f: number) => {
-        project(played.world, played.still * 3, played.n * 3, xy);
+        // What moved, on the canvas, and its box; what did not stands as it stood.
         const box = boxes[f % 2], before = boxes[1 - (f % 2)];
         for (let g = 0; g < many; g++) {
+          if (!moved[g]) { box.set(before.subarray(g * 4, g * 4 + 4), g * 4); continue; }
+          project(played.world, groups[g] * 3, groups[g + 1] * 3, xy);
           let lx = Infinity, ly = Infinity, hx = -Infinity, hy = -Infinity;
           for (let i = groups[g] * 6; i < groups[g + 1] * 6; i += 2) {
             const x = xy[i], y = xy[i + 1];
@@ -462,6 +491,10 @@ export function filmOf(roles: string[], label: (bits: number) => string, cams: C
             if (y > hy) hy = y;
           }
           box[g * 4] = lx; box[g * 4 + 1] = ly; box[g * 4 + 2] = hx; box[g * 4 + 3] = hy;
+          // Every pixel it can cover, from any place of the grid, is in the window (reachOf).
+          if (Math.max(0, Math.ceil(lx - 0.5)) < win.x0 || Math.max(0, Math.ceil(ly - 0.5)) < win.y0 || Math.min(cam.cols - 1, Math.floor(hx + 0.25)) > win.x0 + win.w - 1 || Math.min(cam.rows - 1, Math.floor(hy + 0.25)) > win.y0 + win.h - 1) {
+            throw new Error(`band-outline.ts: a moving part reaches past the film's window from ${cam.name} at ${at(f)}`);
+          }
         }
         for (const track of tracks) {
           const { dx, dy, home, still, on } = track, was = track.now, next = 1 - was;
@@ -588,14 +621,8 @@ export function filmOf(roles: string[], label: (bits: number) => string, cams: C
       };
     });
     for (let f = 0; f < frames; f++) {
+      // Which groups have moved in the world since the last frame (`moved`).
       played.to(f);
-      // Which groups have moved in the world since the last frame.
-      for (let g = 0; g < many; g++) {
-        let same = f > 0;
-        for (let i = groups[g] * 9; i < groups[g + 1] * 9 && same; i++) if (played.world[i] !== last[i]) same = false;
-        moved[g] = same ? 0 : 1;
-      }
-      last.set(played.world);
       for (const view of views) view(f);
     }
   }
@@ -628,36 +655,82 @@ function stageParts() {
 // and, where the band shows, its triangle.
 const NONE = -1, STAGE_BLACK = -2, STAGE_PANEL = -3, STAGE_ELSE = -4;
 let STAGE_PARTS: { at: Vec[]; shows: number }[] | null = null;
-function drawWithStage(tris: Tri[], cam: Camera) {
+// A triangle drawn from a camera (`e`, its projection and view, on a canvas W by H) with depth, within a window of the canvas (x0, y0,
+// w by h, in which `depth` and `shows` are): where it is nearer than what is drawn, it shows as `tag`, and `whose` is told the pixel.
+type Depth = { x0: number; y0: number; w: number; h: number; depth: Float32Array; shows: Int8Array };
+const corner = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+function fillDeep(e: number[], W: number, H: number, into: Depth, a: Vec, b: Vec, c: Vec, tag: number, whose: (o: number) => void = () => {}) {
+  const p = corner, { x0, y0, w: ww, h: wh, depth, shows } = into;
+  for (let k = 0; k < 3; k++) {
+    const v = k === 0 ? a : k === 1 ? b : c, w = e[3] * v.x + e[7] * v.y + e[11] * v.z + e[15];
+    if (w <= 0.5) return;
+    p[k][0] = (((e[0] * v.x + e[4] * v.y + e[8] * v.z + e[12]) / w + 1) / 2) * W;
+    p[k][1] = ((1 - (e[1] * v.x + e[5] * v.y + e[9] * v.z + e[13]) / w) / 2) * H;
+    p[k][2] = 1 / w;
+  }
+  const area = (p[1][0] - p[0][0]) * (p[2][1] - p[0][1]) - (p[1][1] - p[0][1]) * (p[2][0] - p[0][0]);
+  if (area === 0) return;
+  const minx = Math.max(x0, Math.ceil(Math.min(p[0][0], p[1][0], p[2][0]) - 0.5)), maxx = Math.min(x0 + ww - 1, Math.floor(Math.max(p[0][0], p[1][0], p[2][0]) - 0.5));
+  const miny = Math.max(y0, Math.ceil(Math.min(p[0][1], p[1][1], p[2][1]) - 0.5)), maxy = Math.min(y0 + wh - 1, Math.floor(Math.max(p[0][1], p[1][1], p[2][1]) - 0.5));
+  for (let y = miny; y <= maxy; y++) for (let x = minx; x <= maxx; x++) {
+    const qx = x + 0.5, qy = y + 0.5;
+    const l0 = ((p[2][0] - p[1][0]) * (qy - p[1][1]) - (p[2][1] - p[1][1]) * (qx - p[1][0])) / area;
+    const l1 = ((p[0][0] - p[2][0]) * (qy - p[2][1]) - (p[0][1] - p[2][1]) * (qx - p[2][0])) / area;
+    const l2 = 1 - l0 - l1;
+    if (l0 < 0 || l1 < 0 || l2 < 0) continue;
+    const d = 1 / (l0 * p[0][2] + l1 * p[1][2] + l2 * p[2][2]), o = (y - y0) * ww + (x - x0);
+    if (d < depth[o]) { depth[o] = d; shows[o] = tag; whose(o); }
+  }
+}
+const viewOf = (cam: Camera) => new THREE.Matrix4().multiplyMatrices(lens(cam).projectionMatrix, lens(cam).matrixWorldInverse).elements as number[];
+// The stage alone from a camera, over its whole canvas, drawn once a camera.
+const STAGE_DRAWN = new Map<string, Depth>();
+function stageFrom(cam: Camera) {
+  const key = JSON.stringify(cam), drawn = STAGE_DRAWN.get(key);
+  if (drawn) return drawn;
   STAGE_PARTS ??= stageParts();
-  const W = cam.cols, H = cam.rows, e = new THREE.Matrix4().multiplyMatrices(lens(cam).projectionMatrix, lens(cam).matrixWorldInverse).elements;
-  const depth = new Float32Array(W * H).fill(Infinity), shows = new Int8Array(W * H).fill(NONE), whose: (Tri | null)[] = new Array(W * H).fill(null);
-  const p = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-  const fill = (at: Vec[], tag: number, tri: Tri | null) => {
-    for (let k = 0; k < 3; k++) {
-      const v = at[k], w = e[3] * v.x + e[7] * v.y + e[11] * v.z + e[15];
-      if (w <= 0.5) return;
-      p[k][0] = (((e[0] * v.x + e[4] * v.y + e[8] * v.z + e[12]) / w + 1) / 2) * W;
-      p[k][1] = ((1 - (e[1] * v.x + e[5] * v.y + e[9] * v.z + e[13]) / w) / 2) * H;
-      p[k][2] = 1 / w;
+  const W = cam.cols, H = cam.rows, e = viewOf(cam), into = { x0: 0, y0: 0, w: W, h: H, depth: new Float32Array(W * H).fill(Infinity), shows: new Int8Array(W * H).fill(NONE) };
+  for (const t of STAGE_PARTS) fillDeep(e, W, H, into, t.at[0], t.at[1], t.at[2], t.shows);
+  STAGE_DRAWN.set(key, into);
+  return into;
+}
+function drawWithStage(tris: Tri[], cam: Camera) {
+  const W = cam.cols, H = cam.rows, e = viewOf(cam), stage = stageFrom(cam), whose: (Tri | null)[] = new Array(W * H).fill(null);
+  const into = { ...stage, depth: stage.depth.slice(), shows: stage.shows.slice() };
+  for (const t of tris) fillDeep(e, W, H, into, t.at[0], t.at[1], t.at[2], t.owner, (o) => { whose[o] = t; });
+  return { W, H, shows: into.shows, whose };
+}
+// Who of the band comes within `reach` pixels of the stage's black from a camera: the band drawn with the stage, as drawWithStage draws
+// them, its corners `world` (nine numbers a triangle) and each triangle's `owner`, over the band's box on the canvas and a pixel more
+// than `reach` round it, which holds every pixel it can cover and those round each.
+function nearBlack(world: Float64Array, owner: Uint8Array, cam: Camera, reach = 2) {
+  const W = cam.cols, H = cam.rows, e = viewOf(cam), stage = stageFrom(cam), n = owner.length;
+  const at = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  let lx = Infinity, ly = Infinity, hx = -Infinity, hy = -Infinity;
+  for (let i = 0; i < n * 3; i++) {
+    const x = world[i * 3], y = world[i * 3 + 1], z = world[i * 3 + 2], w = e[3] * x + e[7] * y + e[11] * z + e[15];
+    if (w <= 0.5) continue;
+    const u = (((e[0] * x + e[4] * y + e[8] * z + e[12]) / w + 1) / 2) * W, v = ((1 - (e[1] * x + e[5] * y + e[9] * z + e[13]) / w) / 2) * H;
+    lx = Math.min(lx, u); hx = Math.max(hx, u); ly = Math.min(ly, v); hy = Math.max(hy, v);
+  }
+  const near = new Set<number>();
+  if (!(lx <= hx)) return near;
+  const x0 = Math.max(0, Math.floor(lx) - reach - 1), y0 = Math.max(0, Math.floor(ly) - reach - 1), x1 = Math.min(W - 1, Math.ceil(hx) + reach + 1), y1 = Math.min(H - 1, Math.ceil(hy) + reach + 1);
+  if (x0 > x1 || y0 > y1) return near;
+  const w = x1 - x0 + 1, h = y1 - y0 + 1, into = { x0, y0, w, h, depth: new Float32Array(w * h), shows: new Int8Array(w * h) };
+  for (let y = 0; y < h; y++) { into.depth.set(stage.depth.subarray((y0 + y) * W + x0, (y0 + y) * W + x0 + w), y * w); into.shows.set(stage.shows.subarray((y0 + y) * W + x0, (y0 + y) * W + x0 + w), y * w); }
+  for (let t = 0; t < n; t++) {
+    for (let k = 0; k < 3; k++) at[k].set(world[t * 9 + k * 3], world[t * 9 + k * 3 + 1], world[t * 9 + k * 3 + 2]);
+    fillDeep(e, W, H, into, at[0], at[1], at[2], owner[t]);
+  }
+  for (let o = 0; o < w * h; o++) {
+    if (into.shows[o] < 0) continue;
+    const x = o % w, y = (o - x) / w;
+    for (let Y = Math.max(0, y - reach); Y <= Math.min(h - 1, y + reach); Y++) for (let X = Math.max(0, x - reach); X <= Math.min(w - 1, x + reach); X++) {
+      if (into.shows[Y * w + X] === STAGE_BLACK) near.add(into.shows[o]);
     }
-    const area = (p[1][0] - p[0][0]) * (p[2][1] - p[0][1]) - (p[1][1] - p[0][1]) * (p[2][0] - p[0][0]);
-    if (area === 0) return;
-    const minx = Math.max(0, Math.ceil(Math.min(p[0][0], p[1][0], p[2][0]) - 0.5)), maxx = Math.min(W - 1, Math.floor(Math.max(p[0][0], p[1][0], p[2][0]) - 0.5));
-    const miny = Math.max(0, Math.ceil(Math.min(p[0][1], p[1][1], p[2][1]) - 0.5)), maxy = Math.min(H - 1, Math.floor(Math.max(p[0][1], p[1][1], p[2][1]) - 0.5));
-    for (let y = miny; y <= maxy; y++) for (let x = minx; x <= maxx; x++) {
-      const qx = x + 0.5, qy = y + 0.5;
-      const l0 = ((p[2][0] - p[1][0]) * (qy - p[1][1]) - (p[2][1] - p[1][1]) * (qx - p[1][0])) / area;
-      const l1 = ((p[0][0] - p[2][0]) * (qy - p[2][1]) - (p[0][1] - p[2][1]) * (qx - p[2][0])) / area;
-      const l2 = 1 - l0 - l1;
-      if (l0 < 0 || l1 < 0 || l2 < 0) continue;
-      const d = 1 / (l0 * p[0][2] + l1 * p[1][2] + l2 * p[2][2]), o = y * W + x;
-      if (d < depth[o]) { depth[o] = d; shows[o] = tag; whose[o] = tri; }
-    }
-  };
-  for (const t of STAGE_PARTS) fill(t.at, t.shows, null);
-  for (const t of tris) fill(t.at, t.owner, t);
-  return { W, H, shows, whose };
+  }
+  return near;
 }
 
 // The moments at which the tests see whether the band keeps clear of the stage's black: at rest, as the band is built (and as a
@@ -711,6 +784,13 @@ export const LIFT_LEAST: Record<string, Least> = {
    the crowd, and a kit meets the next; and which drummers' crashes stand apart from every outline, each as "N crash". */
 type Bars = { lift?: Record<string, Least>; touch?: string[]; apart?: string[] };
 
+/* The places of the grid the outlines' film draws each line-up at: in CI the shoot's own, (0, 0), where its stills are drawn; and
+   with BAND_FILM=all in the environment (`BAND_FILM=all npm run test:run`), all 16 (PHASES), which take about nine times as long, a
+   quarter of a minute a line-up here. Every frame, every camera and both rates are the same at each. CI's Unit tests job ran 8.6
+   min with all 16, against main's 2.7 to 3.6. */
+const FILM_PLACES = process.env.BAND_FILM === "all" ? PHASES : [[0, 0]];
+const FILM_AT = FILM_PLACES.length === 1 ? "at the shoot's own place of the pixel grid" : `at any of ${FILM_PLACES.length} places of the pixel grid`;
+
 /* The rules every line-up keeps, as a describe block of its own: `name` is how the tests name it, and `day` (YYYY-MM-DD) a date of its
    row of lineup.js, whose roles it is. */
 export function outlineChecks(name: string, day: string, bars: Bars = {}) {
@@ -721,16 +801,9 @@ export function outlineChecks(name: string, day: string, bars: Bars = {}) {
   const n = roles.length, monitors = n;
   const players = Array.from({ length: n }, (_, k) => k);
   const label = (bits: number) => [...players.filter((k) => bits & (1 << k)).map(String), ...(bits & (1 << monitors) ? ["monitor"] : [])].join(" and ");
-  // The film of the line-up from every camera and rung (filmOf), made once.
+  // The film of the line-up from every camera and rung (filmOf), made once, at FILM_PLACES.
   let made: Film | null = null;
-  const film = () => (made ??= filmOf(roles, label, [...CAMERAS, ...FLASH_CAMERAS, ...RUNGS]));
-  // The band at MOMENTS, fitted to a camera's canvas as main.js fits it, made once a canvas.
-  const films = new Map<number, Tri[][]>();
-  const drawn = (cam: Camera) => {
-    const perPx = pixelOf(cam);
-    if (!films.has(perPx)) films.set(perPx, MOMENTS.map((seconds) => band(roles, seconds, perPx)));
-    return films.get(perPx)!;
-  };
+  const film = () => (made ??= filmOf(roles, label, [...CAMERAS, ...FLASH_CAMERAS, ...RUNGS], { places: () => FILM_PLACES }));
 
   describe(`${name}: the band's outlines, as the shoot's devices draw them`, () => {
     beforeAll(() => {
@@ -750,7 +823,7 @@ export function outlineChecks(name: string, day: string, bars: Bars = {}) {
     // moments of five, as CI's stills showed it, and at dusk the bass's in three; with dc68304's necks, which reached further and
     // whose crashes' poles were not fitted to the canvas, 4.46 and 3.58 a frame at night, six at worst, and in every frame. A move
     // that holds at its ends (band.js MOVE) holds a part where it comes apart longer than one that eased through.
-    it("comes apart nowhere on a desktop, nor on a phone at the front of the stage: no near-black speck of 12 px or less in any frame from rest through a bar, at any of 16 places of the pixel grid", () => {
+    it(`comes apart nowhere on a desktop, nor on a phone at the front of the stage: no near-black speck of 12 px or less in any frame from rest through a bar, ${FILM_AT}`, () => {
       expect(film().specks).toEqual([]);
     }, 120_000);
 
@@ -782,18 +855,14 @@ export function outlineChecks(name: string, day: string, bars: Bars = {}) {
     // PA stack) and from the back of the crowd at half a phone's pixels (the keys player, by the right of the back wall). In the band
     // before it the keys' cabinet ran into the back wall's black from the front of the crowd.
     it("keeps the band clear of the stage's own black from every camera and at every rung of a phone's: two pixels of something else at the least between any part of the band and the roof, the back wall or a PA stack", () => {
-      const near = new Set<string>();
-      for (const cam of [...CAMERAS, ...FLASH_CAMERAS, ...RUNGS]) {
-        drawn(cam).forEach((tris, t) => {
-          const { W, H, shows } = drawWithStage(tris, cam);
-          for (let o = 0; o < W * H; o++) {
-            if (shows[o] < 0) continue;
-            const x = o % W, y = (o - x) / W;
-            for (let Y = Math.max(0, y - 2); Y <= Math.min(H - 1, y + 2); Y++) for (let X = Math.max(0, x - 2); X <= Math.min(W - 1, x + 2); X++) {
-              if (shows[Y * W + X] === STAGE_BLACK) near.add(`${cam.name} at ${MOMENTS[t]} s: ${shows[o] === monitors ? "monitor" : shows[o]}`);
-            }
-          }
-        });
+      // The band at MOMENTS, fitted to each canvas as main.js fits it: played once a canvas's pixel, from every camera that has it.
+      const near = new Set<string>(), cams = [...CAMERAS, ...FLASH_CAMERAS, ...RUNGS];
+      for (const perPx of new Set(cams.map(pixelOf))) {
+        const played = playing(roles, perPx);
+        for (const seconds of MOMENTS) {
+          played.to(Math.round(seconds * 60));
+          for (const cam of cams.filter((c) => pixelOf(c) === perPx)) for (const k of nearBlack(played.world, played.owner, cam)) near.add(`${cam.name} at ${seconds} s: ${k === monitors ? "monitor" : k}`);
+        }
       }
       expect([...near]).toEqual([]);
     }, 120_000);
@@ -827,13 +896,10 @@ export function outlineChecks(name: string, day: string, bars: Bars = {}) {
       const found: string[] = [];
       // At 96 a minute the count is the beat, 1.6 a second; at 91 after 150 the count keeps half time, 0.76 a second, as slow as it
       // runs: its moves are slowest there, and an edge longest over a pixel's middle.
-      for (const [count, film] of [["96", frames(roles, 96, 4, 96, 3)], ["91 after 150", frames(roles, 150, 4, 91, 6)]] as [string, Frame[]][]) {
-        for (const cam of [FLASH_CAMERAS[0], ...CAMERAS.filter((c) => c.name === "phone crowd")]) {
-          for (const [dx, dy] of [[0, 0], [0.5, 0.5], [0.25, 0.75], [0.75, 0.25]]) {
-            const most = flicker(film, cam, dx, dy);
-            if (most > 5) found.push(`${cam.name} at ${count}, ${dx},${dy}: ${most}`);
-          }
-        }
+      const cams = [FLASH_CAMERAS[0], ...CAMERAS.filter((c) => c.name === "phone crowd")], offsets = [[0, 0], [0.5, 0.5], [0.25, 0.75], [0.75, 0.25]];
+      for (const [count, [bpm, lead, then, seconds]] of [["96", [96, 4, 96, 3]], ["91 after 150", [150, 4, 91, 6]]] as [string, number[]][]) {
+        const counted = flickerOf(roles, bpm, lead, then, seconds, cams, offsets);
+        cams.forEach((cam, c) => offsets.forEach(([dx, dy], o) => { if (counted[c][o].most > 5) found.push(`${cam.name} at ${count}, ${dx},${dy}: ${counted[c][o].most}`); }));
       }
       expect(found).toEqual([]);
     }, 120_000);
@@ -904,38 +970,42 @@ function shown(tris: Tri[], cam: Camera, at: number, side: string) {
 // change of 0.1 from the block's last turn. The band's black is 0.01, the light panel behind it 0.3, as bright as it reads in the
 // counter's traces, and anything else 0.05. Only the phone's tier is read: a desktop draws a pixel to a pixel, and one pixel of a
 // 2x2 block that flips changes its luminance by 0.07 at the most.
-type Frame = Float64Array;
-// The band's triangles' corners in the world, frame by frame, fitted to a phone's canvas at its own scale: played from rest at `bpm` for
-// `lead` seconds unrecorded, then each frame of `seconds` more, at `then` a minute.
-function frames(roles: string[], bpm: number, lead: number, then: number, seconds: number) {
-  const stage = new THREE.Group();
-  stage.position.set(STAGE[0], SHELF_Y, STAGE[1]);
-  stage.rotation.y = FACING;
-  const built = buildBand(stage, FLOOR, roles), m = new THREE.Matrix4(), v = new THREE.Vector3(), out: Frame[] = [];
-  built.fit(pixelOf(FLASH_CAMERAS[0]));
-  let beats = 0, frame = 0;
-  const step = (rate: number) => built.move(1 / 60, ++frame / 60, (beats += rate / 3600), true);
-  for (let i = 0; i < lead * 60; i++) step(bpm);
-  for (let i = 0; i < seconds * 60; i++) {
-    step(then);
-    stage.updateMatrixWorld(true);
-    const at: number[] = [];
-    const push = (corner: { count: number }, mw: unknown, from = 0, count = corner.count) => { for (let k = from; k < from + count; k++) { v.fromBufferAttribute(corner, k).applyMatrix4(mw); at.push(v.x, v.y, v.z); } };
-    const still = built.still.geometry.getAttribute("position");
-    for (const part of built.still.userData.parts) push(still, built.still.matrixWorld, part.from, part.count);
-    for (const p of built.players as Player[]) if (p.body.geometry) push(p.body.geometry.getAttribute("position"), p.body.matrixWorld);
-    const limb = built.limbs.geometry.getAttribute("position");
-    built.bones.forEach((_: unknown, k: number) => { built.limbs.getMatrixAt(k, m); push(limb, m.clone().premultiply(stage.matrixWorld)); });
-    out.push(Float64Array.from(at));
-  }
-  return out;
-}
 
-// The most swings in any second at any block of a camera's screen, through the frames, with the pixel grid shifted `dx`, `dy`.
-function flicker(film: Frame[], cam: Camera, dx: number, dy: number) {
-  const W = cam.cols, H = cam.rows, k = cam.screen, camera = lens(cam);
-  const e = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
-  const snap = (value: number) => Math.round(value * 256) / 256;
+// Each corner of `world` from `from` to `to` on a camera's canvas, unshifted, as the flicker's GPU puts it (`e`, the camera's
+// projection and view, on a canvas W by H).
+function onCanvas(e: number[], W: number, H: number, world: Float64Array, from: number, to: number, uv: Float64Array) {
+  for (let i = from; i < to; i++) {
+    const x = world[i * 3], y = world[i * 3 + 1], z = world[i * 3 + 2], w = e[3] * x + e[7] * y + e[11] * z + e[15];
+    uv[i * 2] = (((e[0] * x + e[4] * y + e[8] * z + e[12]) / w + 1) / 2) * W;
+    uv[i * 2 + 1] = ((1 - (e[1] * x + e[5] * y + e[9] * z + e[13]) / w) / 2) * H;
+  }
+}
+// Where a screen's pixels read the canvas, along one way: from screen pixel `s0`, `count` of them, at `k` screen pixels a canvas
+// pixel, over the box's canvas pixels from `b0`, `bn` of them. For each screen pixel, the two canvas pixels it mixes (`at`, from the
+// box's first, or -1 outside it) and the share of the second (`part`); and for each canvas pixel, the first and the last screen
+// pixel that read it (`lo`, `hi`).
+function readsOf(s0: number, count: number, b0: number, bn: number, k: number) {
+  const at = new Int32Array(count * 2), part = new Float64Array(count), lo = new Int32Array(bn).fill(count), hi = new Int32Array(bn).fill(-1);
+  for (let i = 0; i < count; i++) {
+    const u = (s0 + i + 0.5) / k - 0.5, u0 = Math.floor(u);
+    part[i] = u - u0;
+    for (let q = 0; q < 2; q++) {
+      const x = u0 + q - b0, inside = x >= 0 && x < bn;
+      at[i * 2 + q] = inside ? x : -1;
+      if (inside) { if (i < lo[x]) lo[x] = i; if (i > hi[x]) hi[x] = i; }
+    }
+  }
+  return { at, part, lo, hi };
+}
+type Reads = ReturnType<typeof readsOf>;
+type Grid = { ox: number; oy: number; cols: number; rows: number; way: Int8Array; turn: Float32Array; low: Float32Array; high: Float32Array; swings: number[][]; stamp: Int32Array; dirty: Int32Array; many: number };
+type Glow = { dx: number; dy: number; bx: number; by: number; bw: number; bh: number; sw: number; sh: number; ground: Float32Array; lum: Float32Array;
+  mask: Uint8Array; bare: Uint8Array; over: Uint16Array; touch: Int32Array; touched: Int32Array; many: number; xy: Float64Array; across: Reads; down: Reads; stamp: Int32Array;
+  dirty: Int32Array; grids: Grid[]; most: number };
+// The screen of camera `cam` with the grid shifted `dx`, `dy`, over the band's box on its canvas (`lo` and `hi`, unshifted): the
+// box's pixels and the screen's over it, the light panel's and the floor's luminance there, and the counter's blocks.
+function glowOf(cam: Camera, e: number[], lo: number[], hi: number[], dx: number, dy: number, n: number): Glow {
+  const W = cam.cols, H = cam.rows, k = cam.screen;
   const screen = (x: number, y: number, z: number) => {
     const w = e[3] * x + e[7] * y + e[11] * z + e[15];
     return [(((e[0] * x + e[4] * y + e[8] * z + e[12]) / w + 1) / 2) * W + dx, ((1 - (e[1] * x + e[5] * y + e[9] * z + e[13]) / w) / 2) * H + dy];
@@ -947,59 +1017,160 @@ function flicker(film: Frame[], cam: Camera, dx: number, dy: number) {
   });
   const lit = (x: number, y: number) => corners.every(([ax, ay], i) => { const [bx, by] = corners[(i + 1) % 4]; return (bx - ax) * (y - ay) - (by - ay) * (x - ax) <= 0; }) ||
     corners.every(([ax, ay], i) => { const [bx, by] = corners[(i + 1) % 4]; return (bx - ax) * (y - ay) - (by - ay) * (x - ax) >= 0; });
-  // The band's box on the canvas over all the frames, and the screen's pixels over it.
-  let x0 = W, y0 = H, x1 = 0, y1 = 0;
-  for (const at of film) for (let i = 0; i < at.length; i += 3) { const [x, y] = screen(at[i], at[i + 1], at[i + 2]); x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  // The band's box on the canvas over all the frames, and the screen's pixels over it: a sum rounds the same way whatever it is added
+  // to, so the least of the corners shifted is the least of them shifted.
+  const x0 = Math.min(W, lo[0] + dx), x1 = Math.max(0, hi[0] + dx), y0 = Math.min(H, lo[1] + dy), y1 = Math.max(0, hi[1] + dy);
   const bx = Math.max(0, Math.floor(x0) - 2), by = Math.max(0, Math.floor(y0) - 2), bw = Math.min(W, Math.ceil(x1) + 2) - bx, bh = Math.min(H, Math.ceil(y1) + 2) - by;
   const sx = Math.ceil(bx * k), sy = Math.ceil(by * k), sw = Math.floor((bx + bw) * k) - sx - 1, sh = Math.floor((by + bh) * k) - sy - 1;
   const ground = new Float32Array(sw * sh);
   for (let j = 0; j < sh; j++) for (let i = 0; i < sw; i++) ground[j * sw + i] = lit((sx + i + 0.5) / k, (sy + j + 0.5) / k) ? 0.3 : 0.05;
   // Each grid's blocks: the counter's turning state, and the frames of its swings.
   const grids = [[0, 0], [1, 1], [1, 0], [0, 1]].map(([ox, oy]) => {
-    const cols = Math.floor((sw - ox) / 2), rows = Math.floor((sh - oy) / 2), n = cols * rows;
-    return { ox, oy, cols, rows, way: new Int8Array(n), turn: new Float32Array(n), low: new Float32Array(n).fill(1), high: new Float32Array(n), swings: Array.from({ length: n }, () => [] as number[]) };
+    const cols = Math.floor((sw - ox) / 2), rows = Math.floor((sh - oy) / 2), blocks = cols * rows;
+    return { ox, oy, cols, rows, way: new Int8Array(blocks), turn: new Float32Array(blocks), low: new Float32Array(blocks).fill(1), high: new Float32Array(blocks),
+      swings: Array.from({ length: blocks }, () => [] as number[]), stamp: new Int32Array(blocks).fill(-1), dirty: new Int32Array(blocks), many: 0 };
   });
-  let most = 0;
-  film.forEach((at, f) => {
-    const mask = new Uint8Array(bw * bh), p = new Float64Array(at.length / 3 * 2);
-    for (let i = 0, j = 0; i < at.length; i += 3, j += 2) { const [x, y] = screen(at[i], at[i + 1], at[i + 2]); p[j] = snap(x); p[j + 1] = snap(y); }
-    for (let t = 0; t < p.length; t += 6) {
-      const ax = p[t], ay = p[t + 1], qx = p[t + 2], qy = p[t + 3], cx = p[t + 4], cy = p[t + 5];
-      const area = (qx - ax) * (cy - ay) - (qy - ay) * (cx - ax);
-      if (area === 0) continue;
-      const minx = Math.max(bx, Math.ceil(Math.min(ax, qx, cx) - 0.5)), maxx = Math.min(bx + bw - 1, Math.floor(Math.max(ax, qx, cx) - 0.5));
-      const miny = Math.max(by, Math.ceil(Math.min(ay, qy, cy) - 0.5)), maxy = Math.min(by + bh - 1, Math.floor(Math.max(ay, qy, cy) - 0.5));
-      for (let y = miny; y <= maxy; y++) for (let x = minx; x <= maxx; x++) {
-        const mx = x + 0.5, my = y + 0.5;
-        if (((qx - ax) * (my - ay) - (qy - ay) * (mx - ax)) / area < 0 || ((cx - qx) * (my - qy) - (cy - qy) * (mx - qx)) / area < 0 || ((ax - cx) * (my - cy) - (ay - cy) * (mx - cx)) / area < 0) continue;
-        mask[(y - by) * bw + (x - bx)] = 1;
+  return { dx, dy, bx, by, bw, bh, sw, sh, ground, lum: new Float32Array(sw * sh), mask: new Uint8Array(bw * bh), bare: new Uint8Array(bw * bh), over: new Uint16Array(bw * bh),
+    touch: new Int32Array(bw * bh).fill(-1), touched: new Int32Array(bw * bh), many: 0,
+    xy: new Float64Array(n * 6), across: readsOf(sx, sw, bx, bw, k), down: readsOf(sy, sh, by, bh, k), stamp: new Int32Array(sw * sh).fill(-1), dirty: new Int32Array(sw * sh), grids, most: 0 };
+}
+// Triangles `from` to `to` of a glow's corners on the grid (`xy`) drawn as the GPU draws them, over the box's pixels: into `bare`,
+// the still parts, or with `by` 1 or -1 into `over`, how many triangles of what moves cover each pixel, each pixel it reaches told
+// once a frame (`touched`). A triangle drawn again from the same corners covers the same pixels, so taken off so it leaves them as
+// they were.
+function cover(glow: Glow, from: number, to: number, by: number, f: number) {
+  const { xy, bx, by: top, bw, bh, bare, over, touch, touched } = glow;
+  for (let t = from * 6; t < to * 6; t += 6) {
+    const ax = xy[t], ay = xy[t + 1], qx = xy[t + 2], qy = xy[t + 3], cx = xy[t + 4], cy = xy[t + 5];
+    const area = (qx - ax) * (cy - ay) - (qy - ay) * (cx - ax);
+    if (area === 0) continue;
+    const minx = Math.max(bx, Math.ceil(Math.min(ax, qx, cx) - 0.5)), maxx = Math.min(bx + bw - 1, Math.floor(Math.max(ax, qx, cx) - 0.5));
+    const miny = Math.max(top, Math.ceil(Math.min(ay, qy, cy) - 0.5)), maxy = Math.min(top + bh - 1, Math.floor(Math.max(ay, qy, cy) - 0.5));
+    for (let y = miny; y <= maxy; y++) for (let x = minx; x <= maxx; x++) {
+      const mx = x + 0.5, my = y + 0.5;
+      if (((qx - ax) * (my - ay) - (qy - ay) * (mx - ax)) / area < 0 || ((cx - qx) * (my - qy) - (cy - qy) * (mx - qx)) / area < 0 || ((ax - cx) * (my - cy) - (ay - cy) * (mx - cx)) / area < 0) continue;
+      const o = (y - top) * bw + (x - bx);
+      if (by === 0) { bare[o] = 1; continue; }
+      over[o] += by;
+      if (touch[o] !== f) { touch[o] = f; touched[glow.many++] = o; }
+    }
+  }
+}
+// A canvas pixel's mask, 0 outside the box.
+const masked = (glow: Glow, x: number, y: number) => (x < 0 || y < 0 ? 0 : glow.mask[y * glow.bw + x]);
+// Frame `f` on a glow's screen, its mask drawn: each screen pixel that reads a canvas pixel that changed is shaded again, and each
+// block that holds one is read, as the counter reads it. A block none of whose pixels changed reads as it did, and the counter
+// reading the same again turns nothing.
+function glowFrame(glow: Glow, f: number) {
+  const { mask, bare, over, touched, bw, sw, sh, lum, ground, across, down, stamp, dirty, grids } = glow;
+  let many = 0, changed = 0;
+  // The canvas's pixels that what moved reached, and of them those whose mask changed, put first in `touched`.
+  for (let d = 0; d < glow.many; d++) {
+    const o = touched[d], on = bare[o] || over[o] > 0 ? 1 : 0;
+    if (on !== mask[o] || f === 0) { mask[o] = on; touched[changed++] = o; }
+  }
+  glow.many = 0;
+  if (f === 0) {
+    for (let o = 0; o < mask.length; o++) mask[o] = bare[o] || over[o] > 0 ? 1 : 0;
+    for (let s = 0; s < sw * sh; s++) dirty[many++] = s;
+  } else for (let d = 0; d < changed; d++) {
+    const o = touched[d], x = o % bw, y = (o - x) / bw;
+    for (let j = down.lo[y]; j <= down.hi[y]; j++) for (let i = across.lo[x]; i <= across.hi[x]; i++) {
+      const s = j * sw + i;
+      if (stamp[s] !== f) { stamp[s] = f; dirty[many++] = s; }
+    }
+  }
+  for (const g of grids) g.many = 0;
+  for (let d = 0; d < many; d++) {
+    const s = dirty[d], i = s % sw, j = (s - i) / sw;
+    const a = across.at[i * 2], b = across.at[i * 2 + 1], p = down.at[j * 2], q = down.at[j * 2 + 1], fu = across.part[i], fv = down.part[j];
+    const share = (1 - fu) * (1 - fv) * masked(glow, a, p) + fu * (1 - fv) * masked(glow, b, p) + (1 - fu) * fv * masked(glow, a, q) + fu * fv * masked(glow, b, q);
+    lum[s] = ground[s] + (0.01 - ground[s]) * share;
+    for (const g of grids) {
+      const X = i - g.ox, Y = j - g.oy;
+      if (X < 0 || Y < 0) continue;
+      const bi = X >> 1, bj = Y >> 1;
+      if (bi >= g.cols || bj >= g.rows) continue;
+      const block = bj * g.cols + bi;
+      if (g.stamp[block] !== f) { g.stamp[block] = f; g.dirty[g.many++] = block; }
+    }
+  }
+  for (const g of grids) for (let d = 0; d < g.many; d++) {
+    const b = g.dirty[d], X = (b % g.cols) * 2 + g.ox, Y = Math.floor(b / g.cols) * 2 + g.oy;
+    const value = (lum[Y * sw + X] + lum[Y * sw + X + 1] + lum[(Y + 1) * sw + X] + lum[(Y + 1) * sw + X + 1]) / 4;
+    let swing = 0;
+    if (g.way[b] === 0) {
+      g.low[b] = Math.min(g.low[b], value); g.high[b] = Math.max(g.high[b], value);
+      swing = value - g.low[b] >= 0.1 ? 1 : g.high[b] - value >= 0.1 ? -1 : 0;
+    } else if (g.way[b] === 1) { if (value > g.turn[b]) g.turn[b] = value; else if (g.turn[b] - value >= 0.1) swing = -1; }
+    else if (value < g.turn[b]) g.turn[b] = value; else if (value - g.turn[b] >= 0.1) swing = 1;
+    if (!swing) continue;
+    g.way[b] = swing; g.turn[b] = value;
+    const list = g.swings[b];
+    list.push(f);
+    let first = list.length - 1;
+    while (first > 0 && f - list[first - 1] <= 60) first--;
+    glow.most = Math.max(glow.most, list.length - first);
+  }
+}
+// A corner put on the GPU's grid, of 1/256 of a pixel.
+const snap = (value: number) => Math.round(value * 256) / 256;
+// The most swings in any second at any block of each camera's screen, with the pixel grid shifted by each of `offsets` ([camera]
+// [offset]), and the swings: the band played from rest at `bpm` for `lead` seconds unrecorded, then each frame of `seconds` more at `then` a minute,
+// fitted to a phone's canvas at its own scale. The band is played twice (`playing`), once for its box on each canvas over the frames
+// and once to draw them; what moves is put on each canvas only in the frames it moves, the still parts are drawn once, and only the
+// screen's pixels over a canvas pixel that changed are shaded again. So each count is the one that drawing every frame whole finds
+// (band-outline.test.ts holds it to that).
+// The work is done in plain functions: in one closure over another, V8 on Node 25 gave one of the counts as another number in about
+// one run in five.
+export function flickerOf(roles: string[], bpm: number, lead: number, then: number, seconds: number, cams: Camera[], offsets: number[][]) {
+  const tempo = (frame: number) => (frame <= lead * 60 ? bpm : then), from = lead * 60 + 1, count = seconds * 60, perPx = pixelOf(FLASH_CAMERAS[0]);
+  const lenses = cams.map((cam) => { const camera = lens(cam); return new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements as number[]; });
+  // The band's box on each canvas over the frames, unshifted: the still parts' corners once, and those of each group that moved.
+  const pre = playing(roles, perPx, 60, tempo), groups = pre.groups, many = groups.length - 1, n = pre.n, still = pre.still;
+  const uvs = cams.map(() => new Float64Array(n * 6)), lo = cams.map(() => [Infinity, Infinity]), hi = cams.map(() => [-Infinity, -Infinity]);
+  const spread = (c: number, a: number, b: number) => {
+    const uv = uvs[c], l = lo[c], h = hi[c];
+    for (let i = a; i < b; i++) {
+      const u = uv[i * 2], v = uv[i * 2 + 1];
+      if (u < l[0]) l[0] = u;
+      if (u > h[0]) h[0] = u;
+      if (v < l[1]) l[1] = v;
+      if (v > h[1]) h[1] = v;
+    }
+  };
+  for (let f = 0; f < count; f++) {
+    pre.to(from + f);
+    for (let c = 0; c < cams.length; c++) {
+      if (f === 0) { onCanvas(lenses[c], cams[c].cols, cams[c].rows, pre.world, 0, n * 3, uvs[c]); spread(c, 0, n * 3); continue; }
+      for (let g = 0; g < many; g++) if (pre.moved[g]) { onCanvas(lenses[c], cams[c].cols, cams[c].rows, pre.world, groups[g] * 3, groups[g + 1] * 3, uvs[c]); spread(c, groups[g] * 3, groups[g + 1] * 3); }
+    }
+  }
+  const played = playing(roles, perPx, 60, tempo), glows = cams.map((cam, c) => offsets.map(([dx, dy]) => glowOf(cam, lenses[c], lo[c], hi[c], dx, dy, n)));
+  for (let f = 0; f < count; f++) {
+    played.to(from + f);
+    for (let c = 0; c < cams.length; c++) {
+      const uv = uvs[c];
+      if (f === 0) onCanvas(lenses[c], cams[c].cols, cams[c].rows, played.world, 0, n * 3, uv);
+      else for (let g = 0; g < many; g++) if (played.moved[g]) onCanvas(lenses[c], cams[c].cols, cams[c].rows, played.world, groups[g] * 3, groups[g + 1] * 3, uv);
+      for (const glow of glows[c]) {
+        // The corners on the grid, and what they cover: the still parts' once, and then each group that moved taken off where it was
+        // and drawn where it is.
+        const xy = glow.xy;
+        if (f === 0) {
+          for (let i = 0; i < n * 3; i++) { xy[i * 2] = snap(uv[i * 2] + glow.dx); xy[i * 2 + 1] = snap(uv[i * 2 + 1] + glow.dy); }
+          cover(glow, 0, still, 0, f);
+          cover(glow, still, n, 1, f);
+        } else for (let g = 0; g < many; g++) {
+          if (!played.moved[g]) continue;
+          cover(glow, groups[g], groups[g + 1], -1, f);
+          for (let i = groups[g] * 3; i < groups[g + 1] * 3; i++) { xy[i * 2] = snap(uv[i * 2] + glow.dx); xy[i * 2 + 1] = snap(uv[i * 2 + 1] + glow.dy); }
+          cover(glow, groups[g], groups[g + 1], 1, f);
+        }
+        glowFrame(glow, f);
       }
     }
-    const covered = (x: number, y: number) => (x < bx || y < by || x >= bx + bw || y >= by + bh ? 0 : mask[(y - by) * bw + (x - bx)]);
-    const lum = new Float32Array(sw * sh);
-    for (let j = 0; j < sh; j++) for (let i = 0; i < sw; i++) {
-      const u = (sx + i + 0.5) / k - 0.5, w = (sy + j + 0.5) / k - 0.5, u0 = Math.floor(u), v0 = Math.floor(w), fu = u - u0, fv = w - v0;
-      const share = (1 - fu) * (1 - fv) * covered(u0, v0) + fu * (1 - fv) * covered(u0 + 1, v0) + (1 - fu) * fv * covered(u0, v0 + 1) + fu * fv * covered(u0 + 1, v0 + 1);
-      lum[j * sw + i] = ground[j * sw + i] + (0.01 - ground[j * sw + i]) * share;
-    }
-    for (const g of grids) for (let b = 0; b < g.cols * g.rows; b++) {
-      const X = (b % g.cols) * 2 + g.ox, Y = Math.floor(b / g.cols) * 2 + g.oy;
-      const value = (lum[Y * sw + X] + lum[Y * sw + X + 1] + lum[(Y + 1) * sw + X] + lum[(Y + 1) * sw + X + 1]) / 4;
-      let swing = 0;
-      if (g.way[b] === 0) {
-        g.low[b] = Math.min(g.low[b], value); g.high[b] = Math.max(g.high[b], value);
-        swing = value - g.low[b] >= 0.1 ? 1 : g.high[b] - value >= 0.1 ? -1 : 0;
-      } else if (g.way[b] === 1) { if (value > g.turn[b]) g.turn[b] = value; else if (g.turn[b] - value >= 0.1) swing = -1; }
-      else if (value < g.turn[b]) g.turn[b] = value; else if (value - g.turn[b] >= 0.1) swing = 1;
-      if (!swing) continue;
-      g.way[b] = swing; g.turn[b] = value;
-      const list = g.swings[b];
-      list.push(f);
-      let first = list.length - 1;
-      while (first > 0 && f - list[first - 1] <= 60) first--;
-      most = Math.max(most, list.length - first);
-    }
-  });
-  return most;
+  }
+  // And each swing, as "grid block frame", the grid as its corner's place in the screen's first 2x2.
+  return glows.map((row) => row.map((glow) => ({ most: glow.most, swings: glow.grids.flatMap((g) => g.swings.flatMap((list, b) => list.map((f) => `${g.ox},${g.oy} ${b} ${f}`))) })));
 }
-
