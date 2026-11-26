@@ -276,26 +276,32 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
     expect(Array.from(band.limbs.instanceMatrix.array as Float32Array)).toEqual(before);
   });
 
-  it("stands each microphone at its singer's mouth: its head within 3 cm of the face's front at its height, and its stand toward the crowd from there", () => {
+  it("stands each microphone at its singer's mouth: its head within 3 cm of the face's front at its height, and its stand toward the crowd from there, the singer's out to their left", () => {
     stage.updateMatrixWorld(true);
     const singing = players.flatMap((p, k) => {
       const found = microphoneOf(band, k);
       if (!found) return [];
       const mic = own(band, k, found.head);
-      // The face's front at that height: the corners of the body and the head within 4 cm of it up and down and 6 cm to either side.
+      // The face's front at that height: the corners of the head within 4 cm of it up and down and 6 cm to either side. (The body
+      // reaches no higher than the collar, but for the singer's hand, which holds the microphone before the face.)
       let face = -Infinity;
       corners(built, (at, of, by) => {
-        if (by !== k || !["body", "head"].includes(of)) return;
+        if (by !== k || of !== "head") return;
         const c = own(band, k, at);
         if (Math.abs(c.y - mic.y) < 0.04 && Math.abs(c.x - mic.x) < 0.06) face = Math.max(face, c.z);
       });
-      const { foot, head } = found;
-      return [{ role: p.role, before: mic.z - face, toward: Math.abs(Math.atan2(foot.x - head.x, foot.z - head.z)) }];
+      const { foot, head } = found, out = own(band, k, foot).sub(mic);
+      return [{ role: p.role, before: mic.z - face, toward: Math.abs(Math.atan2(foot.x - head.x, foot.z - head.z)), out }];
     });
     // Every one who stands sings but the pianist, who is seated side-on; no drummer does.
     expect(singing.map(({ role }) => role)).toEqual(players.filter((p) => !["drums", "piano"].includes(p.role)).map((p) => p.role));
     // The stand's foot lies toward the crowd from the head, within 0.2 rad, and for one at a keyboard, who turns from the crowd, 0.35.
-    for (const { role, before, toward } of singing) expect([role, before > -0.03 && before < 0.03, toward < (["organ", "keys"].includes(role) ? 0.35 : 0.2)]).toEqual([role, true, true]);
+    // The singer's lies toward the crowd and out to their left, 30 to 50 cm in their own metres, past the legs, which stand 13 cm out:
+    // so from the crowd it rises clear of them.
+    for (const { role, before, toward, out } of singing) {
+      if (role === "voice") expect([role, before > -0.03 && before < 0.03, out.z > 0.2, out.x > 0.3 && out.x < 0.5]).toEqual([role, true, true, true]);
+      else expect([role, before > -0.03 && before < 0.03, toward < (["organ", "keys"].includes(role) ? 0.35 : 0.2)]).toEqual([role, true, true]);
+    }
   });
 
   it("dresses no two of the line-up alike, and no keyboard's player or singer as a fan knows one", () => {
@@ -309,14 +315,26 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
     }
   });
 
-  it("gives the singer no instrument: hands that clap before the chest, and no neck, strumming arm or keyboard", () => {
+  // The singer's arms are the body's, and the tambourine with them (band.js `singer`): the hand at the microphone holds the stand
+  // under its head, and the other hangs to the thigh, the tambourine's disc before it.
+  it("gives the singer no instrument but a tambourine: a hand at the microphone, under its head, the tambourine before the other thigh, and no neck, strumming arm, stick or keyboard", () => {
+    stage.updateMatrixWorld(true);
     players.forEach((p, k) => {
       if (p.role !== "voice") return;
       const names = band.bones.filter((bone: Bone) => bone.of === k).map((bone: Bone) => bone.name);
       expect(p.plays).toBe("voice");
-      expect(names.filter((name: string) => /strum|fret|stick/.test(name))).toEqual([]);
-      expect(names.filter((name: string) => /clapping/.test(name)).sort()).toEqual(["left clapping forearm", "left clapping hand", "right clapping forearm", "right clapping hand"]);
+      expect(names.filter((name: string) => /strum|fret|stick|hand|forearm/.test(name))).toEqual([]);
       expect(stillOf(band, (name) => name === "keyboard" || name === "kit", k)).toEqual([]);
+      // In the singer's own frame and metres: the microphone's head, out to their left (+x) of the middle, and the body's corners.
+      const mic = own(band, k, microphoneOf(band, k)!.head), body: Vec[] = [];
+      corners(built, (at, of, by) => { if (by === k && of === "body") body.push(own(band, k, at)); });
+      // A hand round the stand: the body within 8 cm of the microphone's head, and none of it over the head's middle.
+      const near = Math.min(...body.map((c) => gap(c, mic)));
+      expect([near < 0.08, Math.max(...body.map((c) => c.y)) < mic.y]).toEqual([true, true]);
+      // The tambourine, before the right thigh and out past it: the body 25 cm and more to the right of the middle under the hips,
+      // and before the thigh, and nothing of the body as far out under the hips on the left.
+      const hips = 0.92, low = body.filter((c) => c.y < hips + 0.05 && c.z > 0.1);
+      expect([Math.min(...low.map((c) => c.x)) < -0.25, Math.max(...low.map((c) => c.x)) < 0.25]).toEqual([true, true]);
     });
   });
 

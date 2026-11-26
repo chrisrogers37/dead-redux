@@ -1,6 +1,6 @@
 /* The band's line-up on the night of a show (band.js): how many played, and in what roles, by the show's date. A line-up is a count
    and a set of roles, never people: the lead guitar, the rhythm guitar, the bass, one or two drummers, the organ, a second keyboard
-   ("keys"), the piano, and a singer at a microphone with no instrument. The same role in two eras is the same player on the stage,
+   ("keys"), the piano, and a singer at a microphone, with a tambourine. The same role in two eras is the same player on the stage,
    since it is a role and not a person.
 
    The dates are Wikipedia's "List of Grateful Dead members" (https://en.wikipedia.org/wiki/List_of_Grateful_Dead_members, read

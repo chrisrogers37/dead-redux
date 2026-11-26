@@ -735,7 +735,7 @@ function nearBlack(world: Float64Array, owner: Uint8Array, cam: Camera, reach = 
 
 // The moments at which the tests see whether the band keeps clear of the stage's black: at rest, as the band is built (and as a
 // visitor who asks for reduced motion sees it), and at four moments through a bar at 96 a minute: each stick at its top once, the
-// strumming arms and the singer's clapping hands at both ends of their swings, and the keys player's and the organ's player's hands
+// strumming arms at both ends of their swings, the singer's sway at both ends, and the keys player's and the organ's player's hands
 // at the tops of their lifts, the keys' left at 1.25 s and right at 2.5 s and the organ's the other way about (its left a frame short
 // of the top). The pianist's lag puts its lift's top after 3 s, where none of these falls: the lift's test draws it there
 // (liftShown). Drawn in every frame at 60 a second, from every camera and rung at the shoot's own place of the grid, no line-up came
