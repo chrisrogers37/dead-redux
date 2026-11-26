@@ -1122,12 +1122,13 @@ describe("the crowd's shader", () => {
     // ground across it, and it stands on the plane that fits that ground where it rests on it (groundUnder). Here every corner of it
     // within half a unit of its feet, and of its arms, in metres over the drawn ground under that corner, for every figure of the
     // gathering on twelve days, the fixed day's among them, as each tier builds and draws it: standing still, seated (the crowd sits
-    // on its spot, aFig.x or uSit) and seated dancing at the dance's most. A taper's stand, which goes down to the ground where it
-    // stands, is held above.
+    // on its spot, aFig.x or uSit) and seated dancing at the dance's most, at the beats it leans and bobs furthest each way. A taper's
+    // stand, which goes down to the ground where it stands, is held above. And no figure of them lies back that is broader than LYING
+    // lets it lie.
     // And where it rests on that ground, standing or seated as its seat has it, the lowest corner of each foot, of its seat, of each
     // knee that kneels and of each hand that leans back on the ground, over it: main's stood up to 12 cm over it and sat up to 15.
     const low: Record<string, number> = {}, high: Record<string, number> = {};
-    let looked = 0;
+    let looked = 0, lying = 0, broadest = 0;
     vi.stubGlobal("window", { devicePixelRatio: 1 });
     const budgets = Object.fromEntries(["desktop", "tv", "phone"].map((tier) => [tier, budgetFor(tier) as { crowd: number; grid: number }]));
     vi.unstubAllGlobals();
@@ -1136,7 +1137,9 @@ describe("the crowd's shader", () => {
       for (const seed of [800, ...Array.from({ length: 11 }, (_, k) => 3 * k)]) {
         const c = buildCrowd(new THREE.Scene(), { count, path, line, landmarks: [], plain: small, seed, surface }), e = c.each;
         const near = verticesOf(c.figure).filter((v) => v.mark.x !== 7 && (v.y < 0.95 || v.mark.x === 3 || v.mark.x === 4));
-        for (const f of figuresOf(c)) for (const [state, pose] of [["standing", { beat: 0, dance: 0 }], ["seated", { beat: 0, dance: 0, sit: 1 }], ["dancing seated", { beat: 0.5, dance: 1.6, sit: 1 }]] as const) {
+        for (const f of figuresOf(c)) if (SITS[Math.floor(Math.floor(f.wear.y / 16384) / 16)] === "recline") { lying += 1; broadest = Math.max(broadest, e.aSize[4 * f.i] * LYING); }
+        for (const f of figuresOf(c)) for (const [state, pose] of [["standing", { beat: 0, dance: 0 }], ["seated", { beat: 0, dance: 0, sit: 1 }],
+          ...[0.5, 1, 1.5, 3].map((beat) => ["dancing seated", { beat, dance: 1.6, sit: 1 }])] as const) {
           if (state === "standing" && f.fig.x === 1) continue;
           const [wide, tall, turn] = e.aSize.slice(4 * f.i, 4 * f.i + 3), cos = Math.cos(turn), sin = Math.sin(turn), place = f.place!;
           const sits = SITS[Math.floor(Math.floor(f.wear.y / 16384) / 16)], rests = (state === "standing") === (f.fig.x === 0), lowest: Record<string, number> = {};
@@ -1159,7 +1162,9 @@ describe("the crowd's shader", () => {
         }
       }
     }
-    expect(looked).toBeGreaterThan(3e6);
+    expect(looked).toBeGreaterThan(6e6);
+    expect(lying).toBeGreaterThan(10);
+    expect(broadest).toBeLessThanOrEqual(KNEES * BIG);
     for (const [key, under] of Object.entries(low)) expect([key, under > -0.03]).toEqual([key, true]);
     expect(Object.keys(low).length).toBe(9);
     for (const [key, over] of Object.entries(high)) expect([key, over < 0.04]).toEqual([key, true]);
