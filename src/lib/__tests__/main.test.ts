@@ -60,7 +60,7 @@ const fake = vi.hoisted(() => {
   type Stage = {
     light: { visible: boolean; intensity: number };
     rig: { show: Float32Array; mesh: { visible: boolean; renderOrder?: number } };
-    move: (dt: number, t: number, beats: number) => void;
+    move: (dt: number, t: number, beats: number) => number;
     fit: (perPx: number) => void;
   };
   type CrowdMesh = { renderOrder?: number };
@@ -69,7 +69,7 @@ const fake = vi.hoisted(() => {
   // What the world main.js built: its scene, its camera, every bear it made (a downgrade drops some from the scene), and where the
   // visitor's bear last stepped; the landmarks' moving parts, one of each kind (a fire landmark's flame and its light, a ball that
   // pulses, a wheel that turns and a miracle that bobs), the stage, the crowd's mesh, the sky, its sun and the meshes main.js makes
-  // itself (the beam); and the figures' phase in beats, as the last frame gave it to the stage, the crowd's pose, as the last frame gave
+  // itself (the beam); and the figures' phase in beats, as the last frame gave it to the stage, and the count the stage gave back; the crowd's pose, as the last frame gave
   // it to the crowd, and whether its last parting stood the figures at once.
   // `line` is the bears' line each test gives it, and `onset` the time of the last onset the analyser heard, which each test sets (null
   // for none). `keptY` is how high in the frame the last frame asked that the visitor's bear be kept, from -1 at the frame's foot to 1
@@ -134,6 +134,7 @@ const fake = vi.hoisted(() => {
     sun: undefined as unknown as { castShadow: boolean },
     meshes: [] as { material: unknown; position: Vec; visible: boolean }[],
     beats: NaN,
+    count: NaN,
     posed: { beats: NaN, dance: NaN, rise: NaN, sit: NaN },
     partedAtOnce: null as boolean | null,
     onset: null as number | null,
@@ -411,8 +412,12 @@ const fake = vi.hoisted(() => {
           light: { visible: true, intensity: 60 },
           // The rig's five numbers, as the last frame wrote them, and whether it is drawn.
           rig: { show: new Float32Array(5), mesh: { visible: false } },
+          // The band's count, which the crowd dances to: here half the figures' beat and a quarter on, so a crowd posed to the beat
+          // itself is told from one posed to the count.
           move: (_dt, _t, beats) => {
             world.beats = beats;
+            world.count = beats / 2 + 0.25;
+            return world.count;
           },
           // The canvas's pixel, in rad of the view's height, the band's crash poles are fitted to.
           fit: (perPx: number) => {
@@ -1350,7 +1355,7 @@ describe("main.js's frames", () => {
       plain.run(1);
       expect(fake.world.bears.filter((b) => b.g.visible === false)).toEqual([]);
       expect(fake.world.beats).toBeGreaterThan(0);
-      expect(fake.world.posed.beats).toBe(fake.world.beats);
+      expect(fake.world.posed.beats).toBe(fake.world.count);
       expect(fake.world.posed.dance).toBe(1);
     });
 
@@ -1553,7 +1558,9 @@ describe("main.js's frames", () => {
     song.run(0.6);
     expect(fake.world.posed).toMatchObject({ dance: 1, sit: 0 });
     expect(fake.world.partedAtOnce).toBe(false);
-    expect(fake.world.posed.beats).toBe(fake.world.beats);
+    // to the band's count, which band.js holds under HALF_OVER a second, and not to the figures' beat
+    expect(fake.world.posed.beats).toBe(fake.world.count);
+    expect(fake.world.posed.beats).not.toBe(fake.world.beats);
     const space = await startWorld({ playing: true, title: "Space" });
     space.run(0.6);
     expect(fake.world.posed.sit).toBeCloseTo(0.4, 9);
