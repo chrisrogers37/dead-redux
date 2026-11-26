@@ -1138,8 +1138,9 @@ describe("the crowd's shader", () => {
         const c = buildCrowd(new THREE.Scene(), { count, path, line, landmarks: [], plain: small, seed, surface }), e = c.each;
         const near = verticesOf(c.figure).filter((v) => v.mark.x !== 7 && (v.y < 0.95 || v.mark.x === 3 || v.mark.x === 4));
         for (const f of figuresOf(c)) if (SITS[Math.floor(Math.floor(f.wear.y / 16384) / 16)] === "recline") { lying += 1; broadest = Math.max(broadest, e.aSize[4 * f.i] * LYING); }
-        for (const f of figuresOf(c)) for (const [state, pose] of [["standing", { beat: 0, dance: 0 }], ["seated", { beat: 0, dance: 0, sit: 1 }],
-          ...[0.5, 1, 1.5, 3].map((beat) => ["dancing seated", { beat, dance: 1.6, sit: 1 }])] as const) {
+        const poses: [string, Pose][] = [["standing", { beat: 0, dance: 0 }], ["seated", { beat: 0, dance: 0, sit: 1 }],
+          ...[0.5, 1, 1.5, 3].map((beat): [string, Pose] => ["dancing seated", { beat, dance: 1.6, sit: 1 }])];
+        for (const f of figuresOf(c)) for (const [state, pose] of poses) {
           if (state === "standing" && f.fig.x === 1) continue;
           const [wide, tall, turn] = e.aSize.slice(4 * f.i, 4 * f.i + 3), cos = Math.cos(turn), sin = Math.sin(turn), place = f.place!;
           const sits = SITS[Math.floor(Math.floor(f.wear.y / 16384) / 16)], rests = (state === "standing") === (f.fig.x === 0), lowest: Record<string, number> = {};
