@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
 import {
-  buildCrowd, COLOURS, CUT, CYCLE, DROP, FEET, figureGeometry, FOLD, FOOT, groundUnder, HAND, HANG, inView, KNEES, LEG, LYING, MOST, MOVES, only, OUTLINE, outlineOf, PART,
+  buildCrowd, COLOURS, CUT, CYCLE, DROP, FEET, figureGeometry, FOLD, FOOT, FRIEND_REACH, groundUnder, HAND, HANG, inView, KNEES, LEG, LYING, MOST, MOVES, only, OUTLINE, outlineOf, PART,
   partingOptions, people, PLAIN_LEAVES_OUT, plainly, poseOf, PROP_EVERY, PROPS, QUIET, SEAT, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, TALL, tone, TOP, wearing, without,
 } from "../../../public/world/crowd.js";
 import { MOVE as STEP, SLOW, STRUM, swing } from "../../../public/world/band.js";
@@ -377,16 +377,25 @@ describe("the crowd, as buildCrowd builds it", () => {
   });
 
   it("turns each figure the way its seat faces, and hands the island the ground its figures stand: their seats, the blankets they sit on and the aisle", () => {
-    // A figure faces +z in its own units: its matrix turns that to (sin, cos) of its seat's `face`, to friends, a ring's middle or away.
+    // A figure faces +z in its own units: its matrix turns that to (sin, cos) of its seat's `face`, to friends, a ring's middle or away;
+    // and its turn (aSize.z) is the same. Two friends with their arms round each other face the same way side by side, square to
+    // the line between them, which turns each a little off its seat's way (the friends test below).
+    let friends = 0, most = 0;
     for (const c of [crowd, phone, ...SHOWS.map((s) => s.desktop)]) {
       const placed = c === crowd || c === phone ? placedOf.get(c)! : null;
       for (let i = 0; i < c.count; i++) {
         matrix.fromArray(c.each.matrix, 16 * i);
-        const turn = Math.atan2(c.each.matrix[16 * i + 8], c.each.matrix[16 * i + 10]), seat = c.ground.seats[i] as Seat;
-        expect(Math.abs(Math.atan2(Math.sin(turn - seat.face), Math.cos(turn - seat.face)))).toBeLessThan(1e-5);
+        const turn = Math.atan2(c.each.matrix[16 * i + 8], c.each.matrix[16 * i + 10]), seat = c.ground.seats[i] as Seat, off = Math.abs(Math.atan2(Math.sin(turn - seat.face), Math.cos(turn - seat.face)));
+        const stand = (STANDS as string[])[Math.floor(c.each.aWear[4 * i + 1] / 16384) % 16];
+        expect(Math.abs(Math.atan2(Math.sin(turn - c.each.aSize[4 * i + 2]), Math.cos(turn - c.each.aSize[4 * i + 2])))).toBeLessThan(1e-5);
+        if (stand.startsWith("round") || stand.startsWith("waist")) { friends += 1; most = Math.max(most, off); }
+        else expect(off).toBeLessThan(1e-5);
         if (placed) expect(seat).toBe(placed[i]);
       }
     }
+    // 16 friends among them, the furthest turned 0.31 rad.
+    expect(friends).toBeGreaterThan(4);
+    expect(most).toBeLessThan(0.4);
     // The fixed day's own gathering on a desktop, and on a phone, which seats whole groups of the first 150: the blankets any of them
     // sits on and no other, and the day's aisle.
     for (const c of [crowd, phone]) {
@@ -1780,11 +1789,12 @@ describe("the crowd's shader", () => {
     expect(hand(cupped, 0).y).toBeLessThan(0.9);
     for (const k of [0, 1]) expect(hand(stanced("behind"), k).z).toBeLessThan(-0.1);
     for (const k of [0, 1]) { const p = hand(stanced("pockets"), k); expect([Math.abs(p.x) < 0.3, p.y > 0.7 && p.y < 1]).toEqual([true, true]); }
-    // An arm round a friend: round the shoulders of one to its right, the right arm out to the side and up behind them; round
-    // the waist of one to its left, the left arm out low, and the head toward them.
+    // An arm round a friend: round the shoulders of one to its right, the right arm out level to the side and its forearm round
+    // behind them, the hand below its shoulder; round the waist of one to its left, the left arm out low and behind them, and the
+    // head toward them. (Where each hand lies on the other, the friends test below holds.)
     const round = hand(stanced("round"), 1), waist = hand(stanced("waistLeft"), 0);
-    expect([round.x > SHOULDER_X + 0.3, round.y > SHOULDER_Y - 0.25]).toEqual([true, true]);
-    expect([waist.x < -SHOULDER_X - 0.15, waist.y < 1.2]).toEqual([true, true]);
+    expect([round.x > SHOULDER_X + 0.35, round.y > SHOULDER_Y - 0.35 && round.y < SHOULDER_Y - 0.1, round.z < -0.08]).toEqual([true, true, true]);
+    expect([waist.x < -SHOULDER_X - 0.3, waist.y > 0.85 && waist.y < 1.2, waist.z < -0.08]).toEqual([true, true, true]);
     const head = bodyOf(6), tilted = mid(stanced("waistLeft"), head);
     expect(tilted.x).toBeLessThan(mid(square, head).x - 0.03);
     // Every arm of a stance hangs again as the parting stills the figure, and the cup stays held.
@@ -1796,9 +1806,14 @@ describe("the crowd's shader", () => {
     const bob = figureOf("bob"), forearm = (pose: Pose) => at2(bob, hands[1], pose).z - mid(bob, elbows[1], pose).z;
     expect(forearm({ beat: 0.5, dance: 1 })).toBeGreaterThan(0.1);
     expect(Math.abs(forearm({ beat: 0.5, dance: 1, still: 1, rising: 0 }))).toBeLessThan(0.02);
-    // Turning, its arms are out nearly level, the hands within a fifth of a unit of the shoulders' height, on both sides.
+    // Turning, its arms are out, the hands within a fifth of a unit of the shoulders' height, on both sides, the right higher; and
+    // its elbows bent, each forearm turned up from its elbow and the hand above it, so that from behind the arms are no one stick.
     const spin = figureOf("spin");
-    for (const beat of [0, 2, 4, 6]) for (const k of [0, 1]) expect([beat, k, at2(spin, hands[k], { beat, dance: 1 }).y > SHOULDER_Y - 0.25]).toEqual([beat, k, true]);
+    for (const beat of [0, 2, 4, 6]) for (const k of [0, 1]) {
+      const p = at2(spin, hands[k], { beat, dance: 1 }), elbow = mid(spin, elbows[k], { beat, dance: 1 }), shoulder = mid(spin, arms2[k].top, { beat, dance: 1 });
+      expect([beat, k, p.y > SHOULDER_Y - 0.25, p.y > elbow.y + 0.05, elbow.y < shoulder.y - 0.05]).toEqual([beat, k, true, true, true]);
+    }
+    expect(at2(spin, hands[1], { beat: 0, dance: 1 }).y).toBeGreaterThan(at2(spin, hands[0], { beat: 0, dance: 1 }).y + 0.04);
     // Shifting its weight, from one foot to the other over eight beats: the hips go out over one, back, out over the other.
     const shift = figureOf("shift"), across = [0, 2, 4, 6].map((beat) => mid(shift, [...hips[0], ...hips[1]], { beat, dance: 1 }).x);
     expect(across[1] * across[3]).toBeLessThan(0);
@@ -2092,6 +2107,62 @@ describe("the crowd's people", () => {
     expect(friends).toBeGreaterThan(1);
     // Friends stand in twos: as many hold the other round its waist as round its shoulders.
     expect((STANDS as string[]).filter((name) => name.startsWith("waist")).reduce((n, name) => n + (share[`stand ${name}`] ?? 0), 0)).toBe(friends);
+  });
+
+  it("holds a friend: two friends stand side by side within an arm's reach, and each one's hand rests on the other's back, dancing or not", () => {
+    // Each pair on the hills and the shows' own, as a desktop draws them: the one whose arm is round the other's waist and its
+    // friend, the taller, whose arm is round its shoulders. Each hand's middle, where the shader puts it, against the other's body
+    // where the shader puts that (its torso, hips, neck and shoulders), in the other's own units, through a cycle standing still and
+    // dancing. Friends paired 1.45 m apart, which is up to 1.06 units on a slight figure, faced the ways their seats did and stood
+    // a quarter of a unit ahead of each other, so the hand round a waist stopped 0.3 to 0.56 units short of it.
+    const stanceOf = (c: typeof crowd, i: number) => (STANDS as string[])[Math.floor(c.each.aWear[4 * i + 1] / 16384) % 16];
+    const handOf = (side: number) => rich.filter((v) => v.mark.x === (side < 0 ? 3 : 4) && v.mark.y === 0 && Math.abs(Math.hypot(v.x - side * SHOULDER_X, v.y - (SHOULDER_Y - 0.565), v.z) - 0.05) < 1e-4);
+    const position = crowd.figure.getAttribute("position"), marks = crowd.figure.getAttribute("aMark"), body: Vertex[][] = [];
+    for (let t = 0; t < position.count; t += 3) if (marks.getX(t) === 0 && marks.getY(t) === 0) body.push([0, 1, 2].map((k) => ({ x: position.getX(t + k), y: position.getY(t + k), z: position.getZ(t + k), mark: vec(marks, t + k) })));
+    const m = new THREE.Matrix4(), triangle = new THREE.Triangle(), near = new THREE.Vector3(), normal = new THREE.Vector3();
+    const gaps: number[] = [], seen = new Set<string>();
+    for (const c of [...hills, ...SHOWS.map((s) => s.desktop)]) {
+      const figs = figuresOf(c), seats2 = c.ground.seats as Seat[];
+      const at = (f: Figure, v: Vertex, pose: Pose) => { const p = put(f, v, pose); return new THREE.Vector3(p.x, p.y, p.z); };
+      for (let i = 0; i < c.count; i++) {
+        if (!stanceOf(c, i).startsWith("waist")) continue;
+        const j = figs.map((f, q) => q).filter((q) => stanceOf(c, q).startsWith("round") && c.each.aSize[4 * q + 2] === c.each.aSize[4 * i + 2])
+          .reduce((a, q) => (a < 0 || Math.hypot(seats2[q].x - seats2[i].x, seats2[q].z - seats2[i].z) < Math.hypot(seats2[a].x - seats2[i].x, seats2[a].z - seats2[i].z) ? q : a), -1);
+        expect(j).toBeGreaterThanOrEqual(0);
+        seen.add(`${seats2[i].x},${seats2[i].z}`);
+        // Side by side, facing the same way: each stands straight out to the other's side, the side its stance says, within
+        // FRIEND_REACH of its own units across, and the other's.
+        for (const [a, b] of [[i, j], [j, i]]) {
+          const face = c.each.aSize[4 * a + 2], dx = seats2[b].x - seats2[a].x, dz = seats2[b].z - seats2[a].z;
+          const across = Math.cos(face) * dx - Math.sin(face) * dz, ahead = Math.sin(face) * dx + Math.cos(face) * dz;
+          expect(Math.abs(ahead)).toBeLessThan(1e-5);
+          expect(Math.sign(across)).toBe(stanceOf(c, a).endsWith("Left") ? -1 : 1);
+          expect(Math.abs(across)).toBeLessThan(FRIEND_REACH * Math.min(figs[a].across, figs[b].across));
+        }
+        for (const [a, b] of [[i, j], [j, i]]) {
+          const hand = handOf(stanceOf(c, a).endsWith("Left") ? -1 : 1);
+          for (const dance of [0, 1.2, 1.6]) for (let beat = 0.1; beat < CYCLE; beat += 0.5) {
+            const pose = { beat, dance }, mid = hand.reduce((sum, v) => sum.add(at(figs[a], v, pose)), new THREE.Vector3()).multiplyScalar(1 / hand.length);
+            mid.applyMatrix4(m.fromArray(c.each.matrix, 16 * a)).applyMatrix4(m.fromArray(c.each.matrix, 16 * b).invert());
+            // How far its middle stands out from the other's surface, or (below nought) in under it: by the nearest face, and the
+            // way that face looks out.
+            let gap = Infinity, out = 1;
+            for (const t of body) {
+              triangle.set(...t.map((v) => at(figs[b], v, pose)));
+              triangle.closestPointToPoint(mid, near);
+              if (near.distanceTo(mid) < gap) { gap = near.distanceTo(mid); out = Math.sign(triangle.getNormal(normal).dot(mid.clone().sub(near))) || 1; }
+            }
+            gaps.push(gap * out);
+          }
+        }
+      }
+    }
+    // Four pairs; and every hand's middle within the hand's own half-breadth (0.05) of the other's body, out from it or in under
+    // it, so that the hand is on it and never through it: from 0.018 in to 0.049 out. A friend who shifts its weight does so half as
+    // far, for at the whole of it a hand stood 0.007 off.
+    expect(seen.size).toBe(4);
+    expect(Math.max(...gaps)).toBeLessThan(0.05);
+    expect(Math.min(...gaps)).toBeGreaterThan(-0.05);
   });
 
   it("dance as far as each will: a third only a little, a quarter to a half as far as the rest, and the rest from 0.62 of the way to all of it", () => {
