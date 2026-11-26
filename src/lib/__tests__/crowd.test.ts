@@ -798,12 +798,12 @@ describe("the figure, as figureGeometry builds it", () => {
     expect(bits.reduce((sum, b) => sum + b, 0)).toBeLessThan(2 ** 24);
   });
 
-  it("is 1,125 triangles on a desktop and 733 on a phone, a cup among them, whose figure leaves out seven parts and keeps the rest, and a crowd draws of them only what its figures wear", () => {
+  it("is 2,395 triangles on a desktop and 1,660 on a phone, a cup and every form of every part among them, whose figure leaves out six parts and keeps the rest, and a crowd draws of them only what its figures wear", () => {
     const lean = figureGeometry(true);
     expect([geo.index, lean.index]).toEqual([null, null]);
-    expect([n / 3, lean.getAttribute("position").count / 3]).toEqual([1125, 733]);
+    expect([n / 3, lean.getAttribute("position").count / 3]).toEqual([2395, 1660]);
     // And those are the figures the crowds are built of: a desktop's whole, a phone's plain.
-    expect([crowd.figure.getAttribute("position").count / 3, phone.figure.getAttribute("position").count / 3]).toEqual([1125, 733]);
+    expect([crowd.figure.getAttribute("position").count / 3, phone.figure.getAttribute("position").count / 3]).toEqual([2395, 1660]);
     const leanBits = new Set(Array.from({ length: lean.getAttribute("aMark").count }, (_, i) => lean.getAttribute("aMark").getY(i) as number));
     const left = Object.entries(PART).filter(([, b]) => !leanBits.has(b as number)).map(([name]) => name);
     expect(left.sort()).toEqual([...PLAIN_LEAVES_OUT].sort());
@@ -811,17 +811,18 @@ describe("the figure, as figureGeometry builds it", () => {
     const bodyOf = (g: typeof geo) => Array.from({ length: g.getAttribute("position").count }, (_, i) => i).filter((i) => g.getAttribute("aMark").getY(i) === 0).length / 3;
     expect([bodyOf(geo), bodyOf(lean)]).toEqual([372, 372]);
     // A frame's cost goes with the triangles sent to be drawn, and the figure every figure was before its people differed was 440
-    // of them. A crowd sends only what its figures wear: on the hills of 1986-07-04, 1970-08-30 and 1990-12-09 under 500 a figure
-    // on a desktop and under 465 on a TV and a phone, where every figure sent the whole figure's 1,117 and 729 when it was an
-    // instance of it. So a tier's whole crowd, at the figures its budget seats (quality.js), is under 175,000 triangles on a
-    // desktop, 116,250 on a TV and 69,750 on a phone, whose crowd was 66,000 before.
+    // of them. A crowd sends only what its figures wear: on the hills of 1986-07-04, 1970-08-30 and 1990-12-09 under 540 a figure
+    // on a desktop and under 485 on a TV and a phone, where every figure sent the whole figure's 1,117 and 729 when it was an
+    // instance of it. (Before the skyline's hats, hair and things held up, it was under 500 and 465: they add 32 a figure on a
+    // desktop and 16 on a phone.) So a tier's whole crowd, at the figures its budget seats (quality.js), is under 189,000 triangles
+    // on a desktop, 121,250 on a TV and 72,750 on a phone, whose crowd was 66,000 before its people differed.
     vi.stubGlobal("window", { devicePixelRatio: 1 });
     const seated = Object.fromEntries(["desktop", "tv", "phone"].map((tier) => [tier, (budgetFor(tier) as { crowd: number }).crowd]));
     vi.unstubAllGlobals();
     expect(seated).toEqual({ desktop: 350, tv: 250, phone: 150 });
     for (const { date, desktop, phone: small } of SHOWS) {
       const each = (c: typeof crowd) => c.mesh.geometry.index.count / 3 / c.count, tv = crowdOf(date, true, seated.tv);
-      expect([date, each(desktop) < 500, each(tv) < 465, each(small) < 465]).toEqual([date, true, true, true]);
+      expect([date, each(desktop) < 540, each(tv) < 485, each(small) < 485]).toEqual([date, true, true, true]);
       expect([date, each(desktop) > 440, each(small) > 372]).toEqual([date, true, true]);
       expect([tv.count <= seated.tv, small.count <= seated.phone, desktop.count <= seated.desktop]).toEqual([true, true, true]);
     }
@@ -1569,7 +1570,7 @@ describe("the crowd's shader", () => {
   const BASE = BASE_FIGURE;
   const carrying = (prop: string, move: string, more: Record<string, unknown> = {}): Figure => {
     const worn = wearing({ ...BASE, prop, move, ...more });
-    return { ...standard({ x: 0, y: 0, z: 0, w: 0 }), wear: { x: worn.parts, y: worn.style, z: 0, w: 1 }, forms: formsOf({ ...BASE, prop, move, ...more }) };
+    return { ...standard({ x: 0, y: 0, z: 0, w: 0 }), wear: { x: worn.parts, y: worn.style, z: 0, w: 1 }, forms: formsOf({ ...BASE, prop, move, ...more }) as Record<number, number> };
   };
   const STATES: [string, Omit<Pose, "beat">][] = [["dancing", { dance: 1.2 }], ["dancing hard", { dance: 1.6 }], ["seated", { dance: 1.2, sit: 1 }], ["rising", { dance: 1.3, rise: 0.5 }],
     ["risen", { dance: 1.6, rise: 1 }], ["held still", { dance: 1.6, still: 1, rising: 0 }], ["seated and held still", { dance: 1.6, sit: 1, still: 1, rising: 0 }]];
@@ -2512,8 +2513,8 @@ describe("the crowd's skyline", () => {
       expect(kinds).toBeGreaterThan(0.7 * standing.length);
       counts.push(`${kinds}/${standing.length}`);
     }
-    // And they are many: on the fixed day's hill, of 237 standing on a desktop, 219 crests; of the phone's 121, 116.
-    expect(counts.slice(0, 2)).toEqual(["219/237", "116/121"]);
+    // And they are many: on the first hill, of 195 standing on a desktop, 165 crests; of the phone's 117, 95.
+    expect(counts.slice(0, 2)).toEqual(["165/195", "95/117"]);
     // What makes a crest has its kinds: twelve heads, ten heads of hair, fifteen things held up and five heights, each worn standing.
     const who = all[0].who.filter((_, i) => !all[0].placed[i].sit);
     expect([new Set(who.map((p) => p.head)).size, new Set(who.map((p) => p.hair)).size, new Set(who.map((p) => p.prop)).size, new Set(who.map((p) => p.stature)).size]).toEqual([12, 10, 18, 5]);

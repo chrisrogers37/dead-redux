@@ -565,6 +565,12 @@ const CHOICES = {
   back: [["none", 66], ["pack", 17], ["roll", 8], ["both", 9]],
   move: [["bob", 24], ["sway", 19], ["wave", 7], ["spin", 6], ["nod", 12], ["clap", 6], ["watch", 15], ["shift", 11]],
 };
+/* One who sits low on the hill is no part of the crowd's skyline, and wears its hair and its head as the crowd did before it had one:
+   bare-headed as often, and nothing that stands up from the head (person). */
+const SEATED_CHOICES = {
+  hair: [["bald", 7], ["crop", 18], ["bob", 8], ["long", 22], ["mane", 11], ["tail", 13], ["braids", 11], ["afro", 10]],
+  head: [["none", 54], ["hat", 9], ["topper", 3], ["floppy", 8], ["cap", 9], ["bandana", 7], ["band", 5], ["wreath", 5]],
+};
 /* What some carry, one figure in PROP_EVERY taking the next of these in turn, so there are a few of each across the hill; and those
    of them that stand over a head, which no one in the way of a test pose's view of the band carries (inView). What flies from a
    straight pole (FLIES) and what stands on one leaning in over the head (STANDS_ON) keep clear of what the head wears (person). */
@@ -622,9 +628,8 @@ export const without = (list, names) => list.filter(([name]) => !names.includes(
    or bun, and what stands on a pole leaning in over the head over no dreadlocks either; a balloon goes up over no big round head of
    hair, bun or tall knit cap, and its string past no brim, jester's point or flowers; the one with a hoop or beside a stand wears
    nothing it would catch on; and whoever turns on the spot mostly wears a skirt to flare. A bun wears no hat, and a child no top hat,
-   jester's cap or plume. What stands up from the head (TALL_HEADS, TALL_HAIR) is for those who stand, the crowd's skyline: one
-   seated low on the hill keeps the hair and hats it had, so it can still lean back or lie back on a blanket (stances). */
-const TALL_HEADS = ["knit", "jester", "plumed", "flowers"], TALL_HAIR = ["dreads", "bun"];
+   jester's cap or plume. What stands up from the head is for those who stand, the crowd's skyline: one seated low on the hill wears
+   its hair and its head as the crowd did before (SEATED_CHOICES), so its body can still lean back or lie back on a blanket (stances). */
 function person(r, sits, prop, stature) {
   const p = { prop, stature };
   const child = p.stature === "child", small = child || p.stature === "teen";
@@ -635,7 +640,7 @@ function person(r, sits, prop, stature) {
   p.legs = p.move === "spin" && r() < 0.85 ? choose(r, only(CHOICES.legs, ["maxi", "dress"]))
     : prop === "stand" ? choose(r, without(CHOICES.legs, ["maxi"])) : choose(r, CHOICES.legs);
   p.top = prop === "hoop" || prop === "drum" || prop === "stand" ? choose(r, only(CHOICES.top, ["shirt", "tee"])) : choose(r, CHOICES.top);
-  const hairs = sits ? without(CHOICES.hair, TALL_HAIR) : CHOICES.hair, heads = sits ? without(CHOICES.head, TALL_HEADS) : CHOICES.head;
+  const hairs = sits ? SEATED_CHOICES.hair : CHOICES.hair, heads = sits ? SEATED_CHOICES.head : CHOICES.head;
   const kept = (list) => (child ? without(list, ["bald", "topper", "jester", "plumed"]) : list);
   p.hair = prop === "rider" ? choose(r, only(hairs, ["bald", "crop", "bob"])) : FLIES.includes(prop) || BALLOONS.includes(prop) ? choose(r, kept(without(hairs, ["afro", "bun"])))
     : STANDS_ON.includes(prop) ? choose(r, without(hairs, ["afro", "dreads", "bun"])) : choose(r, kept(hairs));
@@ -771,9 +776,9 @@ export function people(placed) {
    and which leg its weight is on (poseOf); seated, how it sits. A figure whose way of moving keeps its arms, or that holds something,
    takes only a stance of the legs. Lying back on the elbows is for a blanket; and it, and the body leaning back on the hands, for one
    with both hands free, whose hair and hat stay within the seated reaches as it leans (KNEES, and HANG over a seated figure's knees;
-   crowd.test.ts), with nothing on its back, which leaning back carried 2 cm past them, and no one close behind. Hugging the knees is for one without a full poncho: from behind, a poncho's point
-   reaches the ground behind a seated figure and its sides stand past the hugged knees and the feet, and it hid all but half a
-   percent of them. Each way of sitting is for a seat whose ground it fits (`fits`), and one that fits no way stands. */
+   crowd.test.ts), with no pack on its back, which the body leaning back carried 2 cm past them, and no one close behind. Hugging
+   the knees is for one without a full poncho: from behind, a poncho's point reaches the ground behind a seated figure and its sides
+   stand past the hugged knees and the feet, and it hid all but half a percent of them. Each way of sitting is for a seat whose ground it fits (`fits`), and one that fits no way stands. */
 const NEIGHBOUR = 1.6, PAIRS = 1, FREE = ["watch", "sway", "nod", "shift"];
 /* Where the middle of the hand of an arm round a friend rests, the figure standing still: [out to the friend's side, up, behind], in
    its own units, for the standard figure's shoulders and legs; out further by SHOULDER_X for each unit wider its shoulders (aBody.y),
@@ -817,7 +822,7 @@ export function stances(placed, who, fits = () => true, holds = () => true) {
     return off(right) <= off(right + Math.PI) ? right : Math.atan2(Math.sin(right + Math.PI), Math.cos(right + Math.PI));
   };
   const fitsBack = (p) => !["afro", "dreads"].includes(p.hair) && !["hat", "topper", "floppy", "bandana", "knit", "jester", "plumed"].includes(p.head) && p.back === "none";
-  const fitsForward = (p) => !["hat", "topper", "floppy", "cap", "plumed"].includes(p.head) && p.hair !== "afro" && !FLIES.includes(p.prop) && !STANDS_ON.includes(p.prop) && p.stoop < 0.05;
+  const fitsForward = (p) => !["hat", "topper", "floppy", "cap", "plumed"].includes(p.head) && p.hair !== "afro" && !FLIES.includes(p.prop) && !STANDS_ON.includes(p.prop) && p.prop !== "bunch" && p.stoop < 0.05;
   const fitsLying = (p) => ["bald", "crop", "tail", "braids"].includes(p.hair) && ["none", "bandana", "band", "wreath"].includes(p.head);
   /* Draws stances by their weights until one is not `taken`, or takes the first drawn where all are. */
   const deal = (r, weights, taken) => {
