@@ -4,9 +4,9 @@ import { eraOn } from "./lineup.js";
 
 /* The band on the stage (stage.js): the line-up that played the day's show (lineup.js), five to seven players, lit, dressed in
    their era's colours and faceless, never likenesses, each read by their outline against the light panel behind and by their
-   clothes (WARDROBES, dressOf), their skin and hair, and their instruments in their materials. A line-up is
-   roles, never people: a lead guitar, a rhythm guitar, a bass, one or two drummers, and the keyboards of its era (an organ, a second
-   keyboard, a piano), and a singer at a microphone, with a tambourine; with the stage's furniture, which is theirs: microphones on
+   clothes (WARDROBES, dressOf), their skin and hair, and their instruments in their materials. A line-up is roles, never people: a
+   lead guitar, a rhythm guitar, a bass, one or two drummers, and the keyboards of its era (an organ, a second keyboard, a piano),
+   and a singer at a microphone, with a tambourine; with the stage's furniture, which is theirs: microphones on
    stands and wedge monitors at the lip. Given no line-up, the band is the six of 1979 to 1990 (SIX): from the crowd's left a
    guitar, a bass, two drummers side by side, a second guitar, and keys.
 
@@ -24,9 +24,9 @@ import { eraOn } from "./lineup.js";
    and one with long hair; a broad guitarist in a long skirt with a bob; a slight keys player with short hair; and the three roles
    the six lack. None has a beard, a brimmed hat or a bushy head, and no collar and no hair stands under a jaw, where an outline
    would read it as a beard. A head is a smooth form in its skin and its hair, with no eyes, nose or mouth. Their colours are the
-   era's and the seat's (dressOf), never a player's: no seat keeps a look from one era to the next, and no role picks it. The bass stands between the two guitars and the keyboards face the crowd: the band this site is for
-   stood its bass at an end of its front line through all its years, as far as its stage plots are known here. The instruments are
-   plain shapes of their kind. */
+   era's and the seat's (dressOf), never a player's: no seat keeps a look from one era to the next, and no role picks it. The bass
+   stands between the two guitars and the keyboards face the crowd: the band this site is for stood its bass at an end of its front
+   line through all its years, as far as its stage plots are known here. The instruments are plain shapes of their kind. */
 
 /* A player is drawn in their own units, a person about 1.78 tall, and stands SCALE times that: the crowd's height (seats.js PERSON). */
 export const SCALE = 1.77;
