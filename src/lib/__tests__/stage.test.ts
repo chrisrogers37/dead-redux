@@ -180,7 +180,9 @@ describe("the Wall of Sound", () => {
     }
   }, 60_000);
 
-  // No flash count is needed for the Wall: what is lit is the roof's stage's own, and the Wall is the stage's dark.
+  // Nothing lit is new on the Wall: what is lit is the roof's stage's own, and the Wall is the stage's dark. What it changes is what
+  // the lit parts are seen against, and the stage light no longer falls on a roof's underside; so its light was counted by render
+  // (scripts/flash) against the roof's stage with the same band: in Drums its worst blocks read as the roof's, at the same place and frames.
   it("changes nothing lit: the panel, the stage light and the rig are the roof's stage's, and the Wall's still parts are the stage's own dark, wood and stone, in the one still mesh, which glows nowhere", () => {
     // The roof's stage on the last show before the Wall, whose line-up is the Wall's day's.
     const roof = stageFor("1974-02-24"), wall = stageFor(WALL_DAY);
