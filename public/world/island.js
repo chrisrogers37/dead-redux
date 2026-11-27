@@ -78,9 +78,9 @@ export const TREAD = { spread: 2.2, sit: 0.6, hard: 0.35, aisle: 0.7, walked: [0
    one with no border), with its border from BLANKET_RIM[0] to BLANKET_RIM[1] m in from its edge. Its edge is eased across what a
    pixel takes in of the ground, BLANKET_SOFT m at the least and the most, so it neither shimmers nor steps; its border, too narrow to
    hold far off, is drawn only while a pixel takes in less than BLANKET_HELD[1] m. The colours are dyed cloth faded in the sun, each a
-   different hue gone dull and greyed, and none brighter than the brightest of the people's clothes (crowd.js COLOURS), so a blanket
-   never outshines those sitting on it; and the mask holds how far a point lies inside the nearest blanket out to BLANKET_REACH m
-   either side of its edge. */
+   different hue gone dull and greyed, and none brighter than the brightest of the people's clothes (crowd.js CLOTHES), nor any
+   channel brighter than MOST, so a blanket never outshines those sitting on it; and the mask holds how far a point lies inside the
+   nearest blanket out to BLANKET_REACH m either side of its edge. */
 export const BLANKET_COLOURS = [0x3b2b28, 0x28303a, 0x332f20, 0x24322e, 0x382b39, 0x3c2a30, 0x312d3e];
 export const BLANKET_RIM = [0.12, 0.32], BLANKET_SOFT = [0.02, 0.4], BLANKET_HELD = [0.05, 0.15], BLANKET_REACH = 1;
 /* The mask: texels CROWD_CELL m a side in the stage's own frame, across its axis from -CROWD_SIDE to CROWD_SIDE m (seats.js across) and
@@ -216,9 +216,9 @@ const LOOP_ROOM = 2.2, LOOP_SQUARE = 4;
    centre out to sea along the stage's axis, SHINE_LONG m along it and SHINE_WIDE m across. The shore stands 25 m past the stage. */
 const SHINE = [0.4, 0.25, 0.1], SHINE_OUT = 36, SHINE_LONG = 30, SHINE_WIDE = 28;
 /* The stage's glow on the ground: a steady warm light from POOL_UP m over the stage's floor, in POOL's colour at the night's deepest,
-   half as strong POOL_HALF m away and gone by POOL_END. It lights the ground and the bands on it and nothing else, so the crowd stands
-   dark against it; and the music does not move it, so it adds no swing in brightness to the stage's own light (stage.js), which the
-   music does move. */
+   half as strong POOL_HALF m away and gone by POOL_END. It lights the ground and the bands on it and nothing else: the crowd takes
+   its own steady light from the stage (crowd.js STAGE_LIGHT); and the music does not move it, so it adds no swing in brightness to
+   the stage's own light (stage.js), which the music does move. */
 export const POOL = new THREE.Color(0xff7a30).multiplyScalar(5), POOL_UP = 7, POOL_HALF = 15, POOL_END = 85;
 const f = (v) => v.toFixed(4);
 
