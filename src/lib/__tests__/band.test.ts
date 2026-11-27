@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
 import {
-  buildBand, DARK_TOP, dressOf, FILL_BELOW, FILL_DUSK, FILL_NIGHT, FILL_TINT, HALF_OVER, HALF_UNDER, KEY, KEY_TINT, KEY_TO, LIGHT, RIM, RIM_EDGE, RIM_FROM, RIM_TINT, SCALE, STAGING, WARDROBES,
+  buildBand, DARK, dressOf, FILL_BELOW, FILL_DUSK, FILL_NIGHT, FILL_TINT, HALF_OVER, HALF_UNDER, KEY, KEY_TINT, KEY_TO, LIGHT, RIM, RIM_EDGE, RIM_FROM, RIM_TINT, SCALE, STAGING, WARDROBES, worn,
 } from "../../../public/world/band.js";
 import { DAYBREAK, DEEP, lookAt, newLook } from "../../../public/world/night.js";
 import { beatStep } from "../../../public/world/beat.js";
@@ -672,44 +672,74 @@ describe("the band's look", () => {
   const ERAS = (WARDROBES as [string, string, string][]).map(([from, to, era]) => ({ from, to, era }));
   const ROLES = ["lead", "rhythm", "bass", "drums", "organ", "keys", "piano", "voice"];
   const hex = (c: { getHexString(): string }) => c.getHexString();
-  const look = (d: ReturnType<typeof dressOf>) => JSON.stringify(Object.fromEntries(Object.entries(d).map(([k, v]) => [k, typeof v === "string" ? v : "r" in (v as object) ? hex(v as { getHexString(): string }) : Object.values(v as object).map((c) => hex(c as { getHexString(): string }))])));
+  const look = (d: ReturnType<typeof dressOf>) => JSON.stringify(Object.fromEntries(Object.entries(d).map(([k, v]) => [k, v === null || typeof v === "string" ? v : "r" in (v as object) ? hex(v as { getHexString(): string }) : Object.values(v as object).map((c) => hex(c as { getHexString(): string }))])));
 
-  it("dresses each seat by the era and the seat alone: any day of an era and any role but the lead's give the same, and the seven seats of an era seven different tops", () => {
+  // Every line-up in every era of clothes, as buildBand dresses it: each player's role, seat and dress.
+  type Dress = ReturnType<typeof dressOf>;
+  let built: { key: string; era: string; from: string; players: { role: string; seat: number; dress: Dress }[] }[] | null = null;
+  const lineups = () => (built ??= Object.keys(STAGING).flatMap((key) => ERAS.map(({ from, era }) => ({
+    key, era, from,
+    players: buildBand(new THREE.Group(), FLOOR, key.split(" "), from).players.map((p: { role: string; dress: Dress }, seat: number) => ({ role: p.role, seat, dress: p.dress })),
+  }))));
+  // What a dress shows of the upper body, as worn() puts it on: the shoulders, the slope to them, what shows down an open front, the
+  // collar, both sleeves and the chest at 32 turns round it and 12 heights up it; skin aside.
+  const upper = (dress: Dress) => {
+    const on = worn(dress), out = [on.shoulders, on.slope, on.under, on.collar, on.upper, on.fore];
+    for (let a = 0; a < 32; a++) for (let b = 0; b < 12; b++) out.push(on.pattern(-Math.PI + (a * Math.PI) / 16, (b + 0.5) / 12));
+    return out.filter((c: unknown) => c && c !== on.skin);
+  };
+  const lightness = (c: { getHSL(t: { h: number; s: number; l: number }, space: string): { l: number } }) => c.getHSL({ h: 0, s: 0, l: 0 }, THREE.SRGBColorSpace).l;
+  const shows = (dress: Dress) => [...new Set(upper(dress).map(hex))].sort().join(" ");
+
+  it("dresses each seat by the era and the seat alone: any day of an era and any role give the same colours, but the lead's, and the role says only whether a coat is worn", () => {
     for (const { from, to, era } of ERAS) {
       for (let seat = 0; seat < 7; seat++) {
-        const first = look(dressOf(from, seat, "rhythm"));
+        const first = look(dressOf(from, seat, "rhythm", true));
         expect(JSON.parse(first).era).toBe(era);
-        for (const role of ROLES.filter((r) => r !== "lead")) expect([era, seat, role, look(dressOf(to, seat, role))]).toEqual([era, seat, role, first]);
+        for (const role of ROLES.filter((r) => r !== "lead")) {
+          expect([era, seat, role, look(dressOf(to, seat, role, true))]).toEqual([era, seat, role, first]);
+          expect([era, seat, role, dressOf(to, seat, role).coat]).toEqual([era, seat, role, null]);
+        }
       }
-      const tops = Array.from({ length: 7 }, (_, seat) => { const d = dressOf(from, seat, "rhythm"); return `${d.cut} ${hex(d.top)} ${hex(d.second)}`; });
-      expect([era, new Set(tops).size]).toEqual([era, 7]);
     }
     // A show with no date is dressed as the six of 1979 to 1990 are.
     expect(look(dressOf(null as unknown as string, 2, "bass"))).toBe(look(dressOf("1986-07-04", 2, "bass")));
   });
 
-  it("keeps no seat's look from one era to the next: each seat's skin, hair and top change at each turn of an era", () => {
-    for (let seat = 0; seat < 7; seat++) {
-      const looks = ERAS.map(({ from }) => dressOf(from, seat, "rhythm"));
-      for (let k = 1; k < looks.length; k++) for (const part of ["skin", "hair", "top"] as const) {
-        expect([seat, ERAS[k].era, part, hex(looks[k][part]) !== hex(looks[k - 1][part])]).toEqual([seat, ERAS[k].era, part, true]);
-      }
+  it("dresses no two players of a line-up alike: in every line-up and era, each shows its own colours on its upper body", () => {
+    for (const { key, era, players } of lineups()) expect([key, era, new Set(players.map(({ dress }) => shows(dress))).size]).toEqual([key, era, players.length]);
+  });
+
+  it("keeps no seat's look from one era to the next: in every line-up, each seat's skin, hair and what its upper body shows change at each turn of an era", () => {
+    for (const key of Object.keys(STAGING)) {
+      const eras = lineups().filter((l) => l.key === key);
+      for (let k = 1; k < eras.length; k++) eras[k].players.forEach(({ seat, dress }) => {
+        const was = eras[k - 1].players[seat].dress;
+        expect([key, eras[k].era, seat, hex(dress.skin) !== hex(was.skin), hex(dress.hair) !== hex(was.hair), shows(dress) !== shows(was)]).toEqual([key, eras[k].era, seat, true, true, true]);
+      });
     }
   });
 
-  it("never dresses the lead guitar in a near-black top, though the nineties dress others in one, and changes nothing else of the lead's", () => {
-    const light = (c: { getHSL(t: { h: number; s: number; l: number }, space: string): { l: number } }) => c.getHSL({ h: 0, s: 0, l: 0 }, THREE.SRGBColorSpace).l;
-    let dark = 0, moved = 0;
-    for (const { from } of ERAS) for (let seat = 0; seat < 7; seat++) {
-      const lead = dressOf(from, seat, "lead"), other = dressOf(from, seat, "rhythm");
-      expect([from, seat, light(lead.top) >= DARK_TOP]).toEqual([from, seat, true]);
-      if (light(other.top) < DARK_TOP) dark++;
-      if (hex(lead.top) !== hex(other.top)) moved++;
-      expect(look({ ...lead, top: other.top, second: other.second, cut: other.cut })).toBe(look(other));
+  // A fan knows the lead of the band's later years by a black t-shirt. The lead wears a coat over its top, so what it shows is what
+  // worn() puts on the shoulders, the chest and the sleeves: the coat, and the top down the coat's open front.
+  it("shows nothing near-black on the lead guitar's upper body, in any line-up or era, though others wear it, and moves the lead off only what would", () => {
+    let others = 0, moved = 0;
+    for (const { key, era, from, players } of lineups()) for (const { role, seat, dress } of players) {
+      const dark = upper(dress).filter((c: { getHexString(): string }) => lightness(c as never) < DARK).map(hex);
+      if (role !== "lead") { others += dark.length ? 1 : 0; continue; }
+      expect([key, era, seat, dark]).toEqual([key, era, seat, []]);
+      // In its own coat as the seat's colours give it, the lead would show what is near-black, or it is dressed so.
+      const as = dressOf(from, seat, "rhythm", true), would = upper(as).some((c: unknown) => lightness(c as never) < DARK);
+      if (would) moved++;
+      expect([key, era, seat, look(dress) === look(as)]).toEqual([key, era, seat, !would]);
+      expect([key, era, seat, look({ ...dress, coat: as.coat, top: as.top, second: as.second, cut: as.cut })]).toEqual([key, era, seat, look(as)]);
     }
-    // Only a dark top moves the lead to the next.
-    expect([dark, moved]).toEqual([dark, dark]);
-    expect(dark).toBeGreaterThan(0);
+    expect(others).toBeGreaterThan(0);
+    expect(moved).toBeGreaterThan(0);
+    // And a lead dealt no coat, in any seat of any era, shows its top, the squares of a check or a print among it.
+    for (const { from, era } of ERAS) for (let seat = 0; seat < 7; seat++) {
+      expect([era, seat, upper(dressOf(from, seat, "lead", false)).filter((c: unknown) => lightness(c as never) < DARK).map(hex)]).toEqual([era, seat, []]);
+    }
   });
 
   it("gives every player skin of a tone of six and hair of a colour of six, none grey: a brown's red over its blue", () => {

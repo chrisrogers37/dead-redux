@@ -24,7 +24,8 @@ import { eraOn } from "./lineup.js";
    and one with long hair; a broad guitarist in a long skirt with a bob; a slight keys player with short hair; and the three roles
    the six lack. None has a beard, a brimmed hat or a bushy head, and no collar and no hair stands under a jaw, where an outline
    would read it as a beard. A head is a smooth form in its skin and its hair, with no eyes, nose or mouth. Their colours are the
-   era's and the seat's (dressOf), never a player's: no seat keeps a look from one era to the next, and no role picks it. The bass
+   era's and the seat's (dressOf), never a player's: no seat keeps a look from one era to the next, and no role picks a colour, only
+   the garments' shapes (DEAL). The bass
    stands between the two guitars and the keyboards face the crowd: the band this site is for stood its bass at an end of its front
    line through all its years, as far as its stage plots are known here. The instruments are plain shapes of their kind. */
 
@@ -603,41 +604,60 @@ const hashOf = (text) => {
   return h;
 };
 /* What seat `seat` (its place on the stage, from the crowd's left) takes from a `list` of the era's: the list is read from a start
-   that the era and the thing's name (`what`) give, in steps that are prime to its length, so the seats of a line-up of up to as many
-   as the list holds take as many different things, and the seat alone, never the player's role, says which. */
+   that the era and the thing's name (`what`) give, in a step prime to its length (1 for a list whose length all of STEPS divide), so
+   two seats take the same thing only where they stand a whole multiple of the list's length apart: a line-up no longer than the list
+   takes as many different things as it has seats, and one longer comes round the list again. The seat alone, never the player's
+   role, says which. */
 const STEPS = [3, 5, 7, 11];
 function pickFor(list, era, seat, what) {
-  const step = STEPS.find((k) => list.length % k !== 0);
+  const step = STEPS.find((k) => list.length % k !== 0) ?? 1;
   return list[(hashOf(`${era} ${what}`) + seat * step) % list.length];
 }
-/* A top that is nearly black, which no lead guitar wears: a fan knows the lead of the band's later years by a black t-shirt. Nearly
-   black is under DARK_TOP in lightness (HSL's, of the sRGB colour as the palette gives it): charcoal, and the darkest wine and green
-   too, which the stage's dark could take for black. */
-export const DARK_TOP = 0.22;
-export const darkTop = (hex) => tone(hex).getHSL({ h: 0, s: 0, l: 0 }, THREE.SRGBColorSpace).l < DARK_TOP;
+/* A colour that is nearly black: under DARK in lightness (HSL's, of the sRGB colour as the palette gives it): charcoal, and the
+   darkest wine and green too, which the stage's dark could take for black. No lead guitar shows one on its upper body: a fan knows the
+   lead of the band's later years by a black t-shirt. */
+export const DARK = 0.22;
+export const nearBlack = (colour) => colour.getHSL({ h: 0, s: 0, l: 0 }, THREE.SRGBColorSpace).l < DARK;
+/* What a dress shows of a body's upper half, as worn() puts it on: the shoulders and the slope to them, every square of the chest,
+   what shows down an open front, the collar and both sleeves, each with the garment it is part of (the coat, or the top); skin aside. */
+export function shownOf(dress) {
+  const on = worn(dress), out = [];
+  const add = (colour) => { if (colour && colour !== on.skin && !out.some((c) => c.colour === colour)) out.push({ colour, of: colour === dress.coat ? "coat" : "top" }); };
+  for (const colour of [on.shoulders, on.slope, on.under, on.collar, on.upper, on.fore]) add(colour);
+  for (let a = 0; a < 8; a++) for (let b = 0; b < 3; b++) add(on.pattern(-Math.PI + (a * Math.PI) / 4, (b + 0.5) / 3));
+  return out;
+}
 
 /* What the player in seat `seat` wears in the era of a show on `date`, and the colours of their skin, hair and instrument: each drawn
-   from the era's palette by the seat and the era (pickFor), with the one exception that the lead guitar never wears a near-black
-   top (darkTop) and takes the next. Returns linear colours (tone), and the era and the cut of the top. */
-export function dressOf(date, seat, role) {
+   from the era's palette by the seat and the era (pickFor). The role picks no colour: it says only whether a coat is worn (its deal's
+   `coat`, DEAL), as it says the garments' shapes; with the one exception that a lead guitar shows nothing nearly black on its upper
+   body (shownOf, nearBlack), and takes the next coat, or the next top, where it would. Returns linear colours (tone), the era, the cut
+   of the top and the coat (null for none). */
+export function dressOf(date, seat, role, coat = Boolean(DEAL[role]?.coat)) {
   const era = date ? eraOn(WARDROBES, date)[2] : "the late seventies and the eighties", clothes = ERA_CLOTHES[era];
-  let top = pickFor(clothes.tops, era, seat, "top");
-  if (role === "lead") for (let k = 1; darkTop(top[1]) && k < clothes.tops.length; k++) top = clothes.tops[(clothes.tops.indexOf(top) + 1) % clothes.tops.length];
-  const finish = pickFor(FINISHES, era, seat, "finish");
-  return {
-    era, cut: top[0], top: tone(top[1]), second: tone(top[2] || top[1]),
-    lower: tone(pickFor(clothes.lower, era, seat, "lower")), skirt: tone(pickFor(clothes.skirts, era, seat, "skirt")),
-    coat: tone(pickFor(clothes.coats, era, seat, "coat")), shoes: tone(pickFor(clothes.shoes, era, seat, "shoes")),
-    hat: tone(pickFor(clothes.hats, era, seat, "hat")), skin: tone(pickFor(SKINS, era, seat, "skin")), hair: tone(pickFor(HAIRS, era, seat, "hair")),
-    finish: Object.fromEntries(Object.entries(finish).map(([k, hex]) => [k, tone(hex)])), shell: tone(pickFor(SHELLS, era, seat, "shell")),
+  const pick = (list, what) => pickFor(list, era, seat, what), finish = pick(FINISHES, "finish");
+  const wear = (top) => ({ cut: top[0], top: tone(top[1]), second: tone(top[2] || top[1]) });
+  let top = pick(clothes.tops, "top"), over = coat ? pick(clothes.coats, "coat") : null;
+  const dress = {
+    era, ...wear(top), lower: tone(pick(clothes.lower, "lower")), skirt: tone(pick(clothes.skirts, "skirt")), coat: over === null ? null : tone(over),
+    shoes: tone(pick(clothes.shoes, "shoes")), hat: tone(pick(clothes.hats, "hat")), skin: tone(pick(SKINS, "skin")), hair: tone(pick(HAIRS, "hair")),
+    finish: Object.fromEntries(Object.entries(finish).map(([k, hex]) => [k, tone(hex)])), shell: tone(pick(SHELLS, "shell")),
   };
+  const next = (list, item) => list[(list.indexOf(item) + 1) % list.length];
+  for (let k = 0; role === "lead" && k < clothes.tops.length + clothes.coats.length; k++) {
+    const dark = shownOf(dress).filter(({ colour }) => nearBlack(colour));
+    if (!dark.length) break;
+    if (dark.some(({ of }) => of === "coat")) dress.coat = tone((over = next(clothes.coats, over)));
+    else Object.assign(dress, wear((top = next(clothes.tops, top))));
+  }
+  return dress;
 }
 /* How a dress covers a body (trunk and the arms): the skin; the shoulders and the slope from the neck to them; what shows down the
    front (`under`, none for a tee, a plain shirt, a check or a print); the chest's colour at an angle round it (`turn`, rad from the
    front) and a height up it (`up`, 0 at the waist and 1 at the shoulders); the collar; and the upper arm's and the forearm's sleeves.
-   A player in a coat (`dress.coat`, which buildBand gives only one whose deal has a coat's skirts) wears it closed over the arms
+   A player in a coat (`dress.coat`, which dressOf gives only one whose deal has a coat) wears it closed over the arms
    and open over the shirt; a tee's collar is the neck's skin, and its forearms bare; an open shirt's sleeves are rolled. */
-function worn(dress) {
+export function worn(dress) {
   const { skin, top, second, cut, coat } = dress;
   const plain = () => top;
   if (coat) return { skin, shoulders: coat, slope: coat, under: top, pattern: () => coat, collar: coat, upper: coat, fore: coat };
@@ -1146,13 +1166,12 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
 
   /* The line-up as it stands (STAGING), from the crowd's left: each player as their role is dealt (DEAL), the first drummer's deal
      to the first who drums and the second's to the second, and dressed as their seat, their place from the crowd's left, is in the
-     show's era (dressOf). Only a deal with a coat wears one. */
+     show's era (dressOf), in a coat where the deal has one. */
   const BUILD = { lead: strummer, rhythm: strummer, bass: strummer, drums: drummer, organ: keyboardist, keys: keyboardist, piano: keyboardist, voice: singer };
   let drummers = 0;
   staging.players.forEach(([role, x, z, facing, over], seat) => {
-    const deal = dealt(role, role === "drums" ? drummers++ : 0, staging.close, over), dress = dressOf(date, seat, role);
-    if (!deal.coat) delete dress.coat;
-    BUILD[role](role, [x, z], facing, { ...deal, dress });
+    const deal = dealt(role, role === "drums" ? drummers++ : 0, staging.close, over);
+    BUILD[role](role, [x, z], facing, { ...deal, dress: dressOf(date, seat, role, Boolean(deal.coat)) });
   });
 
   /* The furniture, in the stage's frame: three wedge monitors at the lip, between the players' feet. (Amplifiers stood here too:
