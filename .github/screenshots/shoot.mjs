@@ -296,8 +296,9 @@ const PAGES = [
   // The fixed day from ?pose=among: the visitor's bear among the crowd's middle rows, off the aisle, and the figures round it stepped
   // aside.
   { path: "/2026-10-20?pose=among", devices: ["desktop"], shots: ["fixed-crowd-among"] },
-  // The stage on a day of the Wall of Sound, the one stage of public/world/stage.js's STAGES that is not the roof's (stage.mjs): from
-  // the back of the crowd, from among it and from the front, on a desktop and a phone.
+  // The stage on a day of the Wall of Sound (public/world/stage.js STAGES, stage.mjs), which no other day of the shoot stands on: from
+  // the back of the crowd, from among it and from the front, on a desktop and a phone. The arena's stage is the fixed day's, in its
+  // stills above and below.
   ...stagePages(),
   // The fixed day from inside the groves, each from a pose of four numbers (GROVE_POSES, assets.mjs): the pine wood, looking in
   // through its trunks, and the broad-crowned grove, looking north-east through its trunks. Each is shot whole, as the near pages are: in first person, with the shelves away, so
