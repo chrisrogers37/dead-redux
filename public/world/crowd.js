@@ -553,9 +553,10 @@ export function partingOptions(scale) {
    flannel and dark tees. A top is [colour, pattern, second colour] (PATTERN): plain, tie-dyed, striped, checked, a vest over a
    shirt, or printed, the pattern drawn on it by the shader (DRESS_LOOK). Trousers, skirts and shoes are plain, and plainer than
    tops. No channel of any colour is brighter than MOST of full light, which is also all a tone can hold (tone), so no shirt is
-   white under the stage's light. A figure's trousers stand APART times lighter or darker than its top, or its poncho (legsFor), so
-   every figure stands apart from the ground and the sky (crowd.test.ts). Each palette holds as many of each as COLOURS says, so a
-   person is the same person in every era (people deals each an index into each list), and only what they wear changes. */
+   white under the stage's light. From every side, the lightest quarter of a figure as the eye sees it stands APART times lighter
+   than its darkest, whatever it wears (drawnOf, dressFor), so every figure stands apart from the ground and the sky
+   (crowd.test.ts). Each palette holds as many of each as COLOURS says, so a person is the same person in every era (people deals
+   each an index into each list), and only what they wear changes. */
 export const MOST = 0.8;
 export const PATTERN = { PLAIN: 0, TIE: 1, STRIPE: 2, CHECK: 3, VEST: 4, PRINT: 5 }, PATTERNS = 8, SEEDS = 256;
 const { PLAIN, TIE, STRIPE, CHECK, VEST, PRINT } = PATTERN;
@@ -625,26 +626,222 @@ export const lightOf = (hex, most = MOST) => {
   return most * (0.2126 * red * red + 0.7152 * green * green + 0.0722 * blue * blue);
 };
 export const topLight = (/** @type {number[]} */ [shirt, pattern, second]) => (second === undefined ? lightOf(shirt) : (1 - COVER[pattern]) * lightOf(shirt) + COVER[pattern] * lightOf(second));
-/* A person's two largest parts as the eye sees them stand APART times lighter or darker than each other, so that on any ground
-   one of the two stands off it: what it wears over its body, and its trousers, or, in shorts under a poncho, its bare shins. Over
-   its body it wears its top, or a poncho, which hangs over the top from the neck to its hem, so that the top hardly shows, in the
-   colour of the things it wears (overLight). Its trousers are the ones it was dealt, or the next of its era's that stand APART from
-   that (legsFor); and a poncho over shorts, which leave more of its shins bare than they cover, is in its things' colour, the one it
-   was dealt, or the next of its era's that stands APART from its skin (thingFor). `dress` is an era's palette (DRESS). */
-export const APART = 3;
-function nextApart(colours, y, dealt) {
-  const ratio = (k) => { const l = lightOf(colours[k]); return Math.max(l / y, y / l); };
-  let best = dealt;
-  for (let step = 0; step < colours.length; step++) {
-    const k = (dealt + step) % colours.length;
-    if (ratio(k) >= APART) return k;
-    if (ratio(k) > ratio(best)) best = k;
+/* Whose colour a face of a figure shows (SOURCES), by its tint and the figure's cut (CUT), as TONE has it: its top's, its legs', its
+   hair's, its skin's, its things' or a shoe's near black; and -1 for what is held up over the heads, which is no part of the figure
+   (CLOTH). */
+export const SOURCES = ["top", "legs", "hair", "self", "thing", "shoe"];
+const SOURCE = Object.fromEntries(SOURCES.map((name, k) => [name, k]));
+export function sourceOf(tint, cut) {
+  const cuts = (bit) => (cut & bit) !== 0;
+  return tint === TINT.TOP ? SOURCE.top : tint === TINT.LEGS ? SOURCE.legs : tint === TINT.HAIR ? SOURCE.hair : tint === TINT.SELF ? SOURCE.self
+    : tint === TINT.THING ? SOURCE.thing : tint === TINT.SHIN ? (cuts(CUT.SHORTS) ? SOURCE.self : SOURCE.legs)
+    : tint === TINT.FOREARM ? (cuts(CUT.BARE) ? SOURCE.self : SOURCE.top) : tint === TINT.SKIRT ? (cuts(CUT.TUNIC) ? SOURCE.top : SOURCE.legs)
+    : tint === TINT.SCALP ? (cuts(CUT.BALD) ? SOURCE.self : SOURCE.hair) : tint === TINT.SHOE ? SOURCE.shoe : -1;
+}
+/* How much of a figure the eye sees in each colour from each side, as SOURCES lists them: for each of DRAWN_VIEWS, the share of its
+   pixels each fills at rest, DRAWN pixels to a unit. The views go round it, before it, to its sides and behind it, each level, as
+   from the stage, whose eye stands 17 degrees under to 7 over the figures' middles, and from 0.45 rad above, as from the hill
+   (TEST_POSES.crowd), 20 to 33 degrees over them: for a figure that sits in a gathering faces any way, and the eye walks round the
+   crowd. It is drawn from its tier's own geometry (`kit`, buildCrowd's, of pieces): its body and each part it wears (`parts`) in the
+   form it wears it (`forms`), each face in the colour its tint takes for its cut (`cut`, sourceOf), and only the faces turned to the
+   eye and, at each pixel, the nearest.
+   Each corner stands where the vertex shader stands it before it moves (DANCE), by the figure's own numbers
+   (`shape`, aCut, and `body`, aBody): its hair's length, its tails', its crown's and its brim's, an afro's puff and its head's size;
+   its belly, its shoulders, its legs' girth and length; a shawl's hem raised, flared trousers flared, and a skirt's knee and hem
+   where its own number sets them; and, for one that sits (`seat`, the way it sits, SITS), its hips down, its knees and feet where
+   that way of sitting puts them (SIT_POSE), the knees out to the sides and the shins crossed as it does, and its body leaning as it
+   does from the hips, its forearms resting as that way of sitting rests them. Standing, its arms hang; and how it stands, what it
+   holds and how it moves are left out: drawnOf is for how much of it shows in each colour, and the unit tests hold that to the
+   figures as the shader draws them (crowd.test.ts). Each view is [turn, tilt]: turned `turn` rad round it from before it, and
+   looking down `tilt` rad. */
+export const DRAWN = 30, DRAWN_VIEWS = [0, 0.5, 1, 1.5].flatMap((turn) => [[turn * Math.PI, 0], [turn * Math.PI, 0.45]]);
+const DRAWN_X = 0.9, DRAWN_LOW = -0.4, DRAWN_HIGH = 3, DRAWN_ACROSS = Math.ceil(2 * DRAWN_X * DRAWN), DRAWN_UP = Math.ceil((DRAWN_HIGH - DRAWN_LOW) * DRAWN);
+const DRAWN_CELLS = DRAWN_ACROSS * DRAWN_UP, drawnDepth = new Float32Array(DRAWN_VIEWS.length * DRAWN_CELLS), drawnWhose = new Int8Array(DRAWN_VIEWS.length * DRAWN_CELLS);
+let drawnStood = new Float32Array(0), drawnSeen = new Float32Array(0);
+const clamp01 = (v) => Math.min(Math.max(v, 0), 1);
+/** @param {Map<string, { position: Float32Array, mark: Float32Array, index: number[] }>} kit
+    @param {{ parts: number, forms?: Record<number, number>, cut: number, shape: number[] | Float32Array, body: number[] | Float32Array, seat?: string | null }} figure */
+export function drawnOf(kit, { parts, forms = {}, cut, shape: [hair, hem, crown, brim], body: [girth, wide, leg, big], seat = null }) {
+  const shawl = (cut & CUT.SHAWL) !== 0, bells = (cut & CUT.BELLS) !== 0, afro = (cut & CUT.AFRO) !== 0, mid = hem < 0.5 ? 0.5 : 0.5 * (1 + hem);
+  const up = LEG * leg - LEG, thick = 1 + 0.5 * (girth - 1), legL = LEG * leg;
+  /* Seated: the hip, the knee and the foot, forward (z) and up (y), as the shader solves them, and how far the knee goes out. */
+  const sat = seat && SIT_POSE[seat], lower = sat ? legL - sat.hip - 0.044 * Math.max(girth - 1, 0) : 0, hipY = legL - lower;
+  const span = sat ? Math.max(Math.hypot(sat.foot, FOOT[1] - hipY), 1e-4) : 1, alongZ = sat ? sat.foot / span : 0, alongY = sat ? (FOOT[1] - hipY) / span : -1;
+  const halfway = 0.5 * Math.min(span, legL - 1e-3), bowed = Math.sqrt(Math.max(0.25 * legL * legL - halfway * halfway, 0));
+  const outward = sat ? bowed * Math.sin(sat.splay) : 0, bow = sat ? bowed * Math.cos(sat.splay) : 0;
+  const kneeZ = alongZ * halfway - alongY * bow, kneeY = hipY + alongY * halfway + alongZ * bow, footZ = alongZ * Math.min(span, legL), footY = hipY + alongY * Math.min(span, legL);
+  const thighL = Math.max(Math.hypot(kneeZ, kneeY - hipY), 1e-5), shinL = Math.max(Math.hypot(footZ - kneeZ, footY - kneeY), 1e-5);
+  const thighZ = -(kneeY - hipY) / thighL, thighY = kneeZ / thighL, shinZ = -(footY - kneeY) / shinL, shinY = (footZ - kneeZ) / shinL;
+  const mitre = Math.max(thighZ * (thighZ + shinZ) + thighY * (thighY + shinY), 0.4), pitch = sat ? sat.pitch : 0;
+  const tri = [[0, 0, 0]];
+  /* A corner as the vertex shader stands it at rest. */
+  const stand = (piece, k, bit, form, out) => {
+    let x = piece.position[3 * k], y = piece.position[3 * k + 1], z = piece.position[3 * k + 2];
+    const rig = piece.mark[4 * k], weight = piece.mark[4 * k + 3];
+    if (rig === RIG.HEAD) {
+      if (bit === PART.HAIR) y = HAIR_TOP - (HAIR_TOP - y) * (form === FORM.HAIR.dreads ? 1 + (hair - 1) * weight : hair);
+      if (bit === PART.TAIL || bit === PART.TAIL2) {
+        y = TAIL_TOP - (TAIL_TOP - y) * Math.min(hair, 1.5);
+        if ((parts & PART.TAIL2) === 0) { x = (x - TAIL_X) * 1.6; y += 0.07; }
+      }
+      if (bit === PART.CROWN) y = CROWN_FOOT + (y - CROWN_FOOT) * crown;
+      if (bit === PART.BRIM) { const rim = x * x + z * z > 0.01 ? 1 : 0; x *= brim; z *= brim; y -= rim * 0.22 * Math.max(brim - 1.2, 0); }
+      if (afro && weight > 0) { const puff = 1 + AFRO * hair * weight; x *= puff; z *= puff; y = HEAD_Y + (y - HEAD_Y) * puff; }
+      x *= big; z *= big; y = NECK_Y + (y - NECK_Y) * big;
+    }
+    const core = rig === RIG.BODY && bit === 0;
+    if (core || bit === PART.SKIRT || bit === PART.PONCHO) {
+      const belly = (girth - 1) * clamp01(1 - Math.abs(y - 1.02) / 0.4);
+      if (bit !== PART.PONCHO) x *= 1 + belly;
+      z *= 1 + belly * (z < 0 ? 0.35 : bit === PART.PONCHO ? 0.5 : 1.5);
+    }
+    if (core) { const t = clamp01((y - 1.2) / (SHOULDER_Y - 1.2)); x *= 1 + (wide - 1) * t * t * (3 - 2 * t); }
+    if (bit === PART.PONCHO && shawl) y = 1.43 - (1.43 - y) * (1 - 0.58 * weight);
+    if (rig === RIG.LEG || rig === RIG.FOOT) {
+      const side = x > 0 ? 1 : -1, flare = rig === RIG.LEG && bells ? 1 + 0.9 * clamp01(1 - y / (LEG / 2)) : 1;
+      x = side * HIP_X * (0.5 + 0.5 * thick) + (x - side * HIP_X) * (rig === RIG.LEG ? thick * flare : 1);
+      if (rig === RIG.LEG) { z *= thick * flare; y *= leg; }
+    }
+    if (rig === RIG.SKIRT) {
+      if (y < 0.2) { const flare = 0.62 + (0.38 * (1 - hem)) / 0.907; x *= flare; z *= flare; y = hem * LEG; }
+      else if (y < 0.6) { const full = 0.62 + 0.38 * clamp01((1 - mid) / 0.5); x *= full; z *= full; y = mid * LEG; }
+      y = y > LEG - 0.001 ? y + up : y * leg;
+    } else if (rig !== RIG.LEG && rig !== RIG.FOOT && rig !== RIG.GROUND) y += up;
+    if (rig === RIG.ARM_L || rig === RIG.ARM_R) {
+      const side = rig === RIG.ARM_R ? 1 : -1;
+      if (!sat) x += side * SHOULDER_X * (wide - 1);
+      else {
+        /* Seated, its forearm on its knee: turned out at the shoulder, forward, and bent at the elbow toward its middle, as DANCE
+           rests it. */
+        const [lift, fore, bend, inward] = sat.arms;
+        let px = x - side * SHOULDER_X, py = y - SHOULDER_Y - up, pz = z;
+        const below = -py - ELBOW;
+        if (below > -0.001 && bend > 0) {
+          const ix = -side * Math.sin(1.5708 * inward), iz = Math.cos(1.5708 * inward), along = px * ix + pz * iz, cb = Math.cos(bend), sb = Math.sin(bend);
+          const along2 = below > 0.001 ? below * sb + along * cb : along, below2 = below > 0.001 ? below * cb - along * sb : -along * Math.min(Math.tan(0.5 * bend), 1.2);
+          px += (along2 - along) * ix; pz += (along2 - along) * iz; py = -ELBOW - below2;
+        }
+        const qz = pz * Math.cos(fore) - py * Math.sin(fore), qy = pz * Math.sin(fore) + py * Math.cos(fore), cl = Math.cos(side * lift), sl = Math.sin(side * lift);
+        x = side * SHOULDER_X * wide + cl * px - sl * qy; y = SHOULDER_Y + up + sl * px + cl * qy; z = qz;
+      }
+    }
+    if (sat && (rig === RIG.LEG || rig === RIG.FOOT || (rig === RIG.SKIRT && y < legL + 0.001))) {
+      const sideL = x > 0 ? 1 : -1, t = clamp01(y / legL);
+      if (rig === RIG.FOOT) {
+        const middle = sideL * HIP_X * (0.75 + 0.25 * girth), about = Math.PI * sat.kneel, cu = Math.cos(about), su = Math.sin(about), mx = x - middle;
+        x = middle + cu * mx + su * z; z = cu * z - su * mx;
+        z += footZ; y += footY; x -= sideL * sat.cross;
+      } else {
+        let overZ = t > 0.51 ? thighZ : t < 0.49 ? shinZ : (thighZ + shinZ) / mitre, overY = t > 0.51 ? thighY : t < 0.49 ? shinY : (thighY + shinY) / mitre;
+        if (t < 0.01 && rig === RIG.LEG) { overZ = 1; overY = 0; }
+        const atZ = t > 0.5 ? kneeZ + (0 - kneeZ) * (2 * t - 1) : footZ + (kneeZ - footZ) * 2 * t, atY = t > 0.5 ? kneeY + (hipY - kneeY) * (2 * t - 1) : footY + (kneeY - footY) * 2 * t;
+        const deep = rig === RIG.SKIRT ? z * 0.55 : z;
+        z = atZ + deep * overZ; y = atY + deep * overY;
+        const spread = rig === RIG.SKIRT ? Math.min(Math.abs(x) / HIP_X, 1) * (1 - 0.5 * clamp01((Math.abs(x) - HIP_X) / (SKIRT_X - HIP_X))) : 1;
+        x += (x > 0 ? 1 : -1) * spread * outward * (t > 0.5 ? 2 - 2 * t : 2 * t);
+        x += -sideL * sat.cross * Math.max(1 - 2 * t, 0);
+      }
+    } else if (sat && rig !== RIG.GROUND) {
+      y -= lower;
+      const py = y - hipY;
+      y = hipY + py * Math.cos(pitch) - z * Math.sin(pitch); z = z * Math.cos(pitch) + py * Math.sin(pitch);
+    }
+    out[0] = x; out[1] = y; out[2] = z;
+  };
+  const worn = [[0, 0], ...Object.values(PART).filter((bit) => (parts & bit) !== 0).map((bit) => [bit, forms[bit] ?? 0])];
+  const views = DRAWN_VIEWS.map(([turn, tilt]) => ({ c: Math.cos(turn), s: Math.sin(turn), lean: Math.sin(tilt), level: Math.cos(tilt) }));
+  drawnDepth.fill(Infinity); drawnWhose.fill(-1);
+  for (const [bit, form] of worn) {
+    const piece = kit.get(`${bit} ${form}`);
+    if (!piece) continue;
+    /* Each corner of the piece once, where the shader stands it, and then as each view sees it: across, up the view and away. */
+    const corners = piece.position.length / 3;
+    if (drawnStood.length < 3 * corners) { drawnStood = new Float32Array(3 * corners); drawnSeen = new Float32Array(3 * corners); }
+    for (let k = 0; k < corners; k++) { stand(piece, k, bit, form, tri[0]); drawnStood.set(tri[0], 3 * k); }
+    views.forEach(({ c, s, lean, level }, view) => {
+      for (let k = 0; k < corners; k++) {
+        const x = c * drawnStood[3 * k] - s * drawnStood[3 * k + 2], y = drawnStood[3 * k + 1], z = s * drawnStood[3 * k] + c * drawnStood[3 * k + 2];
+        drawnSeen[3 * k] = (x + DRAWN_X) * DRAWN; drawnSeen[3 * k + 1] = (y * level - z * lean - DRAWN_LOW) * DRAWN; drawnSeen[3 * k + 2] = -y * lean - z * level;
+      }
+      const depth = drawnDepth.subarray(view * DRAWN_CELLS, (view + 1) * DRAWN_CELLS), whoseAt = drawnWhose.subarray(view * DRAWN_CELLS, (view + 1) * DRAWN_CELLS);
+      for (let t = 0; t < piece.index.length; t += 3) {
+        const whose = sourceOf(piece.mark[4 * piece.index[t] + 2] % TINTS, cut);
+        if (whose < 0) continue;
+        const ia = 3 * piece.index[t], ib = 3 * piece.index[t + 1], ic = 3 * piece.index[t + 2];
+        const ax = drawnSeen[ia], ay = drawnSeen[ia + 1], az = drawnSeen[ia + 2], bx = drawnSeen[ib], by = drawnSeen[ib + 1], bz = drawnSeen[ib + 2];
+        const cx = drawnSeen[ic], cy = drawnSeen[ic + 1], cz = drawnSeen[ic + 2];
+        /* Turned to the eye: its corners go round anticlockwise as the eye sees them, the side three draws. A pixel's middle is in it
+           where it lies on the inner side of each of its edges, which steps by a constant along a row. */
+        const whole = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+        if (whole <= 1e-9) continue;
+        const x0 = Math.max(0, Math.floor(Math.min(ax, bx, cx))), x1 = Math.min(DRAWN_ACROSS - 1, Math.ceil(Math.max(ax, bx, cx)));
+        const y0 = Math.max(0, Math.floor(Math.min(ay, by, cy))), y1 = Math.min(DRAWN_UP - 1, Math.ceil(Math.max(ay, by, cy)));
+        const ux = (cy - by) / whole, vx = (ay - cy) / whole;
+        for (let py = y0; py <= y1; py++) {
+          let u = ((cx - bx) * (py + 0.5 - by) - (cy - by) * (x0 + 0.5 - bx)) / whole, v = ((ax - cx) * (py + 0.5 - cy) - (ay - cy) * (x0 + 0.5 - cx)) / whole;
+          for (let px = x0; px <= x1; px++, u -= ux, v -= vx) {
+            const w = 1 - u - v;
+            if (u < 0 || v < 0 || w < 0) continue;
+            const d = u * az + v * bz + w * cz, at = py * DRAWN_ACROSS + px;
+            if (d < depth[at]) { depth[at] = d; whoseAt[at] = whose; }
+          }
+        }
+      }
+    });
+  }
+  return views.map((_, view) => {
+    const sums = SOURCES.map(() => 0);
+    for (let at = view * DRAWN_CELLS; at < (view + 1) * DRAWN_CELLS; at++) if (drawnWhose[at] >= 0) sums[drawnWhose[at]] += 1;
+    const all = sums.reduce((sum, n) => sum + n, 0);
+    return sums.map((n) => n / all);
+  });
+}
+/* Which of its era's colours a person wears (`dress`, an era's palette, DRESS): its top's, its legs' and its things', as indices into
+   the palette's lists. From every side the eye sees it (`drawn`, drawnOf's shares for each of DRAWN_VIEWS), the lightest quarter of
+   it stands APART times lighter than the darkest quarter (apartOf), so that on any ground the one end of it or the other stands off
+   it: a quarter, more than twice the tenth the eye's test takes (crowd.test.ts), so that the light, which falls on some faces of a
+   colour more than on others, and a side the views fall between leave that tenth inside it. Where the colours it was dealt do that,
+   it wears them; else one of them gives, the first of its legs, its things and its top that can: it takes the next of its era's on
+   from the one it was dealt with which every side does. Where no one can, two give, the first two of those that can, each the
+   nearest on from its own. Where no colours of its era can, as where one colour covers most of it, it wears those that bring its
+   lightest fifth that far apart from its darkest in the same way (ENDS); and where none do even that, those that do it from the
+   most sides, and of those the ones that stand farthest apart from the side they do least from. Its skin, its hair and a shoe's
+   black never give. A top gives to no colour that a figure within CLOSE m wears in the same top (`worn`), so that none is dressed
+   like one that close (people), unless only such a colour can. */
+export const APART = 3, ENDS = [0.25, 0.2];
+const GIVES = ["legs", "thing", "top"];
+/* How many times lighter the lightest `ends` of a figure is than its darkest, seen as `shares` (a view of drawnOf) shows it, with
+   each of SOURCES as light as `lights` has it: the colour at which, from the lightest, that share of it is reached, over the one at
+   which it is from the darkest. */
+export function apartOf(shares, lights, ends = ENDS[ENDS.length - 1]) {
+  const order = SOURCES.map((_, k) => k).filter((k) => shares[k] > 0).sort((p, q) => lights[p] - lights[q]);
+  const end = (list) => { let sum = 0; for (const k of list) if ((sum += shares[k]) >= ends - 1e-9) return lights[k]; return lights[list[list.length - 1]]; };
+  return end([...order].reverse()) / end(order);
+}
+export function dressFor(dress, person, drawn, worn = new Set()) {
+  const colour = person.colour, dealt = { top: colour.top, legs: colour.legs, thing: colour.thing };
+  const own = { self: lightOf(SKIN[colour.self]), hair: lightOf(HAIRS[colour.hair]), shoe: SHOE };
+  const lightsOf = (chosen) => SOURCES.map((name) => (name in own ? own[name] : name === "top" ? topLight(dress.top[chosen.top]) : lightOf(dress[name][chosen[name]])));
+  /* How many sides a choice stands apart from, and how far apart it stands from the side it does least from. */
+  const score = (chosen, ends) => { const lights = lightsOf(chosen), each = drawn.map((shares) => apartOf(shares, lights, ends)); return [each.filter((by) => by >= APART).length, Math.min(...each)]; };
+  const better = (p, q) => p[0] > q[0] || (p[0] === q[0] && p[1] > q[1]);
+  /* Each colour a giver may take, the nearest on from its own first, and for a top those that close by wear last. */
+  const waysOf = (gives) => {
+    const count = dress[gives].length, ways = [...Array(count).keys()].map((step) => (dealt[gives] + step) % count), skip = gives === "top" ? worn : new Set();
+    return [...ways.filter((k) => !skip.has(k)), ...ways.filter((k) => skip.has(k))];
+  };
+  const givers = GIVES.filter((gives) => drawn.some((shares) => shares[SOURCES.indexOf(gives)] > 0));
+  const tries = [[], ...givers.map((gives) => [gives]), ...givers.flatMap((one, k) => givers.slice(k + 1).map((two) => [one, two]))];
+  let best = dealt, most = null;
+  for (const ends of ENDS) for (const [one, two] of tries) {
+    for (const k of one ? waysOf(one) : [null]) for (const q of two ? waysOf(two) : [null]) {
+      const chosen = { ...dealt, ...(one ? { [one]: k } : {}), ...(two ? { [two]: q } : {}) }, got = score(chosen, ends);
+      if (got[0] === drawn.length) return chosen;
+      if (ends === ENDS[ENDS.length - 1] && (!most || better(got, most))) { best = chosen; most = got; }
+    }
   }
   return best;
 }
-export const thingFor = (dress, person) => (person.top === "poncho" && person.legs === "shorts" ? nextApart(dress.thing, lightOf(SKIN[person.colour.self]), person.colour.thing) : person.colour.thing);
-export const overLight = (dress, person) => (person.top === "poncho" ? lightOf(dress.thing[thingFor(dress, person)]) : topLight(dress.top[person.colour.top]));
-export const legsFor = (dress, person) => nextApart(dress.legs, overLight(dress, person), person.colour.legs);
 
 /* A figure's own seed for its top's pattern, 0 to SEEDS - 1, from its place in the seats' order: the turn of a tie-dye's spiral. */
 export const seedOf = (i) => Math.imul(i + 1, 0x9e3779b1) >>> 24;
@@ -1040,12 +1237,17 @@ const CUTS = {
   legs: { bells: "BELLS", shorts: "SHORTS", dress: "SHORTS", tunic: "TUNIC" },
   top: { tee: "BARE", shawl: "SHAWL" },
 };
+/* How a person is cut, as the sum of its CUT bits. */
+export function cutOf(p) {
+  let cut = 0;
+  for (const slot in CUTS) cut += CUT[CUTS[slot][p[slot]]] ?? 0;
+  return cut;
+}
 export function wearing(p) {
   const stand = p.stance?.stand ?? "square", sits = p.stance?.sit ?? "knees", own = { ...p, stand };
-  let parts = p.beard ? PART.BEARD : 0, cut = 0;
+  let parts = p.beard ? PART.BEARD : 0;
   for (const slot in WEARS) for (const name of WEARS[slot][own[slot]] ?? []) parts += PART[name.split(".")[0]];
-  for (const slot in CUTS) cut += CUT[CUTS[slot][p[slot]]] ?? 0;
-  return { parts, style: MOVE[p.move] + STYLE.ARMS * ARMS[p.prop] + STYLE.CUT * cut + STYLE.STANCE * (STAND[stand] + STYLE.SITS * SITTING[sits]) };
+  return { parts, style: MOVE[p.move] + STYLE.ARMS * ARMS[p.prop] + STYLE.CUT * cutOf(p) + STYLE.STANCE * (STAND[stand] + STYLE.SITS * SITTING[sits]) };
 }
 /* What groundUnder takes of a figure: what it wears and how it moves, and how broad its shoulders are (aBody.y). */
 export const fitted = (p) => ({ ...wearing(p), wide: p.wide ?? 1 });
@@ -1658,7 +1860,7 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
      it lets its arms rise. */
   const each = { count: n, matrix: new Float32Array(16 * n), dress: new Float32Array(3 * n), aFig: new Float32Array(4 * n), aBody: new Float32Array(4 * n),
     aWear: new Float32Array(4 * n), aCut: new Float32Array(4 * n), aTone: new Float32Array(4 * n), aPlace: new Float32Array(4 * n), aSize: new Float32Array(4 * n),
-    forms: new Array(n), top: new Float32Array(n), offset: /** @type {Float32Array} */ (null), rising: /** @type {Float32Array} */ (null), ball: new Float32Array(4 * n) };
+    forms: new Array(n), colours: new Array(n), top: new Float32Array(n), offset: /** @type {Float32Array} */ (null), rising: /** @type {Float32Array} */ (null), ball: new Float32Array(4 * n) };
   const near = Math.min(...placed.map((p) => p.r)), far = Math.max(...placed.map((p) => p.r));
   const dummy = new THREE.Object3D();
   const who = mix(people(placed), placed), palette = dressOn(date);
@@ -1712,6 +1914,14 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
       return up >= ON_BACK[arm][0] && up <= ON_BACK[arm][1] && across >= ON_BACK.across[0] && across <= ON_BACK.across[1] && behind >= ON_BACK.behind[0] && behind <= ON_BACK.behind[1];
     });
   });
+  /* The figure's pieces, each one form of one part's, or its body (pieces): what the mesh is made of, and what drawnOf draws. */
+  const kit = new Map([[0, 0], ...Object.values(PART).flatMap((bit) => {
+    const name = Object.keys(PART).find((k) => PART[k] === bit);
+    return (FORMS[name] ?? [0]).map((_, form) => [bit, form]);
+  })].map(([bit, form]) => [`${bit} ${form}`, pieces(figure, bit, form)]).filter(([, piece]) => piece.index.length > 0));
+  /* Each figure's colours (dressFor), from the colours people dealt it and what of it the eye sees in each (drawnOf), its top's among
+     them as it may give: what those within CLOSE m of it in the same top wear by then. */
+  const tops = who.map((one) => one.colour.top);
   /* The seats come in a random order across the hill, so a figure's place in it picks its turn and its phase, and who it is. */
   placed.forEach((p, i) => {
     /* A friend whose arm is round the other's waist dances as the other does: its way, its phase and how far. */
@@ -1729,15 +1939,21 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     dummy.scale.set(wide, tall, wide);
     dummy.updateMatrix();
     dummy.matrix.toArray(each.matrix, 16 * i);
-    const [shirt, pattern, second] = palette.top[one.colour.top];
-    each.dress.set([tone(shirt), second === undefined ? 0 : tone(second), pattern + PATTERNS * seedOf(i)], 3 * i);
     each.aFig.set([sits ? 1 : 0, (lead * 0.618034) % 1, far > near ? (p.r - near) / (far - near) : 0, drop], 4 * i);
     each.aBody.set([one.girth, one.wide, one.leg, one.big], 4 * i);
     each.aWear.set([worn.parts, worn.style, one.stoop, one.size], 4 * i);
     each.aCut.set([one.hairLength, one.hem, one.crown, one.brim], 4 * i);
     each.forms[i] = formsOf(one);
-    each.aTone.set([tone(palette.legs[legsFor(palette, one)]), tone(HAIRS[one.colour.hair]), tone(SKIN[one.colour.self]),
-      tone(palette.thing[thingFor(palette, one)]) + DYE * (one.colour.cloth ?? 0)], 4 * i);
+    /* Its colours, from what of it the eye sees in each as the numbers it carries shape it. */
+    const close = new Set(placed.flatMap((q, j) => (j !== i && who[j].top === one.top && Math.hypot(q.x - p.x, q.z - p.z) < CLOSE ? [tops[j]] : [])));
+    const drawn = drawnOf(kit, { parts: worn.parts, forms: each.forms[i], cut: cutOf(one), shape: each.aCut.subarray(4 * i, 4 * i + 4), body: each.aBody.subarray(4 * i, 4 * i + 4),
+      seat: sits ? dealt[i].sit : null });
+    const colours = (each.colours[i] = dressFor(palette, one, drawn, close));
+    tops[i] = colours.top;
+    const [shirt, pattern, second] = palette.top[colours.top];
+    each.dress.set([tone(shirt), second === undefined ? 0 : tone(second), pattern + PATTERNS * seedOf(i)], 3 * i);
+    each.aTone.set([tone(palette.legs[colours.legs]), tone(HAIRS[one.colour.hair]), tone(SKIN[one.colour.self]),
+      tone(palette.thing[colours.thing]) + DYE * (one.colour.cloth ?? 0)], 4 * i);
     /* The same place as the shader takes it: where it stands and how the ground rises across it; and its breadth, its height, its turn,
        and how much higher it stands the other way, standing or seated, in its own units. */
     each.aPlace.set([dummy.position.x, dummy.position.y, dummy.position.z, rises], 4 * i);
@@ -1750,11 +1966,7 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
   each.offset = parts.offset; each.rising = parts.rising;
 
   /* The mesh: every figure's body and the parts it wears, each in its form, and nothing it does not, one figure after another in the
-     seats' order. Each corner carries its figure's numbers beside its own place and mark. */
-  const kit = new Map([[0, 0], ...Object.values(PART).flatMap((bit) => {
-    const name = Object.keys(PART).find((k) => PART[k] === bit);
-    return (FORMS[name] ?? [0]).map((_, form) => [bit, form]);
-  })].map(([bit, form]) => [`${bit} ${form}`, pieces(figure, bit, form)]).filter(([, piece]) => piece.index.length > 0));
+     seats' order (kit, above). Each corner carries its figure's numbers beside its own place and mark. */
   /* What a figure wears goes before its body, so a renderer that tests depth before it shades a pixel passes by what of the body
      its clothes cover. */
   const wornBy = (i) => [...Object.values(PART).filter((bit) => Math.floor(each.aWear[4 * i] / bit) % 2 === 1).map((bit) => `${bit} ${each.forms[i][bit] ?? 0}`)
