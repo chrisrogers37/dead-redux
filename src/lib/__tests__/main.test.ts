@@ -62,6 +62,7 @@ const fake = vi.hoisted(() => {
     rig: { show: Float32Array; mesh: { visible: boolean; renderOrder?: number } };
     move: (dt: number, t: number, beats: number) => number;
     fit: (perPx: number) => void;
+    lightBand: (dark: number) => void;
   };
   type CrowdMesh = { renderOrder?: number };
   type Sky = { uniforms: Record<string, { value: number | Vec }> };
@@ -168,6 +169,8 @@ const fake = vi.hoisted(() => {
     // date the stage was built for, whose line-up it stands (lineup.js).
     perPx: NaN,
     stageShow: null as string | null,
+    // Each `dark` the frames have handed the band's own light (band.js `light`), in order.
+    bandDark: [] as number[],
     // The grid the island was built on; and the ground the landmarks were stood on, which the island's stand-in made for a grid.
     islandGrid: NaN,
     stoodOn: null as { grid: number } | null,
@@ -432,6 +435,10 @@ const fake = vi.hoisted(() => {
           // The canvas's pixel, in rad of the view's height, the band's thin parts are fitted to.
           fit: (perPx: number) => {
             world.perPx = perPx;
+          },
+          // The band's own light: the stand-in keeps what each frame hands it.
+          lightBand: (dark: number) => {
+            world.bandDark.push(dark);
           },
         };
         return world.stage;
@@ -1569,6 +1576,11 @@ describe("main.js's frames", () => {
     }
     expect(fake.world.sun.castShadow).toBe(false);
     expect(fake.world.stage.light.visible).toBe(false);
+    // The band's own light is no rung of the ladder: each frame still hands it the look's darkness.
+    fake.world.bandDark.length = 0;
+    page.run(0.5, { ms: 50 });
+    expect(fake.world.bandDark).toHaveLength(10);
+    expect(fake.world.bandDark.at(-1)).toBe(fake.world.dark);
   });
 
   it("steps nothing down while the world loads: 50-ms frames to just short of DESCENT_S leave it at rung 0", async () => {
@@ -2157,6 +2169,32 @@ describe("main.js's frames through the night", () => {
     expect(deep).toBeCloseTo(dusk, 9);
     expect(fake.world.lift).toBeGreaterThan(0.9);
     expect(fake.world.lift).toBeCloseTo(lookAt(fake.world.graded, newLook()).stageLift, 9);
+  });
+
+  it("hands the band's own light the look's darkness every frame and nothing of the music, and under reduced motion", async () => {
+    const handed = async (bass: number, position: number, search = "") => {
+      const page = await startWorld({ playing: true, routing: "plain", map: showMap({ bass }), search });
+      fake.world.bandDark.length = 0;
+      page.seek(position);
+      page.run(2);
+      return fake.world.bandDark.slice();
+    };
+    for (const position of [0, 298]) {
+      const loud = await handed(255, position);
+      const dark = fake.world.dark;
+      // One for each frame, the frame's own darkness, as it handed the sky.
+      expect(loud.length).toBeGreaterThan(10);
+      expect(loud.at(-1)).toBe(dark);
+      // The same frames with no low end hand it the same.
+      expect(await handed(0, position)).toEqual(loud);
+    }
+    expect(fake.world.dark).toBeGreaterThan(0.99);
+    // Under reduced motion, the first frame drawn hands it the night's darkness at once.
+    const still = await startWorld({ reduced: true });
+    fake.world.bandDark.length = 0;
+    still.run(0.02);
+    expect(fake.world.bandDark.at(-1)).toBe(fake.world.dark);
+    expect(fake.world.dark).toBeGreaterThan(0.99);
   });
 
   it("lights the crowd by the night alone, every frame: its own lights as dark as the look is, and the sky's light without the music's share, steady with the bass and the loudness, at once under reduced motion, and on once the downgrade has turned the stage light off", async () => {

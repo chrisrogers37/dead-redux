@@ -95,7 +95,7 @@ const shaders = readdirSync(WORLD).filter((name) => name.endsWith(".js")).flatMa
 describe("the world's shaders", () => {
   it("name nothing with a word GLSL keeps for itself, and use none it reserves, in every module's GLSL", () => {
     // Every module that draws with a shader of its own or adds to three's is read.
-    expect([...new Set(shaders.map((s) => s.name))].sort()).toEqual(["bears.js", "crowd.js", "flora.js", "island.js", "landmarks.js", "rig.js", "sky.js"]);
+    expect([...new Set(shaders.map((s) => s.name))].sort()).toEqual(["band.js", "bears.js", "crowd.js", "flora.js", "island.js", "landmarks.js", "rig.js", "sky.js"]);
     const names = shaders.flatMap(({ name, glsl }) => declared(glsl).map((word) => ({ name, word })));
     expect(names.length).toBeGreaterThan(300);
     const bad = [...names.filter(({ word }) => KEYWORDS.includes(word) || FUTURE.includes(word) || word.startsWith("gl_") || word.includes("__")),

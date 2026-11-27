@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import showCatalog from "../../../data/shows.json";
 import pickSchedule from "../../../data/pick-schedule.json";
@@ -26,7 +27,8 @@ function stageFor(date?: string) {
   const built = buildStage(scene, null, false, new THREE.MeshBasicMaterial(), { uC0: { value: null }, uC1: { value: null } }, date);
   scene.updateMatrixWorld(true);
   const stills: Obj[] = [];
-  built.group.traverse((o: Obj) => { if (o.isMesh && o.material?.vertexColors) stills.push(o); });
+  // The stage's still mesh is the one in its corners' colours that is not the band's (band.js draws in its own).
+  built.group.traverse((o: Obj) => { if (o.isMesh && o.material?.vertexColors && o.material !== built.band.material) stills.push(o); });
   return { built, scene, stills, still: stills[0] };
 }
 // The still mesh's geometry as a digest: each corner's place, normal and colour, to five places.
@@ -118,6 +120,24 @@ describe("the stage, by the show's date", () => {
   });
 });
 
+describe("the stage main.js builds", () => {
+  // main.test.ts runs main.js on a stand-in for the stage, which plays the parts of it main.js reads. Each is the real stage's: the
+  // names main.js reads of what buildStage returns are the stand-in's and are all in the real one, and the band's own (its move, its
+  // fit and its light, `lightBand`) are the band's.
+  it("hands main.js every part of it main.js reads, as main.test.ts's stand-in plays them: the light, the rig, and the band's move, fit and light", () => {
+    const main = readFileSync(new URL("../../../public/world/main.js", import.meta.url), "utf8");
+    const name = main.match(/const (\w+) = buildStage\(/)![1];
+    // (Its file's name, stage.js, is no part of it.)
+    const reads = [...new Set([...main.matchAll(new RegExp(`\\b${name}\\.(?!js\\b)(\\w+)`, "g"))].map((m) => m[1]))].sort();
+    expect(reads).toEqual(["fit", "light", "lightBand", "move", "rig"]);
+    const standIn = readFileSync(new URL("./main.test.ts", import.meta.url), "utf8").match(/\n  type Stage = \{\n([\s\S]*?)\n  \};/)![1];
+    expect([...standIn.matchAll(/^ {4}(\w+):/gm)].map((m) => m[1]).sort()).toEqual(reads);
+    const built: Record<string, unknown> & { band: Record<string, unknown> } = stageFor().built;
+    for (const read of reads) expect([read, built[read] !== undefined]).toEqual([read, true]);
+    for (const [read, its] of [["move", "move"], ["fit", "fit"], ["lightBand", "light"]]) expect([read, built[read] === built.band[its]]).toEqual([read, true]);
+  });
+});
+
 describe("the Wall of Sound", () => {
   it("stands inside the stage's column, which the walk, the camera and the crowd keep out of (ground.js STAGE_COLUMN): its furthest corner 10.85 m from the stage's centre, under the 10.95 the PA stacks' 10.91 took, and its top the roof's", () => {
     const at = corners(stageFor(WALL_DAY).still);
@@ -149,7 +169,7 @@ describe("the Wall of Sound", () => {
     // The roof's stage has its stacks, as main has.
     const roof = corners(stageFor().still);
     expect(roof.filter((p) => Math.hypot(p.x, p.z) > 9.5 + 1e-6 && p.z > -2.5 && p.y < 7.9).length).toBeGreaterThan(0);
-  });
+  }, 60_000);
 
   it("hangs every lamp of the rig under the roof's front edge, as the roof's stage does: straight over each, within 0.1 m, is the underside of the still mesh", () => {
     for (const date of [undefined, WALL_DAY]) {

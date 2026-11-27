@@ -2,19 +2,24 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
 import { BAND_POSE, BAND_POSE_PHONE } from "../../../.github/screenshots/band.mjs";
-import { buildBand, STAGING } from "../../../public/world/band.js";
+import { buildBand, STAGING, WARDROBES } from "../../../public/world/band.js";
+import { lightAt, luminance, type LightUniforms } from "./band-light";
 import { FACING, SHELF_Y, STAGE, TEST_POSES } from "../../../public/world/ground.js";
 import { LINEUPS, lineupOn } from "../../../public/world/lineup.js";
 import { budgetFor, stepDown } from "../../../public/world/quality.js";
 import { buildStage, FLOOR, PANEL, STAGES } from "../../../public/world/stage.js";
 
 // The band as the shoot's devices show it (band.js), for each line-up it stands as (lineup.js): nothing in the world is antialiased,
-// so a part of a player is drawn a whole pixel at a time, black where the pixel's middle is inside one of its triangles. A phone
-// draws its canvas at 0.85 of its pixels (quality.js) and its browser scales that up to the screen, mixing the four pixels round each
-// of the screen's (bilinear). The screenshot review reads a pixel as near-black where it is under 60 of 255, and a piece of near-black
-// of 12 px or less, 8-connected, as a speck: a part that came apart from its player. In the shoot's frames the band is 11 on the
-// canvas, the light panel behind it 150 to 166 and the floor 40 to 74 at night, so a screen pixel of the band reads near-black where
-// it is two thirds band or more over the panel, and a quarter or more over the floor.
+// so a part of a player is drawn a whole pixel at a time, where the pixel's middle is inside one of its triangles. A phone draws its
+// canvas at 0.85 of its pixels (quality.js) and its browser scales that up to the screen, mixing the four pixels round each of the
+// screen's (bilinear). The screenshot review reads a pixel as near-black where it is under 60 of 255, and a piece of near-black of
+// 12 px or less, 8-connected, as a speck: a part that came apart from its player. The band is lit and in colour, and its darkest
+// parts (a stand, a black guitar, a cymbal's pole, the shadow side of dark clothes) are 11 on the canvas, as dark as the black band
+// before it was; any part may be one of them, so the outlines' film draws every part of the band at that darkest, the strictest
+// case: a piece of the band that comes apart in it would come apart in any colour. The light panel behind it is 150 to 166 and the
+// floor 40 to 74 at night, so a screen pixel of the band at its darkest reads near-black where it is two thirds band or more over
+// the panel, and a quarter or more over the floor. How a lit player reads against the panel, by contrast in luminance along its
+// outline, is outlineRead's.
 //
 // Here the band stands where stage.js builds it and is drawn from the shoot's own cameras at the stage's poses, at the shoot's own
 // place of the pixel grid under it, or at 16 (a quarter of a pixel apart each way, FILM_PLACES), at rest and through a bar of
@@ -63,30 +68,36 @@ export const POSES: Record<string, { x: number; z: number; heading: number; pitc
 // as the players for the monitors, which are no one's), whether it is of a player's trunk (the body and the head, and an organ's or
 // a piano's player's body, which stands still among the still parts), whether it is of a drummer's cymbal or pole ("cymbal" or
 // "pole", else ""), and the name of the bone it is of ("" for none).
-type Tri = { at: Vec[]; owner: number; trunk: boolean; crash: string; bone: string };
+// And its colour: the mean of its corners' (linear), times its bone's where it is a limb's.
+type Tri = { at: Vec[]; owner: number; trunk: boolean; crash: string; bone: string; colour: number[] };
 type Player = { plays: string; role: string; body: { geometry?: { getAttribute(name: string): { count: number } }; matrixWorld: unknown } };
-function band(roles: string[], seconds: number, perPx = 0) {
+type Colours = { getX(i: number): number; getY(i: number): number; getZ(i: number): number };
+function band(roles: string[], seconds: number, perPx = 0, date: string | null = null) {
   const stage = new THREE.Group();
   stage.position.set(STAGE[0], SHELF_Y, STAGE[1]);
   stage.rotation.y = FACING;
-  const built = buildBand(stage, FLOOR, roles), monitors = built.players.length;
+  const built = buildBand(stage, FLOOR, roles, date), monitors = built.players.length;
   built.fit(perPx);
   let beats = 0;
   for (let frame = 1; frame <= Math.round(seconds * 60); frame++) built.move(1 / 60, frame / 60, (beats += 96 / 3600), true);
   stage.updateMatrixWorld(true);
   const tris: Tri[] = [];
-  const push = (corner: { count: number }, m: unknown, owner: number, trunk: boolean, crash = "", bone = "", from = 0, count = corner.count) => {
-    for (let i = from; i < from + count; i += 3) tris.push({ at: [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(corner, i + k).applyMatrix4(m)), owner, trunk, crash, bone });
+  const push = (geometry: { getAttribute(name: string): { count: number } }, m: unknown, owner: number, trunk: boolean, crash = "", bone = "", from = 0, count = geometry.getAttribute("position").count, tint = [1, 1, 1]) => {
+    const corner = geometry.getAttribute("position"), colour = geometry.getAttribute("color") as unknown as Colours;
+    for (let i = from; i < from + count; i += 3) {
+      const mean = [0, 1, 2].map((a) => ([0, 1, 2].reduce((sum, k) => sum + [colour.getX, colour.getY, colour.getZ][a].call(colour, i + k), 0) / 3) * tint[a]);
+      tris.push({ at: [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(corner, i + k).applyMatrix4(m)), owner, trunk, crash, bone, colour: mean });
+    }
   };
-  const still = built.still.geometry.getAttribute("position");
-  for (const part of built.still.userData.parts) push(still, built.still.matrixWorld, part.by ?? monitors, part.of === "head" || part.of === "body", part.of === "kit" && ["cymbal", "pole"].includes(part.as) ? part.as : "", "", part.from, part.count);
-  built.players.forEach((p: Player, k: number) => { if (p.body.geometry) push(p.body.geometry.getAttribute("position"), p.body.matrixWorld, k, true); });
-  const limb = built.limbs.geometry.getAttribute("position"), m = new THREE.Matrix4();
+  for (const part of built.still.userData.parts) push(built.still.geometry, built.still.matrixWorld, part.by ?? monitors, part.of === "head" || part.of === "body", part.of === "kit" && ["cymbal", "pole"].includes(part.as) ? part.as : "", "", part.from, part.count);
+  built.players.forEach((p: Player, k: number) => { if (p.body.geometry) push(p.body.geometry, p.body.matrixWorld, k, true); });
+  const m = new THREE.Matrix4(), c = new THREE.Color();
   built.bones.forEach((bone: { of: number; name: string }, k: number) => {
     built.limbs.getMatrixAt(k, m);
-    push(limb, m.clone().premultiply(stage.matrixWorld), bone.of, false, "", bone.name);
+    built.limbs.getColorAt(k, c);
+    push(built.limbs.geometry, m.clone().premultiply(stage.matrixWorld), bone.of, false, "", bone.name, 0, undefined, [c.r, c.g, c.b]);
   });
-  return tris;
+  return { tris, built };
 }
 
 // The canvas's pixels the band covers, from a camera, with the grid shifted `dx`, `dy` of a pixel: for each, the players whose parts
@@ -155,9 +166,10 @@ function panelOn(cam: Camera, dx = 0, dy = 0) {
     corners.every(([ax, ay], i) => { const [bx, by] = corners[(i + 1) % 4]; return (bx - ax) * (y - ay) - (by - ay) * (x - ax) >= 0; });
 }
 
-// What the shoot's frames show, of 255: the band on the canvas, the light panel behind it and the floor, each as bright as it reads
-// at its brightest in them at night, and at dusk and daybreak, when the panel and the floor are at their brightest; and under what
-// a screen's pixel reads as near-black. A brighter panel and floor break a thin line sooner, where its pixels meet corner to corner.
+// What the shoot's frames show, of 255: the band at its darkest on the canvas, the light panel behind it and the floor, each as
+// bright as it reads at its brightest in them at night, and at dusk and daybreak, when the panel and the floor are at their
+// brightest; and under what a screen's pixel reads as near-black. A brighter panel and floor break a thin line sooner, where its
+// pixels meet corner to corner.
 export const NIGHT = { band: 11, panel: 155, floor: 75, black: 60 }, DUSK = { ...NIGHT, panel: 200, floor: 120 };
 type Shade = typeof NIGHT;
 
@@ -643,9 +655,10 @@ function stageParts(day?: string) {
     const geometry = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry, corner = geometry.getAttribute("position")!;
     for (let i = 0; i < corner.count; i += 3) out.push({ at: [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(corner, i + k).applyMatrix4(o.matrixWorld)), shows: shows(i) });
   };
-  // The stage's still parts are one mesh, coloured by its vertices (landmarks.js mergeStill); its black is the darkest of them.
-  built.group.traverse((o: Part) => {
-    const colour = o.isMesh ? o.geometry.getAttribute("color") : undefined;
+  // The stage's still parts are one mesh, coloured by its vertices (landmarks.js mergeStill); its black is the darkest of them. The
+  // band, coloured by its vertices too, is drawn on its own (band.js's material).
+  built.group.traverse((o: Part & { material?: unknown }) => {
+    const colour = o.isMesh && o.material !== built.band.material ? o.geometry.getAttribute("color") : undefined;
     if (colour) push(o, (i) => (Math.max(colour.getX(i), colour.getY(i), colour.getZ(i)) < 0.05 ? STAGE_BLACK : STAGE_ELSE));
   });
   push(built.panel, () => STAGE_PANEL);
@@ -703,6 +716,72 @@ function drawWithStage(tris: Tri[], cam: Camera, day?: string) {
   for (const t of tris) fillDeep(e, W, H, into, t.at[0], t.at[1], t.at[2], t.owner, (o) => { whose[o] = t; });
   return { W, H, shows: into.shows, whose };
 }
+// How a lit player reads against the panel: by the contrast in luminance along its outline. The band is lit by its own light
+// (band.js LIGHT) in its clothes' colours (dressOf), and its parts range from as dark as the stage's black (a stand, a black guitar)
+// to as light as the panel (a white shirt, a drum's head); what keeps a player from running into the panel is the edge where the two
+// meet. Contrast is WCAG's ratio, (L1 + 0.05) / (L2 + 0.05), the lighter's relative luminance over the darker's (each 0 to 1).
+// A player's outline is its pixels that have the panel beside them (4-connected, the stage drawn as drawWithStage draws it), each as
+// lit as its triangle's face, turned to the eye, takes the band's light (LIGHT itself, run from its text: band-light.ts) in its
+// colour, at the night's darkest or at dusk (band.js `light`), against PANEL_LEAST: the panel as dim as the shoot's band still shows
+// it behind the band, which is not as dim as the panel goes (below). Two measures of it, from every camera of the shoot:
+//   - a pixel of the outline reads where it stands 3:1 from the panel (READS), WCAG's guideline for what identifies a graphic
+//     (1.4.11, non-text contrast);
+//   - a pixel stands apart from the panel where it stands √3:1 from it (STANDS), half of 3:1 on luminance's log scale, and more than
+//     the panel's own light varies behind the band (its 99th percentile over its 1st, 1.33:1 at night and 1.58:1 at dusk, in the
+//     fixed day's band still on a desktop): no pixel so far from the panel's least can be taken for a part of the panel.
+// What share must: a quarter of the band's whole outline reads (BAND_READS), and a third of each player's stands apart
+// (PLAYER_STANDS), where it has SPECK px of outline or more against the panel. These two are a guard against the band getting worse,
+// set just under its worst today, and nothing else sets them: the least of the band's whole outline that reads, from any camera, at
+// night or at dusk, in any line-up, dressed for any era it played in, is 0.256 (the five of 1965 to 1967 in the late sixties'
+// clothes, from the back of the crowd on a phone at dusk; the six of 1971 there 0.261, which with its microphones' stands in the
+// kit's chrome read 0.244, and with pale shells on its kits too 0.206: band.js STUFF.steel and ERA_CLOTHES); and the least of a
+// player's outline that stands apart 0.385 (the singer of 1975 to 1978, 13 px of outline from the back of the crowd on a desktop
+// at dusk). A lit body is mostly darker than the panel, and reads by that. The black band before it read whole against
+// PANEL_LEAST, 4.1:1.
+//
+// PANEL_LEAST is the dimmest pixel behind the band in the fixed day's band still on a desktop, 0.172 at night (in Drums) and 0.178 at
+// dusk. The panel goes dimmer. Its light (sky.js liquid) is the set's two colours, mixed by the field, and toward the first's dark
+// veins by up to 0.6; it is dimmest in set 2's, magenta and teal, at 0.128 where the field is all magenta and all vein (0.132 the least
+// found at 10.8 million points of the panel's lower half, behind the band, through the show's energies and the tiers' octaves). And its
+// gain moves with the music (audio.js mappings `panel`), to 0.6 in a quiet passage: 2.7 % of the 45 maps' time is under 0.05 loud. So
+// the panel's least is 0.077 (0.079 found), in a quiet passage of set 2. The hour does not light it, and the fog takes 1.4 % of it at
+// the most (the path's camera, 97 m from it; fog from 80 m). Against that the band reads nowhere and stands apart by 0.067 at the
+// least; at 0.132, the field's least at full gain, it reads by 0.083 and stands apart by 0.231. Nothing darker than a panel of 0.10 or
+// less stands 3:1 from it, not even the black band (2.4:1 at 0.079): there only a part lit to 0.34 or more would.
+export const PANEL_LEAST = 0.17, READS = 3, STANDS = Math.sqrt(3), BAND_READS = 1 / 4, PLAYER_STANDS = 1 / 3;
+export const contrast = (a: number, b: number) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+// The luminance of a triangle lit by the band's light (`u`, its uniforms) seen through `camera`: LIGHT itself, run on the triangle's
+// middle and its face's normal turned to the eye (band-light.ts), in the triangle's colour.
+export function litOf(t: Tri, camera: { position: Vec; matrixWorldInverse: { elements: number[] } }, u: LightUniforms) {
+  const [a, b, c] = t.at, mid = new THREE.Vector3().add(a).add(b).add(c).divideScalar(3);
+  const n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).normalize();
+  if (n.dot(new THREE.Vector3().copy(camera.position).sub(mid)) < 0) n.negate();
+  return luminance(lightAt(camera.matrixWorldInverse, mid, n, t.colour, u));
+}
+// Each player's outline against the panel from a camera, on the stage of a show on `day`, the band dressed for it, at rest and fitted
+// to the camera's canvas, lit for a night `dark` dark (night.js, 0 to 1), against a panel `least` in luminance: for each player from
+// the crowd's left, how many pixels of its outline there are (`edge`), how many read (`reads`) and how many stand apart (`stands`).
+export function outlineRead(roles: string[], cam: Camera, day: string | undefined, darks: number[], least = PANEL_LEAST) {
+  const { tris, built } = band(roles, 0, pixelOf(cam), day ?? null), players = roles.length;
+  const drawn = drawWithStage(tris, cam, day), { W, H, shows, whose } = drawn, camera = lens(cam);
+  return darks.map((dark) => {
+    built.light(dark);
+    const lum = new Map(tris.map((t) => [t, litOf(t, camera, built.uniforms)]));
+    const out = Array.from({ length: players }, () => ({ edge: 0, reads: 0, stands: 0 }));
+    for (let o = 0; o < W * H; o++) {
+      const k = shows[o];
+      if (k < 0 || k >= players) continue;
+      const x = o % W, y = (o - x) / W;
+      if (![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => x + dx >= 0 && y + dy >= 0 && x + dx < W && y + dy < H && shows[(y + dy) * W + x + dx] === STAGE_PANEL)) continue;
+      out[k].edge++;
+      const ratio = contrast(lum.get(whose[o]!)!, least);
+      if (ratio >= READS) out[k].reads++;
+      if (ratio >= STANDS) out[k].stands++;
+    }
+    return out;
+  });
+}
+
 // Who of the band comes within `reach` pixels of the stage's black from a camera: the band drawn with the stage of a show on `day`,
 // as drawWithStage draws them, its corners `world` (nine numbers a triangle) and each triangle's `owner`, over the band's box on the
 // canvas and a pixel more than `reach` round it, which holds every pixel it can cover and those round each.
@@ -808,6 +887,19 @@ export function stagesOf(roles: string[]) {
   }
   return out;
 }
+/* The looks a line-up stood in (lineup.js, stage.js STAGES and band.js WARDROBES): each stage and era of clothes that any row of
+   lineup.js with its roles overlaps, once, named by its first day, in date order. */
+export function looksOf(roles: string[]) {
+  const out: { stage: string; era: string; day: string }[] = [];
+  for (const [from, to, its] of LINEUPS as [string, string, string[]][]) {
+    if (its.join(" ") !== roles.join(" ")) continue;
+    for (const [sFrom, sTo, stage] of STAGES as [string, string, string][]) for (const [wFrom, wTo, era] of WARDROBES as [string, string, string][]) {
+      const day = [from, sFrom, wFrom].sort().at(-1)!, last = [to, sTo, wTo].sort()[0];
+      if (day <= last && !out.some((l) => l.stage === stage && l.era === era)) out.push({ stage, era, day });
+    }
+  }
+  return out.sort((a, b) => (a.day < b.day ? -1 : 1));
+}
 // How the tests name a stage, where a line-up stood on more than one, and its black.
 const STAGE_NAMES: Record<string, string> = { roof: "the roof's stage", wall: "the Wall of Sound" };
 const STAGE_BLACKS: Record<string, string> = { roof: "the roof, the back wall or a PA stack", wall: "the Wall's cabinets or the rig's bridge over its front" };
@@ -892,6 +984,22 @@ export function outlineChecks(name: string, day: string, bars: Bars = {}) {
       }, 120_000);
     }
 
+    // Lit and in colour, a player reads against the panel by contrast in luminance along its outline (outlineRead), in every look the
+    // line-up stood in: on each stage and in each era's clothes.
+    for (const look of looksOf(roles)) {
+      it(`reads against the panel, lit, from every camera at night and at dusk, ${look.era}${stages.length > 1 ? ` on ${STAGE_NAMES[look.stage] ?? look.stage}` : ""}: a quarter of the band's outline 3:1 from the panel's least, and a third of each player's √3:1`, () => {
+        const found: string[] = [];
+        for (const cam of [...CAMERAS, ...FLASH_CAMERAS]) {
+          outlineRead(roles, cam, look.day, [1, 0]).forEach((seen, t) => {
+            const when = `${cam.name} ${t ? "at dusk" : "at night"}`, edge = seen.reduce((sum, p) => sum + p.edge, 0), reads = seen.reduce((sum, p) => sum + p.reads, 0);
+            if (reads < BAND_READS * edge) found.push(`${when}: the band ${(reads / edge).toFixed(2)}`);
+            seen.forEach((p, k) => { if (p.edge >= SPECK && p.stands < PLAYER_STANDS * p.edge) found.push(`${when}: ${k} ${(p.stands / p.edge).toFixed(2)}`); });
+          });
+        }
+        expect(found).toEqual([]);
+      }, 120_000);
+    }
+
     // CI's phone at rung 5, half its pixels, from the back of the crowd at daybreak: each crash stood alone in the air, its pole under
     // half a pixel (band.js `fit`).
     it("keeps every part on its player at every rung a phone steps down to, from every pose: in no frame does a piece of black hold no trunk but a monitor, or a crash on its pole", () => {
@@ -966,7 +1074,7 @@ function liftTops(roles: string[], at: number) {
 export function liftShown(roles: string[], at: number, day?: string) {
   return liftTops(roles, at).map(({ side, seconds }) => ({
     side,
-    at: [...CAMERAS.filter((c) => c.pose.startsWith("band") || c.pose === "stage"), ...FLASH_CAMERAS].map((cam) => ({ cam: cam.name, ...shown(band(roles, seconds, pixelOf(cam)), cam, at, side, day) })),
+    at: [...CAMERAS.filter((c) => c.pose.startsWith("band") || c.pose === "stage"), ...FLASH_CAMERAS].map((cam) => ({ cam: cam.name, ...shown(band(roles, seconds, pixelOf(cam)).tris, cam, at, side, day) })),
   }));
 }
 
@@ -992,7 +1100,7 @@ function shown(tris: Tri[], cam: Camera, at: number, side: string, day?: string)
 // it to and fro as its corners step: drawn so, the band before its moves went at an even pace flips the pixel under the keys player's
 // arm 16 times in a second from the phone's stage pose, frame for frame as the flash counter counted it there. The screen is read as
 // the counter reads it (scripts/flash/analyse.mjs): a block of 2x2 of the screen's pixels, the mean of their luminance, and a swing a
-// change of 0.1 from the block's last turn. The band's black is 0.01, the light panel behind it 0.3, as bright as it reads in the
+// change of 0.1 from the block's last turn. The band at its darkest is 0.01 (the strictest case, as the film's), the light panel behind it 0.3, as bright as it reads in the
 // counter's traces, and anything else 0.05. Only the phone's tier is read: a desktop draws a pixel to a pixel, and one pixel of a
 // 2x2 block that flips changes its luminance by 0.07 at the most.
 

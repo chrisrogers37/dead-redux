@@ -9,8 +9,8 @@ import { buildRig } from "./rig.js";
 /* The stage, on its shelf at the island's north-east edge: a platform whose open front faces the island's middle (ground.js), and on
    it the stage of the show's era (STAGES): a roof on two posts over a back wall, with a PA stack at each side, or, in 1974, the Wall
    of Sound; a light panel that plays the sky's liquid light; a light; the rig's beams under the roof's front edge (rig.js); and the
-   band (band.js): the line-up that played the show (lineup.js), five to seven players as flat black silhouettes, never likenesses,
-   in its roles (two guitars and a bass, one or two drummers, and the organ, the keys, the piano and a singer as its era had them),
+   band (band.js): the line-up that played the show (lineup.js), five to seven players, lit, dressed in their era's colours and faceless,
+   never likenesses, in its roles (two guitars and a bass, one or two drummers, and the organ, the keys, the piano and a singer as its era had them),
    with their instruments and the stage's furniture. */
 
 /* The walk's reach round the stage and the column the third-person camera keeps out of, STAGE_REACH and STAGE_COLUMN, are ground.js's:
@@ -76,8 +76,8 @@ const END_AT = [WALL_COLS * TOP_W / 2, TOP_Z], END_TURN = 0.61, END_R = 0.22;
 
 /* Builds the stage. With `shadows` the sun casts the desktop's one shadow map, framed on the stage alone. `panelMat` is the light panel's
    material (sky.js) and `colors` the sky's uniforms, whose two colours the rig's beams take. Returns the group, the light panel, the stage
-   light (the downgrade turns it off), the rig (rig.js), the band (band.js), `move`, which plays it, and `fit`, which fits its thin parts
-   to the canvas. The stage and the band are those of the show on `showDate` (YYYY-MM-DD, STAGES and lineup.js); without one, the roof's
+   light (the downgrade turns it off), the rig (rig.js), the band (band.js), `move`, which plays it, `fit`, which fits its thin parts
+   to the canvas, and `lightBand`, which sets the band's own steady light for the hour (band.js `light`). The stage and the band are those of the show on `showDate` (YYYY-MM-DD, STAGES and lineup.js); without one, the roof's
    stage and the six of 1979 to 1990. */
 export function buildStage(scene, sun, shadows, panelMat, colors, showDate) {
   const group = new THREE.Group();
@@ -106,7 +106,7 @@ export function buildStage(scene, sun, shadows, panelMat, colors, showDate) {
   group.add(panel, light);
 
   /* The band and its furniture stand on the platform's floor (band.js), as the show's line-up (lineup.js). */
-  const band = buildBand(group, FLOOR, showDate ? lineupOn(showDate).roles : SIX);
+  const band = buildBand(group, FLOOR, showDate ? lineupOn(showDate).roles : SIX, showDate ?? null);
   const rig = buildRig(group, colors);
 
   if (shadows) {
@@ -123,7 +123,7 @@ export function buildStage(scene, sun, shadows, panelMat, colors, showDate) {
     sun.shadow.normalBias = 0.02;
   }
 
-  return { group, panel, light, rig, band, move: band.move, fit: band.fit };
+  return { group, panel, light, rig, band, move: band.move, fit: band.fit, lightBand: band.light };
 }
 
 /* Each era's still parts, added to `still` in the stage's `group`, after the platform and the posts. */
