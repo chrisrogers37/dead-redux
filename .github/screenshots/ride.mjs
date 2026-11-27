@@ -24,7 +24,7 @@ export const AWAKE = "main[data-ride='awake']", SETTLED = "main[data-ride='settl
 // a desktop's frame took 0.55 to 0.78 s and the sleep timer's press came after the wait was over. Now a still that needs the ride
 // awake is taken under HOLD, pressed straight after the step's act, so the wait has only to outlast the act's end and that one key,
 // three frames at most (awakeHolds). The waits stay as they were, a desktop and a TV 15 s and the others 6 s: a desktop's is that
-// for frames of 5 s, a phone's for frames of 2 s, where CI's phones drew one in 0.12 s at the slowest.
+// for frames of 5 s, a phone's for frames of 2 s, where CI's phones drew one in 0.15 s at the slowest.
 const RIDE_IDLE_S = { desktop: 15, tv: 15 };
 const RIDE_IDLE_ELSE_S = 6;
 export const rideIdle = (device) => RIDE_IDLE_S[device] ?? RIDE_IDLE_ELSE_S;

@@ -33,11 +33,11 @@ const rideHarness = readFileSync(join(__dirname, "../../.github/screenshots/ride
 const stills = (page: Page) => page.steps.flatMap((step) => [[step.shot, step.ride], ...(step.later ? [[step.later.shot, step.later.ride]] : [])]);
 
 // The waits before a ride settles are sized in frames of CI's software renderer, since what the shoot does after a step's act is
-// so many of them. The slowest frame in CI's logs of 2026-11-22 to 27, by device: a desktop's 0.78 s, the TV's 0.43 s and a
-// phone's 0.12 s; a page with reduced motion or without WebGL draws none of its own. The shoot is sized for a runner 2.6 times
+// so many of them. The slowest frame in CI's logs of 2026-11-22 to 27, by device: a desktop's 0.82 s, the TV's 0.57 s and a
+// phone's 0.15 s; a page with reduced motion or without WebGL draws none of its own. The shoot is sized for a runner 2.4 times
 // slower than that, a desktop's frame at 2 s, the figure the recordings' holds are reckoned at (FRAME_MS in recordings.mjs).
-const SLOWEST_FRAME_S: Record<string, number> = { desktop: 0.78, tv: 0.43, phone: 0.12, "phone-360": 0.12, "phone-landscape": 0.12 };
-const SLOWER = 2 / 0.78;
+const SLOWEST_FRAME_S: Record<string, number> = { desktop: 0.82, tv: 0.57, phone: 0.15, "phone-360": 0.15, "phone-landscape": 0.15 };
+const SLOWER = 2 / SLOWEST_FRAME_S.desktop;
 // Between a step's act and HOLD's press: the act's own end and the key's, three frames at most. A local run at 0.7 s a frame took
 // 2.1 s from the ride's press to the key's, and 0.7 s from a press on the world.
 const ACT_TO_HOLD_FRAMES = 3;
@@ -188,7 +188,7 @@ describe("the shoot's stills of the ride", () => {
     expect(settled.waitMs! / 1000).toBeGreaterThan(2 * rideIdle("desktop"));
   });
 
-  it("keeps the waits before a ride settles, a desktop's and a TV's and the others', each over what is left of an awake step once it has acted: its act's end and HOLD's press, on a runner 2.6 times slower than CI's slowest", () => {
+  it("keeps the waits before a ride settles, a desktop's and a TV's and the others', each over what is left of an awake step once it has acted: its act's end and HOLD's press, on a runner 2.4 times slower than CI's slowest", () => {
     expect([rideIdle("desktop"), rideIdle("tv")]).toEqual([15, 15]);
     const others = ["phone", "phone-360", "phone-landscape", "desktop-reduced", "desktop-nowebgl", "phone-nowebgl"];
     for (const device of others) expect(rideIdle(device), device).toBe(6);
