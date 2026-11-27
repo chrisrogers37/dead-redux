@@ -10,7 +10,7 @@ import { BAND_RANGE, BAND_SIDE, bandAway, bandMask, buildPath, layout } from "..
 import { CAVES, height } from "../../../public/world/ground.js";
 import { BLANKET_TONES, gathering, intoCrowdGround, onAxes, onCrowdGround } from "../../../public/world/seats.js";
 import { lookAt, newLook } from "../../../public/world/night.js";
-import { COLOURS, MOST } from "../../../public/world/crowd.js";
+import { CLOTHES, MOST } from "../../../public/world/crowd.js";
 
 // A number as the shader's text has it, to four places. island.js writes its own with a helper of its own (`f`), which is not
 // imported here, on purpose: were the shader's numbers written to other places, the lines pinned below would say so.
@@ -521,7 +521,7 @@ describe("the crowd's trodden grass and its blankets", () => {
     expect(brighter(bare, 1.02)).toEqual([]);
     // And darker than the turf by daylight, three quarters of its brightness at the most: a tan as bright as the turf read as sand
     // under the evening's light, where matted grass reads as trodden. But not so dark that a figure is lost on it: three fifths of
-    // the turf's brightness at the least, where the figures' brightest clothes are a fifth of it (crowd.js MOST).
+    // the turf's brightness at the least.
     expect(lit(bare, [1, 1, 1]) / lit(mean, [1, 1, 1])).toBeLessThan(0.75);
     expect(lit(bare, [1, 1, 1]) / lit(mean, [1, 1, 1])).toBeGreaterThan(0.6);
     // The blankets, one colour to each of the gathering's tones, no two alike: each no brighter than the turf under any light, and
@@ -547,7 +547,7 @@ describe("the crowd's trodden grass and its blankets", () => {
 
   it("dyes the blankets in faded cloth: none brighter than the brightest of the people's clothes, each a dull grey of its hue, and their hues spread round the wheel", () => {
     const luma = (c: { r: number; g: number; b: number }) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
-    const clothes = Math.max(...(Object.values(COLOURS) as number[][]).flat().map((hex) => luma(new THREE.Color(hex))));
+    const clothes = Math.max(...(CLOTHES as number[]).map((hex) => luma(new THREE.Color(hex))));
     const hues = new Set<number>();
     for (const hex of BLANKET_COLOURS as number[]) {
       const c = new THREE.Color(hex), hsl = { h: 0, s: 0, l: 0 };

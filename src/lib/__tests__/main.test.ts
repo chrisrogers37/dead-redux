@@ -102,6 +102,7 @@ const fake = vi.hoisted(() => {
     // The crowd: the seed it was built for, whether the island was built yet, the ground it handed back; and what the island was given
     // to wear of it.
     crowdSeed: undefined as unknown,
+    crowdDate: undefined as unknown,
     crowdBeforeIsland: false,
     crowdGround: undefined as unknown,
     islandCrowd: undefined as unknown,
@@ -136,6 +137,12 @@ const fake = vi.hoisted(() => {
     beats: NaN,
     count: NaN,
     posed: { beats: NaN, dance: NaN, rise: NaN, sit: NaN },
+    // The night's darkness the last frame lit the crowd by, the music's factor on the sky's light it took back out, and how many
+    // frames lit it; and the sky's light (sky.js hemi).
+    rim: NaN,
+    music: NaN,
+    rims: 0,
+    hemi: null as null | { color: unknown; intensity: number },
     partedAtOnce: null as boolean | null,
     onset: null as number | null,
     // The renderer's shadow map; the hour of the look the last frame handed the sky, and the steady share of the stage's light in it;
@@ -390,7 +397,7 @@ const fake = vi.hoisted(() => {
         world.sun = { castShadow: false };
         return {
           skyMat: world.sky,
-          hemi: { color: new Vec() },
+          hemi: (world.hemi = { color: new Vec(), intensity: 1.1 * Math.PI }),
           sun: world.sun,
           // The stage panel's material, whose gain each frame writes.
           panelMat: { uniforms: { uGain: { value: Float32Array.of(1) } } },
@@ -434,9 +441,10 @@ const fake = vi.hoisted(() => {
     crowd: {
       // As many figures as the tier asks for, of which the downgrade may have only the first half drawn, the pose each frame gives
       // them, its parting, and its own word on whether a camera has a figure in view.
-      buildCrowd: (_scene: Scene, { count, plain, seed, surface }: { count: number; plain: boolean; seed: number; surface?: unknown }) => {
+      buildCrowd: (_scene: Scene, { count, plain, seed, surface, date }: { count: number; plain: boolean; seed: number; surface?: unknown; date?: string }) => {
         let shown = count;
         world.crowdSeed = seed;
+        world.crowdDate = date;
         world.crowdSurface = surface ?? null;
         world.crowdBeforeIsland = !world.made.includes("island");
         return {
@@ -456,6 +464,11 @@ const fake = vi.hoisted(() => {
         },
         pose: (beats: number, dance: number, rise: number, sit: number) => {
           world.posed = { beats, dance, rise, sit };
+        },
+        light: (dark: number, music: number) => {
+          world.rim = dark;
+          world.music = music;
+          world.rims += 1;
         },
         part: (_dt: number, _feet: Vec, _head: Vec, reduced: boolean) => {
           world.partedAtOnce = reduced;
@@ -648,6 +661,7 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
   fake.world.treesBuilt = [];
   fake.world.made = [];
   fake.world.crowdSeed = undefined;
+  fake.world.crowdDate = undefined;
   fake.world.crowdBeforeIsland = false;
   fake.world.crowdGround = undefined;
   fake.world.islandCrowd = undefined;
@@ -663,6 +677,9 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
   fake.world.keyTurned = false;
   fake.world.drawn = 0;
   fake.world.tilted = [];
+  fake.world.rim = NaN;
+  fake.world.music = NaN;
+  fake.world.rims = 0;
   vi.resetModules();
   await import("../../../public/world/main.js");
   if (map && !reduced) await vi.waitFor(() => expect(hill().map).not.toBeNull());
@@ -1519,9 +1536,10 @@ describe("main.js's frames", () => {
     expect(hill().crowd.drawn).toBe(made);
   });
 
-  it("builds the stage for the show's date, so the band is the line-up that played it (lineup.js)", async () => {
+  it("builds the stage for the show's date, so the band is the line-up that played it (lineup.js), and the crowd for it, so it wears its era's clothes", async () => {
     await startWorld();
     expect(fake.world.stageShow).toBe(SHOW);
+    expect(fake.world.crowdDate).toBe(SHOW);
   });
 
   it("fits the band's thin parts (its crashes' poles, its microphones' stands, its lifted hands and its necks' tips) to the canvas's pixel once the stage is built, and again as each rung shrinks the canvas", async () => {
@@ -2139,6 +2157,43 @@ describe("main.js's frames through the night", () => {
     expect(deep).toBeCloseTo(dusk, 9);
     expect(fake.world.lift).toBeGreaterThan(0.9);
     expect(fake.world.lift).toBeCloseTo(lookAt(fake.world.graded, newLook()).stageLift, 9);
+  });
+
+  it("lights the crowd by the night alone, every frame: its own lights as dark as the look is, and the sky's light without the music's share, steady with the bass and the loudness, at once under reduced motion, and on once the downgrade has turned the stage light off", async () => {
+    // Loud and quiet, the low end and the loudness at 255 and at 0, at dusk and in the deep of the night (the seek to 298 s lands in
+    // the first frame), each frame lighting the crowd by the look's own darkness, which the sky was handed in the same frame, and
+    // handing it the music's factor on the sky's light: so the sky's light on the crowd, the hemisphere's over that factor, is the
+    // hour's alone.
+    const lit = async (loud: number, position: number, search = "") => {
+      const page = await startWorld({ playing: true, routing: "plain", map: showMap({ bass: loud, rms: loud }), search });
+      page.seek(position);
+      const drawn = fake.world.drawn, rims = fake.world.rims;
+      page.run(2);
+      expect(fake.world.rims - rims).toBe(fake.world.drawn - drawn);
+      expect(fake.world.rim).toBe(fake.world.dark);
+      return { dark: fake.world.rim, sky: fake.world.hemi!.intensity / fake.world.music, music: fake.world.music, hour: hill().night.hour };
+    };
+    const dusk = await lit(255, 0), deep = await lit(255, 298), quiet = await lit(0, 298);
+    expect((await lit(0, 0)).dark).toBe(dusk.dark);
+    expect(quiet.dark).toBe(deep.dark);
+    expect(dusk.dark).toBeCloseTo(lookAt(0, newLook()).dark, 2);
+    expect(deep.dark).toBeGreaterThan(0.99);
+    // The music moves the sky's light on the island, and not on the crowd.
+    expect(Math.abs(deep.music - quiet.music)).toBeGreaterThan(0.05);
+    expect(deep.sky).toBeCloseTo(quiet.sky, 12);
+    expect(deep.sky).toBeCloseTo(1.1 * Math.PI * lookAt(deep.hour, newLook()).ambientGain, 2);
+    // The foot of the ladder has the stage light off, and the crowd lit as it was.
+    expect(await lit(255, 298, "?rung=99")).toEqual(deep);
+    expect(fake.world.stage.light.visible).toBe(false);
+    // The light alone (?still=1) stills the figures and not their light.
+    expect((await lit(255, 298, "?still=1")).dark).toBe(deep.dark);
+    // Under reduced motion the hour is the one halfway through the song, the deep of the night here, in the first frame drawn.
+    const still = await startWorld({ reduced: true });
+    still.run(0.02);
+    expect(hill().night.hour).toBe(DEEP);
+    expect(fake.world.rim).toBe(fake.world.dark);
+    expect(fake.world.rim).toBe(lookAt(DEEP, newLook()).dark);
+    expect(fake.world.rims).toBe(fake.world.drawn);
   });
 
   it("lights the rig's beams in full through the night and lets the daylight wash them out toward daybreak", async () => {
