@@ -13,15 +13,16 @@ const PERSON = "Someone <someone@example.test>";
 
 // git as a throwaway repository sees it: none of the machine's or the user's configuration, and no GIT_ variable from outside, which
 // could point it at another repository. Its commits are committed by the bot, and authored by it unless a commit names another author.
-const ENV: NodeJS.ProcessEnv = {
-  ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_"))),
+const ENV: NodeJS.ProcessEnv = { ...process.env };
+for (const name of Object.keys(ENV)) if (name.startsWith("GIT_")) delete ENV[name];
+Object.assign(ENV, {
   GIT_CONFIG_GLOBAL: "/dev/null",
   GIT_CONFIG_NOSYSTEM: "1",
   GIT_AUTHOR_NAME: "github-actions[bot]",
   GIT_AUTHOR_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com",
   GIT_COMMITTER_NAME: "github-actions[bot]",
   GIT_COMMITTER_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com",
-};
+});
 
 const HEADING = "Commits from maps may only add or change maps (public/maps/YYYY-MM-DD.json), with one parent each. These do not:";
 
