@@ -241,6 +241,82 @@ describe("the Wall of Sound", () => {
     }
   }, 60_000);
 
+  // A speaker is a disc on its cabinet's face. One that spilled past the face's edge, or over the face's other speaker, would read
+  // as a smear and not as two speakers to a cabinet. Read from the still mesh's own triangles, by their shades.
+  it("sets two speakers on every cabinet's face, each inside the face's edges, and no two speakers overlapping", () => {
+    const { still } = stageFor(WALL_DAY), at = corners(still), place = still.geometry!.getAttribute("position"), colour = still.geometry!.getAttribute("color");
+    const shade = (hex: number) => {
+      const c = new THREE.Color(hex);
+      return (i: number) => Math.abs(colour.getX(i) - c.r) + Math.abs(colour.getY(i) - c.g) + Math.abs(colour.getZ(i) - c.b) < 1e-5;
+    };
+    const speaker = shade(0x0b0a09), seam = shade(0x2e2a26);
+    const P = (i: number) => new THREE.Vector3(at[i].x, at[i].y, at[i].z);
+    // A corner's place as the mesh holds it, so that the corners two triangles share have one key.
+    const key = (i: number) => [place.getX(i), place.getY(i), place.getZ(i)].join(" ");
+    // Triangles (by their first corner's index) joined into groups by the corners they share, of those that `shares` picks.
+    const groups = (tris: number[], shares: (i: number) => boolean) => {
+      const parent = new Map(tris.map((t) => [t, t])), seen = new Map<string, number>();
+      const root = (t: number): number => (parent.get(t) === t ? t : root(parent.get(t)!));
+      for (const t of tris) for (const i of [t, t + 1, t + 2]) if (shares(i)) {
+        const k = key(i);
+        if (seen.has(k)) parent.set(root(t), root(seen.get(k)!)); else seen.set(k, t);
+      }
+      const out = new Map<number, number[]>();
+      for (const t of tris) out.set(root(t), [...(out.get(root(t)) ?? []), t]);
+      return [...out.values()];
+    };
+    const triangles = Array.from({ length: place.count / 3 }, (_, k) => 3 * k), corner = (tris: number[]) => tris.flatMap((t) => [t, t + 1, t + 2]);
+    // The speakers: their triangles all in the speaker's shade, each disc's sharing its middle and its rim.
+    const discs = groups(triangles.filter((t) => [t, t + 1, t + 2].every(speaker)), () => true).map((tris) => {
+      const counts = new Map<string, number>();
+      for (const i of corner(tris)) counts.set(key(i), (counts.get(key(i)) ?? 0) + 1);
+      const middle = P(corner(tris).find((i) => counts.get(key(i)) === tris.length)!);
+      const rim = corner(tris).map(P).filter((p) => p.distanceTo(middle) > 1e-6);
+      const [a, b, c] = [tris[0], tris[0] + 1, tris[0] + 2].map(P);
+      return { middle, rim, r: Math.max(...rim.map((p) => p.distanceTo(middle))), normal: b.clone().sub(a).cross(c.clone().sub(a)).normalize() };
+    });
+    // The faces: their frames' triangles, each with a corner in the seam's shade at the face's edge and one in the dark inside it,
+    // joined by the inner corners, which no two faces share. A face is the rectangle of its four edge corners.
+    const faces = groups(triangles.filter((t) => [t, t + 1, t + 2].some(seam) && ![t, t + 1, t + 2].every(seam)), (i) => !seam(i)).map((tris) => {
+      const edge = [...new Map(corner(tris).filter(seam).map((i) => [key(i), P(i)])).values()];
+      const middle = edge.reduce((s, p) => s.add(p), new THREE.Vector3()).divideScalar(edge.length);
+      const low = edge.filter((p) => Math.abs(p.y - Math.min(...edge.map((q) => q.y))) < 1e-6);
+      const across = low[1].clone().sub(low[0]).setY(0), up = new THREE.Vector3(0, 1, 0);
+      return { edge, middle, across: across.clone().normalize(), up, normal: across.clone().cross(up).normalize(), w: across.length() / 2, h: (Math.max(...edge.map((q) => q.y)) - Math.min(...edge.map((q) => q.y))) / 2 };
+    });
+    expect([faces.length, faces.every((f) => f.edge.length === 4), discs.length]).toEqual([100, true, 200]);
+    const inside = (f: (typeof faces)[number], p: THREE.Vector3) => Math.abs(p.clone().sub(f.middle).dot(f.across)) <= f.w + 1e-6 && Math.abs(p.clone().sub(f.middle).dot(f.up)) <= f.h + 1e-6;
+    const on = new Map<number, number>();
+    for (const [d, disc] of discs.entries()) {
+      // Its face: parallel to it, just behind it, and round its middle.
+      const its = faces.flatMap((f, k) => {
+        const off = Math.abs(disc.middle.clone().sub(f.middle).dot(f.normal));
+        return Math.abs(disc.normal.dot(f.normal)) > 0.9999 && off > 0.001 && off < 0.05 && inside(f, disc.middle) ? [k] : [];
+      });
+      expect([d, its.length]).toEqual([d, 1]);
+      on.set(its[0], (on.get(its[0]) ?? 0) + 1);
+      expect([d, disc.rim.every((p) => inside(faces[its[0]], p))]).toEqual([d, true]);
+    }
+    expect([on.size, [...on.values()].every((n) => n === 2)]).toEqual([100, true]);
+    for (let a = 0; a < discs.length; a++) for (let b = a + 1; b < discs.length; b++) {
+      expect([a, b, discs[a].middle.distanceTo(discs[b].middle) >= discs[a].r + discs[b].r]).toEqual([a, b, true]);
+    }
+  });
+
+  // The rig's lamps hang under the bridge as under the roof's front edge, and the panel's top corners hide behind its ends as behind
+  // the roof's: the bridge is the roof's front, as wide as the roof, read off the roof's stage itself.
+  it("makes the rig's bridge the roof's front: the roof's width, 18 m, from the same edges, and 2.5 m of its depth from the same front edge", () => {
+    // What stands at the roof's height over the platform's front, 1.5 m and more toward the crowd: its ends, its back and its front.
+    const front = (date?: string) => {
+      const at = corners(stageFor(date).still).filter((p) => p.y > 7.9 && p.z > 1.5), xs = at.map((p) => p.x), zs = at.map((p) => p.z);
+      return { left: Math.min(...xs), right: Math.max(...xs), back: Math.min(...zs), edge: Math.max(...zs) };
+    };
+    const roof = front(), wall = front(WALL_DAY);
+    expect(roof.right - roof.left).toBeCloseTo(18, 5);
+    expect([wall.left, wall.right, wall.edge]).toEqual([expect.closeTo(roof.left, 5), expect.closeTo(roof.right, 5), expect.closeTo(roof.edge, 5)]);
+    expect(wall.edge - wall.back).toBeCloseTo(2.5, 5);
+  });
+
   // Nothing lit is new on the Wall: what is lit is the roof's stage's own, and the Wall is the stage's dark. What it changes is what
   // the lit parts are seen against, and the stage light no longer falls on a roof's underside; so its light was counted by render
   // (scripts/flash) against the roof's stage with the same band: in Drums its worst blocks read as the roof's, at the same place and frames.
