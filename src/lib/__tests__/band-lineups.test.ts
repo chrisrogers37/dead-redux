@@ -122,7 +122,7 @@ function microphoneOf(band: Band, k: number) {
   });
   if (!bars.length) return null;
   const all = bars.flat(), low = Math.min(...all.map((c) => c.y)), foot = middleOf(all.filter((c) => c.y < low + 0.001));
-  const capsule = bars.reduce((best, b) => (Math.max(...b.map((c) => c.y)) > Math.max(...best.map((c) => c.y)) ? b : best)), middle = middleOf(capsule);
+  const capsule = bars[1], middle = middleOf(capsule);
   return { foot, head: middleOf(capsule.filter((c) => gap(c, foot) > gap(middle, foot))), bars };
 }
 // A point of the stage in a player's own frame and their own metres, where +x is their left and +z the way they face.
@@ -276,7 +276,7 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
     expect(Array.from(band.limbs.instanceMatrix.array as Float32Array)).toEqual(before);
   });
 
-  it("stands each microphone at its singer's mouth: its head within 3 cm of the face's front at its height, on a boom from a stand toward the crowd and out to the player's right, the singer's toward the crowd and out to their left", () => {
+  it("stands each microphone at its singer's mouth: its head 5 to 9 cm before the face's front at its height, on a boom from a stand at the player's right, before the strumming hand, or before their keyboard, the singer's before them and out to their left", () => {
     stage.updateMatrixWorld(true);
     const singing = players.flatMap((p, k) => {
       const found = microphoneOf(band, k);
@@ -292,18 +292,23 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
       });
       const { foot, head, bars } = found, out = own(band, k, foot).sub(mic), s = p.g.scale.x;
       const boom = bars.filter((c) => Math.min(...c.map((q) => Math.hypot(q.x - foot.x, q.z - foot.z))) < 0.05 * s && Math.min(...c.map((q) => gap(q, head))) < 0.15 * s).length;
-      return [{ role: p.role, before: mic.z - face, fore: (foot.z - head.z) / s, right: (foot.x - p.g.position.x) / s, boom, out }];
+      // How far the keyboard reaches to either side of the player and before them, in their own metres.
+      const board = stillOf(band, (name) => name === "keyboard", k).map((c) => own(band, k, c));
+      const end = board.length ? Math.max(...board.map((c) => Math.abs(c.x))) : 0, front = board.length ? Math.max(...board.map((c) => c.z)) : 0;
+      return [{ role: p.role, before: mic.z - face, foot: own(band, k, foot), end, front, boom, out }];
     });
     // Every one who stands sings but the pianist, who is seated side-on; no drummer does.
     expect(singing.map(({ role }) => role)).toEqual(players.filter((p) => !["drums", "piano"].includes(p.role)).map((p) => p.role));
-    // The stand's foot lies 15 cm toward the crowd from the head, +z on the stage, and 15 cm to the player's right of their middle
-    // across the stage, -x, in their own metres and each within a centimetre, whichever way they turn, a keyboard's player too; and
-    // one part, the boom, reaches from within 5 cm of the stand's line to within 15 cm of the head (band.test.ts). The singer's lies
-    // toward the crowd and out to their left, 30 to 50 cm in their own metres, past the legs, which stand 13 cm out: so from the
-    // crowd it rises clear of them.
-    for (const { role, before, fore, right, boom, out } of singing) {
-      if (role === "voice") expect([role, before > -0.03 && before < 0.03, out.z > 0.2, out.x > 0.3 && out.x < 0.5]).toEqual([role, true, true, true]);
-      else expect([role, before > -0.03 && before < 0.03, Math.abs(fore - 0.15) < 0.01, Math.abs(right + 0.15) < 0.01, boom]).toEqual([role, true, true, true, 1]);
+    // In the player's own metres, whichever way they turn (band.js MIC): the microphone's head 6 cm before the face, the singer's 8,
+    // which keeps it off the face (band.test.ts, the faceless test). The stand's foot lies, with a guitar or the bass, 17 cm before
+    // the head (+z) and 15 cm to the player's right (-x), each within a centimetre; at a keyboard, before its front, by its stand's
+    // stoutness and more, and 20 cm to one side of the player's middle, within a centimetre, inside the keyboard's ends. And one
+    // part, the boom, reaches from within 5 cm of the stand's line to within 15 cm of the head (band.test.ts). The singer's lies
+    // before them and out to their left, 30 to 50 cm, past the legs, which stand 13 cm out: so from the crowd it rises clear of them.
+    for (const { role, before, foot, end, front, boom, out } of singing) {
+      if (role === "voice") expect([role, before > 0.05 && before < 0.09, out.z > 0.2, out.x > 0.3 && out.x < 0.5]).toEqual([role, true, true, true]);
+      else if (role === "keys" || role === "organ") expect([role, before > 0.05 && before < 0.07, Math.abs(Math.abs(foot.x) - 0.2) < 0.01, Math.abs(foot.x) < end, foot.z > front + 0.036, boom]).toEqual([role, true, true, true, true, 1]);
+      else expect([role, before > 0.05 && before < 0.07, Math.abs(out.z - 0.17) < 0.01, Math.abs(out.x + 0.15) < 0.01, boom]).toEqual([role, true, true, true, 1]);
     }
   });
 
@@ -331,9 +336,10 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
       // In the singer's own frame and metres: the microphone's head, out to their left (+x) of the middle, and the body's corners.
       const mic = own(band, k, microphoneOf(band, k)!.head), body: Vec[] = [];
       corners(built, (at, of, by) => { if (by === k && of === "body") body.push(own(band, k, at)); });
-      // A hand round the stand: the body within 8 cm of the microphone's head, and none of it over the head's middle.
+      // A hand round the stand: the body within 9 cm of the microphone's head, and none of it over the head's middle. The hand holds
+      // the stand 11 cm under the head (band.js `singer`), and its nearest corner comes 8.3 cm from it.
       const near = Math.min(...body.map((c) => gap(c, mic)));
-      expect([near < 0.08, Math.max(...body.map((c) => c.y)) < mic.y]).toEqual([true, true]);
+      expect([near < 0.09, Math.max(...body.map((c) => c.y)) < mic.y]).toEqual([true, true]);
       // The tambourine, before the right thigh and out past it: the body 25 cm and more to the right of the middle under the hips,
       // and before the thigh, and nothing of the body as far out under the hips on the left.
       const hips = 0.92, low = body.filter((c) => c.y < hips + 0.05 && c.z > 0.1);

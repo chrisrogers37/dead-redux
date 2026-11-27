@@ -98,8 +98,8 @@ const gap = (a: Vec, b: Vec) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 const tipOf = (band: Band, k: number) => ends(band, k).a;
 const middleOf = (points: Vec[]) => points.reduce((sum, c) => sum.add(c), new THREE.Vector3()).divideScalar(points.length);
 // A player's microphone, on the stage: the middle of its stand's foot, which is a ring of corners all on the floor, and its head, the
-// middle of the end of its capsule (the bar of the stand that reaches highest), the end away from the foot; and its parts, each as
-// its corners. Neither is any one corner: a bar ends in a ring, and a corner of the ring is off the bar's middle by its radius, up or
+// middle of the end of its capsule (the second part band.js builds of a stand, after the stand itself), the end away from the foot;
+// and its parts, each as its corners. Neither is any one corner: a bar ends in a ring, and a corner of the ring is off the bar's middle by its radius, up or
 // down, and toward the face or away.
 function microphoneOf(band: Band, k: number) {
   const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
@@ -110,7 +110,7 @@ function microphoneOf(band: Band, k: number) {
   });
   if (!bars.length) return null;
   const all = bars.flat(), low = Math.min(...all.map((c) => c.y)), foot = middleOf(all.filter((c) => c.y < low + 0.001));
-  const capsule = bars.reduce((best, b) => (Math.max(...b.map((c) => c.y)) > Math.max(...best.map((c) => c.y)) ? b : best)), middle = middleOf(capsule);
+  const capsule = bars[1], middle = middleOf(capsule);
   return { foot, head: middleOf(capsule.filter((c) => gap(c, foot) > gap(middle, foot))), bars };
 }
 // The corners of a singer's head, which stands still among the still parts (band.js keepHead), on the stage; none for a drummer.
@@ -353,7 +353,7 @@ describe("the band, as it is built", () => {
     });
   });
 
-  it("stands each microphone at its player's mouth: its head within 3 cm of the face's front at its height, as the body rests, upright or leaning, on a boom from a stand toward the crowd and out to the player's right", () => {
+  it("stands each microphone at its player's mouth: its head 5 to 7 cm before the face's front at its height, as the body rests, upright or leaning, on a boom from a stand at the player's right, before the strumming hand, or before their keyboard", () => {
     stage.updateMatrixWorld(true);
     const at = new THREE.Vector3();
     const gaps = band.players.flatMap((p: { plays: string; body: { matrixWorld: unknown; geometry: { getAttribute(name: string): { count: number } } } }, k: number) => {
@@ -371,17 +371,23 @@ describe("the band, as it is built", () => {
       return [{ plays: p.plays, before: mic.z - face }];
     });
     expect(gaps.map(({ plays }: { plays: string }) => plays)).toEqual(["guitar", "bass", "guitar", "keys"]);
-    // In the player's own metres: a head 0.027 across that stood off the face as it did, 0.065 before it, would fail this.
-    for (const { plays, before } of gaps) expect([plays, before > -0.03 && before < 0.03]).toEqual([plays, true]);
-    // Its stand's foot lies 15 cm toward the crowd from the microphone's head, +z on the stage, and 15 cm out to the player's right
-    // of their middle across the stage, -x, in their own metres and each within a centimetre, whichever way they turn: so from the
-    // crowd the stand rises over the right of the chest, not down its middle. And a boom reaches from the stand's top to the head:
-    // one part comes within 5 cm of the line the stand stands on, across, and within 15 cm of the head, in their metres.
-    band.players.forEach((p: { plays: string; g: { position: Vec; scale: Vec } }, k: number) => {
+    // In the player's own metres: 6 cm, which keeps the microphone off the face (the faceless test, band.js MIC). One at the face,
+    // as it stood before #219, stood 2 cm before it, and one 0.027 across that stood off it as it did then, 0.065.
+    for (const { plays, before } of gaps) expect([plays, before > 0.05 && before < 0.07]).toEqual([plays, true]);
+    // Its stand's foot, in the player's own frame and metres, whichever way they turn: with a guitar or the bass, 15 cm out to the
+    // player's right of their middle (-x) and 17 cm before the microphone's head (+z), each within a centimetre; at a keyboard,
+    // before its front by the stand's stoutness and more, 20 cm to one side of the middle, within a centimetre, and within the
+    // keyboard's ends. And a boom reaches from the stand's top to the head: one part comes within 5 cm of the line the stand
+    // stands on, across, and within 15 cm of the head, in their metres.
+    band.players.forEach((p: { plays: string; g: { scale: Vec } }, k: number) => {
       const found = microphoneOf(band, k);
       if (!found) return;
-      const { foot, head, bars } = found, s = p.g.scale.x;
-      expect([p.plays, Math.abs((foot.z - head.z) / s - 0.15) < 0.01, Math.abs((foot.x - p.g.position.x) / s + 0.15) < 0.01]).toEqual([p.plays, true, true]);
+      const { foot, head, bars } = found, s = p.g.scale.x, at = own(band, k, foot), to = own(band, k, head);
+      if (p.plays === "keys") {
+        const still = band.still.geometry.getAttribute("position"), board: Vec[] = [];
+        for (const part of band.still.userData.parts as Part[]) if (part.of === "keyboard" && part.by === k) for (let i = part.from; i < part.from + part.count; i++) board.push(own(band, k, new THREE.Vector3().fromBufferAttribute(still, i)));
+        expect([Math.abs(Math.abs(at.x) - 0.2) < 0.01, Math.abs(at.x) < Math.max(...board.map((c) => Math.abs(c.x))), at.z > Math.max(...board.map((c) => c.z)) + 0.036]).toEqual([true, true, true]);
+      } else expect([p.plays, Math.abs(at.z - to.z - 0.17) < 0.01, Math.abs(at.x + 0.15) < 0.01]).toEqual([p.plays, true, true]);
       const boom = bars.filter((corners) => Math.min(...corners.map((c) => Math.hypot(c.x - foot.x, c.z - foot.z))) < 0.05 * s && Math.min(...corners.map((c) => gap(c, head))) < 0.15 * s);
       expect([p.plays, boom.length]).toEqual([p.plays, 1]);
     });
@@ -674,9 +680,10 @@ describe("the band on the stage", () => {
 
 // What the band wears and how it is lit (band.js dressOf and LIGHT). The band is real people: no seat keeps a look of its own, and
 // a role picks which garments are worn, never their colours, which are the era's and the seat's.
+// A day of each era of clothes.
+const ERAS = (WARDROBES as [string, string, string][]).map(([from, to, era]) => ({ from, to, era }));
 describe("the band's look", () => {
-  // A day of each era of clothes, and its line-ups' seats: seven at the most.
-  const ERAS = (WARDROBES as [string, string, string][]).map(([from, to, era]) => ({ from, to, era }));
+  // Its line-ups' seats: seven at the most.
   const ROLES = ["lead", "rhythm", "bass", "drums", "organ", "keys", "piano", "voice"];
   const hex = (c: { getHexString(): string }) => c.getHexString();
   const look = (d: ReturnType<typeof dressOf>) => JSON.stringify(Object.fromEntries(Object.entries(d).map(([k, v]) => [k, v === null || typeof v === "string" ? v : "r" in (v as object) ? hex(v as { getHexString(): string }) : Object.values(v as object).map((c) => hex(c as { getHexString(): string }))])));
@@ -792,10 +799,11 @@ describe("the band's look", () => {
   });
 
   // Faceless: a head is a smooth form, an ellipsoid in its skin, with its hair and a hat over it, and nothing on it: no eye, nose or
-  // mouth, which a corner off the ellipsoid or a colour of its own would draw. The face is the head's front, seen from its middle:
-  // within FACE.side degrees of straight ahead, from FACE.low degrees under it to FACE.high over it.
+  // mouth, which a corner off the ellipsoid or a colour of its own would draw, and no microphone or stand on it or at it. The face
+  // is the head's front, seen from its middle: within FACE.side degrees of straight ahead, from FACE.low degrees under it to
+  // FACE.high over it.
   const FACE = { side: 40, low: -40, high: 15 };
-  it("draws every head, in every line-up and era, as one smooth ellipsoid in its skin, the head's parts in its skin, its collar, its hair and its hat alone, and nothing of any colour on its face", () => {
+  it("draws every head, in every line-up and era, as one smooth ellipsoid in its skin, the head's parts in its skin, its collar, its hair and its hat alone, and nothing of any colour on its face, the microphone before it and its stand with the rest", () => {
     for (const [key] of Object.entries(STAGING)) for (const { from } of ERAS) {
       const stage = new THREE.Group(), band: Band = buildBand(stage, FLOOR, key.split(" "), from);
       stage.updateMatrixWorld(true);
@@ -806,18 +814,20 @@ describe("the band's look", () => {
         // come down over the brow (a beanie to the eyes' height).
         const over = new Set(["skin", "hair", "hat"].map(named).filter(Boolean));
         type Corner = { at: InstanceType<typeof THREE.Vector3>; colour: string };
-        const tris: Corner[][] = [], colour = new THREE.Color(), x = new THREE.Vector3(1, 0, 0);
+        const tris: Corner[][] = [], stands = new Set<Corner[]>(), colour = new THREE.Color(), x = new THREE.Vector3(1, 0, 0);
         const { pivot, lean, body } = band.players[k];
         // Every triangle in the player's own frame and metres, upright: a still part's (on the stage, leaned as the body is at
-        // rest) and the body's (in its own frame, about its pivot). Each is three corners in a row, as band.js draws no index.
+        // rest), the head's and the microphone's on its stand, every part of it; and the body's (in its own frame, about its
+        // pivot). Each is three corners in a row, as band.js draws no index.
         const upright = (at: Vec) => own(band, k, at).sub(pivot).applyAxisAngle(x, -lean).add(pivot);
         const still = band.still.geometry.getAttribute("position"), stillColour = band.still.geometry.getAttribute("color");
         for (const part of band.still.userData.parts as Part[]) {
-          if (part.by !== k || (part.of !== "head" && part.of !== "body")) continue;
+          if (part.by !== k || !["head", "body", "microphone"].includes(part.of)) continue;
           for (let i = part.from; i < part.from + part.count; i++) {
             colour.fromBufferAttribute(stillColour, i);
             if (part.of === "head") expect([key, from, k, allowed.has(colour.getHexString())]).toEqual([key, from, k, true]);
             if ((i - part.from) % 3 === 0) tris.push([]);
+            if (part.of === "microphone") stands.add(tris.at(-1)!);
             tris.at(-1)!.push({ at: upright(new THREE.Vector3().fromBufferAttribute(still, i)), colour: colour.getHexString() });
           }
         }
@@ -847,8 +857,12 @@ describe("the band's look", () => {
         //   - off the head at any distance is no corner of a triangle that has a corner on or in the head: nothing rooted in the
         //     head, a spike however thin or long, stands out of its face.
         // What stands off the head further than 0.3 of its radii and has no corner on or in it is no part of the head: a hand that
-        // comes up under the chin, 16 cm from the head's middle and more. Hair falls by the face 49 degrees or more to either side,
-        // a cap's peak stands over it at 25 degrees up, and that hand stays 48 degrees down where it is nearer.
+        // comes up under the chin, 16 cm from the head's middle and more, and a microphone before the mouth, whose nearest corner
+        // stands 0.42 of the radii off the face (band.js MIC), the singer's 0.41. A stand's boom stands further off still
+        // ("a microphone's stand", below). Hair falls by the face 49 degrees or more to
+        // either side, a cap's peak stands over it at 25 degrees up, and that hand stays 48 degrees down where it is nearer. A
+        // microphone at the mouth as it stood before #219, its tip 2 cm before the face, came within 0.3 of the radii of it and
+        // into the head.
         const on = (off: number) => Math.abs(off - 1) < 1e-3, out = (off: number) => off > 1 + 1e-3;
         const flat = Math.min(...tris.filter((t) => t.every((c) => c.colour === skinHex && on(offOf(c.at)))).map(([a, b, c]) => offOf(new THREE.Vector3().add(a.at).add(b.at).add(c.at).divideScalar(3))));
         expect([key, from, k, flat > 0.8 && flat < 0.95]).toEqual([key, from, k, true]);
@@ -857,9 +871,15 @@ describe("the band's look", () => {
           const side = (Math.atan2(dx, dz) * 180) / Math.PI, up = (Math.atan2(dy, Math.hypot(dx, dz)) * 180) / Math.PI;
           return Math.abs(side) < FACE.side && up > FACE.low && up < FACE.high ? `${dz.toFixed(3)} m in front of the head's middle, ${side.toFixed(0)} degrees aside and ${up.toFixed(0)} up` : null;
         };
+        // A stand's bars are long, with corners only at their ends, so a stand's triangles are taken along their edges too, a point
+        // to each centimetre: a boom across the face, its ends out past the cone, comes within 0.3 of the radii of it there.
+        const along = (t: Corner[]) => t.flatMap((c, i) => {
+          const to = t[(i + 1) % 3].at, n = Math.ceil(gap(c.at, to) / 0.01);
+          return Array.from({ length: n }, (_, j) => ({ at: c.at.clone().lerp(to, j / n), colour: c.colour }));
+        });
         for (const t of tris) {
           const rooted = t.some((c) => !out(offOf(c.at)));
-          for (const { at, colour: its } of t) {
+          for (const { at, colour: its } of stands.has(t) ? along(t) : t) {
             const where = onFace(at), off = offOf(at);
             if (!where) continue;
             const wrong =
@@ -976,6 +996,139 @@ describe("the band's look", () => {
   });
 });
 
+// A microphone's stand among the band (band.js `microphone`, `voice` and `singer`), in every line-up and era, as the band rests.
+// Every part of the band is triangles on the stage: each still part's, an instrument, a keyboard, a kit, a wedge, a shoe, a head or
+// a stand; each body's; and each bone's. A stand's parts are, as band.js builds them in turn, its stand, its microphone, its boom
+// and its base, and the singer's its stand and the microphone's head. Two triangles meet where an edge of one crosses the other.
+describe("a microphone's stand", () => {
+  type Tri = { at: Vec[]; of: string; by: number | null; stand: boolean; lo: Vec; hi: Vec };
+  const PARTS = ["stand", "microphone", "boom", "base"], SINGERS = ["stand", "microphone's head"];
+  const tri = (at: Vec[], of: string, by: number | null, stand = false): Tri => ({
+    at, of, by, stand,
+    lo: new THREE.Vector3(Math.min(...at.map((c) => c.x)), Math.min(...at.map((c) => c.y)), Math.min(...at.map((c) => c.z))),
+    hi: new THREE.Vector3(Math.max(...at.map((c) => c.x)), Math.max(...at.map((c) => c.y)), Math.max(...at.map((c) => c.z))),
+  });
+  const near = (a: Tri, b: Tri) => a.lo.x <= b.hi.x && b.lo.x <= a.hi.x && a.lo.y <= b.hi.y && b.lo.y <= a.hi.y && a.lo.z <= b.hi.z && b.lo.z <= a.hi.z;
+  // Where the edge from p to q crosses the triangle abc, short of the edge's ends and inside the triangle's own edges; or null.
+  function crossing(p: Vec, q: Vec, [a, b, c]: Vec[]) {
+    const d = new THREE.Vector3().subVectors(q, p), e1 = new THREE.Vector3().subVectors(b, a), e2 = new THREE.Vector3().subVectors(c, a);
+    const h = new THREE.Vector3().crossVectors(d, e2), det = e1.dot(h);
+    if (Math.abs(det) < 1e-12) return null;
+    const s = new THREE.Vector3().subVectors(p, a), u = s.dot(h) / det, qv = new THREE.Vector3().crossVectors(s, e1), v = d.dot(qv) / det, t = e2.dot(qv) / det;
+    return u > 1e-6 && v > 1e-6 && u + v < 1 - 1e-6 && t > 1e-6 && t < 1 - 1e-6 ? new THREE.Vector3().copy(p).addScaledVector(d, t) : null;
+  }
+  const meeting = (a: Tri, b: Tri) => {
+    for (let i = 0; i < 3; i++) {
+      const at = crossing(a.at[i], a.at[(i + 1) % 3], b.at) ?? crossing(b.at[i], b.at[(i + 1) % 3], a.at);
+      if (at) return at;
+    }
+    return null;
+  };
+  function trianglesOf(band: Band, still = true) {
+    const out: Tri[] = [], m = new THREE.Matrix4(), seen = new Map<number, number>();
+    const add = (corner: { count: number }, from: number, count: number, of: string, by: number | null, stand = false, to: unknown = null) => {
+      for (let i = from; i < from + count; i += 3) out.push(tri([0, 1, 2].map((j) => { const c = new THREE.Vector3().fromBufferAttribute(corner, i + j); return to ? c.applyMatrix4(to) : c; }), of, by, stand));
+    };
+    const corner = band.still.geometry.getAttribute("position");
+    for (const part of still ? (band.still.userData.parts as Part[]) : []) {
+      if (part.of !== "microphone") { add(corner, part.from, part.count, part.as === part.of ? part.of : `${part.of} ${part.as}`, part.by); continue; }
+      const n = seen.get(part.by!) ?? 0, singer = band.players[part.by!].role === "voice";
+      seen.set(part.by!, n + 1);
+      add(corner, part.from, part.count, (singer ? SINGERS : PARTS)[n], part.by, true);
+    }
+    band.players.forEach((p: { body: { geometry: { getAttribute(name: string): { count: number } } | null; matrixWorld: unknown } }, k: number) => {
+      if (p.body.geometry) add(p.body.geometry.getAttribute("position"), 0, p.body.geometry.getAttribute("position").count, "body", k, false, p.body.matrixWorld);
+    });
+    const limb = band.limbs.geometry.getAttribute("position");
+    band.bones.forEach((bone: Bone & { name: string; of: number }, k: number) => {
+      band.limbs.getMatrixAt(k, m);
+      add(limb, 0, limb.count, bone.name, bone.of, false, m.clone());
+    });
+    return out;
+  }
+
+  // What a stand passes through, by name: the stand's part and the other part, each with its player's role.
+  const named = (band: Band, t: Tri) => (t.by === null ? `the stage's ${t.of}` : `the ${band.players[t.by].role}${["keys", "drums"].includes(band.players[t.by].role) ? "'" : "'s"} ${t.of}`);
+  function through(band: Band, tris: Tri[], out: Map<string, Set<string>>, held: Vec[] | null, as: string) {
+    const edge = FLOOR_R * Math.cos(Math.PI / FLOOR_SIDES), note = (what: string) => out.set(what, (out.get(what) ?? new Set<string>()).add(as));
+    // Each player's stand as one box, and what lies in any of them.
+    const stands = tris.filter((t) => t.stand), boxes = new Map<number, Tri>();
+    for (const t of stands) boxes.set(t.by!, tri([...(boxes.get(t.by!)?.at ?? []), t.lo, t.hi], "", t.by));
+    const by = tris.filter((o) => [...boxes.values()].some((b) => near(b, o)));
+    // A base lies flat on the floor, 3 cm high at its middle and nothing at its rim, so a shoe's toe can stand over its rim and
+    // pass through none of it: nothing of the band stands over a base under 10 cm off the floor, in the player's metres.
+    for (const base of stands.filter((t) => t.of === "base")) {
+      const s = band.players[base.by!].g.scale.x, mid = middleOf(stands.filter((t) => t.of === "base" && t.by === base.by).flatMap((t) => t.at));
+      const rim = Math.max(...base.at.map((c) => Math.hypot(c.x - mid.x, c.z - mid.z)));
+      for (const o of by) if (!o.stand && o.at.some((c) => c.y < FLOOR + 0.1 * s && Math.hypot(c.x - mid.x, c.z - mid.z) < rim)) note(`${named(band, o)} over ${named(band, base)}`);
+    }
+    for (const s of stands) {
+      if (s.at.some((c) => Math.hypot(c.x, c.z) > edge || c.y < FLOOR - 1e-6)) note(`${named(band, s)} off the floor`);
+      for (const o of by) {
+        if ((o.stand && o.by === s.by) || !near(s, o)) continue;
+        // The singer's hand holds their stand: what of the singer's body their stand meets is that hand's, round it.
+        const holds = band.players[s.by!].role === "voice" && s.of === "stand" && o.by === s.by && o.of === "body";
+        if (holds && !held) continue;
+        const at = meeting(s, o);
+        if (at && holds) held!.push(at);
+        else if (at) note(`${named(band, s)} through ${named(band, o)}`);
+      }
+    }
+  }
+
+  it("stands every microphone, in every line-up and era, clear of the band and on the floor: no part of a stand, its base, stand, boom or microphone, passes through an instrument, a keyboard, a kit, a wedge, a shoe, a head, a body or a limb at rest, or another's stand, nor stands out past the floor's edge or down into it; but for the singer's hand, round their stand under its head", () => {
+    const out = new Map<string, Set<string>>();
+    for (const key of Object.keys(STAGING)) for (const { from } of ERAS) {
+      const stage = new THREE.Group(), band: Band = buildBand(stage, FLOOR, key.split(" "), from);
+      stage.updateMatrixWorld(true);
+      const tris = trianglesOf(band), held: Vec[] = [];
+      through(band, tris, out, held, `${key}, ${from}`);
+      // A boom keeps 10 cm and more off its player's head, in their metres, so none crosses before the face: each point of it, its
+      // triangles' edges taken a centimetre apart, from each corner of the head. The faceless test holds what comes nearer, the
+      // microphone (band.test.ts, "the band's look").
+      band.players.forEach((p: { g: { scale: Vec } }, k: number) => {
+        const head = tris.filter((t) => t.by === k && t.of === "head").flatMap((t) => t.at), s = p.g.scale.x;
+        const boom = tris.filter((t) => t.stand && t.by === k && t.of === "boom").flatMap((t) => t.at.flatMap((c, i) => {
+          const to = t.at[(i + 1) % 3], n = Math.ceil(gap(c, to) / (0.01 * s));
+          return Array.from({ length: n }, (_, j) => new THREE.Vector3().copy(c).lerp(to, j / n));
+        }));
+        const least = Math.min(...boom.map((b) => Math.min(...head.map((h) => gap(b, h))))) / s;
+        const what = `${named(band, { by: k, of: "boom" } as Tri)} within 10 cm of the head`;
+        if (boom.length && least < 0.1) out.set(what, (out.get(what) ?? new Set<string>()).add(`${key}, ${from}, ${least.toFixed(3)} m off`));
+      });
+      // The hand: everything of the body that the stand meets lies within a hand's breadth of one point, 7 cm in the singer's
+      // metres, and under the microphone's head.
+      const singer = band.players.findIndex((p: { role: string }) => p.role === "voice");
+      if (singer < 0) { expect(held).toEqual([]); continue; }
+      const s = band.players[singer].g.scale.x, mid = middleOf(held), head = Math.min(...tris.filter((t) => t.stand && t.by === singer && t.of === SINGERS[1]).flatMap((t) => t.at.map((c) => c.y)));
+      expect([key, from, held.length > 0, Math.max(...held.map((c) => gap(c, mid))) < 0.07 * s, mid.y < head]).toEqual([key, from, true, true, true]);
+    }
+    expect([...out].map(([what, where]) => `${what}: ${where.size} of ${Object.keys(STAGING).length * ERAS.length}, as ${[...where][0]}`)).toEqual([]);
+  }, 120_000);
+
+  // And as the band plays, its moving parts: a keyboard player's hands lift past their microphone's boom, which comes down to the
+  // microphone over them (band.js MIC). Through sixteen counts at 96 a minute in every line-up, from rest, in which each hand of
+  // a keyboard's player lifts twice (band.js LIFT), a pose every tenth of a second. The singer's hand, which holds
+  // their stand, sways round it with the hips (`singer`).
+  it("lets nothing that moves pass through a stand as the band plays, in any line-up: no hand that lifts, nor any other", () => {
+    const out = new Map<string, Set<string>>();
+    for (const key of Object.keys(STAGING)) {
+      const stage = new THREE.Group(), band: Band = buildBand(stage, FLOOR, key.split(" "));
+      stage.updateMatrixWorld(true);
+      const stands = trianglesOf(band).filter((t) => t.stand);
+      let beats = 0;
+      for (let frame = 1; frame <= 600; frame++) {
+        band.move(1 / 60, frame / 60, (beats += 96 / 3600), true);
+        if (frame % 6) continue;
+        stage.updateMatrixWorld(true);
+        through(band, [...stands, ...trianglesOf(band, false)], out, null, `${key}, ${(frame / 60).toFixed(1)} s in`);
+      }
+    }
+    expect([...out].map(([what, where]) => `${what}: ${where.size} poses, the first ${[...where][0]}`)).toEqual([]);
+  }, 120_000);
+
+});
+
 describe("the band's outlines, from the front, through four counts of playing", () => {
   const FROM = 0.6, UP = 2;
   // Every triangle of the band as it stands: each corner's place across the stage and up the view, and whether its part moves.
@@ -1066,7 +1219,12 @@ describe("the band's outlines, from the front, through four counts of playing", 
     // again counted 34 and 4, and 160 and 4. Once each part held together on a phone (band.js), with the drummers' elbows out and
     // the necks at 45 degrees, it counted 34 and 2, and 41 and 3: from the hill a wedge of light opens between each drummer's
     // forearm, which now comes in from the side, and what is under it, near the hand, and the light between the first guitarist's
-    // boots stands over the floor in this view. With each move holding at its ends (band.js MOVE), 34 and 2, and 37 and 3.
+    // boots stands over the floor in this view. With each move holding at its ends (band.js MOVE), 34 and 2, and 37 and 3. With
+    // the microphones on booms (#219), each stand in its player's own frame and a keyboard player's before the keyboard, 32 and 1,
+    // and 38 and 2 (band.js MIC). A keyboard player's stand before the keyboard's middle counted 35 and 2, and 48 and 2; 5 cm
+    // nearer the middle than it stands, 32 and 1, and 51 and 3; 5 cm further before the keyboard, 32 and 1, and 40 and 4; past the
+    // keyboard's other end, 33 and 1, and 48 and 2. A guitar's or the bass's 17 cm out to the player's right, not 15, counted 32
+    // and 1, and 50 and 3.
     // Something is counted: a wedge's tip is thin wherever two parts part.
     expect(most.far.thin).toBeGreaterThan(10);
     expect([most.far.thin <= 36, most.far.pockets <= 3, most.near.thin <= 45, most.near.pockets <= 3]).toEqual([true, true, true, true]);
@@ -1425,11 +1583,12 @@ describe("the band's playing", () => {
   it("keeps every head at its microphone: the part of a player at the microphone stays within 3 cm of it while the hips sway over 10", () => {
     const { band, stage, play } = stand();
     stage.updateMatrixWorld(true);
-    const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
-    // Each microphone's head: the highest corner of the player's stand. And the point of the player's body that is there at rest.
+    const at = new THREE.Vector3();
+    // Each microphone's head: the highest corner of its capsule (`microphoneOf`). And the point of the player's body that is there at
+    // rest.
     const singers = band.players.flatMap((p: { plays: string; body: { matrixWorld: { clone(): { invert(): unknown } }; position: Vec }; g: { scale: Vec } }, k: number) => {
       const mic = new THREE.Vector3(0, -Infinity, 0);
-      for (const part of band.still.userData.parts) if (part.of === "microphone" && part.by === k) for (let i = part.from; i < part.from + part.count; i++) if (still.getY(i) > mic.y) mic.fromBufferAttribute(still, i);
+      for (const c of microphoneOf(band, k)?.bars[1] ?? []) if (c.y > mic.y) mic.copy(c);
       return mic.y > 0 ? [{ p, mic, held: mic.clone().applyMatrix4(p.body.matrixWorld.clone().invert()), rest: p.body.position.x, hips: 0, off: 0 }] : [];
     });
     expect(singers.map(({ p }: { p: { plays: string } }) => p.plays)).toEqual(["guitar", "bass", "guitar", "keys"]);
