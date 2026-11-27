@@ -32,11 +32,14 @@ const shoot = readFileSync(join(__dirname, "../../.github/screenshots/shoot.mjs"
 const stills = (page: Page) => page.steps.flatMap((step) => [[step.shot, step.ride], ...(step.later ? [[step.later.shot, step.later.ride]] : [])]);
 
 // The waits before a ride settles are sized in frames of CI's software renderer, since what the shoot does after a step's act is
-// so many of them. A frame at 2 s is the figure the recordings' holds are reckoned at (FRAME_MS in recordings.mjs), over twice the
-// slowest a desktop drew in CI's logs (0.78 s, on 2026-11-22, 23 and 26; a phone's was 0.07 s and the TV's 0.25 s on the 26th).
-// Between a step's act and HOLD's press there are two at most: the act's own end and the key's (ride.mjs).
-const SLOW_FRAME_S = 2;
-const ACT_TO_HOLD_FRAMES = 2;
+// so many of them. The slowest frame in CI's logs of 2026-11-22, 23 and 26, by device: a desktop's 0.78 s, the TV's 0.25 s and a
+// phone's 0.07 s; a page with reduced motion or without WebGL draws none of its own. The shoot is sized for a runner 2.6 times
+// slower than that, a desktop's frame at 2 s, the figure the recordings' holds are reckoned at (FRAME_MS in recordings.mjs).
+const SLOWEST_FRAME_S: Record<string, number> = { desktop: 0.78, tv: 0.25, phone: 0.07, "phone-360": 0.07, "phone-landscape": 0.07 };
+const SLOWER = 2 / 0.78;
+// Between a step's act and HOLD's press: the act's own end and the key's, three frames at most. A local run at 0.7 s a frame took
+// 2.1 s from the ride's press to the key's, and 0.7 s from a press on the world.
+const ACT_TO_HOLD_FRAMES = 3;
 // The frame page's steps as the shoot has them (shoot.mjs): the shelf's tab away, the ride's, and the tab back while the ride is awake.
 const FRAME_BACK = '{ ...shelfStep("player", "out", "fixed-shelf-frame-back"), from: "awake", ride: "awake" }';
 const frameSteps = (): Step[] => [
@@ -184,11 +187,11 @@ describe("the shoot's stills of the ride", () => {
     expect(settled.waitMs! / 1000).toBeGreaterThan(2 * rideIdle("desktop"));
   });
 
-  it("keeps the waits before a ride settles, a desktop's and a TV's and the others', each over what is left of an awake step once it has acted: its act's end and HOLD's press, at 2 s a frame", () => {
+  it("keeps the waits before a ride settles, a desktop's and a TV's and the others', each over what is left of an awake step once it has acted: its act's end and HOLD's press, on a runner 2.6 times slower than CI's slowest", () => {
     expect([rideIdle("desktop"), rideIdle("tv")]).toEqual([15, 15]);
     const others = ["phone", "phone-360", "phone-landscape", "desktop-reduced", "desktop-nowebgl", "phone-nowebgl"];
     for (const device of others) expect(rideIdle(device), device).toBe(6);
-    for (const device of ["desktop", "tv", ...others]) expect(rideIdle(device), device).toBeGreaterThan(ACT_TO_HOLD_FRAMES * SLOW_FRAME_S);
+    for (const device of ["desktop", "tv", ...others]) expect(rideIdle(device), device).toBeGreaterThan(ACT_TO_HOLD_FRAMES * (SLOWEST_FRAME_S[device] ?? 0) * SLOWER);
     // The sleep timer's later still, 30 s of timer after its press, is of a page that has settled: its wait, from HOLD's letting go
     // just after the still before it, is past both the timer and the desktop's wait to settle.
     const later = pages.sleep.steps.find((step) => step.later)!.later!;
