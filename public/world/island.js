@@ -219,7 +219,7 @@ const SHINE = [0.4, 0.25, 0.1], SHINE_OUT = 36, SHINE_LONG = 30, SHINE_WIDE = 28
    half as strong POOL_HALF m away and gone by POOL_END. It lights the ground and the bands on it and nothing else, so the crowd stands
    dark against it; and the music does not move it, so it adds no swing in brightness to the stage's own light (stage.js), which the
    music does move. */
-const POOL = new THREE.Color(0xff7a30).multiplyScalar(5), POOL_UP = 7, POOL_HALF = 15, POOL_END = 85;
+export const POOL = new THREE.Color(0xff7a30).multiplyScalar(5), POOL_UP = 7, POOL_HALF = 15, POOL_END = 85;
 const f = (v) => v.toFixed(4);
 
 /* Has a Lambert material take the stage's glow (`uPool`, its colour times its strength) as one more light on it, by the angle its
