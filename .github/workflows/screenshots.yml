@@ -3,8 +3,6 @@ name: Screenshots
 on:
   # A pull request, as it is opened, pushed to or reopened: its shoot is of its head commit's preview, once that is ready.
   pull_request:
-  # Vercel posts a status for each deployment it builds.
-  deployment_status:
   workflow_dispatch:
     inputs:
       url:
@@ -23,14 +21,12 @@ env:
 
 jobs:
   shoot:
-    # A pull request from a branch of this repo, and ready previews; production is shot on demand. A fork's pull request is skipped
-    # here, before anything is checked out.
+    # A pull request from a branch of this repo; production is shot on demand. A fork's pull request is skipped here, before
+    # anything is checked out.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event.deployment_status.state == 'success' &&
-      github.event.deployment.environment == 'Preview')
+      github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     # The shoot runs as three jobs side by side, one for each shard (.github/screenshots/shards.mjs): the desktop's pages that act, the
     # desktop's pages that only look, and the rest, which is every other device, the recordings and the generated images. Each job
@@ -57,7 +53,7 @@ jobs:
       run:
         working-directory: .github/screenshots
     steps:
-      # A pull request's head commit, not the merge with main its run would check out. The other triggers leave the ref empty, which
+      # A pull request's head commit, not the merge with main its run would check out. A run on demand leaves the ref empty, which
       # checks out the run's own commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -159,7 +155,7 @@ jobs:
       - id: shoot
         run: node shoot.mjs
         env:
-          SITE_URL: ${{ steps.preview.outputs.url || github.event.deployment_status.environment_url || inputs.url }}
+          SITE_URL: ${{ steps.preview.outputs.url || inputs.url }}
           OUT_DIR: ${{ runner.temp }}/screenshots
       # MP4 copies of the recordings play on phones. ffmpeg is the ffmpeg-static package's build, which npm ci fetched from GitHub and
       # the step above checked, not apt's. Only `rest` records.
@@ -199,7 +195,7 @@ jobs:
         if: matrix.shard == 'rest' && (success() || steps.compare.outcome == 'failure')
         run: node install.mjs
         env:
-          SITE_URL: ${{ steps.preview.outputs.url || github.event.deployment_status.environment_url || inputs.url }}
+          SITE_URL: ${{ steps.preview.outputs.url || inputs.url }}
       # Also runs when the shoot's gate, an enforced compare or the install check fails, so the shots and the diff are kept. Each shard's
       # artifact has its name at the end, and `gh run download` makes a folder of each.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
