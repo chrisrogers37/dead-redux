@@ -562,7 +562,9 @@ const SHOE = 0.006;
    CLOTH_MOST of full light, so that from the hill at dusk each reads as a patch of colour over the dark heads, lit by the island's
    light on the crowd's own material as the figures are, and as dark as they at night. Each figure that holds something up holds it
    in one of them (its `colour.cloth`, which people deals so that no two such within DYED m share one), and its second and third in
-   the dyes three and five on from that. A figure carries its dye in aTone.w over its things' tone, DYE times it. */
+   the dyes three and five on from that. A figure carries its dye in aTone.w over its things' tone, DYE times it: a float, which
+   holds every whole number to 2^24 exactly, and the most it holds is the last dye over the brightest tone, DYE - 1 + 7 DYE, which
+   is 2^24 - 1 exactly. A ninth dye, or a tone of more than 128 levels a channel, would not fit. */
 export const CLOTHS = [0xa8281e, 0xb07a12, 0x2a5fa0, 0x2f8a3c, 0x7a3a98, 0x178a86, 0xa82a6a, 0xb85a18];
 export const CLOTH_MOST = 0.5, DYE = 128 ** 3, DYED = 6;
 /* A colour as one number a figure can carry: each channel's light as 0 to 127 on a square-root scale up to MOST, the red in the
@@ -720,7 +722,9 @@ export const movingAlike = (a, b) => a.move === b.move && a.legs === b.legs && a
    one within CLOSE m, or that is dressed or moves like one that close, or that moves as all four of its nearest so far do, or as all
    four of another's would with it among them; and where three seats before it stand within NEIGHBOUR m, never one that could sit
    through Space neither with its body leaning back nor hugging its knees (fitsBack, fitsForward), or where four, one that could not
-   do both, so that it has a way to sit none of them has. */
+   do both, so that it has a way to sit none of them has. It draws on for at most 400 TRIES: on three thousand gatherings swept, no
+   figure was left with such a crest or share, but where four seats before it stand close, on fewer than one gathering in a hundred
+   a figure found none that could do both, and is, of those with the fewest such clashes, the one least like its neighbours. */
 const TRIES = 20, NEAR = 8, CLOSE = 4;
 export const SHARE = [4, 5];
 /* Whether each seat stands beside another of its group as two friends could stand together (stances): both standing, near, facing
@@ -745,21 +749,25 @@ export function people(placed) {
   const closer = (list, d, j) => [...list, [d, j]].sort((a, b) => a[0] - b[0]).slice(0, 4);
   placed.forEach((seat, i) => {
     if (i % PROP_EVERY === PROP_EVERY - 1) due.push(PROPS[Math.floor(i / PROP_EVERY) % PROPS.length]);
-    const near = [], joins = [];
+    /* Those before it within NEAR m, its four nearest of them, theirs it joins, and the dyes they hold up within DYED m of it. */
+    const near = [], joins = [], held = new Set();
     let own = [];
     for (let j = 0; j < i; j++) {
       const d = Math.hypot(placed[j].x - seat.x, placed[j].z - seat.z);
       if (d < NEAR) near.push([out[j], 1 / (1 + d), SHARE[d < CLOSE ? 0 : 1], d < CREST && !seat.sit ? crests[j] : null]);
       if (d < fourth(own)) own = closer(own, d, j);
       if (d < fourth(nearest[j])) joins.push([j, closer(nearest[j], d, i)]);
+      if (d < DYED && out[j].colour.cloth !== undefined) held.add(out[j].colour.cloth);
     }
     const patch = (move) => (own.length === 4 && own.every(([, j]) => out[j].move === move) ? 1 : 0)
       + joins.filter(([j, list]) => list.length === 4 && out[j].move === move && list.every(([, k]) => k === i || out[k].move === move)).length;
     /* The next prop due goes to the first figure that can carry it: one that stands, for what stands over a head out of the test poses'
        view of the band, that stands where no friend could stand beside it (besides), that has no one within CLOSE m carrying the
-       same, and that can move a way the prop leaves it (person) as neither its four nearest nor another's would. */
+       same, for what is dyed one with a dye no one within DYED m of it holds up, and that can move a way the prop leaves it (person)
+       as neither its four nearest nor another's would. */
     const k = due.findIndex((prop) => !(seat.sit && prop !== "stand" && prop !== "finger") && !(OVERHEAD.includes(prop) && inView(seat.x, seat.z)) && !paired[i]
-      && !near.some(([other, , share]) => share === SHARE[0] && other.prop === prop) && (MOVES_HOLDING[prop] ?? ["sway", "watch"]).some((move) => patch(move) === 0));
+      && !near.some(([other, , share]) => share === SHARE[0] && other.prop === prop) && !(DYED_PROPS.includes(prop) && held.size === CLOTHS.length)
+      && (MOVES_HOLDING[prop] ?? ["sway", "watch"]).some((move) => patch(move) === 0));
     const prop = k < 0 ? "none" : due.splice(k, 1)[0];
     const r = stream(0x9e3779b1 * (i + 1));
     /* A child holds a balloon, a bunch of them or nothing, and half the single balloons are children's. */
@@ -789,12 +797,10 @@ export function people(placed) {
       if (free >= 0) best.colour = { ...best.colour, top: free };
     }
     /* What it holds up is dyed: the first of CLOTHS, on from one its place in the seats' order picks, that no one within DYED m of it
-       before it holds up. */
+       before it holds up, of which the deal left it one at least. */
     if (DYED_PROPS.includes(best.prop)) {
-      const held = new Set();
-      for (let j = 0; j < i; j++) if (out[j].colour.cloth !== undefined && Math.hypot(placed[j].x - seat.x, placed[j].z - seat.z) < DYED) held.add(out[j].colour.cloth);
       const from = (5 * i) % CLOTHS.length, k = CLOTHS.findIndex((_, m) => !held.has((from + m) % CLOTHS.length));
-      best.colour = { ...best.colour, cloth: (from + Math.max(k, 0)) % CLOTHS.length };
+      best.colour = { ...best.colour, cloth: (from + k) % CLOTHS.length };
     }
     taken.add(outlineOf(plainly(best)));
     crests.push(seat.sit ? null : [crestOf(best), crestOf(plainly(best))]);
@@ -843,7 +849,9 @@ export const backOf = (y, girth) => (y < 1.01 ? 0.74 * (0.17 - (0.005 * (y - 0.8
   * (1 + 0.35 * (girth - 1) * Math.max(1 - Math.abs(y - 1.02) / 0.4, 0));
 /* Whether one seated can lean its body back on its hands, its hair and hat within the seated reaches as it leans, and hug its knees
    leaning forward, with nothing held up over its head going forward with it and no full poncho (stances; people deals the crowded
-   ones a head that does one). */
+   ones a head that does one). A knit cap and a jester's cap keep it from leaning back, and not from hugging the knees: the knit's tip
+   bends back and the jester's points go out and up behind (figureGeometry), so leaning back carries them past the seated reaches
+   behind, and leaning forward carries them away from the knees, which a brim or a bill (hat, topper, floppy, plumed, cap) goes into. */
 const fitsBack = (p) => !["afro", "dreads"].includes(p.hair) && !["hat", "topper", "floppy", "bandana", "knit", "jester", "plumed"].includes(p.head) && p.back === "none";
 const fitsForward = (p) => !["hat", "topper", "floppy", "cap", "plumed"].includes(p.head) && p.hair !== "afro" && ARMS[p.prop] !== ARMS.flag && p.top !== "poncho"
   && p.stoop < 0.05;
@@ -1003,8 +1011,11 @@ function reaches(p, wear, forms = formsOf(p)) {
   if (p.hair === "afro") reach(0.26 * p.big + back);
   if (has("PACK") || has("ROLL")) reach(0.315 + back);
   if (has("POLE")) reach(0.335 + ahead);
-  /* Seated, the arm that holds a pole or a string turns back from the shoulder (HOLD), and its elbow, 0.045 round, stands 0.215
-     behind the shoulder and 0.005 out from it, 0.74 units up: as the shader poses it, 0.392 out for the standard figure's shoulders. */
+  /* Seated, the arm that holds a pole or a string turns back from the shoulder (HOLD), and its elbow, 0.045 round, stands 0.18
+     behind the shoulder, ELBOW turned back HOLD[0], and no further out than it, as the shader poses it sitting cross-legged,
+     kneeling or with the knees up, the ways a holder sits; 0.184 behind at the most stoop a holder has (person). It is counted at
+     0.215 behind and 0.005 out, room for a lean, 0.406 out for the standard figure's shoulders; hugging the knees, which no holder
+     does, takes it to 0.206. */
   if (ARMS[p.prop] === ARMS.flag) reach(Math.hypot(SHOULDER_X * p.wide + 0.005, 0.215) + 0.045);
   const stood = [null, null, null, null, 0.2, 0.2, 0.21, 0.2][form("FLAG")];
   if (stood) reach(Math.hypot(0.14, ahead) + stood);
