@@ -810,8 +810,8 @@ const began = Math.floor(Date.now() / 1000) * 1000;
 // The browser's package is loaded here and not at the top, so that SHOOT_PLAN works where it is not installed, as in the unit tests.
 const { chromium } = await import("playwright");
 // The runner has no GPU, so WebGL runs in software; the no-WebGL devices get a browser with it off, where the plan has a page for one.
-const browser = await chromium.launch({ args: ["--enable-unsafe-swiftshader"] });
-const noWebGL = plan.pages.some(([device]) => NO_WEBGL.has(device)) ? await chromium.launch({ args: ["--disable-webgl", "--disable-webgl2", "--disable-3d-apis"] }) : null;
+const browser = await chromium.launch({ args: ["--enable-unsafe-swiftshader"], chromiumSandbox: !process.env.GITHUB_ACTIONS });
+const noWebGL = plan.pages.some(([device]) => NO_WEBGL.has(device)) ? await chromium.launch({ args: ["--disable-webgl", "--disable-webgl2", "--disable-3d-apis"], chromiumSandbox: !process.env.GITHUB_ACTIONS }) : null;
 try {
   for (const [device, pages] of plan.pages) {
     const options = DEVICES[device];
