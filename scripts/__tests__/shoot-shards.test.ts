@@ -419,6 +419,15 @@ describe("the Screenshots workflow's shards", () => {
     return found[0];
   };
 
+  it("lets each job read the repo's contents and nothing else, with no cache and no secrets, each set once for the whole workflow", () => {
+    // The next line that is not blank starts a key of its own: a permission after a blank line is still one.
+    expect(workflow).toMatch(/^permissions:\n  contents: read\n+(?=\S)/m);
+    expect(workflow).toMatch(/^cache-mode: none$/m);
+    // A job that set either of its own would run with that instead, its key quoted or not.
+    expect(workflow).not.toMatch(/^ +["']?(permissions|cache-mode)["']?:/m);
+    expect(workflow).not.toMatch(/\bsecrets\b/);
+  });
+
   it("runs a job for each shard the shoot knows, and no other, none stopping another", () => {
     const matrix = /^      matrix:\n        shard: \[(.*)\]$/m.exec(workflow)?.[1].split(", ");
     expect(matrix).toEqual(SHARDS);
@@ -474,13 +483,15 @@ describe("the Screenshots workflow's shards", () => {
   });
 
   it("gives each step that another reads by its id that id", () => {
-    // The upload after a failed shoot and the artifact's name read steps.shoot, and the install check and the upload read
-    // steps.compare and steps.install: a step without its id reads as empty there, and nothing fails.
+    // The upload after a failed shoot and the artifact's name read steps.shoot, the install check and the upload read
+    // steps.compare and steps.install, and the shoot and the install check read the preview's URL from steps.preview: a step
+    // without its id reads as empty there, and nothing fails.
     expect(stepWith(/run: node shoot\.mjs$/m)).toMatch(/^\s*id: shoot$/m);
     expect(stepWith(/name: Compare the reduced-motion stills$/m)).toMatch(/^\s*id: compare$/m);
     expect(stepWith(/name: Check the install$/m)).toMatch(/^\s*id: install$/m);
+    expect(stepWith(/name: Wait for the preview's URL$/m)).toMatch(/^\s*id: preview$/m);
     const read = [...new Set([...workflow.matchAll(/\bsteps\.([\w-]+)\./g)].map((match) => match[1]))].sort();
-    expect(read).toEqual(["compare", "install", "shoot"]);
+    expect(read).toEqual(["compare", "install", "preview", "shoot"]);
     const ids = steps.flatMap((step) => [...step.matchAll(/^\s*id: (\S+)$/gm)].map((match) => match[1])).sort();
     expect(ids).toEqual(read);
   });
@@ -496,7 +507,8 @@ describe("the Screenshots workflow's shards", () => {
 
   it("uploads each shard's files as an artifact of its own, after a failed shoot, compare or install check too", () => {
     const upload = stepWith(/uses: actions\/upload-artifact@/);
-    expect(upload).toMatch(/^\s*name: screenshots-\$\{\{ steps\.shoot\.outputs\.host \}\}-\$\{\{ github\.sha \}\}-\$\{\{ matrix\.shard \}\}$/m);
+    // Named for the site and the commit shot: a pull request's run has the merge with main as its github.sha, so its head comes first.
+    expect(upload).toMatch(/^\s*name: screenshots-\$\{\{ steps\.shoot\.outputs\.host \}\}-\$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}-\$\{\{ matrix\.shard \}\}$/m);
     expect(upload).toMatch(/^\s*if: success\(\) \|\| steps\.shoot\.outcome == 'failure' \|\| steps\.compare\.outcome == 'failure' \|\| steps\.install\.outcome == 'failure'$/m);
     expect(shardOf(upload)).toBeUndefined();
     // A shard that failed after it uploaded is run again on its own, and uploads under the same name.
