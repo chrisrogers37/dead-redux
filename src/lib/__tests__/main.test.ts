@@ -136,6 +136,9 @@ const fake = vi.hoisted(() => {
     beats: NaN,
     count: NaN,
     posed: { beats: NaN, dance: NaN, rise: NaN, sit: NaN },
+    // The night's darkness the last frame lit the crowd's rims by, and how many frames lit them.
+    rim: NaN,
+    rims: 0,
     partedAtOnce: null as boolean | null,
     onset: null as number | null,
     // The renderer's shadow map; the hour of the look the last frame handed the sky, and the steady share of the stage's light in it;
@@ -457,6 +460,10 @@ const fake = vi.hoisted(() => {
         pose: (beats: number, dance: number, rise: number, sit: number) => {
           world.posed = { beats, dance, rise, sit };
         },
+        rim: (dark: number) => {
+          world.rim = dark;
+          world.rims += 1;
+        },
         part: (_dt: number, _feet: Vec, _head: Vec, reduced: boolean) => {
           world.partedAtOnce = reduced;
         },
@@ -663,6 +670,8 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
   fake.world.keyTurned = false;
   fake.world.drawn = 0;
   fake.world.tilted = [];
+  fake.world.rim = NaN;
+  fake.world.rims = 0;
   vi.resetModules();
   await import("../../../public/world/main.js");
   if (map && !reduced) await vi.waitFor(() => expect(hill().map).not.toBeNull());
@@ -2139,6 +2148,37 @@ describe("main.js's frames through the night", () => {
     expect(deep).toBeCloseTo(dusk, 9);
     expect(fake.world.lift).toBeGreaterThan(0.9);
     expect(fake.world.lift).toBeCloseTo(lookAt(fake.world.graded, newLook()).stageLift, 9);
+  });
+
+  it("lights the crowd's rims by the night alone, every frame: as dark as the look is, steady with the music, at once under reduced motion, and on once the downgrade has turned the stage light off", async () => {
+    // The low end at 255 and at 0, at dusk and in the deep of the night (the seek to 298 s lands in the first frame), each frame
+    // lighting the rims by the look's own darkness, which the sky was handed in the same frame.
+    const lit = async (bass: number, position: number, search = "") => {
+      const page = await startWorld({ playing: true, routing: "plain", map: showMap({ bass }), search });
+      page.seek(position);
+      const drawn = fake.world.drawn, rims = fake.world.rims;
+      page.run(2);
+      expect(fake.world.rims - rims).toBe(fake.world.drawn - drawn);
+      expect(fake.world.rim).toBe(fake.world.dark);
+      return fake.world.rim;
+    };
+    const dusk = await lit(255, 0), deep = await lit(255, 298);
+    expect(await lit(0, 0)).toBe(dusk);
+    expect(await lit(0, 298)).toBe(deep);
+    expect(dusk).toBeCloseTo(lookAt(0, newLook()).dark, 2);
+    expect(deep).toBeGreaterThan(0.99);
+    // The foot of the ladder has the stage light off, and the rims as they were.
+    expect(await lit(255, 298, "?rung=99")).toBe(deep);
+    expect(fake.world.stage.light.visible).toBe(false);
+    // The light alone (?still=1) stills the figures and not their rims.
+    expect(await lit(255, 298, "?still=1")).toBe(deep);
+    // Under reduced motion the hour is the one halfway through the song, the deep of the night here, in the first frame drawn.
+    const still = await startWorld({ reduced: true });
+    still.run(0.02);
+    expect(hill().night.hour).toBe(DEEP);
+    expect(fake.world.rim).toBe(fake.world.dark);
+    expect(fake.world.rim).toBe(lookAt(DEEP, newLook()).dark);
+    expect(fake.world.rims).toBe(fake.world.drawn);
   });
 
   it("lights the rig's beams in full through the night and lets the daylight wash them out toward daybreak", async () => {

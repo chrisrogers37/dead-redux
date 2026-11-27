@@ -637,6 +637,9 @@ function start(gl) {
     stage.light.intensity = lightBase.stage * (layer2.stage + look.stageLift);
     /* The lit bands glow a third as bright in the deep of the night, where their own glow at dusk would outshine the stage. */
     if (bands) bands.glow.value = BAND_GLOW * (1 - 0.68 * look.dark);
+    /* The crowd's rims brighten as the night darkens, and are steady: the hour alone moves them, never the music, the beat or the
+       stage light, which the downgrade may turn off (crowd.js rim). */
+    crowd.rim(look.dark);
     /* Whether a song plays: the crowd dances and the rig lights for one. */
     const dances = playing && crowdAt[index].dance ? 1 : 0;
     if (!reduced) {
