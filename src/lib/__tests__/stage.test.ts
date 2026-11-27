@@ -11,7 +11,8 @@ import { buildStage, STAGES, stageOn } from "../../../public/world/stage.js";
 import { CAMERAS, FLASH_CAMERAS, STAGE_PANEL, stageFrom, stagesOf } from "./band-outline";
 
 // public/world/stage.js builds the stage of the show's era (STAGES), as band.js stands the band of its line-up (lineup.js): the roof
-// on its two posts, the back wall and the PA stacks, which every date stood on before the table, and in 1974 the Wall of Sound.
+// on its two posts, the back wall and the PA stacks, which every date stood on before the table; in 1974 the Wall of Sound; and from
+// 1975 to 1989 the arena's stage.
 
 type Row = [string, string, string];
 const rows = STAGES as Row[];
@@ -52,13 +53,19 @@ function corners(still: Obj) {
 const MAIN = "5f33a5ee18e6c0285f63f0e45af9d885fbc1a145b73c79677a99a72eec7744c2";
 // A day of the Wall: 1974-07-19, Selland Arena, Fresno, the show of the shoot's 1974 day (.github/screenshots/stage.mjs).
 const WALL_DAY = "1974-07-19";
+// The Wall's still mesh as main built it at 5eb6b7b, on every day of the Wall.
+const WALL = "0fd19df30e9b4913bbeb11f200e8ce316da8f55ee7f49722b7c9ff070dba3361";
+// A day of the arena's stage: 1986-07-04, Rich Stadium, the shoot's fixed day (.github/screenshots), whose stills of the stage, the
+// band and the crowd show it.
+const ARENA_DAY = "1986-07-04";
 
 describe("the stage, by the show's date", () => {
-  it("is the table, row by row: the roof's stage to the Wall's debut, the Wall of Sound to its last show, and the roof's stage after", () => {
+  it("is the table, row by row: the roof's stage to the Wall's debut, the Wall of Sound to its last show, the arena's stage to the end of 1989, and the roof's stage after", () => {
     expect(rows).toEqual([
       ["1965-06-01", "1974-03-22", "roof"],
       ["1974-03-23", "1974-10-20", "wall"],
-      ["1974-10-21", "1995-07-09", "roof"],
+      ["1974-10-21", "1989-12-31", "arena"],
+      ["1990-01-01", "1995-07-09", "roof"],
     ]);
   });
 
@@ -80,31 +87,33 @@ describe("the stage, by the show's date", () => {
     }
   });
 
-  it("stands the Wall of Sound on the catalog's shows from its debut to its last, the 37 from the Cow Palace on 1974-03-23 to Winterland on 1974-10-20, and the roof's stage on every other", () => {
+  it("stands the Wall of Sound on the catalog's shows from its debut to its last, the 37 from the Cow Palace on 1974-03-23 to Winterland on 1974-10-20, and the roof's stage or the arena's on every other", () => {
     const wall = catalog.filter((date) => stageOn(date).stage === "wall").sort();
     expect([wall.length, wall[0], wall.at(-1)]).toEqual([37, "1974-03-23", "1974-10-20"]);
     const venue = (date: string) => showCatalog.find((show) => show.date === date)!.venue;
     expect([venue("1974-03-23"), venue("1974-10-20")]).toEqual(["Cow Palace", "Winterland Arena"]);
-    expect(catalog.filter((date) => stageOn(date).stage !== "wall").every((date) => stageOn(date).stage === "roof")).toBe(true);
+    expect(catalog.filter((date) => stageOn(date).stage !== "wall").every((date) => ["roof", "arena"].includes(stageOn(date).stage))).toBe(true);
     // The catalog's dates either side: the Mars Hotel outtakes and the last show before, and a studio date after.
     const sorted = [...catalog].sort(), first = sorted.indexOf("1974-03-23"), last = sorted.indexOf("1974-10-20");
     expect([sorted[first - 1], sorted[first - 2], sorted[last + 1]]).toEqual(["1974-03-01", "1974-02-24", "1974-12-01"]);
     expect([venue("1974-03-01"), venue("1974-12-01")]).toEqual(["Mars Hotel Outtakes", "Studio"]);
   });
 
-  // Nothing else moved: main's stage, corner for corner, on a date of each line-up's era but 1974's, either side of the Wall, and with
-  // no date.
-  it("builds every other date's stage as main built it: the still mesh's places, normals and colours, on a show of 1969, 1972, 1977, 1986 and 1993, the last before the Wall and the first after it, and with no date", () => {
-    for (const date of [undefined, "1969-04-17", "1972-05-03", "1977-05-08", "1986-07-04", "1993-03-24", "1974-02-24", "1974-12-01"]) {
+  // Nothing else moved: main's stage, corner for corner, on a date of each line-up's era but those of 1974 to 1989, either side of the
+  // Wall and of the arena's stage, and with no date; and main's Wall on the Wall's days.
+  it("builds every other date's stage as main built it: the still mesh's places, normals and colours, on a show of 1969, 1972 and 1993, the last before the Wall, the first after the arena's stage and with no date, and the Wall on its first day, the shoot's 1974 day and its last", () => {
+    for (const date of [undefined, "1969-04-17", "1972-05-03", "1993-03-24", "1974-02-24", "1990-02-25"]) {
       expect([date, digest(date)]).toEqual([date, MAIN]);
     }
-    // The line-ups of those dates are five of the table's, so each other era's band stands on main's stage.
-    const eras = ["1969-04-17", "1972-05-03", "1977-05-08", "1986-07-04", "1993-03-24"].map((date) => lineupOn(date).from);
-    expect(new Set(eras).size).toBe(5);
-    for (const date of ["1974-03-23", WALL_DAY, "1974-10-20"]) expect([date, digest(date) === MAIN]).toEqual([date, false]);
+    // The line-ups of those dates are three of the table's, so each other era's band stands on main's stage.
+    const eras = ["1969-04-17", "1972-05-03", "1993-03-24"].map((date) => lineupOn(date).from);
+    expect(new Set(eras).size).toBe(3);
+    for (const date of ["1974-03-23", WALL_DAY, "1974-10-20"]) expect([date, digest(date)]).toEqual([date, WALL]);
+    // And the arena's stage on its first day of the catalog, the shoot's 1977 and fixed days and its last.
+    for (const date of ["1974-12-01", "1977-05-08", ARENA_DAY, "1989-12-31"]) expect([date, digest(date) === MAIN || digest(date) === WALL]).toEqual([date, false]);
   });
 
-  it("stands the band of the show's line-up on the Wall: the six of 1972 to 1974 on its shows to 1974-10-19, and the seven of 1974 to 1979 on its last; and each of those line-ups stood on the roof's stage too (band-outline.ts stagesOf)", () => {
+  it("stands the band of the show's line-up on the Wall: the six of 1972 to 1974 on its shows to 1974-10-19, and the seven of 1974 to 1979 on its last; and each of those line-ups stood on another stage too, the six on the roof's and the seven on the arena's (band-outline.ts stagesOf)", () => {
     const roles = (date: string) => stageFor(date).built.band.players.map((p: { role: string }) => p.role).sort();
     expect(roles(WALL_DAY)).toEqual([...(lineupOn("1974-10-19").roles as string[])].sort());
     expect(roles("1974-10-20")).toEqual([...(lineupOn("1977-05-08").roles as string[])].sort());
@@ -114,9 +123,13 @@ describe("the stage, by the show's date", () => {
     ]);
     expect(stagesOf(lineupOn("1977-05-08").roles as string[])).toEqual([
       { stage: "wall", day: "1974-10-20", from: "1974-03-23", to: "1974-10-20" },
-      { stage: "roof", day: "1974-10-21", from: "1974-10-21", to: "1995-07-09" },
+      { stage: "arena", day: "1974-10-21", from: "1974-10-21", to: "1989-12-31" },
     ]);
-    expect(stagesOf(lineupOn("1986-07-04").roles as string[]).map((s) => s.stage)).toEqual(["roof"]);
+    // The six of 1979 to 1990 stood on the arena's stage and then the roof's.
+    expect(stagesOf(lineupOn(ARENA_DAY).roles as string[])).toEqual([
+      { stage: "arena", day: "1979-04-22", from: "1974-10-21", to: "1989-12-31" },
+      { stage: "roof", day: "1990-01-01", from: "1990-01-01", to: "1995-07-09" },
+    ]);
   });
 });
 
@@ -383,5 +396,197 @@ describe("the Wall of Sound", () => {
   it("costs no draw call, and 2,864 triangles more than the roof's stage: the still mesh is one, of 3,000 triangles to the roof's 136, of which 1,600 are the speakers' discs and 1,000 the cabinets' faces, of 100 cabinets", () => {
     const triangles = (date?: string) => stageFor(date).still.geometry!.getAttribute("position").count / 3;
     expect([triangles(), triangles(WALL_DAY)]).toEqual([136, 3000]);
+  });
+});
+
+describe("the arena's stage", () => {
+  // The arena's edges are the Wall's last show and the year's turn (stage.js STAGES), and both fall between two shows of the catalog.
+  it("stands on the catalog's 1,052 shows from the first after the Wall's last to Oakland on 1989-12-31, and the roof's stage on the next, at the same hall", () => {
+    const arena = catalog.filter((date) => stageOn(date).stage === "arena").sort();
+    expect([arena.length, arena[0], arena.at(-1)]).toEqual([1052, "1974-12-01", "1989-12-31"]);
+    const sorted = [...catalog].sort(), last = sorted.indexOf("1989-12-31"), venue = (date: string) => showCatalog.find((show) => show.date === date)!.venue;
+    expect([sorted[last + 1], stageOn(sorted[last + 1]).stage, venue(sorted[last]), venue(sorted[last + 1])]).toEqual(["1990-02-25", "roof", "Oakland-Alameda County Coliseum", "Oakland-Alameda County Coliseum"]);
+    expect(sorted[sorted.indexOf("1974-12-01") - 1]).toBe("1974-10-20");
+    // The line-ups of its years, the seven of 1974 to 1979 and the six of 1979 to 1990, each stand on it.
+    expect([...new Set(arena.map((date) => lineupOn(date).roles.join(" ")))].sort()).toEqual(["lead rhythm bass drums drums keys", "lead rhythm bass drums drums piano voice"]);
+  });
+
+  it("stands inside the stage's column, which the walk, the camera and the crowd keep out of (ground.js STAGE_COLUMN): its furthest corner, the truss's end, 10.88 m from the stage's centre, under the 10.95 the PA stacks' 10.91 took, and its top the roof's", () => {
+    const at = corners(stageFor(ARENA_DAY).still);
+    const far = Math.max(...at.map((p) => Math.hypot(p.x, p.z))), top = Math.max(...at.map((p) => p.y));
+    expect([far < STAGE_COLUMN.r, Math.round(far * 100) / 100]).toEqual([true, 10.88]);
+    expect([top <= STAGE_COLUMN.top - SHELF_Y + 1e-6, top]).toEqual([true, expect.closeTo(STAGE_COLUMN.top - SHELF_Y, 5)]);
+  });
+
+  // The side-fills and the backline stand on the platform's floor, 1.2 m over the shelf and 9 m out to the corners of its sixteen
+  // sides (stage.js FLOOR), and nothing new stands at the front of the platform where the PA stacks stood on the ground: what is new
+  // under the flown PA, but for the towers in the posts' place, stands on the floor.
+  it("stands its side-fills and its backline on the platform's floor, and nothing new on the ground: every new corner under 5 m but the towers' is on or over the floor and inside its edge", () => {
+    const key = (p: { x: number; y: number; z: number }) => [p.x, p.y, p.z].map((v) => v.toFixed(4)).join(" ");
+    const roofs = new Set(corners(stageFor().still).map(key));
+    const tower = (p: { x: number; z: number }) => Math.abs(Math.abs(p.x) - 8) <= 0.3 + 1e-6 && Math.abs(p.z - 4) <= 0.3 + 1e-6;
+    const low = corners(stageFor(ARENA_DAY).still).filter((p) => p.y < 5 && !roofs.has(key(p)) && !tower(p));
+    // The floor's edge: the sixteen sides of the platform's top, their corners FLOOR_R m out at every sixteenth of a turn from +z.
+    const reach = (p: { x: number; z: number }) => Math.max(...Array.from({ length: 16 }, (_, k) => { const a = ((k + 0.5) / 16) * 2 * Math.PI; return p.x * Math.sin(a) + p.z * Math.cos(a); }));
+    expect(low.length).toBeGreaterThan(0);
+    expect(low.filter((p) => p.y < 1.2 - 1e-6 || reach(p) > 9 * Math.cos(Math.PI / 16) + 1e-6)).toEqual([]);
+    // Both wings have them.
+    expect([low.some((p) => p.x < -7), low.some((p) => p.x > 7)]).toEqual([true, true]);
+  });
+
+  it("hangs every lamp of the rig where the roof's stage hangs it, with a clamp of the truss's grey straight over each, 2 cm over it, and nothing under any lamp", () => {
+    const { built, still } = stageFor(ARENA_DAY), roof = stageFor("1990-02-25"), rig = built.rig.mesh, m = new THREE.Matrix4(), ray = new THREE.Raycaster();
+    expect(Array.from(rig.instanceMatrix.array)).toEqual(Array.from(roof.built.rig.mesh.instanceMatrix.array));
+    const colour = still.geometry!.getAttribute("color"), grey = new THREE.Color(0x6a665f);
+    const lamps = Array.from({ length: rig.count }, (_, k) => { rig.getMatrixAt(k, m); return new THREE.Vector3().setFromMatrixPosition(m).applyMatrix4(built.group.matrixWorld); });
+    expect(lamps).toHaveLength(8);
+    for (const [k, lamp] of lamps.entries()) {
+      ray.set(lamp, new THREE.Vector3(0, 1, 0));
+      const hit = ray.intersectObject(still)[0] as unknown as { distance: number; face: { a: number } };
+      const shade = [colour.getX(hit.face.a), colour.getY(hit.face.a), colour.getZ(hit.face.a)];
+      expect([k, hit.distance]).toEqual([k, expect.closeTo(0.03, 5)]);
+      expect([k, shade]).toEqual([k, [expect.closeTo(grey.r, 5), expect.closeTo(grey.g, 5), expect.closeTo(grey.b, 5)]]);
+      ray.set(lamp, new THREE.Vector3(0, -1, 0));
+      ray.far = 7.9 - 1.2 - 0.01;
+      expect([k, ray.intersectObject(still).length]).toEqual([k, 0]);
+      ray.far = Infinity;
+    }
+  });
+
+  // As the Wall's: the panel's light show and the band's outlines against it are what the flash bar and the outlines' gates were
+  // measured on, so the arena's stage stands round the panel and nothing of it in front of what the roof's stage shows of it.
+  it("shows exactly the light panel that the roof's stage shows, from every camera of the shoot and of the flash counter: the truss hides the panel's top from the hill as the roof's front does, the towers its sides as the posts do, and no side-fill, amplifier or cluster stands in front of it", () => {
+    for (const cam of [...CAMERAS, ...FLASH_CAMERAS]) {
+      const roof = stageFrom(cam).shows, arena = stageFrom(cam, ARENA_DAY).shows;
+      let hidden = 0, roofs = 0, more = 0;
+      for (let o = 0; o < roof.length; o++) {
+        if (roof[o] === STAGE_PANEL) roofs++;
+        if (roof[o] === STAGE_PANEL && arena[o] !== STAGE_PANEL) hidden++;
+        if (arena[o] === STAGE_PANEL && roof[o] !== STAGE_PANEL) more++;
+      }
+      expect([cam.name, roofs > 0, hidden, more]).toEqual([cam.name, true, 0, 0]);
+    }
+  }, 60_000);
+
+  // The PA reads as PA by its cabinets, which can be counted: each face framed by the seams' shade, and on it a horn's mouth over a
+  // woofer, in the speakers' shade. Read from the still mesh's own triangles, by their shades.
+  it("hangs a cluster of six PA cabinets at each side, outboard of the towers, turned down to the crowd and in to its middle, and stands four on the floor at each wing, facing across the stage to the band; and on every one's face a horn over a woofer, clear of it and inside its edges", () => {
+    const { still } = stageFor(ARENA_DAY), at = corners(still), place = still.geometry!.getAttribute("position"), colour = still.geometry!.getAttribute("color");
+    const shade = (hex: number) => {
+      const c = new THREE.Color(hex);
+      return (i: number) => Math.abs(colour.getX(i) - c.r) + Math.abs(colour.getY(i) - c.g) + Math.abs(colour.getZ(i) - c.b) < 1e-5;
+    };
+    const speaker = shade(0x0b0a09), seam = shade(0x2e2a26);
+    const P = (i: number) => new THREE.Vector3(at[i].x, at[i].y, at[i].z);
+    const key = (i: number) => [place.getX(i), place.getY(i), place.getZ(i)].join(" ");
+    const groups = (tris: number[], shares: (i: number) => boolean) => {
+      const parent = new Map(tris.map((t) => [t, t])), seen = new Map<string, number>();
+      const root = (t: number): number => (parent.get(t) === t ? t : root(parent.get(t)!));
+      for (const t of tris) for (const i of [t, t + 1, t + 2]) if (shares(i)) {
+        const k = key(i);
+        if (seen.has(k)) parent.set(root(t), root(seen.get(k)!)); else seen.set(k, t);
+      }
+      const out = new Map<number, number[]>();
+      for (const t of tris) out.set(root(t), [...(out.get(root(t)) ?? []), t]);
+      return [...out.values()];
+    };
+    const triangles = Array.from({ length: place.count / 3 }, (_, k) => 3 * k), corner = (tris: number[]) => tris.flatMap((t) => [t, t + 1, t + 2]);
+    const unique = (tris: number[]) => [...new Map(corner(tris).map((i) => [key(i), P(i)])).values()];
+    const mean = (ps: THREE.Vector3[]) => ps.reduce((s, p) => s.add(p), new THREE.Vector3()).divideScalar(ps.length);
+    // The faces: their frames' triangles, joined by their inner corners, each with its normal (the way its triangles wind), its axes,
+    // across (level) and up, and its half width and height.
+    const faces = groups(triangles.filter((t) => [t, t + 1, t + 2].some(seam) && ![t, t + 1, t + 2].every(seam)), (i) => !seam(i)).map((tris) => {
+      const edge = [...new Map(corner(tris).filter(seam).map((i) => [key(i), P(i)])).values()], middle = mean(edge);
+      const [a, b, c] = [tris[0], tris[0] + 1, tris[0] + 2].map(P), normal = b.clone().sub(a).cross(c.clone().sub(a)).normalize();
+      const across = new THREE.Vector3(0, 1, 0).cross(normal).normalize(), up = normal.clone().cross(across).normalize();
+      const w = Math.max(...edge.map((p) => Math.abs(p.clone().sub(middle).dot(across)))), h = Math.max(...edge.map((p) => Math.abs(p.clone().sub(middle).dot(up))));
+      return { edge, middle, normal, across, up, w, h };
+    });
+    expect([faces.length, faces.every((f) => f.edge.length === 4)]).toEqual([20, true]);
+    const flown = faces.filter((f) => f.middle.y > 4), fills = faces.filter((f) => f.middle.y < 4);
+    for (const side of [-1, 1]) {
+      const hung = flown.filter((f) => Math.sign(f.middle.x) === side), fill = fills.filter((f) => Math.sign(f.middle.x) === side);
+      expect([side, hung.length, fill.length]).toEqual([side, 6, 4]);
+      // Turned down to the crowd by 0.12 rad and in by 0.15, and outboard of the tower, whose outer face is 8.3 m out.
+      for (const f of hung) {
+        expect([side, f.normal.x, f.normal.y, f.normal.z]).toEqual([side, expect.closeTo(-side * Math.sin(0.15) * Math.cos(0.12), 5), expect.closeTo(-Math.sin(0.12), 5), expect.closeTo(Math.cos(0.15) * Math.cos(0.12), 5)]);
+        expect([side, Math.min(...f.edge.map((p) => side * p.x)) > 8.3]).toEqual([side, true]);
+      }
+      // Two columns of three, one under the other.
+      expect([side, new Set(hung.map((f) => f.middle.y.toFixed(2))).size]).toEqual([side, 3]);
+      for (const f of fill) expect([side, f.normal.x, f.normal.y, f.normal.z]).toEqual([side, expect.closeTo(-side, 5), expect.closeTo(0, 5), expect.closeTo(0, 5)]);
+    }
+    // The speakers, in their shade and joined by the corners they share: a horn's mouth of two triangles and a woofer of twelve.
+    const speakers = groups(triangles.filter((t) => [t, t + 1, t + 2].every(speaker)), () => true).map((tris) => ({ n: tris.length, middle: mean(unique(tris)), rim: unique(tris) }));
+    expect([speakers.filter((s) => s.n === 2).length, speakers.filter((s) => s.n === 12).length, speakers.length]).toEqual([20, 20, 40]);
+    const inside = (f: (typeof faces)[number], p: THREE.Vector3) => Math.abs(p.clone().sub(f.middle).dot(f.across)) <= f.w + 1e-6 && Math.abs(p.clone().sub(f.middle).dot(f.up)) <= f.h + 1e-6;
+    for (const [k, f] of faces.entries()) {
+      // Its speakers: just in front of it and inside its edges.
+      const on = speakers.filter((s) => { const off = s.middle.clone().sub(f.middle).dot(f.normal); return off > 0.001 && off < 0.05 && s.rim.every((p) => inside(f, p)); });
+      expect([k, on.map((s) => s.n).sort((a, b) => a - b)]).toEqual([k, [2, 12]]);
+      const [horn, woofer] = [on.find((s) => s.n === 2)!, on.find((s) => s.n === 12)!];
+      // The horn over the woofer, clear of it.
+      const up = (p: THREE.Vector3) => p.clone().sub(f.middle).dot(f.up);
+      expect([k, Math.min(...horn.rim.map(up)) > Math.max(...woofer.rim.map(up)) + 0.01]).toEqual([k, true]);
+    }
+  });
+
+  it("stands the backline at the wings: the lead guitar's and the bass's amplifiers at the crowd's left, where they stand, and the rhythm guitar's at its right, each a grille under a head, facing across the stage and turned to the crowd, and none in front of the band", () => {
+    const { still } = stageFor(ARENA_DAY), at = corners(still), colour = still.geometry!.getAttribute("color");
+    const grille = new THREE.Color(0x5a544c);
+    const tris = Array.from({ length: at.length / 3 }, (_, k) => 3 * k).filter((t) => [t, t + 1, t + 2].some((i) => Math.abs(colour.getX(i) - grille.r) + Math.abs(colour.getY(i) - grille.g) + Math.abs(colour.getZ(i) - grille.b) < 1e-5));
+    // Each grille is the middle of one face, eight triangles of its frame and two of its middle; the faces stand apart.
+    const middles: THREE.Vector3[] = [];
+    for (let k = 0; k < tris.length; k += 10) {
+      const ps = tris.slice(k, k + 10).flatMap((t) => [t, t + 1, t + 2]).map((i) => new THREE.Vector3(at[i].x, at[i].y, at[i].z));
+      const [a, b, c] = ps, normal = b.clone().sub(a).cross(c.clone().sub(a)).normalize(), middle = ps.reduce((s, p) => s.add(p), new THREE.Vector3()).divideScalar(ps.length);
+      middles.push(middle);
+      const side = Math.sign(middle.x);
+      expect([k, normal.x * side < -0.8, normal.z > 0.2, Math.abs(normal.y) < 1e-5, Math.min(...ps.map((p) => p.y)) > 1.2]).toEqual([k, true, true, true, true]);
+    }
+    expect([tris.length, middles.filter((m) => m.x < -7).length, middles.filter((m) => m.x > 7).length]).toEqual([30, 2, 1]);
+    // Behind the front line of the players who play through them, at the wings: the guitars' and the bass's places are 5.98 and 3.76 m
+    // and 3.7 m out from the middle (band.js STAGING).
+    expect(middles.every((m) => Math.abs(m.x) > 7.5 && m.z < 1)).toBe(true);
+  });
+
+  // Nothing lit is new on the arena's stage: what is lit is the roof's stage's own, and its new parts are the stage's dark and four
+  // shades that the stage light and the sun light as they light the rest: the truss's grey, the towers' cores, the grilles, the seams
+  // and the speakers. What changes is what the lit parts are seen against, the truss's open webs in place of the roof's front.
+  it("changes nothing lit: the panel, the stage light and the rig are the roof's stage's, and the arena's still parts are the stage's own dark and wood, the truss's grey, a dark grey for the towers' cores, the grilles' and the PA's seams and speakers, in the one still mesh, which glows nowhere; and nothing else of the stage's group is new", () => {
+    // The roof's stage on the first show after the arena's, whose line-up is the fixed day's.
+    const roof = stageFor("1990-02-25"), arena = stageFor(ARENA_DAY);
+    expect(lineupOn("1990-02-25").roles).toEqual(lineupOn(ARENA_DAY).roles);
+    for (const key of ["position", "rotation", "scale"] as const) {
+      expect(arena.built.panel[key].toArray()).toEqual(roof.built.panel[key].toArray());
+      expect(arena.built.light[key].toArray()).toEqual(roof.built.light[key].toArray());
+      expect(arena.built.rig.mesh[key].toArray()).toEqual(roof.built.rig.mesh[key].toArray());
+    }
+    expect(arena.built.panel.geometry.parameters).toEqual(roof.built.panel.geometry.parameters);
+    expect([arena.built.light.color.getHex(), arena.built.light.intensity, arena.built.light.distance, arena.built.light.decay]).toEqual([roof.built.light.color.getHex(), roof.built.light.intensity, roof.built.light.distance, roof.built.light.decay]);
+    expect([arena.built.rig.mesh.material.vertexShader, arena.built.rig.mesh.material.fragmentShader]).toEqual([roof.built.rig.mesh.material.vertexShader, roof.built.rig.mesh.material.fragmentShader]);
+    const colours = (still: Obj) => {
+      const c = still.geometry!.getAttribute("color"), out = new Set<string>();
+      for (let i = 0; i < c.count; i++) out.add([c.getX(i), c.getY(i), c.getZ(i)].map((v) => v.toFixed(5)).join(" "));
+      return out;
+    };
+    expect([arena.stills.length, roof.stills.length]).toEqual([1, 1]);
+    expect([arena.still.material!.type, arena.still.material!.emissive!.getHex()]).toEqual(["MeshLambertMaterial", 0]);
+    const key = (hex: number) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b].map((v) => v.toFixed(5)).join(" "); };
+    const roofs = colours(roof.still), arenas = colours(arena.still);
+    expect([...roofs].sort()).toEqual([0x1a1816, 0x6b4e2e, 0x8e8a82].map(key).sort());
+    expect([...arenas].sort()).toEqual([0x1a1816, 0x6b4e2e, 0x6a665f, 0x47433e, 0x5a544c, 0x2e2a26, 0x0b0a09].map(key).sort());
+    const kinds = (built: { group: Obj }) => {
+      const out: string[] = [];
+      built.group.traverse((o: Obj) => { if (o.isMesh || o.isLight) out.push(`${o.isInstancedMesh ? "instanced " : ""}${o.isLight ? "light" : o.material!.type}`); });
+      return out;
+    };
+    expect(kinds(arena.built)).toEqual(kinds(roof.built));
+  });
+
+  // As the Wall's: the still mesh is one (landmarks.js mergeStill), so what the arena's stage adds is triangles, on every tier alike.
+  it("costs no draw call, and 3,648 triangles more than the roof's stage: the still mesh is one, of 3,784 triangles to the roof's 136", () => {
+    const triangles = (date?: string) => stageFor(date).still.geometry!.getAttribute("position").count / 3;
+    expect([triangles(), triangles(ARENA_DAY), triangles("1977-05-08")]).toEqual([136, 3784, 3784]);
   });
 });

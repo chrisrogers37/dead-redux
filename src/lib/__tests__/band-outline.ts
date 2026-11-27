@@ -642,9 +642,10 @@ export function filmOf(roles: string[], label: (bits: number) => string, cams: C
 }
 
 // The stage's own parts as stage.js builds them for a show on `day` (its stage of STAGES; with none, the roof's), as triangles in the
-// world, each with what it shows as: the stage's black, as dark as the band (the roof, the back wall and the PA stacks, or the Wall
-// of Sound's cabinets and its beam), the light panel, or the rest of what stands between a camera and what is behind it (the platform
-// and the posts).
+// world, each with what it shows as: the stage's black, as dark as the band (the roof, the back wall and the PA stacks; the Wall
+// of Sound's cabinets and its bridge; or the arena's roof, its flown PA, its side-fills and its amplifiers' frames), the light panel,
+// or the rest of what stands between a camera and what is behind it (the platform, the posts, and the arena's truss, towers and
+// grilles).
 function stageParts(day?: string) {
   const scene = new THREE.Scene();
   const built = buildStage(scene, null, false, new THREE.MeshBasicMaterial(), { uC0: { value: null }, uC1: { value: null } }, day);
@@ -901,8 +902,8 @@ export function looksOf(roles: string[]) {
   return out.sort((a, b) => (a.day < b.day ? -1 : 1));
 }
 // How the tests name a stage, where a line-up stood on more than one, and its black.
-const STAGE_NAMES: Record<string, string> = { roof: "the roof's stage", wall: "the Wall of Sound" };
-const STAGE_BLACKS: Record<string, string> = { roof: "the roof, the back wall or a PA stack", wall: "the Wall's cabinets or the rig's bridge over its front" };
+const STAGE_NAMES: Record<string, string> = { roof: "the roof's stage", wall: "the Wall of Sound", arena: "the arena's stage" };
+const STAGE_BLACKS: Record<string, string> = { roof: "the roof, the back wall or a PA stack", wall: "the Wall's cabinets or the rig's bridge over its front", arena: "the roof, the back wall, the flown PA, a side-fill or an amplifier's frame" };
 
 /* The rules every line-up keeps, as a describe block of its own: `name` is how the tests name it, and `day` (YYYY-MM-DD) a date of its
    row of lineup.js, whose roles it is. What the band is held to against the stage, it is held to on every stage it stood on
