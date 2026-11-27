@@ -47,23 +47,32 @@ export function stageOn(date) {
   return { from: row[0], to: row[1], stage: row[2] };
 }
 
-/* The Wall of Sound, in the stage's own frame. Its cabinets are dark, each a box with its speakers' cones standing CONE m proud of its
-   front, a speaker an eight-sided cone of SIDES facets. Above the light panel: WALL_COLS columns of cabinets TOP_W wide, TOP_H high and
-   TOP_D deep, from TOP_Y, just over the panel's top, their fronts on the back wall's at TOP_Z, so that none stands in front of the
-   panel: a row of them across the wall's width and, on it, columns as many cabinets high as TOP_ROWS says, from the crowd's left, the
-   cluster up the middle reaching the column's top (ground.js STAGE_COLUMN) and a gap of sky between the sides and the middle. At each
-   end, beside the panel: a tower of the bass's cabinets, END_COLS of them END_W wide across and END_ROWS high, from the ground to the
-   column's top, END_D deep, its inner front corner on the panel's edge at END_AT and turned END_TURN rad toward the crowd, so the Wall
-   wraps the band; its outer back corner is the stage's furthest from its centre, 10.85 m. Each cabinet carries four speakers, two by
-   two, of TOP_R m and END_R m. Over the front of the platform, on the posts, the rig's bridge: the roof's front BRIDGE m, as wide as
-   the roof, which the lamps hang under as they hang under the roof (rig.js LAMP_Y, LAMP_Z). It is that deep so that from the hill it
-   hides the top of the panel as the roof does: over a beam half a metre deep the panel's top showed from there as a bright strip
-   between the beam and the cabinets, which at night the beams' feet lit near white. It is the roof's width so that from among the
-   people the panel's top corner does not show past its end beside the tower. */
-const CONE = 0.06, SIDES = 8, BRIDGE = 2.5;
-const WALL_COLS = 20, TOP_W = 0.805, TOP_H = 2.2 / 3, TOP_D = 0.75, TOP_Y = 6.25, TOP_Z = -4.1, TOP_R = 0.14;
-const TOP_ROWS = [2, 2, 2, 1, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 2, 2, 1, 2, 2, 2];
-const END_COLS = 2, END_ROWS = 9, END_W = 1.1, END_H = 8.45 / END_ROWS, END_D = 0.75, END_AT = [WALL_COLS * TOP_W / 2, TOP_Z], END_TURN = 0.61, END_R = 0.2;
+/* The Wall of Sound, in the stage's own frame: columns of cabinets you can count, stepped up to a cluster in the middle. A column is
+   one box of the stage's dark, and on its front, FACE m proud, each cabinet's face: a frame that shades from a shade lighter than the
+   dark (SEAM) at its edges to the dark BEVEL m in, so that where two cabinets meet the seam is a soft ridge; on the face its speakers
+   are discs a shade darker (SPEAKER), PROUD m proud, each of SIDES sides. A seam of hard edges a few centimetres wide falls under a
+   pixel from the hill and comes and goes as the camera walks; a ridge shades over a pixel or two and holds. From the hill the stepped
+   tops carry the Wall, and the seams and discs read as a fine, steady grid.
+
+   Above the light panel: WALL_COLS columns of cabinets TOP_W wide, TOP_H high and TOP_D deep, from TOP_Y, just over the panel's top,
+   their fronts on the back wall's at TOP_Z, so that none stands in front of the panel; each column as many cabinets high as TOP_ROWS
+   says, from the crowd's left, stepping up from the sides to the cluster in the middle, which reaches the column's top (ground.js
+   STAGE_COLUMN). Each of these cabinets carries two speakers side by side, of TOP_R m. At each end, beside the panel: a tower of the
+   bass's cabinets, END_COLS of them END_W wide across, from the ground, END_D deep, its inner front corner on the panel's edge at
+   END_AT and turned END_TURN rad toward the crowd, so the Wall wraps the band; its inner column as high as the top's outer columns
+   (END_ROWS[0] cabinets of END_H) and its outer column a cabinet lower, so the skyline steps down at the ends too. Its outer back
+   corner is the stage's furthest from its centre, 10.85 m. Each bass cabinet carries two speakers side by side, of END_R m.
+
+   Over the front of the platform, on the posts, the rig's bridge: the roof's front BRIDGE m, as wide as the roof, which the lamps hang
+   under as they hang under the roof (rig.js LAMP_Y, LAMP_Z). It is that deep so that from the hill it hides the top of the panel as
+   the roof does: over a beam half a metre deep the panel's top showed from there as a bright strip between the beam and the cabinets,
+   which at night the beams' feet lit near white. It is the roof's width so that from among the people the panel's top corner does not
+   show past its end beside the tower. */
+const SIDES = 8, BRIDGE = 2.5, SEAM = 0x2e2a26, SPEAKER = 0x0b0a09, BEVEL = 0.09, FACE = 0.01, PROUD = 0.02;
+const WALL_COLS = 20, TOP_W = 0.805, TOP_H = 0.44, TOP_D = 0.75, TOP_Y = 6.25, TOP_Z = -4.1, TOP_R = 0.14;
+const TOP_ROWS = [2, 2, 2, 3, 3, 3, 4, 4, 5, 5, 5, 5, 4, 4, 3, 3, 3, 2, 2, 2];
+const END_COLS = 2, END_ROWS = [9, 8], END_W = 1.1, END_H = (TOP_Y + TOP_ROWS[0] * TOP_H) / END_ROWS[0], END_D = 0.75;
+const END_AT = [WALL_COLS * TOP_W / 2, TOP_Z], END_TURN = 0.61, END_R = 0.22;
 
 /* Builds the stage. With `shadows` the sun casts the desktop's one shadow map, framed on the stage alone. `panelMat` is the light panel's
    material (sky.js) and `colors` the sky's uniforms, whose two colours the rig's beams take. Returns the group, the light panel, the stage
@@ -130,34 +139,54 @@ const STILL = {
   },
   /* The Wall of Sound, 1974, behind the band, with no stacks at the sides and no roof behind the rig's bridge, so that it stands
      against the sky (WALL_COLS and the rest): its cabinets above the panel and its towers at the ends, and the panel's backing, the back
-     wall's below the top of the panel; and over the front, on the posts, the bridge (BRIDGE), the roof's front with the same front
-     edge. The towers stand on the ground, which there is 3 to 14 cm over the shelf. */
+     wall's below the cabinets, up to their faces' foot and no further, so that no face shares its plane; and over the front, on the
+     posts, the bridge (BRIDGE), the roof's front with the same front edge. The towers stand on the ground, which there is 3 to 14 cm
+     over the shelf. */
   wall(still, group, dark) {
+    const mats = { dark, seam: new THREE.Color(SEAM), speaker: new THREE.MeshLambertMaterial({ color: SPEAKER, flatShading: true }) };
     still.add(mesh(new THREE.BoxGeometry(18, 0.5, BRIDGE), dark, 0, 8.2, 4.5 - BRIDGE / 2));
-    still.add(mesh(new THREE.BoxGeometry(WALL_COLS * TOP_W, TOP_Y + 0.05 - FLOOR, 0.4), dark, 0, (TOP_Y + 0.05 + FLOOR) / 2, TOP_Z - 0.2));
-    TOP_ROWS.forEach((rows, c) => stack(still, dark, [TOP_W * (c + 0.5 - WALL_COLS / 2), TOP_Z], 0, TOP_Y, TOP_W, TOP_H, TOP_D, rows, TOP_R));
+    still.add(mesh(new THREE.BoxGeometry(WALL_COLS * TOP_W, TOP_Y - FLOOR, 0.4), dark, 0, (TOP_Y + FLOOR) / 2, TOP_Z - 0.2));
+    TOP_ROWS.forEach((rows, c) => stack(still, mats, [TOP_W * (c + 0.5 - WALL_COLS / 2), TOP_Z], 0, TOP_Y, TOP_W, TOP_H, TOP_D, rows, TOP_R));
     for (const side of [-1, 1]) {
       const at = [side * END_AT[0], END_AT[1]], turn = -side * END_TURN;
       for (let c = 0; c < END_COLS; c++) {
         const along = side * END_W * (c + 0.5);
-        stack(still, dark, [at[0] + along * Math.cos(turn), at[1] - along * Math.sin(turn)], turn, 0, END_W, END_H, END_D, END_ROWS, END_R);
+        stack(still, mats, [at[0] + along * Math.cos(turn), at[1] - along * Math.sin(turn)], turn, 0, END_W, END_H, END_D, END_ROWS[c], END_R);
       }
     }
   },
 };
 
-/* A column of `rows` cabinets, each `w` wide, `h` high and `d` deep, from `y` up: one box, its front's middle at `at` ([x, z]) and
-   facing `turn` rad round from the crowd, and on its front each cabinet's four speakers, two by two, cones of radius `r`. */
-function stack(still, dark, [x, z], turn, y, w, h, d, rows, r) {
+/* A column of `rows` cabinets, each `w` wide, `h` high and `d` deep, from `y` up, its front's middle at `at` ([x, z]) and facing `turn`
+   rad round from the crowd: one box of the dark, FACE m short of the front; on it each cabinet's face (framed), shading from the
+   seam's shade (a colour) at its edges to the dark BEVEL m in; and on each face two speakers side by side, discs of radius `r` in the speaker's
+   shade, PROUD m proud of it. */
+function stack(still, { dark, seam, speaker }, [x, z], turn, y, w, h, d, rows, r) {
   const sin = Math.sin(turn), cos = Math.cos(turn);
   const put = (m, across, up, out) => {
     m.position.set(x + across * cos + out * sin, up, z - across * sin + out * cos);
     m.rotation.y = turn;
     return m;
   };
-  still.add(put(new THREE.Mesh(new THREE.BoxGeometry(w, rows * h, d), dark), 0, y + (rows * h) / 2, -d / 2));
-  const cone = new THREE.ConeGeometry(r, CONE, SIDES, 1, true).rotateX(Math.PI / 2);
-  for (let k = 0; k < rows; k++) for (const i of [-1, 1]) for (const j of [-1, 1]) {
-    still.add(put(new THREE.Mesh(cone, dark), (i * w) / 4, y + h * (k + 0.5) + (j * h) / 4, CONE / 2));
+  still.add(put(new THREE.Mesh(new THREE.BoxGeometry(w, rows * h, d - FACE), dark), 0, y + (rows * h) / 2, -(d + FACE) / 2));
+  const face = new THREE.Mesh(framed(w, h, BEVEL, seam, dark.color), new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  const disc = new THREE.CircleGeometry(r, SIDES);
+  for (let k = 0; k < rows; k++) {
+    const up = y + h * (k + 0.5);
+    still.add(put(face.clone(), 0, up, 0));
+    for (const i of [-1, 1]) still.add(put(new THREE.Mesh(disc, speaker), (i * w) / 4, up, PROUD));
   }
+}
+
+/* A cabinet's face, `w` by `h`, facing +z: its edge, in the colour `edge`, framing a middle `b` in on every side, in `middle`, the
+   colours shading between them across the frame (mergeStill keeps a part's own colours). Ten triangles: four for the frame's sides
+   and two for the middle. */
+function framed(w, h, b, edge, middle) {
+  const X = w / 2, Y = h / 2, x = X - b, y = Y - b;
+  const at = [[-X, -Y], [X, -Y], [X, Y], [-X, Y], [-x, -y], [x, -y], [x, y], [-x, y]];
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(at.flatMap(([u, v]) => [u, v, 0]), 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(at.flatMap((_, k) => (k < 4 ? edge : middle).toArray()), 3));
+  geo.setIndex([0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7, 4, 5, 6, 4, 6, 7]);
+  return geo;
 }

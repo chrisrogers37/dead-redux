@@ -181,10 +181,70 @@ describe("the Wall of Sound", () => {
     }
   }, 60_000);
 
+  // The Wall reads as the Wall by its skyline, stepped up to the middle, and by cabinets that can be counted: seams a shade lighter
+  // between them and speakers a shade darker on their faces. Read here by rays toward the Wall, as the crowd faces it.
+  it("stacks cabinets that can be counted, stepped up to a cluster in the middle: up each column's front a ray meets each cabinet's dark middle, framed by the seam's shade, and then the sky, and on each cabinet two speakers in the speaker's shade", () => {
+    const { built, still } = stageFor(WALL_DAY), colour = still.geometry!.getAttribute("color"), ray = new THREE.Raycaster();
+    const key = (r: number, g: number, b: number) => [r, g, b].map((v) => v.toFixed(5)).join(" ");
+    const shade: Record<string, string> = {};
+    for (const [name, hex] of [["dark", 0x1a1816], ["seam", 0x2e2a26], ["speaker", 0x0b0a09]] as const) { const c = new THREE.Color(hex); shade[key(c.r, c.g, c.b)] = name; }
+    // What a ray from `back` m in front of the point (x, y, z) of the stage's frame, toward it along (dx, dz), meets first within
+    // 0.1 m past it: from a centimetre out, a cabinet's face; from further, a speaker. A triangle is read by its first corner's colour:
+    // the face's frame by its edge, the seam's shade, and its middle by the dark.
+    const meets = (x: number, y: number, z: number, dx: number, dz: number, back = 0.01) => {
+      const from = new THREE.Vector3(x + back * dx, y, z + back * dz).applyMatrix4(built.group.matrixWorld);
+      ray.set(from, new THREE.Vector3(-dx, 0, -dz).transformDirection(built.group.matrixWorld));
+      ray.far = back + 0.1;
+      const hit = ray.intersectObject(still)[0] as unknown as { face: { a: number } } | undefined;
+      return hit ? shade[key(colour.getX(hit.face.a), colour.getY(hit.face.a), colour.getZ(hit.face.a))] ?? "other" : "sky";
+    };
+    // Up a column's front from y0, 1 cm a step: the runs of what the rays meet, as [what, from, to].
+    const runs = (x: number, z: number, dx: number, dz: number, y0: number) => {
+      const out: [string, number, number][] = [];
+      for (let y = y0 + 0.005; y < 9.5; y += 0.01) {
+        const what = meets(x, y, z, dx, dz);
+        if (out.at(-1)?.[0] === what) out.at(-1)![2] = y; else out.push([what, y, y]);
+      }
+      return out;
+    };
+    // A column read: its cabinets, each a run of the dark framed by the seam's shade, one run of it between each two, then the sky; and
+    // its top.
+    const read = (r: [string, number, number][]) => {
+      expect(r.at(-1)![0]).toBe("sky");
+      const body = r.slice(0, -1);
+      body.forEach(([what], k) => expect(what).toBe(k % 2 === 0 ? "seam" : "dark"));
+      expect(body.length % 2).toBe(1);
+      return { cabinets: (body.length - 1) / 2, top: Math.round(body.at(-1)![2] * 100) / 100 };
+    };
+    // Above the panel: the twenty columns, 0.805 m apart, their fronts 4.1 m behind the stage's middle (stage.js TOP_ROWS and the rest),
+    // read up their middles from just over the panel's top.
+    const top = Array.from({ length: 20 }, (_, c) => read(runs(0.805 * (c - 9.5), -4.1 - 0.001, 0, 1, 6.25)));
+    expect(top.map((t) => t.cabinets)).toEqual([2, 2, 2, 3, 3, 3, 4, 4, 5, 5, 5, 5, 4, 4, 3, 3, 3, 2, 2, 2]);
+    // The skyline steps up from each side to the middle, by four heights, and the middle reaches the stage column's top.
+    const tops = top.map((t) => t.top);
+    expect([...new Set(tops)].length).toBe(4);
+    expect(tops).toEqual([...tops].reverse());
+    for (let c = 1; c < 10; c++) expect(tops[c]).toBeGreaterThanOrEqual(tops[c - 1]);
+    expect(Math.max(...tops)).toBeCloseTo(STAGE_COLUMN.top - SHELF_Y, 1);
+    // On each cabinet's front, a quarter of its width either side of its middle and at its half height, a speaker.
+    top.forEach((t, c) => { for (let k = 0; k < t.cabinets; k++) for (const i of [-1, 1]) expect([c, k, i, meets(0.805 * (c - 9.5) + (i * 0.805) / 4, 6.25 + 0.44 * (k + 0.5), -4.1, 0, 1, 0.5)]).toEqual([c, k, i, "speaker"]); });
+    // At each end, the bass's two columns, 1.1 m wide, from the panel's edge 8.05 m out, turned 0.61 rad toward the crowd: the inner as
+    // high as the top's outer columns and the outer a cabinet lower, so the skyline steps down at the ends too.
+    for (const side of [-1, 1]) {
+      const turn = -side * 0.61, dx = Math.sin(turn), dz = Math.cos(turn);
+      const ends = [0, 1].map((c) => {
+        const along = side * 1.1 * (c + 0.5);
+        return read(runs(side * 8.05 + along * Math.cos(turn), -4.1 - along * Math.sin(turn), dx, dz, 0));
+      });
+      expect([side, ends.map((e) => e.cabinets)]).toEqual([side, [9, 8]]);
+      expect([ends[0].top, ends[1].top < ends[0].top - 0.5]).toEqual([expect.closeTo(tops[0], 1), true]);
+    }
+  }, 60_000);
+
   // Nothing lit is new on the Wall: what is lit is the roof's stage's own, and the Wall is the stage's dark. What it changes is what
   // the lit parts are seen against, and the stage light no longer falls on a roof's underside; so its light was counted by render
   // (scripts/flash) against the roof's stage with the same band: in Drums its worst blocks read as the roof's, at the same place and frames.
-  it("changes nothing lit: the panel, the stage light and the rig are the roof's stage's, and the Wall's still parts are the stage's own dark, wood and stone, in the one still mesh, which glows nowhere", () => {
+  it("changes nothing lit: the panel, the stage light and the rig are the roof's stage's, and the Wall's still parts are the stage's own dark, wood and stone and two shades of the dark, the seams' a shade lighter and the speakers' a shade darker, all of them black to the outline gates, in the one still mesh, which glows nowhere", () => {
     // The roof's stage on the last show before the Wall, whose line-up is the Wall's day's.
     const roof = stageFor("1974-02-24"), wall = stageFor(WALL_DAY);
     expect(lineupOn("1974-02-24").roles).toEqual(lineupOn(WALL_DAY).roles);
@@ -197,7 +257,9 @@ describe("the Wall of Sound", () => {
     expect([wall.built.light.color.getHex(), wall.built.light.intensity, wall.built.light.distance, wall.built.light.decay]).toEqual([roof.built.light.color.getHex(), roof.built.light.intensity, roof.built.light.distance, roof.built.light.decay]);
     expect(Array.from(wall.built.rig.mesh.instanceMatrix.array)).toEqual(Array.from(roof.built.rig.mesh.instanceMatrix.array));
     expect([wall.built.rig.mesh.material.vertexShader, wall.built.rig.mesh.material.fragmentShader]).toEqual([roof.built.rig.mesh.material.vertexShader, roof.built.rig.mesh.material.fragmentShader]);
-    // One still mesh each, Lambert and glowing nowhere, in the colours of the roof's stage's own still parts.
+    // One still mesh each, Lambert and glowing nowhere, in the colours of the roof's stage's own still parts and two more: the seams
+    // between cabinets a shade lighter than the stage's dark and the speakers a shade darker, each with no channel at 0.05 or over, so
+    // that the outline gates draw them as the stage's black (band-outline.ts), as they draw the dark.
     const colours = (still: Obj) => {
       const c = still.geometry!.getAttribute("color"), out = new Set<string>();
       for (let i = 0; i < c.count; i++) out.add([c.getX(i), c.getY(i), c.getZ(i)].map((v) => v.toFixed(5)).join(" "));
@@ -205,7 +267,12 @@ describe("the Wall of Sound", () => {
     };
     expect([wall.stills.length, roof.stills.length]).toEqual([1, 1]);
     expect([wall.still.material!.type, wall.still.material!.emissive!.getHex()]).toEqual(["MeshLambertMaterial", 0]);
-    expect([...colours(wall.still)].every((c) => colours(roof.still).has(c))).toBe(true);
+    const key = (c: THREE.Color) => [c.r, c.g, c.b].map((v) => v.toFixed(5)).join(" ");
+    const [dark, seam, speaker] = [0x1a1816, 0x2e2a26, 0x0b0a09].map((hex) => new THREE.Color(hex));
+    const roofs = colours(roof.still);
+    expect(roofs.has(key(dark))).toBe(true);
+    expect([...colours(wall.still)].filter((c) => !roofs.has(c)).sort()).toEqual([key(seam), key(speaker)].sort());
+    expect([Math.max(seam.r, seam.g, seam.b) < 0.05, seam.r > dark.r, speaker.r < dark.r]).toEqual([true, true, true]);
     // And nothing else of the stage's group is new: the same meshes and lights, by kind and material, in the same order.
     const kinds = (built: { group: Obj }) => {
       const out: string[] = [];
@@ -217,8 +284,8 @@ describe("the Wall of Sound", () => {
 
   // The stage's draw calls are those of the roof's stage (the still mesh is one, merged by landmarks.js mergeStill): what it adds is
   // triangles, on every tier alike, the stage being built the same on each.
-  it("costs no draw call, and 2,760 triangles more than the roof's stage: the still mesh is one, of 2,896 triangles to the roof's 136, of which 2,496 are the speakers' cones", () => {
+  it("costs no draw call, and 2,864 triangles more than the roof's stage: the still mesh is one, of 3,000 triangles to the roof's 136, of which 1,600 are the speakers' discs and 1,000 the cabinets' faces, of 100 cabinets", () => {
     const triangles = (date?: string) => stageFor(date).still.geometry!.getAttribute("position").count / 3;
-    expect([triangles(), triangles(WALL_DAY)]).toEqual([136, 2896]);
+    expect([triangles(), triangles(WALL_DAY)]).toEqual([136, 3000]);
   });
 });
