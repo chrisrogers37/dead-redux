@@ -734,6 +734,8 @@ export const DRAWN = 30, DRAWN_VIEWS = [0, 0.5, 1, 1.5].flatMap((turn) => [[turn
 const DRAWN_X = 0.9, DRAWN_LOW = -0.4, DRAWN_HIGH = 3, DRAWN_ACROSS = Math.ceil(2 * DRAWN_X * DRAWN), DRAWN_UP = Math.ceil((DRAWN_HIGH - DRAWN_LOW) * DRAWN);
 const DRAWN_CELLS = DRAWN_ACROSS * DRAWN_UP, drawnDepth = new Float32Array(DRAWN_VIEWS.length * DRAWN_CELLS), drawnWhose = new Int8Array(DRAWN_VIEWS.length * DRAWN_CELLS);
 let drawnStood = new Float32Array(0), drawnSeen = new Float32Array(0);
+/* Clear between figures: each call clears the cells it drew on as it counts them. */
+drawnDepth.fill(Infinity); drawnWhose.fill(-1);
 const clamp01 = (v) => Math.min(Math.max(v, 0), 1);
 /** @param {Map<string, { position: Float32Array, mark: Float32Array, index: number[], tints: Int8Array }>} kit
     @param {{ parts: number, forms?: Record<number, number>, cut: number, shape: number[] | Float32Array, body: number[] | Float32Array, seat?: string | null }} figure */
@@ -831,7 +833,8 @@ export function drawnOf(kit, { parts, forms = {}, cut, shape: [hair, hem, crown,
   /* Whose colour each tint takes for this figure's cut, worked out once for the figure and not once a face for each view. */
   const whoseTint = Int8Array.from({ length: TINTS }, (_, tint) => sourceOf(tint, cut));
   const views = DRAWN_VIEWS.map(([turn, tilt]) => ({ c: Math.cos(turn), s: Math.sin(turn), lean: Math.sin(tilt), level: Math.cos(tilt) }));
-  drawnDepth.fill(Infinity); drawnWhose.fill(-1);
+  /* The box, in every view, round the faces drawn: only it is counted and cleared after, not the whole of each view. */
+  let low = DRAWN_UP, high = -1, left = DRAWN_ACROSS, right = -1;
   for (const [bit, form] of worn) {
     const piece = kit.get(`${bit} ${form}`);
     if (!piece) continue;
@@ -857,6 +860,7 @@ export function drawnOf(kit, { parts, forms = {}, cut, shape: [hair, hem, crown,
         if (whole <= 1e-9) continue;
         const x0 = Math.max(0, Math.floor(Math.min(ax, bx, cx))), x1 = Math.min(DRAWN_ACROSS - 1, Math.ceil(Math.max(ax, bx, cx)));
         const y0 = Math.max(0, Math.floor(Math.min(ay, by, cy))), y1 = Math.min(DRAWN_UP - 1, Math.ceil(Math.max(ay, by, cy)));
+        low = Math.min(low, y0); high = Math.max(high, y1); left = Math.min(left, x0); right = Math.max(right, x1);
         const ux = (cy - by) / whole, vx = (ay - cy) / whole;
         for (let py = y0; py <= y1; py++) {
           let u = ((cx - bx) * (py + 0.5 - by) - (cy - by) * (x0 + 0.5 - bx)) / whole, v = ((ax - cx) * (py + 0.5 - cy) - (ay - cy) * (x0 + 0.5 - cx)) / whole;
@@ -874,7 +878,11 @@ export function drawnOf(kit, { parts, forms = {}, cut, shape: [hair, hem, crown,
   }
   return views.map((_, view) => {
     const sums = SOURCES.map(() => 0);
-    for (let at = view * DRAWN_CELLS; at < (view + 1) * DRAWN_CELLS; at++) if (drawnWhose[at] >= 0) sums[drawnWhose[at]] += 1;
+    for (let row = low; row <= high; row++) {
+      for (let at = view * DRAWN_CELLS + row * DRAWN_ACROSS + left, end = at + right - left; at <= end; at++) {
+        if (drawnWhose[at] >= 0) { sums[drawnWhose[at]] += 1; drawnWhose[at] = -1; drawnDepth[at] = Infinity; }
+      }
+    }
     const all = sums.reduce((sum, n) => sum + n, 0);
     return sums.map((n) => n / all);
   });

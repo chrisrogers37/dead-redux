@@ -2959,6 +2959,17 @@ describe("the crowd's shader", () => {
     expect(leaning).toEqual([]);
   }, 120000);
 
+  it("draws each figure the same whichever figure it drew before: drawnOf clears each cell it drew on as it counts it", () => {
+    // drawnOf counts each view over only the box its figure drew in, and clears it as it counts. A cell left drawn on, or a depth
+    // left near, would count for, or hide, the next figure whose box takes it in; drawn in one order and then in the other, every
+    // figure of a crowd comes out the same.
+    for (const c of [SHOWS[0].desktop, SHOWS[0].phone]) {
+      const kit = kitOf(c), figures = figuresOf(c), draw = (f: Figure) => drawnOf(kit, figureNumbers(f)) as number[][];
+      const forth = figures.map(draw), back = [...figures].reverse().map(draw).reverse();
+      expect([figures.length > 100, back]).toEqual([true, forth]);
+    }
+  });
+
   it("turns a top's pattern to its colour on the whole wherever a pixel spans two of its bands, along every way they change, and softens a band's edge by a width that never comes to nothing", () => {
     // The fragment shader's one derivative is how far a pixel spans on the figure along each way. Every width it softens an edge by
     // comes from that in the lines the tests run, and is half a width each side of the edge, never less than DRESS_EDGE, so that
