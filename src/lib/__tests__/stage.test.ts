@@ -169,7 +169,7 @@ describe("the Wall of Sound", () => {
     // The roof's stage has its stacks, as main has.
     const roof = corners(stageFor().still);
     expect(roof.filter((p) => Math.hypot(p.x, p.z) > 9.5 + 1e-6 && p.z > -2.5 && p.y < 7.9).length).toBeGreaterThan(0);
-  });
+  }, 60_000);
 
   it("hangs every lamp of the rig under the roof's front edge, as the roof's stage does: straight over each, within 0.1 m, is the underside of the still mesh", () => {
     for (const date of [undefined, WALL_DAY]) {

@@ -667,7 +667,7 @@ describe("the band on the stage", () => {
 });
 
 // What the band wears and how it is lit (band.js dressOf and LIGHT). The band is real people: no seat keeps a look of its own, and
-// no role picks one; each is the era's and the seat's.
+// a role picks which garments are worn, never their colours, which are the era's and the seat's.
 describe("the band's look", () => {
   // A day of each era of clothes, and its line-ups' seats: seven at the most.
   const ERAS = (WARDROBES as [string, string, string][]).map(([from, to, era]) => ({ from, to, era }));
@@ -762,12 +762,17 @@ describe("the band's look", () => {
     for (const [key] of Object.entries(STAGING)) for (const { from } of ERAS) {
       const stage = new THREE.Group(), band: Band = buildBand(stage, FLOOR, key.split(" "), from);
       stage.updateMatrixWorld(true);
-      band.players.forEach((p: { dress: Record<string, { getHexString(): string }> }, k: number) => {
-        const allowed = new Set(["skin", "hair", "hat", "top", "second", "coat"].filter((name) => p.dress[name]).map((name) => hex(p.dress[name])));
-        const skin: InstanceType<typeof THREE.Vector3>[] = [], all: InstanceType<typeof THREE.Vector3>[] = [], colour = new THREE.Color(), x = new THREE.Vector3(1, 0, 0);
+      band.players.forEach((p: { dress: Record<string, { getHexString(): string } | null> }, k: number) => {
+        const named = (name: string) => (p.dress[name] ? hex(p.dress[name]!) : null), skinHex = named("skin");
+        const allowed = new Set(["skin", "hair", "hat", "top", "second", "coat"].map(named).filter(Boolean));
+        // The colours that may lie just under the head's surface where the face is: the skin's, and the hair's and the hat's, which
+        // come down over the brow (a beanie to the eyes' height).
+        const over = new Set(["skin", "hair", "hat"].map(named).filter(Boolean));
+        type Corner = { at: InstanceType<typeof THREE.Vector3>; colour: string };
+        const tris: Corner[][] = [], colour = new THREE.Color(), x = new THREE.Vector3(1, 0, 0);
         const { pivot, lean, body } = band.players[k];
-        // Every corner in the player's own frame and metres, upright: a still part's (on the stage, leaned as the body is at rest)
-        // and the body's (in its own frame, about its pivot).
+        // Every triangle in the player's own frame and metres, upright: a still part's (on the stage, leaned as the body is at
+        // rest) and the body's (in its own frame, about its pivot). Each is three corners in a row, as band.js draws no index.
         const upright = (at: Vec) => own(band, k, at).sub(pivot).applyAxisAngle(x, -lean).add(pivot);
         const still = band.still.geometry.getAttribute("position"), stillColour = band.still.geometry.getAttribute("color");
         for (const part of band.still.userData.parts as Part[]) {
@@ -775,35 +780,58 @@ describe("the band's look", () => {
           for (let i = part.from; i < part.from + part.count; i++) {
             colour.fromBufferAttribute(stillColour, i);
             if (part.of === "head") expect([key, from, k, allowed.has(colour.getHexString())]).toEqual([key, from, k, true]);
-            const at = upright(new THREE.Vector3().fromBufferAttribute(still, i));
-            all.push(at);
-            if (colour.getHexString() === hex(p.dress.skin)) skin.push(at);
+            if ((i - part.from) % 3 === 0) tris.push([]);
+            tris.at(-1)!.push({ at: upright(new THREE.Vector3().fromBufferAttribute(still, i)), colour: colour.getHexString() });
           }
         }
         if (body.geometry) {
           const at = body.geometry.getAttribute("position"), bodyColour = body.geometry.getAttribute("color");
           for (let i = 0; i < at.count; i++) {
-            const c = new THREE.Vector3().fromBufferAttribute(at, i).add(pivot);
-            all.push(c);
-            if (colour.fromBufferAttribute(bodyColour, i).getHexString() === hex(p.dress.skin)) skin.push(c);
+            if (i % 3 === 0) tris.push([]);
+            tris.at(-1)!.push({ at: new THREE.Vector3().fromBufferAttribute(at, i).add(pivot), colour: colour.fromBufferAttribute(bodyColour, i).getHexString() });
           }
         }
+        expect([key, from, k, tris.every((t) => t.length === 3)]).toEqual([key, from, k, true]);
+        const skin = tris.flat().filter((c) => c.colour === skinHex).map((c) => c.at);
         // The head's ellipsoid: 0.112 m round, 0.88 of it across, 1.12 up and 1 deep (band.js trunk), its middle under its crown,
         // the highest corner of skin over the neck (within 15 cm of the body's middle line, which takes in no hand); and what of that
         // skin stands within 5 cm under the middle or over it, which no neck or collar reaches.
-        const [rx, ry, rz] = [0.112 * 0.88, 0.112 * 1.12, 0.112], over = skin.filter((c) => Math.abs(c.x) < 0.15 && Math.abs(c.z - 0.005) < 0.15);
-        const mid = { x: 0, y: Math.max(...over.map((c) => c.y)) - ry, z: 0.005 }, head = over.filter((c) => c.y > mid.y - 0.05);
+        const [rx, ry, rz] = [0.112 * 0.88, 0.112 * 1.12, 0.112], crown = skin.filter((c) => Math.abs(c.x) < 0.15 && Math.abs(c.z - 0.005) < 0.15);
+        const mid = { x: 0, y: Math.max(...crown.map((c) => c.y)) - ry, z: 0.005 }, head = crown.filter((c) => c.y > mid.y - 0.05);
         expect([key, from, k, head.length >= 40]).toEqual([key, from, k, true]);
         const offOf = (c: Vec) => ((c.x - mid.x) / rx) ** 2 + ((c.y - mid.y) / ry) ** 2 + ((c.z - mid.z) / rz) ** 2;
         for (const c of head) expect([key, from, k, Math.abs(offOf(c) - 1) < 1e-3]).toEqual([key, from, k, true]);
-        // And nothing on the face: where a face would be, from the chin to the brow (FACE), no corner of the player, in any colour,
-        // stands off the head and within 0.3 of its radii of it; there only the head's own skin shows. Hair falls by it 49 degrees
-        // or more to either side, a cap's peak stands over it at 25 degrees up, and a hand that comes near it stays 48 degrees down.
-        for (const c of all) {
-          const dx = c.x - mid.x, dy = c.y - mid.y, dz = c.z - mid.z, off = offOf(c);
+        // And nothing on the face. A corner's `off` is 1 on the ellipsoid, under 1 inside it and over 1 outside; the head's own
+        // triangles, flat, lie between their corners on it and their middles inside it (`flat`, the least `off` of a middle of
+        // one whose three corners are on it). Where a face would be (FACE), every corner of the player:
+        //   - on the ellipsoid, the head's own surface, is in the skin's colour;
+        //   - between its flat faces and it, just under the surface, is in the skin's, the hair's or the hat's;
+        //   - off the head and within 0.3 of its radii of it is none: only the head's own skin shows there;
+        //   - off the head at any distance is no corner of a triangle that has a corner on or in the head: nothing rooted in the
+        //     head, a spike however thin or long, stands out of its face.
+        // What stands off the head further than 0.3 of its radii and has no corner on or in it is no part of the head: a hand that
+        // comes up under the chin, 16 cm from the head's middle and more. Hair falls by the face 49 degrees or more to either side,
+        // a cap's peak stands over it at 25 degrees up, and that hand stays 48 degrees down where it is nearer.
+        const on = (off: number) => Math.abs(off - 1) < 1e-3, out = (off: number) => off > 1 + 1e-3;
+        const flat = Math.min(...tris.filter((t) => t.every((c) => c.colour === skinHex && on(offOf(c.at)))).map(([a, b, c]) => offOf(new THREE.Vector3().add(a.at).add(b.at).add(c.at).divideScalar(3))));
+        expect([key, from, k, flat > 0.8 && flat < 0.95]).toEqual([key, from, k, true]);
+        const onFace = (c: Vec) => {
+          const dx = c.x - mid.x, dy = c.y - mid.y, dz = c.z - mid.z;
           const side = (Math.atan2(dx, dz) * 180) / Math.PI, up = (Math.atan2(dy, Math.hypot(dx, dz)) * 180) / Math.PI;
-          if (Math.abs(side) < FACE.side && up > FACE.low && up < FACE.high && off > 1 + 1e-3 && off < 1.3 ** 2) {
-            expect([key, from, k, `a corner ${dz.toFixed(3)} m in front of the head's middle, ${side.toFixed(0)} degrees aside and ${up.toFixed(0)} up`]).toEqual([key, from, k, "none"]);
+          return Math.abs(side) < FACE.side && up > FACE.low && up < FACE.high ? `${dz.toFixed(3)} m in front of the head's middle, ${side.toFixed(0)} degrees aside and ${up.toFixed(0)} up` : null;
+        };
+        for (const t of tris) {
+          const rooted = t.some((c) => !out(offOf(c.at)));
+          for (const { at, colour: its } of t) {
+            const where = onFace(at), off = offOf(at);
+            if (!where) continue;
+            const wrong =
+              on(off) && its !== skinHex ? "the head's surface in another colour than its skin"
+              : off > flat - 1e-3 && off < 1 - 1e-3 && !over.has(its) ? "just under the head's surface in a colour of its own"
+              : out(off) && off < 1.3 ** 2 ? "off the head"
+              : out(off) && rooted ? "out of the head, on a triangle rooted in it"
+              : null;
+            if (wrong) expect([key, from, k, `${wrong}: ${where}`]).toEqual([key, from, k, "nothing on the face"]);
           }
         }
       });
@@ -883,7 +911,7 @@ describe("the band's look", () => {
     expect(compileGlsl("vec3 a = vec3(1.0, 2.0, 3.0) * 2.0; float b = dot(a, a.zyx); out.x = clamp(b, 0.0, 9.5) - pow(2.0, 3.0);")({})).toEqual({ "out.x": 1.5 });
   });
 
-  it("gives a body a lit side and a side in shadow, and a warm edge on its panel side alone: a face turned to the key takes all of it and one turned away none; the fill whole from above and FILL_BELOW of it from below; the back light none on a face turned to the eye or away from the panel, and on one edge-on to the eye as much as it turns to the panel", () => {
+  it("gives a body a lit side and a side in shadow, and a warm edge on its panel side alone: a face turned to the key takes all of it and one turned away none; the fill whole from above and FILL_BELOW of it from below; the back light none on a face turned to the eye or away from the panel, and on one edge-on to the eye, or turned past it, as much as it turns to the panel", () => {
     const { band } = stand(), keyTo = band.uniforms.uKeyTo.value.clone(), panel = band.uniforms.uPanel.value.clone();
     const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
     // The key, by Lambert's law: all of it turned to the key, none turned away, half at 60 degrees from it.
@@ -904,6 +932,10 @@ describe("the band's look", () => {
     expect(lightOn(edgeOn.clone().negate()).rim).toBe(0);
     const half = toEye.clone().multiplyScalar(0.5).addScaledVector(edgeOn, Math.sqrt(0.75));
     expect(lightOn(half).rim).toBeCloseTo(0.5 ** RIM_EDGE * half.dot(toPanel), 12);
+    // A normal turned from the eye, as at an outline, where the normals round off, takes no more of it than one edge-on.
+    const beyond = edgeOn.clone().addScaledVector(toEye, -0.5).normalize();
+    expect([beyond.dot(toEye) < -0.4, beyond.dot(toPanel) > 0.5]).toEqual([true, true]);
+    expect(lightOn(beyond).rim).toBeCloseTo(beyond.dot(toPanel), 12);
   });
 });
 

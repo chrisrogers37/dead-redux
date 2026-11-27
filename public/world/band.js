@@ -24,9 +24,9 @@ import { eraOn } from "./lineup.js";
    and one with long hair; a broad guitarist in a long skirt with a bob; a slight keys player with short hair; and the three roles
    the six lack. None has a beard, a brimmed hat or a bushy head, and no collar and no hair stands under a jaw, where an outline
    would read it as a beard. A head is a smooth form in its skin and its hair, with no eyes, nose or mouth. Their colours are the
-   era's and the seat's (dressOf), never a player's: no seat keeps a look from one era to the next, and no role picks a colour, only
-   the garments' shapes (DEAL). The bass
-   stands between the two guitars and the keyboards face the crowd: the band this site is for stood its bass at an end of its front
+   era's and the seat's (dressOf), never a player's: no seat keeps a look from one era to the next, and a role picks which garments
+   are worn (DEAL), not their colours, but that a lead guitar's are never nearly black where they show. The bass stands between the
+   two guitars and the keyboards face the crowd: the band this site is for stood its bass at an end of its front
    line through all its years, as far as its stage plots are known here. The instruments are plain shapes of their kind. */
 
 /* A player is drawn in their own units, a person about 1.78 tall, and stands SCALE times that: the crowd's height (seats.js PERSON). */
@@ -629,10 +629,10 @@ export function shownOf(dress) {
 }
 
 /* What the player in seat `seat` wears in the era of a show on `date`, and the colours of their skin, hair and instrument: each drawn
-   from the era's palette by the seat and the era (pickFor). The role picks no colour: it says only whether a coat is worn (its deal's
-   `coat`, DEAL), as it says the garments' shapes; with the one exception that a lead guitar shows nothing nearly black on its upper
-   body (shownOf, nearBlack), and takes the next coat, or the next top, where it would. Returns linear colours (tone), the era, the cut
-   of the top and the coat (null for none). */
+   from the era's palette by the seat and the era (pickFor). The role picks which garments are worn, not their colours: whether a coat
+   is (its deal's `coat`, DEAL), as it picks the garments' shapes; with the one exception that a lead guitar shows nothing nearly
+   black on its upper body (shownOf, nearBlack), and takes the next coat, or the next top, where it would. Returns linear colours
+   (tone), the era, the cut of the top and the coat (null for none). */
 export function dressOf(date, seat, role, coat = Boolean(DEAL[role]?.coat)) {
   const era = date ? eraOn(WARDROBES, date)[2] : "the late seventies and the eighties", clothes = ERA_CLOTHES[era];
   const pick = (list, what) => pickFor(list, era, seat, what), finish = pick(FINISHES, "finish");
