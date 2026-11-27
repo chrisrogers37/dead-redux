@@ -201,14 +201,14 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
     expect(players.filter((p) => p.still).map((p) => p.role)).toEqual(players.filter((p) => ["organ", "piano"].includes(p.role)).map((p) => p.role));
   });
 
-  // The six are 10,500 at the most (band.test.ts), and so is any line-up of six or five; a seven, a player more, 12,000: the sevens
-  // count 10,516 to 11,496.
-  it("is at most 10,500 triangles, or a seven 12,000", () => {
+  // The six are 20,500 at the most (band.test.ts), and so is any line-up of six or five; a seven, a player more, 23,500: shaped as
+  // people, the fives and sixes count 16,394 to 19,754 and the sevens 19,556 to 23,060.
+  it("is at most 20,500 triangles, or a seven 23,500", () => {
     let triangles = 0;
     stage.traverse((part: { isMesh?: boolean; isInstancedMesh?: boolean; count: number; geometry: { getAttribute(name: string): { count: number } } }) => {
       if (part.isMesh) triangles += (part.geometry.getAttribute("position").count / 3) * (part.isInstancedMesh ? part.count : 1);
     });
-    expect(triangles).toBeLessThanOrEqual(roles.length > 6 ? 12_000 : 10_500);
+    expect(triangles).toBeLessThanOrEqual(roles.length > 6 ? 23_500 : 20_500);
   });
 
   // A line-up that stands close (band.js CLOSE), the sevens', stands a twentieth smaller.
@@ -436,7 +436,7 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
       if (role === "drums" && / forearm$/.test(bone.name)) return { built: [0.1, 0.1], most: side === "right" ? 0.17 : 0.12 };
       if (KEYBOARDS.includes(role) && / forearm$/.test(bone.name)) return { built: [0.1, 0.1], most: 0.36 };
       if (KEYBOARDS.includes(role) && / hand$/.test(bone.name)) return { built: [0.085, 0.045], most: 0.36 };
-      if (bone.name === "tapping foot") return { built: [0.105, 0.08], most: 0.36 };
+      if (bone.name === "tapping foot") return { built: [0.105, 0.085], most: 0.36 };
       if (role === "voice" && / thigh$/.test(bone.name)) return { built: [0.2, 0.2], most: 0.36 };
       if (role === "voice" && / shin$/.test(bone.name)) return { built: [0.148, 0.148], most: 0.36 };
       return null;
@@ -457,7 +457,8 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
       });
     };
     const DESKTOP = (2 * Math.tan(Math.PI / 6)) / 900, round = (v: number) => Math.round(v * 1e4) / 1e4;
-    const least = (perPx: number, scale: number) => (95 * perPx * 1.05) / (0.74 * Math.cos(Math.PI / 6) * scale);
+    // A limb is eight-sided and 0.7 across at its narrowest (band.js LIMB), so it is 0.7 cos(π/8) of its width across its flats there.
+    const least = (perPx: number, scale: number) => (95 * perPx * 1.05) / (0.7 * Math.cos(Math.PI / 8) * scale);
     const canvases = [DESKTOP, DESKTOP * 1.5, DESKTOP * 3], [fine, whole] = [DESKTOP / 10, 1].map(sizes), coarser = canvases.map(sizes);
     fitted.forEach(({ name, built, most, scale }, j) => {
       const stout = (perPx: number) => built.map((b) => round(Math.max(b, Math.min(most, least(perPx, scale)))));
