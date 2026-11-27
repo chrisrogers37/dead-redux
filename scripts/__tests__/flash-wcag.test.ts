@@ -415,6 +415,36 @@ describe("pixel by pixel", () => {
     expect(result.pass).toBe(false);
   });
 
+  it("counts the red measure pixel by pixel too: red stripes moving across the frame, their luminance under a tenth, fail on the red alone", () => {
+    const red: RGB = [90, 0, 0];
+    expect(L(red)).toBeLessThan(GENERAL);
+    expect(redOf(red)).toBeGreaterThan(RED);
+    expect(shareOf(red)).toBe(1);
+    const redStripes = (x: number, _y: number, f: number): RGB => (Math.floor((x + 3.2 * f) / 24) % 2 ? red : BLACK);
+    const result = count(SW, SH, 180, [{ box: [0, 0, SW, SH], each: redStripes }]);
+    expect(result.general.mostInASecond).toBe(0);
+    expect(result.red.atOnce.mostInASecond).toBe(0);
+    expect(result.red.perPixel.mostInASecond).toBeGreaterThan(MOST);
+    expect(result.red.perPixel.overTheBar!.share).toBe(1);
+    expect(result.red.mostInASecond).toBe(result.red.perPixel.mostInASecond);
+    expect(result.pass).toBe(false);
+  });
+
+  it("gives the share of a field over the bar as its pixels that made more than 6, whatever pixels elsewhere made more still", () => {
+    // A box of 30 % of a field whose columns, a frame out of step, change every 9 frames: 7 in a second at most. And four patches of
+    // 100 px in the corners, each flickering at 5 a second, 10 in a second: 400 px over 7, a quarter of a field's pixels, but no field
+    // holds more than one patch.
+    const every9 = (x: number, _y: number, f: number): RGB => (f >= 1 + (x % 5) && Math.floor((f - 1 - (x % 5)) / 9) % 2 === 0 ? WHITE : BLACK);
+    const at = flicker(5, BLACK, WHITE);
+    const corners: Paint[] = [[0, 0], [110, 0], [0, 80], [110, 80]].map(([x, y]) => ({ box: [x, y, 10, 10] as Box, at }));
+    const result = count(W, H, 90, [{ box: [40, 30, 24, 15], each: every9 }, ...corners]);
+    expect(result.general.atOnce.mostInASecond).toBe(0);
+    expect(result.general.perPixel.mostAtAPixel).toBeGreaterThan(MOST + 1);
+    expect(result.general.perPixel.mostInASecond).toBe(MOST + 1);
+    expect(result.general.perPixel.overTheBar!.share).toBeCloseTo(0.3, 6);
+    expect(result.pass).toBe(false);
+  });
+
   it("counts by the field's area: moving stripes over 20 % of a field pass, over 30 % fail", () => {
     // 16 by 15 and 24 by 15 of a 40 by 30 field.
     expect(count(W, H, 120, [{ box: [10, 6, 16, 15], each: stripes }]).pass).toBe(true);
