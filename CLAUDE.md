@@ -130,6 +130,7 @@ The test hooks, `?at=`, `?t=`, `?stats=1`, `?day=`, `?sleep=`, `?idle=`, `?looku
 - The Maps workflow (`.github/workflows/maps.yml`) runs daily at 06:20 UTC. Its `analyse` job can only read the repo. Its `publish` job checks the maps with `scripts/check-maps.mjs` and commits them to the `maps` branch, or to the branch a manual run names, never to `main`. Only the map is kept, never the audio (`scripts/analyse-show.mjs`).
 - Vercel builds no deployment of `maps` (`vercel.json`).
 - Maps reach `main` through a PR from a branch off `main` that merges `maps` with a merge commit and changes only `public/maps/*.json` (#117, #120).
+- Each commit a PR brings from `maps`, known by ancestry and not by its author, has one parent and only adds or changes plain files named `public/maps/<show date>.json`. CI's Maps scope job checks it on every PR with `scripts/maps-scope.sh` as the PR's base has it (`ci.yml`; `scripts/__tests__/maps-scope.test.ts`).
 
 ## Kept on purpose
 
