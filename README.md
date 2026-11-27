@@ -84,7 +84,7 @@ GitHub Actions run four workflows (`.github/workflows/`):
 
 - **CI** runs Lint, Type-check and Unit tests on every pull request and every push to `main`. The repo's ruleset takes changes into `main` through pull requests that pass all three and have one approving review.
 - **Preview** records each preview's URL on its own commit, as a commit status named Preview, once Vercel says the preview is ready.
-- **Screenshots** shoots each ready preview in stills and recordings. It fails a frame over its tier's draw-call budget, two reduced-motion stills that differ, a CDN file that doesn't match its pinned hash, or a failed install check. It runs on production on demand.
+- **Screenshots** shoots each pull request's preview in stills and recordings, once Preview has recorded its URL on the pull request's head commit (it waits up to 20 minutes). It fails a frame over its tier's draw-call budget, two reduced-motion stills that differ, a CDN file that doesn't match its pinned hash, or a failed install check. It runs on production on demand.
 - **Maps** runs daily at 06:20 UTC. It makes the maps the next 14 featured days still need, at most two a run, from the recording each day's page plays, and commits them to the `maps` branch. The recording is analysed in memory and only the map is kept. Maps reach the site when `maps` is merged into `main`.
 
 ## Recordings

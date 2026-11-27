@@ -9,9 +9,10 @@ describe("the Preview workflow", () => {
   const workflow = readFileSync(join(ROOT, ".github/workflows/preview.yml"), "utf8").split("\n").filter((line) => !/^\s*#/.test(line)).join("\n");
 
   it("lets its job post commit statuses and nothing else, with no cache, each set once for the whole workflow", () => {
-    expect(workflow).toMatch(/^permissions:\n  statuses: write\n(?! )/m);
+    // The next line that is not blank starts a key of its own: a permission after a blank line is still one.
+    expect(workflow).toMatch(/^permissions:\n  statuses: write\n+(?=\S)/m);
     expect(workflow).toMatch(/^cache-mode: none$/m);
-    // A job that set either of its own would run with that instead.
-    expect(workflow).not.toMatch(/^ +(permissions|cache-mode):/m);
+    // A job that set either of its own would run with that instead, its key quoted or not.
+    expect(workflow).not.toMatch(/^ +["']?(permissions|cache-mode)["']?:/m);
   });
 });
