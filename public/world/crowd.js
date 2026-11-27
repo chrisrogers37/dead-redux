@@ -339,7 +339,7 @@ export function groundUnder(at, tall, own, other, worn) {
    drummer's at the drum, each tapping on every other count; and the finger held up stays up, which a figure tucks into its fist
    only as the parting brings that arm down. A hoop is in the hands only at rest: dancing, it goes round the hips and the arms
    stand clear of it.
-   The dance moves as the band does, for the flash count (CLAUDE.md, motion and flashes; band.js says why). A dark limb that passes
+   The dance moves as the band does, for the old bar on flashes (CLAUDE.md, motion and flashes; band.js says why). A dark limb that passes
    over lit ground, the stage's apron or the sky swings each block on its way twice as it goes and twice as it comes back: an arm
    raised at a peak, its knees bending on every beat, crossed one block 7 and 8 times in a second from the stage and from the front
    of the crowd. So every move a figure makes is band.js's (swing): it holds still, goes at an even pace and arrives on the figure's
@@ -348,8 +348,8 @@ export function groundUnder(at, tall, own, other, worn) {
    clap or at a drum, before the figure's own body, once in STRUM, as a strum does. Each move takes a quarter of its counts, a count
    of the four and two of the eight, and a hand before the chest the band's STEP of a count. And a figure's knees, lean, nod and arms
    all keep one stride, so it passes a point at most once as it goes and once as it comes back. No arm is raised by one that sits,
-   as the whole crowd does through Space, but the one held up with a finger, which does not move of itself. It is counted by render,
-   with scripts/flash, and the PR's text holds the counts: a new way of moving is counted the same way before it merges.
+   as the whole crowd does through Space, but the one held up with a finger, which does not move of itself. It was counted by render,
+   with scripts/flash, and those PRs' text holds the counts. Motion owes no count now: a PR may loosen these rules with frames to show it.
    No way of moving carries a hand further from the figure's axis than the bob does as the build-up lifts its arms, so the reaches
    below bound them all (crowd.test.ts). */
 const BOB = 0.12, ARM_SWING = 0.5, SWAY = 0.08, JITTER = 0.12;
