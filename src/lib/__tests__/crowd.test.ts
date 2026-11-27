@@ -1137,24 +1137,25 @@ describe("the figure, as figureGeometry builds it", () => {
     expect(bits.reduce((sum, b) => sum + b, 0)).toBeLessThan(2 ** 24);
   });
 
-  it("is 2,765 triangles on a desktop and 1,852 on a phone, a cup and every form of every part among them, whose figure leaves out six parts and keeps the rest, and a crowd draws of them only what its figures wear", () => {
+  it("is 2,765 triangles on a desktop and 1,772 on a phone, a cup and every form of every part among them, whose figure leaves out six parts and keeps the rest, and a crowd draws of them only what its figures wear", () => {
     const lean = figureGeometry(true);
     expect([geo.index, lean.index]).toEqual([null, null]);
-    expect([n / 3, lean.getAttribute("position").count / 3]).toEqual([2765, 1852]);
+    expect([n / 3, lean.getAttribute("position").count / 3]).toEqual([2765, 1772]);
     // And those are the figures the crowds are built of: a desktop's whole, a phone's plain.
-    expect([crowd.figure.getAttribute("position").count / 3, phone.figure.getAttribute("position").count / 3]).toEqual([2765, 1852]);
+    expect([crowd.figure.getAttribute("position").count / 3, phone.figure.getAttribute("position").count / 3]).toEqual([2765, 1772]);
     const leanBits = new Set(Array.from({ length: lean.getAttribute("aMark").count }, (_, i) => lean.getAttribute("aMark").getY(i) as number));
     const left = Object.entries(PART).filter(([, b]) => !leanBits.has(b as number)).map(([name]) => name);
     expect(left.sort()).toEqual([...PLAIN_LEAVES_OUT].sort());
-    // The body: 580 triangles on a desktop and 444 on a phone, where it was 372 on both as a stack of tubes. A phone's and a
-    // television's leave out the calf, the sleeve's hem, the instep and the thumb (LEG_RINGS, ARM_RINGS, PLAIN_SHOE).
+    // The body: 580 triangles on a desktop and 364 on a phone, where it was 372 on both as a stack of tubes. A phone's and a
+    // television's leave out the rings at the neck's foot and the ribs, the shorts' hem, the calf, the sleeve's hem, the instep and
+    // the thumb, and its hands have 8 faces, not 20 (TORSO, LEG_RINGS, ARM_RINGS, PLAIN_SHOE).
     const bodyOf = (g: typeof geo) => Array.from({ length: g.getAttribute("position").count }, (_, i) => i).filter((i) => g.getAttribute("aMark").getY(i) === 0).length / 3;
-    expect([bodyOf(geo), bodyOf(lean)]).toEqual([580, 444]);
+    expect([bodyOf(geo), bodyOf(lean)]).toEqual([580, 364]);
     // A frame's cost goes with the triangles sent to be drawn, and the figure every figure was before its people differed was 440
     // of them. A crowd sends only what its figures wear: on the hills of 1986-07-04, 1970-08-30 and 1990-12-09 under 750 a figure
-    // on a desktop and under 560 on a TV and a phone, where every figure sent the whole figure's 1,117 and 729 when it was an
+    // on a desktop and under 480 on a TV and a phone, where every figure sent the whole figure's 1,117 and 729 when it was an
     // instance of it. (As a stack of tubes, before its body was shaped, it was under 540 and 485.) So a tier's whole crowd, at the
-    // figures its budget seats (quality.js), is under 262,500 triangles on a desktop, 140,000 on a TV and 84,000 on a phone, whose
+    // figures its budget seats (quality.js), is under 262,500 triangles on a desktop, 120,000 on a TV and 72,000 on a phone, whose
     // crowd was 66,000 before its people differed.
     vi.stubGlobal("window", { devicePixelRatio: 1 });
     const seated = Object.fromEntries(["desktop", "tv", "phone"].map((tier) => [tier, (budgetFor(tier) as { crowd: number }).crowd]));
@@ -1162,18 +1163,19 @@ describe("the figure, as figureGeometry builds it", () => {
     expect(seated).toEqual({ desktop: 350, tv: 250, phone: 150 });
     for (const { date, desktop, phone: small } of SHOWS) {
       const each = (c: typeof crowd) => c.mesh.geometry.index.count / 3 / c.count, tv = crowdOf(date, true, seated.tv);
-      expect([date, each(desktop) < 750, each(tv) < 560, each(small) < 560]).toEqual([date, true, true, true]);
-      expect([date, each(desktop) > 740, each(tv) > 540, each(small) > 540]).toEqual([date, true, true, true]);
+      expect([date, each(desktop) < 750, each(tv) < 480, each(small) < 480]).toEqual([date, true, true, true]);
+      expect([date, each(desktop) > 740, each(tv) > 465, each(small) > 465]).toEqual([date, true, true, true]);
       expect([tv.count <= seated.tv, small.count <= seated.phone, desktop.count <= seated.desktop]).toEqual([true, true, true]);
     }
   });
 
   it("has leg rings at the foot, the calf, the knee halfway up, where shorts end and inside the hips, the knee alone where the vertex shader bends it, and a skirt's rings there and at the waist", () => {
     const rings = (r: number) => [...new Set(vertices.filter((_, i) => rig[i] === r && form[i] === 0).map(([, y]) => Math.round(y * 1e6) / 1e6))].sort((a, b) => a - b);
-    // The leg's top is closed, 4 cm over its pivot at LEG, inside the hips; a phone's and a television's leave out the calf.
+    // The leg's top is closed, 4 cm over its pivot at LEG, inside the hips; a phone's and a television's leave out the calf and the
+    // shorts' hem.
     expect(rings(1)).toEqual([0, 0.2, LEG / 2, 0.47, 0.9]);
     const lean = verticesOf(figureGeometry(true));
-    expect([...new Set(lean.filter((v) => v.mark.x === 1 && formOfMark(v.mark.z) === 0).map((v) => Math.round(v.y * 1e6) / 1e6))].sort((a, b) => a - b)).toEqual([0, LEG / 2, 0.47, 0.9]);
+    expect([...new Set(lean.filter((v) => v.mark.x === 1 && formOfMark(v.mark.z) === 0).map((v) => Math.round(v.y * 1e6) / 1e6))].sort((a, b) => a - b)).toEqual([0, LEG / 2, 0.9]);
     expect(vertices.filter((_, i) => rig[i] === 1 && form[i] === 0).filter(([x, y, z]) => y === Math.fround(0.9) && Math.abs(Math.abs(x) - HIP_X) < 1e-6 && z === 0).length).toBe(2 * 6);
     // The shader takes a corner within a hundredth of the leg's length of halfway up it for the knee's, and mitres it.
     expect(rings(1).filter((y) => Math.abs(y / LEG - 0.5) < 0.01)).toEqual([LEG / 2]);

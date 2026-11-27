@@ -34,9 +34,9 @@ const HEAD_Y = 1.655, NECK_Y = 1.56, ELBOW = 0.27, HAND_Y = SHOULDER_Y - 0.565, 
    tapering to the wrist, inside the hand. OPEN is how far those two hems stand open on those who wear them (CUT.SHORTS, CUT.BARE),
    times the limb there, as the shader opens them, and how much narrower than a trouser's hem a bare ankle is. A shoe from its heel to
    its toe (SHOE_SECTIONS, [z, wide, high]): the heel, the instep, high at the ankle, and the toe, low. A phone and a television,
-   which see the crowd from further off, draw it with fewer: no calf and no sleeve's hem, and a shoe from heel to toe in one
-   (PLAIN_SHOE). And the skull (JAW): how much narrower at the jaw, how far its lower half is drawn up, and how much fuller behind and
-   tucked in at the nape. */
+   which see the crowd from further off, draw it with fewer: no ring at the neck's foot or the ribs, no shorts' hem, calf or sleeve's
+   hem, and a shoe from heel to toe in one (PLAIN_SHOE): a phone's frame has the least to spare for its crowd. And the skull (JAW):
+   how much narrower at the jaw, how far its lower half is drawn up, and how much fuller behind and tucked in at the nape. */
 const NECK_FOOT = 1.53, WAIST = 1.04, HIP_TOP = 0.9, SHORTS_HEM = 0.47, CALF = 0.2, SLEEVE_HEM = 0.24, FRINGE = 0.07;
 export const TORSO = [{ y: 1.62, rx: 0.052, rz: 0.05 }, { y: 1.535, rx: 0.064, rz: 0.058, rb: 0.064 }, { y: 1.5, rx: 0.165, rz: 0.09, rb: 0.11 },
   { y: 1.445, rx: 0.25, rz: 0.135, rb: 0.1666 }, { y: 1.32, rx: 0.218, rz: 0.162, rb: 0.1496 }, { y: 1.17, rx: 0.172, rz: 0.135, rb: 0.1292 },
@@ -214,14 +214,14 @@ export function figureGeometry(plain = false) {
        halfway up it, where the shader bends it. Its top is closed: seated, the thigh's top turns to face back under the seat. Six
        sides on every tier, one straight behind: seated, a figure rests on the backs of its thighs, and with five a television's seats
        stood 1.5 cm higher. */
-    add(tube(LEG_RINGS.filter(([y]) => !plain || y !== CALF).map(([y, rx, rz, rb]) => ({ y, rx, rz, rb, cx: side * HIP_X })), 6, { top: true }), RIG.LEG, 0, (x, y) => (y > LEG / 2 ? TINT.LEGS : TINT.SHIN));
+    add(tube(LEG_RINGS.filter(([y]) => !plain || (y !== CALF && y !== SHORTS_HEM)).map(([y, rx, rz, rb]) => ({ y, rx, rz, rb, cx: side * HIP_X })), 6, { top: true }), RIG.LEG, 0, (x, y) => (y > LEG / 2 ? TINT.LEGS : TINT.SHIN));
     add(shoe(side * HIP_X, plain ? PLAIN_SHOE : SHOE_SECTIONS, plain), RIG.FOOT, 0, TINT.SHOE);
     /* An arm, from the shoulder down: the upper arm, a ring just over the elbow where a short or rolled sleeve ends, which the
        shader opens for them (OPEN), the elbow, and the forearm down to the wrist; and the hand, a mitten turned in to the thigh, its
-       thumb ahead of it. */
+       thumb ahead of it, or on a phone and a television eight faces and no thumb. */
     add(tube(ARM_RINGS.filter(([down]) => !plain || down !== SLEEVE_HEM).map(([down, rx, rz, rb]) => ({ y: SHOULDER_Y - down, rx, rz, rb, cx: side * SHOULDER_X })), round(6, 5)), arm, 0,
       (x, y) => (y > SHOULDER_Y - ELBOW ? TINT.TOP : TINT.FOREARM));
-    add(new THREE.IcosahedronGeometry(0.05, 0).scale(0.6, 1, 0.95).translate(side * SHOULDER_X, HAND_Y, 0), arm, 0, TINT.SELF);
+    add(new (plain ? THREE.OctahedronGeometry : THREE.IcosahedronGeometry)(0.05, 0).scale(0.6, 1, 0.95).translate(side * SHOULDER_X, HAND_Y, 0), arm, 0, TINT.SELF);
     if (!plain) add(rope([[side * (SHOULDER_X - 0.008), HAND_Y + 0.018, 0.028], [side * (SHOULDER_X - 0.014), HAND_Y - 0.022, 0.05]], [0.014, 0.009], 3), arm, 0, TINT.SELF);
     /* The shoulder: a ball at the arm's pivot, part of the body, which the torso's top runs into and the arm's open top turns
        inside, so an arm that swings or lifts stays joined to its figure and shows no hollow from above. */
@@ -230,7 +230,7 @@ export function figureGeometry(plain = false) {
   /* The torso, one piece from the seat to the neck, closed under the seat, which a seated figure shows: the hips, the waist, the
      chest, the shoulders sloping up to the neck, and the neck, its skin, up into the head. Its back stands as far behind the spine
      as backOf says, and its waist is where a top meets what is worn on the legs. */
-  add(tube(TORSO, round(10, 8), { bottom: true }), RIG.BODY, 0, (x, y) => (y > NECK_FOOT ? TINT.SELF : y > WAIST ? TINT.TOP : TINT.LEGS));
+  add(tube(plain ? TORSO.filter(({ y }) => y !== 1.535 && y !== 1.17) : TORSO, round(10, 8), { bottom: true }), RIG.BODY, 0, (x, y) => (y > NECK_FOOT ? TINT.SELF : y > WAIST ? TINT.TOP : TINT.LEGS));
 
   /* On the head. A hat is a brim and a crown, which the figure's own numbers widen, droop and raise into a brimmed hat, a floppy one
      or a top hat (aCut.zw); a cap is the crown and a bill. A band goes round the brow, with a knot's tail behind for a bandana; a
@@ -860,9 +860,11 @@ export function drawnOf(kit, { parts, forms = {}, cut, shape: [hair, hem, crown,
         const ux = (cy - by) / whole, vx = (ay - cy) / whole;
         for (let py = y0; py <= y1; py++) {
           let u = ((cx - bx) * (py + 0.5 - by) - (cy - by) * (x0 + 0.5 - bx)) / whole, v = ((ax - cx) * (py + 0.5 - cy) - (ay - cy) * (x0 + 0.5 - cx)) / whole;
-          for (let px = x0; px <= x1; px++, u -= ux, v -= vx) {
+          /* A row crosses the face once: past its far edge, nothing more of the row is in it. */
+          for (let px = x0, inside = false; px <= x1; px++, u -= ux, v -= vx) {
             const w = 1 - u - v;
-            if (u < 0 || v < 0 || w < 0) continue;
+            if (u < 0 || v < 0 || w < 0) { if (inside) break; continue; }
+            inside = true;
             const d = u * az + v * bz + w * cz, at = py * DRAWN_ACROSS + px;
             if (d < depth[at]) { depth[at] = d; whoseAt[at] = whose; }
           }
