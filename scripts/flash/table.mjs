@@ -2,7 +2,8 @@
 //
 //   node scripts/flash/table.mjs [--mixed] <run's folder> [<run's folder> ...]
 //
-// The WCAG count: one row for each job, main's general and red flashes beside the branch's, and where a job counted the 2x2 blocks too
+// The WCAG count: one row for each job, main's general and red flashes beside the branch's, each with the largest shares of a field
+// that changed at once and whose pixels each changed more than the bar in a second, and where a job counted the 2x2 blocks too
 // (--blocks), their worst grid's count beside them. Then the 2x2 count, from results that have it, as every count before 2026-11-27
 // was made: one row for each job and each grid. The tables go to stdout, what to know about them to stderr.
 // Rows whose branch worlds differ, or whose main worlds do, are refused: they are of different code, and a table of them would set
@@ -25,10 +26,16 @@ const worstGrid = (j) => {
   const r = (j.results ?? []).reduce((a, b) => (!a || b.maxSwingsInASecond > a.maxSwingsInASecond ? b : a), null);
   return r ? `${r.maxSwingsInASecond}, ${r.blocksAtLeast[5]}` : "–";
 };
-// Its WCAG count: the most general flashes and the most red in any second in any field, and the largest share of a field that changed
-// one way at once, general and red.
-const pct = (r) => (r.largest ? `${Math.round(r.largest.share * 100)} %` : "0 %");
-const flashes = (j) => (j.wcag ? `${j.wcag.general.flashes}, ${j.wcag.red.flashes} (${pct(j.wcag.general)}, ${pct(j.wcag.red)})` : "–");
+// Its WCAG count: the most general flashes and the most red in any second in any field, the worse of the two measures; the largest share
+// of a field that changed one way at once, general and red; and the largest share whose pixels each changed more than the bar in one
+// second, general and red. A result of this counter before it counted pixel by pixel has the first share alone.
+const pct = (found) => (found ? `${Math.round(found.share * 100)} %` : "0 %");
+const shares = (m) => (m.atOnce ? [pct(m.atOnce.largest), pct(m.perPixel.overTheBar)] : [pct(m.largest), "–"]);
+const flashes = (j) => {
+  if (!j.wcag) return "–";
+  const [g, gp] = shares(j.wcag.general), [r, rp] = shares(j.wcag.red);
+  return `${j.wcag.general.flashes}, ${j.wcag.red.flashes} (${g}, ${r}; ${gp}, ${rp})`;
+};
 // A variant's cell for a job: its result's count, by `said`. Where the rows hold more than one result of the job (two runs, which
 // --mixed lets be of two worlds), every one, each named by its world's hash; two that say the same of the same world are said once.
 const cellBy = (jobs, said) => {
@@ -77,7 +84,7 @@ export function tables(rows, { mixed = false } = {}) {
   const counted = sorted.filter((g) => of(g).some((j) => j.wcag)), both = counted.some((g) => of(g).some((j) => j.results?.length));
   if (counted.length) {
     out.push(
-      "| device and frame | rung | window | pose | pass | 10° field, px | main: general, red flashes in any second (largest share of a field changing at once) | branch: general, red flashes in any second (largest share of a field changing at once) |" +
+      "| device and frame | rung | window | pose | pass | 10° field, px | main: general, red flashes in any second (largest share of a field changing at once; largest share of a field whose pixels each changed more than 6 times in a second) | branch: the same |" +
         (both ? " main, 2×2 blocks: most swings in any second, blocks at 5 or more, worst grid | branch, 2×2 blocks: most swings in any second, blocks at 5 or more, worst grid |" : ""),
       `|---|---|---|---|---|---|---|---|${both ? "---|---|" : ""}`,
     );

@@ -8,6 +8,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, isAbsolute, join, relative, resolve } from "path";
 import { fileURLToPath } from "url";
+import { MOST } from "./wcag.mjs";
 
 export const FPS = 60;
 
@@ -71,6 +72,54 @@ export function windowsFor(day) {
   const all = JSON.parse(readFileSync(new URL("./windows.json", import.meta.url), "utf8"));
   if (!Object.hasOwn(all, day)) throw new Error(`windows.json has no windows for ${day}: it has ${Object.keys(all).join(", ")}`);
   return all[day];
+}
+
+// The command line: `[--blocks] matrix quick|standard`, `[--blocks] jobs <file>` or `[--blocks] one "<job line>"`. Anything else
+// throws the usage.
+export const USAGE = `usage: node scripts/flash/capture.mjs [--blocks] matrix quick|standard
+       node scripts/flash/capture.mjs [--blocks] jobs <file>
+       node scripts/flash/capture.mjs [--blocks] one "<variant> <window> [key=value ...]"
+--blocks counts the swings at each 2x2 block too, the bar before 2026-11-27, from the same frames.`;
+export function parseArgs(argv) {
+  const blocks = argv.includes("--blocks");
+  const [command, ...rest] = argv.filter((arg) => arg !== "--blocks");
+  if (!["matrix", "jobs", "one"].includes(command) || !rest.length || rest.some((arg) => arg.startsWith("--"))) throw new Error(USAGE);
+  return { blocks, command, rest };
+}
+
+// A job's result as capture.mjs writes it: the job and its page, the WCAG count with its field in CSS px too, and with --blocks (a
+// result of each grid in `results`) the 2x2 count's threshold.
+export function resultOf({ tag, job, url, day, show, window, frame, frames, leadIn, fps, dpr, wcag, threshold, world, canvasCheck, poseHeld, platesMasked, seconds, results }) {
+  const blocks = results.length > 0;
+  return {
+    tag, job, url, day, show, window, frame, frames, leadIn, fps, measures: blocks ? ["wcag", "blocks"] : ["wcag"],
+    wcag: { ...wcag, field: { ...wcag.field, css: [wcag.field.width / dpr, wcag.field.height / dpr] } },
+    ...(blocks ? { threshold } : {}),
+    world, canvasCheck, poseHeld, platesMasked, seconds, results,
+  };
+}
+
+// A job's WCAG count in a line: whether it passes, and for each measure its count, the worse of at once and pixel by pixel, each with
+// where and when, the largest share of a field that changed at once, and the largest whose pixels each changed more than the bar.
+const percent = (share) => `${Math.round(share * 1000) / 10} %`;
+function measureLine(m) {
+  const a = m.atOnce, p = m.perPixel;
+  return `${m.mostInASecond} transitions in a second, ${m.flashes} flashes (at once ${a.worst ? `${a.mostInASecond}, strict ${a.mostInASecondStrict}, at the field at (${a.worst.x}, ${a.worst.y}) from frame ${a.worst.runStartsAtFrame}` : "none"}; ` +
+    `pixel by pixel ${p.worst ? `${p.mostInASecond}, at the field at (${p.worst.x}, ${p.worst.y}) in the second to frame ${p.worst.frame}` : "none"}); ` +
+    `${a.largest ? `${percent(a.largest.share)} of a field at once at most, at (${a.largest.x}, ${a.largest.y}), frame ${a.largest.frame}` : "nothing changed by a threshold"}; ` +
+    `${p.overTheBar ? `${percent(p.overTheBar.share)} of a field of pixels over ${MOST} in a second, at (${p.overTheBar.x}, ${p.overTheBar.y}) to frame ${p.overTheBar.frame}` : `no pixel over ${MOST} in a second`}`;
+}
+export const wcagLine = (tag, flash, dpr) => `${tag}, WCAG: ${flash.pass ? "passes" : "OVER THE BAR"}; general: ${measureLine(flash.general)}; red: ${measureLine(flash.red)}; ` +
+  `field ${flash.field.width}x${flash.field.height} px (${flash.field.width / dpr}x${flash.field.height / dpr} CSS px); ${flash.maskedPixels} px masked`;
+
+// What a run's end says of its `total` jobs: those over WCAG's bar, those that pass, and those that failed, which wrote no result and
+// so pass nothing. A result with no WCAG count passes nothing either. The run exits 1 when a job failed.
+export function verdict(total, done, failures) {
+  const passed = done.filter((j) => j.wcag?.pass === true), over = done.filter((j) => j.wcag?.pass !== true), lines = [];
+  if (over.length) lines.push(`${over.length} of ${total} jobs are OVER WCAG's bar of ${MOST / 2} flashes in a second: ${over.map((j) => j.tag).join(", ")}`);
+  lines.push(`${passed.length} of ${total} jobs pass WCAG's bar of ${MOST / 2} flashes in a second`);
+  if (failures.length) lines.push(`${failures.length} of ${total} jobs FAILED and wrote no result, so pass nothing:\n${failures.join("\n")}`);
+  return { lines, passed: passed.map((j) => j.tag), over: over.map((j) => j.tag), exitCode: failures.length ? 1 : 0 };
 }
 
 // What a job line may set, and what each is when the line leaves it out.
