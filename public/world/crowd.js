@@ -508,17 +508,25 @@ const ARM_UP = 2.7, RISE_FROM = 0.3, RISE_SPAN = 0.6, RISE_W = 0.1;
    height over the tallest of them, its hands up at the rise's peak well under that), and PAST beyond the bounds it
    stands in; and HANG with its arms hanging, as one standing fully still (aPart.w, seats.js) holds them. A seated figure's feet reach
    further than HANG ahead of it, FEET from its axis, and its knees, fallen apart, with the forearms on them and a skirt over them,
-   KNEES out at the most, but all of it low along the ground, under where a bear's reach is its snout. Whatever a figure wears or
+   KNEES out at the most, but all of it low along the ground, where the bear reaches less far (BEAR_LEGS). Whatever a figure wears or
    carries stays inside these: buildCrowd makes each as broad and as tall as they let the largest be, and no more, its feet fitted to
    FEET; KNEES is where the broadest there could be, the stoutest build on the longest legs at the largest's size, then comes to
    (crowd.test.ts). */
 export const HAND = 1.11, TOP = 2.8, HANG = 0.354, FEET = 0.55, KNEES = 0.63;
-/* How far a figure lying back reaches from its axis, in its own units, at the most: its head, behind it. Only one whose breadth keeps
-   that within KNEES lies back (buildCrowd). */
-export const LYING = 0.655;
+/* How far a figure lying back reaches from its axis, in its own units, at the most: its head, behind it, LYING and LYING_BIG more
+   for each unit bigger its head is than the standard figure's (aBody.w), and its legs and a skirt over them no further than LYING;
+   and how far a cross-legged or a kneeling figure's knees reach, or a skirt over them (LOW), the first number and the second more
+   for each unit of its girth (aBody.x). Only one whose head, or knees, then keep clear of the visitor's bear lies back, sits
+   cross-legged or kneels (buildCrowd). */
+export const LYING = 0.655, LYING_BIG = 0.24, LOW = { cross: [0.51, 0.075], kneel: [0.55, 0.02] };
+export const lyingOf = (big) => LYING + LYING_BIG * Math.max(big - 1, 0);
 const PAST = 0.5;
-/* The visitor's bear reaches 1.98 m from its middle, halfway between its feet and its head (bears.js, avatar.js). */
+/* The visitor's bear reaches 1.98 m from its middle, halfway between its feet and its head (bears.js, avatar.js). Lower down it
+   reaches less, turned any way and at a run: under a metre up its hind legs, swung back, reach BEAR_LEGS from its middle, and under
+   two its tail BEAR_TAIL. The parting keeps its middle `hang` from a seated figure's axis (partingOptions), so what of the figure is
+   under a metre up keeps within hang - BEAR_LEGS of its axis, and under two within hang - BEAR_TAIL (crowd.test.ts, from bears.js). */
 const BEAR = 1.98;
+export const BEAR_LEGS = 1.59, BEAR_TAIL = 1.66;
 /* The options buildCrowd hands parting() (seats.js) for figures at `scale`, up to the largest's size. A figure keeps 0.15 m past their
    bear's reach and its own from the visitor's middle where it has room, and never comes nearer than those two reaches, or nearer than
    the bear's reach and its hanging arms (HANG) while it stands still. It sees them coming 1.1 s ahead, steps aside at 5.5 m/s and walks
@@ -803,20 +811,26 @@ export function people(placed) {
    height, facing the same way, neither a child nor holding anything, whose ways of moving leave their arms to them (FREE), stand
    together as often as PAIRS says where each one's hand would rest on the other's back (`holds`, ON_BACK): the taller's arm round
    the other's shoulders, the other's round its waist, both turned (`face`) to face the same way square to the line between them,
-   the way nearer the two ways they faced. The shorter dances as the taller does (`lead`). Then each figure takes
-   the first stance its stream draws (STANDING, SEATED) whose pose no figure within NEIGHBOUR m of it has: standing, what its arms do
-   and which leg its weight is on (poseOf); seated, how it sits. A figure whose way of moving keeps its arms, or that holds something,
-   takes only a stance of the legs. Lying back on the elbows is for a blanket; and it, and the body leaning back on the hands, for one
-   with both hands free, whose hair and hat stay within the seated reaches as it leans (KNEES, and HANG over a seated figure's knees;
-   crowd.test.ts), with no pack on its back, which the body leaning back carried 2 cm past them, and no one close behind. Hugging
-   the knees is for one without a full poncho: from behind, a poncho's point reaches the ground behind a seated figure and its sides
-   stand past the hugged knees and the feet, and it hid all but half a percent of them. Each way of sitting is for a seat whose
-   ground it fits (`fits`), and one that fits no way stands. */
+   the way nearer the two ways they faced. The shorter dances as the taller does (`lead`). Then each figure takes the first stance
+   its stream draws (STANDING) whose pose no figure within NEIGHBOUR m of it has: what its arms do and which leg its weight is on
+   (poseOf). A figure whose way of moving keeps its arms, or that holds something, takes only a stance of the legs. And then each
+   takes the first way of sitting its stream draws (SEATED) that no figure within NEIGHBOUR m of it has taken with what it holds,
+   those with the fewest ways first: dealt in the seats' order, a figure that could sit only one way came after a neighbour that had
+   taken it, and on forty days 141 pairs of neighbours sat alike where 21 do now. Lying back on the elbows is for a blanket; and it,
+   and the body leaning back on the hands, for one with both hands free, whose hair and hat stay clear of the ground as it leans and
+   with nothing on its back, and no one close behind. Few may lie back, so it is drawn far more often than the rest where it may.
+   Hugging the knees is for one whose head and arms stay clear of them; and it, and sitting with the knees up, for one without a full
+   poncho: from behind, a poncho's point reaches the ground behind a seated figure and its sides stand past the knees and the feet,
+   and it hid all but half a percent of them hugged and 2.19 % of them up. Each way of sitting is for a seat whose ground it fits,
+   and lying back, cross-legged or kneeling for one whose head or knees keep clear of the visitor's bear (`fits`, buildCrowd). One
+   that fits no way stands, and sits, as the whole crowd does, a way that keeps clear of the bear but may not fit its ground; and
+   where none does, it kneels in a full poncho and has its knees up in anything else. */
 const NEIGHBOUR = 1.6, PAIRS = 1, FREE = ["watch", "sway", "nod", "shift"];
 /* Where the middle of the hand of an arm round a friend rests, the figure standing still: [out to the friend's side, up, behind], in
    its own units, for the standard figure's shoulders and legs; out further by SHOULDER_X for each unit wider its shoulders (aBody.y),
-   and up by LEG for each unit longer its legs (aBody.z), as the shader poses it (crowd.test.ts holds these to it). */
-export const FRIEND_HAND = { round: [0.754, 1.199, -0.12], waist: [0.8, 1.092, -0.14] };
+   and up by LEG for each unit longer its legs (aBody.z), as the shader poses it (crowd.test.ts holds these to it). One that shifts its
+   weight from foot to foot stands, still, with its hips shifted, and its hand round a waist rests lower and nearer (`shifted`). */
+export const FRIEND_HAND = { round: [0.754, 1.199, -0.12], waist: [0.8, 1.092, -0.14], shifted: [0.7675, 1.0554, -0.14] };
 /* Where on its friend's back that hand may rest, in the friend's own units: how high, between the hips and the shoulder blades for
    an arm round the waist and higher for one round the shoulders; how far across from the spine, to the holder's side and past it; and
    how far behind the back, in and out, as figureGeometry's hips and torso and the shader's belly make it (backOf). Paired 1.45 m apart
@@ -831,10 +845,10 @@ export const backOf = (y, girth) => (y < 1.01 ? 0.74 * (0.17 - (0.005 * (y - 0.8
    leaning forward, with nothing held up over its head going forward with it and no full poncho (stances; people deals the crowded
    ones a head that does one). */
 const fitsBack = (p) => !["afro", "dreads"].includes(p.hair) && !["hat", "topper", "floppy", "bandana", "knit", "jester", "plumed"].includes(p.head) && p.back === "none";
-const fitsForward = (p) => !["hat", "topper", "floppy", "cap", "plumed"].includes(p.head) && p.hair !== "afro" && !FLIES.includes(p.prop) && !STANDS_ON.includes(p.prop) && !BALLOONS.includes(p.prop)
-  && p.top !== "poncho" && p.stoop < 0.05;
+const fitsForward = (p) => !["hat", "topper", "floppy", "cap", "plumed"].includes(p.head) && p.hair !== "afro" && ARMS[p.prop] !== ARMS.flag && p.top !== "poncho"
+  && p.stoop < 0.05;
 const STANDING = { square: 4, left: 7, right: 7, hip: 8, akimbo: 6, folded: 7, cup: 6, behind: 5, pockets: 6 };
-const SEATED = { knees: 6, cross: 6, hug: 5, back: 4, kneel: 4, recline: 4 };
+const SEATED = { knees: 6, cross: 6, hug: 5, back: 4, kneel: 4, recline: 100 };
 const LEGS_ONLY = ["square", "left", "right"];
 const armsOf = (p, stand) => (p.prop !== "none" ? p.prop : !FREE.includes(p.move) ? p.move : STAND_ARMS[stand] ? stand : p.move === "nod" ? "folded" : "hang");
 /* A standing figure's pose, what its arms do and which leg it stands on, which no neighbour shares. */
@@ -887,10 +901,11 @@ export function stances(placed, who, fits = () => true, holds = () => true) {
         for (const k of [a, b]) { paired.add(k); standKey[k] = poseOf(who[k], out[k].stand); }
       }
     }
+    const sitting = [];
     for (let i = g0; i < g1; i++) {
       const p = who[i], seat = placed[i], r = stream(0x6c8e9cf5 * (i + 1));
-      const near = [];
-      for (let j = 0; j < g1; j++) if (j !== i && (j < i || paired.has(j)) && Math.hypot(placed[j].x - seat.x, placed[j].z - seat.z) < NEIGHBOUR) near.push(j);
+      const near = [], round = [];
+      for (let j = 0; j < g1; j++) if (j !== i && Math.hypot(placed[j].x - seat.x, placed[j].z - seat.z) < NEIGHBOUR) { round.push(j); if (j < i || paired.has(j)) near.push(j); }
       if (!paired.has(i)) {
         const legsOnly = p.prop !== "none" || !FREE.includes(p.move);
         const weights = Object.fromEntries(Object.entries(STANDING).filter(([name]) => (!legsOnly || LEGS_ONLY.includes(name)) && !(name === "cup" && young(p)))
@@ -905,12 +920,18 @@ export function stances(placed, who, fits = () => true, holds = () => true) {
         return z < 0 && z > -depth && Math.abs(x) < 0.9;
       });
       const free = p.prop === "none" && out[i].stand !== "cup";
-      const fitting = Object.fromEntries(Object.entries(SEATED).filter(([name]) => fits(i, name, faced.face)
-        && (name === "recline" ? seat.blanket >= 0 && fitsLying(p) && free && !behind(1.8) : name === "back" ? fitsBack(p) && free && !behind(1.1) : name === "hug" ? fitsForward(p) : true)));
-      const none = Object.keys(fitting).length === 0;
-      if (none && seat.sit) out[i].stands = true;
-      out[i].sit = deal(r, none ? { knees: SEATED.knees } : fitting, (name) => near.some((j) => sitKey[j] === `${name} ${p.prop}`));
-      sitKey[i] = `${out[i].sit} ${p.prop}`;
+      const ways = (ground) => Object.fromEntries(Object.entries(SEATED).filter(([name]) => fits(i, name, faced.face, ground)
+        && (name === "recline" ? seat.blanket >= 0 && fitsLying(p) && free && !behind(1.8) : name === "back" ? fitsBack(p) && free && !behind(1.1) : name === "hug" ? fitsForward(p) : name === "knees" ? p.top !== "poncho" : true)));
+      sitting.push({ i, r, fitting: ways(true), ways, round });
+    }
+    /* Those with the fewest ways to sit take theirs first, each unlike the neighbours that have taken theirs. */
+    sitting.sort((a, b) => Object.keys(a.fitting).length - Object.keys(b.fitting).length || a.i - b.i);
+    for (const { i, r, fitting, ways, round } of sitting) {
+      const none = Object.keys(fitting).length === 0, prop = who[i].prop, loose = none ? ways(false) : fitting;
+      if (none && placed[i].sit) out[i].stands = true;
+      const last = who[i].top === "poncho" ? { kneel: SEATED.kneel } : { knees: SEATED.knees };
+      out[i].sit = deal(r, Object.keys(loose).length ? loose : last, (name) => round.some((j) => sitKey[j] === `${name} ${prop}`));
+      sitKey[i] = `${out[i].sit} ${prop}`;
     }
   }
   return out;
@@ -1406,6 +1427,8 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
       .replace("#include <begin_vertex>", `#include <begin_vertex>${DANCE}`)
       .replace("#include <project_vertex>", PROJECT);
   };
+  /* The options the parting (below) keeps the figures by, which also bound how broad one in a poncho may be (sized). */
+  const opts = partingOptions(scale);
   /* Each figure's own numbers, a figure to a row: where it stands (as a matrix), its top's colour, and what the shader reads of it;
      how high it reaches over its feet at the most, in metres (`top`, reaches); and the parting's own two rows, where it has stepped each figure and how far
      it lets its arms rise. */
@@ -1417,22 +1440,28 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
   const who = mix(people(placed), placed);
   /* Each figure's size: as tall as it is, its head's top that share of PERSON over its feet whatever its legs' length, and no taller
      than TOP lets what it holds up stand; and as broad as its build, and no broader than HANG lets what it wears reach, or FEET its
-     seated feet, which also keeps it no broader than the largest figure the reaches are for. And the ground under it, in its own units
-     across and ahead of its seat, the way it faces. */
+     seated feet, which also keeps it no broader than the largest figure the reaches are for. One in a full poncho, which neither
+     hugs its knees nor has them up (stances), is no broader than lets it kneel clear of the visitor's bear (LOW, BEAR_LEGS), so that
+     it may always sit one way: on forty days' crowds 88 of 2,383 in ponchos were up to 2.4 cm too broad at the knee for that, and
+     70 of them, fitting no other way, had their knees up. And the ground under it, in its own units across and ahead of its seat,
+     the way it faces. */
   const sized = (one) => {
     const { out, top, feet } = reaches(one, wearing(one));
     const tall = Math.min((scale * one.tall * TALL) / (TALL + LEG * (one.leg - 1)), (TOP * big - 0.005) / top);
-    return { tall, top: top * tall, broad: Math.min(one.slim, (HANG * big - 0.003) / (tall * out), (FEET * big - 0.003) / (tall * feet)) };
+    const kneels = one.top === "poncho" ? (opts.hang - BEAR_LEGS - 0.001) / (tall * (LOW.kneel[0] + LOW.kneel[1] * one.girth)) : Infinity;
+    return { tall, top: top * tall, broad: Math.min(one.slim, (HANG * big - 0.003) / (tall * out), (FEET * big - 0.003) / (tall * feet), kneels) };
   };
   const under = (p, tall, broad, face) => {
     const cos = Math.cos(face), sin = Math.sin(face), wide = tall * broad;
     return (x, z) => surface(p.x + wide * (cos * x + sin * z), p.z + wide * (cos * z - sin * x));
   };
-  /* A figure sits only as the ground under it lets it rest on it, the way it faces, its contacts no more than FLOAT over it, and lies
-     back only if its head then stays within KNEES (LYING); with its knees up and apart, too, and where no way of sitting fits, it
-     stands: sat with its knees up anywhere, one stood its seat 7.4 cm over a phone's ground. Two stand together as friends where each
-     one's hand, standing still, rests on the other's back (ON_BACK): from where it rests in its own units (FRIEND_HAND), in metres
-     as each stands on its ground, to the other's units. A stance adds nothing to a friend that sizes it (WEARS). */
+  /* A figure sits only as the ground under it lets it rest on it, the way it faces, its contacts no more than FLOAT over it; lies
+     back only if its head then keeps clear of the bear's tail (lyingOf, BEAR_TAIL), and sits cross-legged or kneels only if its
+     knees keep clear of the bear's legs (LOW, BEAR_LEGS): a broad figure's head lying back went 9.8 cm into the bear's tail, and
+     its knees cross-legged 6.3 cm into its legs. With its knees up and apart, too, and where no way of sitting fits, it stands: sat
+     with its knees up anywhere, one stood its seat 7.4 cm over a phone's ground. Two stand together as friends where each one's hand,
+     standing still, rests on the other's back (ON_BACK): from where it rests in its own units (FRIEND_HAND), in metres as each stands
+     on its ground, to the other's units. A stance adds nothing to a friend that sizes it (WEARS). */
   const sizes = [], grounds = [];
   /* One turns on the spot only where its feet can sweep round it with those it rests on no more than FLOAT over the ground
      (nearing); elsewhere it sways: over a bump, the plane that kept its sweep out of the ground stood its feet 5 cm over it. */
@@ -1441,9 +1470,11 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     if (groundUnder(under(placed[i], tall, broad, placed[i].face), tall, "stand", "knees", fitted(one)).spread > FLOAT) who[i] = { ...who[i], move: "sway" };
   }
   const sizeOf = (i) => (sizes[i] ??= sized(plain ? plainly(who[i]) : who[i]));
-  const dealt = stances(placed, who, (i, name, face) => {
+  const dealt = stances(placed, who, (i, name, face, ground = true) => {
     if (!grounds[i]) { const { tall, broad } = sizeOf(i); grounds[i] = { tall, wide: tall * broad, at: under(placed[i], tall, broad, face), worn: fitted(plain ? plainly(who[i]) : who[i]) }; }
-    return (name !== "recline" || grounds[i].wide * LYING <= KNEES * big) && groundUnder(grounds[i].at, grounds[i].tall, name, "stand", grounds[i].worn).spread <= FLOAT;
+    const { wide } = grounds[i], { girth, big: head } = who[i];
+    return (name !== "recline" || wide * lyingOf(head) <= opts.hang - BEAR_TAIL) && (!LOW[name] || wide * (LOW[name][0] + LOW[name][1] * girth) <= opts.hang - BEAR_LEGS)
+      && (!ground || groundUnder(grounds[i].at, grounds[i].tall, name, "stand", grounds[i].worn).spread <= FLOAT);
   }, (tall, short, face) => {
     const stood = (i) => {
       const { tall: up, broad } = sizeOf(i), at = under(placed[i], up, broad, face), body = plain ? plainly(who[i]) : who[i];
@@ -1451,7 +1482,8 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     };
     const a = stood(tall), b = stood(short), d = Math.hypot(b.x - a.x, b.z - a.z);
     return [[a, b, "round"], [b, a, "waist"]].every(([one, other, arm]) => {
-      const [x0, y0, z0] = FRIEND_HAND[arm], x = (x0 + SHOULDER_X * (one.body.wide - 1)) * one.across, y = (y0 + LEG * (one.body.leg - 1)) * one.up + one.y;
+      const [x0, y0, z0] = FRIEND_HAND[arm === "waist" && a.body.move === "shift" ? "shifted" : arm];
+      const x = (x0 + SHOULDER_X * (one.body.wide - 1)) * one.across, y = (y0 + LEG * (one.body.leg - 1)) * one.up + one.y;
       const across = (x - d) / other.across, up = (y - other.y) / other.up, behind = (-z0 * one.across) / other.across - backOf(up, other.body.girth);
       return up >= ON_BACK[arm][0] && up <= ON_BACK[arm][1] && across >= ON_BACK.across[0] && across <= ON_BACK.across[1] && behind >= ON_BACK.behind[0] && behind <= ON_BACK.behind[1];
     });
@@ -1486,10 +1518,9 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     each.aPlace.set([dummy.position.x, dummy.position.y, dummy.position.z, rises], 4 * i);
     each.aSize.set([tall * broad, tall, turn, (other - lift) / tall], 4 * i);
   });
-  /* The parting (partingOptions), each figure keeping clear of what the seats keep clear of, and its hands of the stage's solids
-     (STAGE_COLUMN); a camera over the crowd keeps clear of each figure's own top, so it climbs over a flag and not over every head as
-     if each held one. */
-  const opts = partingOptions(scale);
+  /* The parting (partingOptions, opts above), each figure keeping clear of what the seats keep clear of, and its hands of the
+     stage's solids (STAGE_COLUMN); a camera over the crowd keeps clear of each figure's own top, so it climbs over a flag and not
+     over every head as if each held one. */
   const parts = parting(placed, { ...opts, tops: placed.map((p, i) => each.aPlace[4 * i + 1] - surface(p.x, p.z) + each.top[i]), keeps: [...keepOuts(around), [STAGE[0], STAGE[1], STAGE_COLUMN.r + opts.wide]], ground: surface });
   each.offset = parts.offset; each.rising = parts.rising;
 

@@ -12,6 +12,9 @@ import { goRound, HAIR, LEAST, NIL, pressed, rise, standOff } from "./boom.js";
 
 /* The five walk at 2.5 m/s, their legs at 6 rad/s; the walk is 12 m/s and the run 1.6 times that. */
 const WALK = 2.5, STRIDE = 12, RUN = 19.2;
+/* How far the visitor's bear swings its legs each way at `speed`, in radians: 0.5 at a walk and up to 0.7 at a run (the crowd parts
+   round it at the widest, crowd.test.ts). */
+export const swingAt = (speed) => 0.5 + 0.2 * Math.min(1, Math.max(0, (speed - STRIDE) / (RUN - STRIDE)));
 /* The walk's camera climbs over the crowd, and comes down after it, at CLIMB m/s at most, looking AHEAD s along its way, LOOKS times. */
 const CLIMB = 3, AHEAD = 2.2, LOOKS = 22;
 /* How high a bear's head stands over its feet: the visitor's head point and the boom's pivot stand there. And the top of its head. */
@@ -82,7 +85,7 @@ export function buildAvatar(scene, landmarks, { phone, reduced, columns = [], ov
     /* The five's rate at their pace, rising as the square root of speed, so a run still reads as legs at 30 Hz. */
     gait += 6 * Math.sqrt(speed / WALK) * dt;
     const stance = reduced ? 0 : Math.min(1, speed / WALK);
-    const swing = (0.5 + 0.2 * Math.min(1, Math.max(0, (speed - STRIDE) / (RUN - STRIDE)))) * stance * Math.sin(gait);
+    const swing = swingAt(speed) * stance * Math.sin(gait);
     const drop = stride(bear, swing);
     const y = height(x, z);
     g.position.set(x, y + 0.06 * stance * Math.sin(2 * gait), z);
