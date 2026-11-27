@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import {
   backOf, BEAR_LEGS, BEAR_TAIL, buildCrowd, CHOICES, CLOTHS, COLOURS, CREST, crestOf, CUP_ARM, CUT, CYCLE, DROP, DYE, DYED, DYED_PROPS, FEET, figureGeometry, FOLD, FOOT, FORMS, formOfMark, formsOf,
-  FRIEND_HAND, groundUnder, HAND, HANG, HIP_X, LEG_RINGS, TORSO, HOLD_UP, inView, KNEES, LEG, LOW, lyingOf, MOST, MOVES, only, OUTLINE, outlineOf, OVERHEAD, PART, partingOptions, people, PLAIN_LEAVES_OUT, plainly, poseOf,
+  ARM_RINGS, FRIEND_HAND, groundUnder, HAND, HANG, HIP_X, LEG_RINGS, TORSO, HOLD_UP, inView, KNEES, LEG, LOW, lyingOf, MOST, MOVES, only, OUTLINE, outlineOf, OVERHEAD, PART, partingOptions, people, PLAIN_LEAVES_OUT, plainly, poseOf,
   PROP_EVERY, PROPS, QUIET, dressOn, HAIRS, SKIN, DRESS, PATTERN, PATTERNS, SEEDS, seedOf, CLOTHES, RIM, RIM_LEAST, RIM_SIDE, RIM_TINT, RIM_TO, LIT, HOUSE, HOUSE_LOW, HOUSE_TINT, LAMP_HALF, LAMP_TINT, LAMP_TO, COVER, APART, apartOf, dressFor, drawnOf, DRAWN_VIEWS, ENDS, sourceOf, SOURCES, pieces, lightOf, topLight, TINT, RIG, DRESS_FINE, DRESS_EDGE, SEAT, wardrobe, WARDROBE, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, stances, TALL, TINTS, tone, TOP, wearing, without,
 } from "../../../public/world/crowd.js";
 import { MOVE as STEP, SLOW, STRUM, swing } from "../../../public/world/band.js";
@@ -2662,6 +2662,11 @@ describe("the crowd's shader", () => {
     const lowest2 = (f: Figure, list: Vertex[]) => Math.min(...each(f, list).map((p) => p.y)), highest = (f: Figure, list: Vertex[]) => Math.max(...each(f, list).map((p) => p.y));
     const widest = (f: Figure, list: Vertex[]) => Math.max(...each(f, list).map((p) => Math.hypot(p.x, p.z)));
     const head = of(0, 6), legs = of(0, 1), body = of(0, 0), belly = body.filter((v) => v.y > 0.9 && v.y < 1.2);
+    // The shorts' hem ring on the legs, the sleeve's hem ring on the right arm, and the right leg's top ring, inside the hips.
+    const [[legTop], [shortsHem]] = LEG_RINGS, [, [sleeveHem]] = ARM_RINGS;
+    const hem = legs.filter((v) => Math.abs(v.y - shortsHem) < 0.001), cuff = of(0, 4).filter((v) => Math.abs(v.y - SHOULDER_Y + sleeveHem) < 0.001);
+    const across = (f: Figure, list: Vertex[]) => { const xs = each(f, list).map((p) => p.x); return Math.max(...xs) - Math.min(...xs); };
+    const inner = (f: Figure) => Math.min(...each(f, legs.filter((v) => v.x > 0 && v.y > legTop - 0.001)).map((p) => p.x));
     // How far the hips come down on the beat, for one that bobs, by how hard it dances.
     const dip = (size2: number) => mean(shaped({ move: "bob", size: size2 }), seat, { beat: 2.5, dance: 1.2 }).y - mean(shaped({ move: "bob", size: size2 }), seat, { beat: 0, dance: 1.2 }).y;
     const rows: [string, number, number, number][] = [
@@ -2680,12 +2685,17 @@ describe("the crowd's shader", () => {
       ["a child's head is bigger for its body", widest(shaped({}), head), widest(shaped({ body: { w: 1.3 } }), head), 0.03],
       ["flared trousers are wider at the foot", widest(shaped({}), legs.filter((v) => v.y < 0.01)), widest(shaped({ cuts: C.BELLS }), legs.filter((v) => v.y < 0.01)), 0.05],
       ["and no wider at the hip", widest(shaped({ cuts: C.BELLS }), legs.filter((v) => v.y > LEG - 0.01)), widest(shaped({}), legs.filter((v) => v.y > LEG - 0.01)), 0],
+      ["shorts stand open at the hem round the thigh", widest(shaped({}), hem), widest(shaped({ cuts: C.SHORTS }), hem), 0.012],
+      ["and the ankle under them is bare and narrower", widest(shaped({}), legs.filter((v) => v.y < 0.01)), widest(shaped({ cuts: C.SHORTS }), legs.filter((v) => v.y < 0.01)), -0.01],
+      ["a short or rolled sleeve stands open at its hem round the arm", across(shaped({}), cuff), across(shaped({ cuts: C.BARE }), cuff), 0.012],
+      ["a stout figure's thighs meet at the top, where a standard figure's stand apart", inner(shaped({})), inner(shaped({ body: { x: 1.5 } })), -0.006],
       ["a big round head of hair stands out from the head", widest(shaped({}), head), widest(shaped({ cuts: C.AFRO }), head), 0.08],
       ["a shawl is a poncho cut short", lowest2(shaped({ parts: P.PONCHO }), of(P.PONCHO)), lowest2(shaped({ parts: P.PONCHO, cuts: C.SHAWL }), of(P.PONCHO)), 0.15],
       ["a stoop carries the head forward", Math.min(...each(shaped({}), head).map((p) => p.z)), Math.min(...each(shaped({ stoop: 0.12 }), head).map((p) => p.z)), 0.08],
       ["one that dances harder comes down further on its count", dip(0.62), dip(1), 0.03],
     ];
     for (const [name, a, b, by] of rows) expect([name, by > 0 ? b - a > by : by < 0 ? b - a < by : b === a]).toEqual([name, true]);
+    expect(inner(shaped({}))).toBeGreaterThan(0.003);
     // And the crowd's figures do differ in each number: no two of the fixed day's in how hard they dance, but a friend whose arm is
     // round the other's waist, who dances as the other does, where the day has one; and a spread of the rest.
     const real = figuresOf(SHOWS[0].desktop), led = real.filter((f) => (STANDS as string[])[Math.floor(f.wear.y / 16384) % 16].startsWith("waist"));
@@ -3179,6 +3189,9 @@ describe("the crowd's people", () => {
     // near its share (CHOICES), within half of it.
     const adults = everyone.filter((p) => !["child", "teen"].includes(p.stature)).map((p) => p.tall);
     expect([Math.min(...adults) < 0.85, Math.max(...adults) > 1.07]).toEqual([true, true]);
+    // And as the statures share the adults out: on average a little under the standard figure, spread about it by some 6 % of it.
+    const average = adults.reduce((sum, t) => sum + t, 0) / adults.length, spread = Math.sqrt(adults.reduce((sum, t) => sum + (t - average) ** 2, 0) / adults.length);
+    expect([adults.length > 500, average > 0.955 && average < 0.985, spread > 0.055 && spread < 0.07]).toEqual([true, true, true]);
     for (const [slot, choices] of [["build", CHOICES.build], ["stature", CHOICES.stature]] as [string, [string, number][]][]) {
       const total = choices.reduce((sum, [, w]) => sum + w, 0);
       for (const [name, w] of choices) {
