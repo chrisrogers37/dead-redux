@@ -982,6 +982,9 @@ function reaches(p, wear, forms = formsOf(p)) {
   if (p.hair === "afro") reach(0.26 * p.big + back);
   if (has("PACK") || has("ROLL")) reach(0.315 + back);
   if (has("POLE")) reach(0.335 + ahead);
+  /* Seated, the arm that holds a pole or a string turns back from the shoulder (HOLD), and its elbow, 0.045 round, stands 0.215
+     behind the shoulder and 0.005 out from it, 0.74 units up: as the shader poses it, 0.392 out for the standard figure's shoulders. */
+  if (ARMS[p.prop] === ARMS.flag) reach(Math.hypot(SHOULDER_X * p.wide + 0.005, 0.215) + 0.045);
   const stood = [null, null, null, null, 0.2, 0.2, 0.21, 0.2][form("FLAG")];
   if (stood) reach(Math.hypot(0.14, ahead) + stood);
   else if (has("FLAG")) reach(Math.hypot(0.34, 0.085 + ahead));
