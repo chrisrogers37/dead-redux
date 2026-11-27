@@ -1192,7 +1192,7 @@ gl_Position = projectionMatrix * mvPosition;`;
    (stage.js PANEL), RIM_TINT a warm white. At its brightest the rim adds under a tenth of full white's luminance to a pixel, so
    that it never makes one of the flash counter's swings by itself (crowd.test.ts). Its weight is written in plain numbers, after
    a line that takes the three dot products, so that the unit tests run it. */
-export const RIM = 0.1, RIM_LEAST = 0.45, RIM_EDGE = 3, RIM_SIDE = 0.5, RIM_TINT = [1, 0.74, 0.46], RIM_TO = [STAGE[0], SHELF_Y + 3.7, STAGE[1]];
+export const RIM = 0.1, RIM_LEAST = 0.45, RIM_EDGE = 4, RIM_SIDE = 0.5, RIM_TINT = [1, 0.74, 0.46], RIM_TO = [STAGE[0], SHELF_Y + 3.7, STAGE[1]];
 /* Before opaque_fragment, where the light the face reflects is summed: its normal in the view's space (`normal`, which three's flat
    shading takes from the face's own plane), and the way to the eye (`vViewPosition`). */
 const RIM_LIGHT = `

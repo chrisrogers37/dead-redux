@@ -1528,10 +1528,13 @@ describe("the crowd's shader", () => {
     // looks, and a face turned to the eye none.
     for (const n of [up, right, left, [0, -1, 0], [Math.SQRT1_2, Math.SQRT1_2, 0]]) expect(rimOf(n, v, back)).toBeCloseTo(RIM, 12);
     expect(rimOf(v, v, back)).toBe(0);
-    // It falls off fast as a face turns toward the eye: a third of the way, under a third of the rim; halfway, under a sixth.
+    // It falls off fast as a face turns toward the eye, so that a broad face near edge-on, a cape's or a hat's crown, takes little:
+    // turned a third of the way, between a fortieth and a twelfth of the rim (RIM_EDGE 4: under a twentieth, where 3 gave nearly a
+    // tenth); halfway, under a hundredth.
     const turned = (a: number) => [Math.sin(a), 0, Math.cos(a)];
-    expect(rimOf(turned(Math.PI / 3), v, back)).toBeLessThan(RIM / 3);
-    expect(rimOf(turned(Math.PI / 4), v, back)).toBeLessThan(RIM / 6);
+    expect(rimOf(turned(Math.PI / 3), v, back)).toBeLessThan(RIM / 12);
+    expect(rimOf(turned(Math.PI / 3), v, back)).toBeGreaterThan(RIM / 40);
+    expect(rimOf(turned(Math.PI / 4), v, back)).toBeLessThan(RIM / 100);
     // From the side, the stage to the eye's right: the edge toward the stage takes RIM_SIDE of the rim, and the far edge none.
     expect(RIM_SIDE).toBeGreaterThan(0.2);
     expect(RIM_SIDE).toBeLessThan(0.75);
@@ -1634,14 +1637,15 @@ describe("the crowd's shader", () => {
     for (const [tier, c] of [["desktop", desktop], ["phone", small]] as const) {
       const hill = drawn(c, false), side = drawn(c, true);
       const edge = median(hill.map((h) => h.edge)), inner = median(hill.map((h) => h.inner));
-      // From the hill the middle figure's outline takes over three times what the rest of it does, and 7 % of the rim on the mean
-      // (measured 9.5 % on a desktop and 8.7 % on a phone, against 2.1 % and 2.0 % within). Its flat faces light whole, but those
-      // that light are the ones the eye sees edge-on, so narrow: of the pixels within the outline, a figure has a median of 1 % at
-      // over a quarter of the rim (1.1 % and 0.7 %), and the most 16 % and 12 %.
-      expect([tier, edge > 3 * inner, edge > 0.07]).toEqual([tier, true, true]);
-      expect([tier, median(hill.map((h) => h.patch)) < 0.03, Math.max(...hill.map((h) => h.patch)) < 0.25]).toEqual([tier, true, true]);
-      // From the side, the outline on the stage's side takes over ten times what the far side's does (measured 6.7 % and 6.3 % of
-      // the rim, against 0.2 %), and less than the outline from the hill.
+      // From the hill the middle figure's outline takes over three times what the rest of it does, and 5.5 % of the rim on the mean
+      // (measured 6.9 % on a desktop and 6.1 % on a phone, against 1.2 % within on both). Its flat faces light whole, but those that
+      // light are the ones the eye sees edge-on, so narrow: of the pixels within the outline, a figure has a median of under 1 % at
+      // over a quarter of the rim (0.5 % and 0.4 %), and the most 12 % and 5.5 %. At RIM_EDGE 3 the outline took 9.5 %, but the
+      // middle 2.1 % and the most 16 %; at 5, the outline only 5.2 %.
+      expect([tier, edge > 3 * inner, edge > 0.055]).toEqual([tier, true, true]);
+      expect([tier, median(hill.map((h) => h.patch)) < 0.01, Math.max(...hill.map((h) => h.patch)) < 0.15]).toEqual([tier, true, true]);
+      // From the side, the outline on the stage's side takes over ten times what the far side's does (measured 4.9 % and 4.5 % of
+      // the rim, against 0.1 %), and less than the outline from the hill.
       const near = median(side.map((h) => h.near)), far = median(side.map((h) => h.far));
       expect([tier, near > 10 * far, near < edge, median(side.map((h) => h.edge)) < edge]).toEqual([tier, true, true, true]);
     }
