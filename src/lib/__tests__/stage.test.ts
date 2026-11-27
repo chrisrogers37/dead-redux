@@ -130,19 +130,19 @@ describe("the Wall of Sound", () => {
     expect([Math.round(Math.max(...roof.map((p) => Math.hypot(p.x, p.z))) * 100) / 100, Math.max(...roof.map((p) => p.y))]).toEqual([10.91, expect.closeTo(STAGE_COLUMN.top - SHELF_Y, 5)]);
   });
 
-  it("stands behind the band, with no PA stack at either side and no roof: nothing outside the platform's foot stands forward of 2.5 m behind its middle, and nothing over the band but the beam at the roof's front edge", () => {
+  it("stands behind the band, with no PA stack at either side and no roof behind the rig's bridge: nothing outside the platform's foot stands forward of 2.5 m behind its middle, and nothing over the band but the bridge, the roof's front 2.5 m", () => {
     const at = corners(stageFor(WALL_DAY).still);
     // The platform's foot is 9.5 m out (stage.js), its corners there to the float's last place.
     expect(at.filter((p) => Math.hypot(p.x, p.z) > 9.5 + 1e-6 && p.z > -2.5)).toEqual([]);
-    // Over the band, where the roof stood, the sky: looking straight down on the floor between the beam and the wall, the first thing
-    // met is the floor, where on the roof's stage it is the roof.
+    // Over the band, where the roof stood, the sky: looking straight down on the floor between the bridge and the wall, the first thing
+    // met is the floor, where on the roof's stage it is the roof; over the bridge's 2.5 m, it is the bridge's top, the roof's height.
     const down = (date: string | undefined, x: number, z: number) => {
       const { built, still } = stageFor(date), ray = new THREE.Raycaster();
       ray.set(new THREE.Vector3(x, 30, z).applyMatrix4(built.group.matrixWorld), new THREE.Vector3(0, -1, 0));
       return 30 - ray.intersectObject(still)[0].distance;
     };
     for (let x = -7; x <= 7; x += 1) for (let z = -3.5; z <= 3.5; z += 1) {
-      expect([x, z, down(WALL_DAY, x, z)]).toEqual([x, z, expect.closeTo(1.2, 5)]);
+      expect([x, z, down(WALL_DAY, x, z)]).toEqual([x, z, expect.closeTo(z < 2 ? 1.2 : 8.45, 5)]);
       expect([x, z, down(undefined, x, z)]).toEqual([x, z, expect.closeTo(8.45, 5)]);
     }
     // The roof's stage has its stacks, as main has.
@@ -165,16 +165,18 @@ describe("the Wall of Sound", () => {
 
   // The panel's light show and the band's outlines against it are what the flash bar and the outlines' gates were measured on: the Wall
   // stands round the panel, and no part of it in front of what the roof's stage shows of it.
-  it("hides nothing of the light panel that the roof's stage shows, from any camera of the shoot, and shows more of it from the hill, where the roof hid its top", () => {
+  it("hides nothing of the light panel that the roof's stage shows, from any camera of the shoot, and shows next to nothing more: from the hill the rig's bridge hides the panel's top, as the roof does, so no strip of it shows over the bridge", () => {
     for (const cam of [...CAMERAS, ...FLASH_CAMERAS]) {
       const roof = stageFrom(cam).shows, wall = stageFrom(cam, WALL_DAY).shows;
-      let hidden = 0, roofs = 0, walls = 0;
+      let hidden = 0, roofs = 0, more = 0;
       for (let o = 0; o < roof.length; o++) {
         if (roof[o] === STAGE_PANEL) roofs++;
-        if (wall[o] === STAGE_PANEL) walls++;
         if (roof[o] === STAGE_PANEL && wall[o] !== STAGE_PANEL) hidden++;
+        if (wall[o] === STAGE_PANEL && roof[o] !== STAGE_PANEL) more++;
       }
-      expect([cam.name, roofs > 0, hidden, walls >= roofs]).toEqual([cam.name, true, 0, true]);
+      // A thousandth: from among the people, one column of 6 pixels at the panel's right edge, near its top, shows that the roof's stage
+      // draws black. Over a beam half a metre deep, 13 to 30 % more showed from the hill, as a strip along the panel's top.
+      expect([cam.name, roofs > 0, hidden, more <= roofs / 1000]).toEqual([cam.name, true, 0, true]);
     }
   }, 60_000);
 
