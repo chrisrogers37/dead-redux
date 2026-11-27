@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
 import {
-  buildBand, DARK, dressOf, FILL_BELOW, FILL_DUSK, FILL_NIGHT, FILL_TINT, HALF_OVER, HALF_UNDER, KEY, KEY_TINT, KEY_TO, LIGHT, RIM, RIM_EDGE, RIM_FROM, RIM_TINT, SCALE, STAGING, WARDROBES, worn,
+  buildBand, DARK, dressOf, FILL_BELOW, FILL_DUSK, FILL_NIGHT, FILL_TINT, HALF_OVER, HALF_UNDER, KEY, KEY_TINT, KEY_TO, LIGHT, RIM, RIM_EDGE, RIM_FROM, RIM_TINT, SCALE, SIX, STAGING, WARDROBES, worn,
 } from "../../../public/world/band.js";
 import { DAYBREAK, DEEP, lookAt, newLook } from "../../../public/world/night.js";
 import { beatStep } from "../../../public/world/beat.js";
@@ -98,8 +98,9 @@ const gap = (a: Vec, b: Vec) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 const tipOf = (band: Band, k: number) => ends(band, k).a;
 const middleOf = (points: Vec[]) => points.reduce((sum, c) => sum.add(c), new THREE.Vector3()).divideScalar(points.length);
 // A player's microphone, on the stage: the middle of its stand's foot, which is a ring of corners all on the floor, and its head, the
-// middle of the end of its capsule (the bar of the stand that reaches highest), the end away from the foot. Neither is any one corner:
-// a bar ends in a ring, and a corner of the ring is off the bar's middle by its radius, up or down, and toward the face or away.
+// middle of the end of its capsule (the bar of the stand that reaches highest), the end away from the foot; and its parts, each as
+// its corners. Neither is any one corner: a bar ends in a ring, and a corner of the ring is off the bar's middle by its radius, up or
+// down, and toward the face or away.
 function microphoneOf(band: Band, k: number) {
   const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
   const bars = (band.still.userData.parts as Part[]).filter((part) => part.of === "microphone" && part.by === k).map((part) => {
@@ -110,7 +111,7 @@ function microphoneOf(band: Band, k: number) {
   if (!bars.length) return null;
   const all = bars.flat(), low = Math.min(...all.map((c) => c.y)), foot = middleOf(all.filter((c) => c.y < low + 0.001));
   const capsule = bars.reduce((best, b) => (Math.max(...b.map((c) => c.y)) > Math.max(...best.map((c) => c.y)) ? b : best)), middle = middleOf(capsule);
-  return { foot, head: middleOf(capsule.filter((c) => gap(c, foot) > gap(middle, foot))) };
+  return { foot, head: middleOf(capsule.filter((c) => gap(c, foot) > gap(middle, foot))), bars };
 }
 // The corners of a singer's head, which stands still among the still parts (band.js keepHead), on the stage; none for a drummer.
 function headOf(band: Band, k: number) {
@@ -352,7 +353,7 @@ describe("the band, as it is built", () => {
     });
   });
 
-  it("stands each microphone at its player's mouth: its head within 3 cm of the face's front at its height, as the body rests, upright or leaning, and its stand toward the crowd from there", () => {
+  it("stands each microphone at its player's mouth: its head within 3 cm of the face's front at its height, as the body rests, upright or leaning, on a boom from a stand toward the crowd and out to the player's right", () => {
     stage.updateMatrixWorld(true);
     const at = new THREE.Vector3();
     const gaps = band.players.flatMap((p: { plays: string; body: { matrixWorld: unknown; geometry: { getAttribute(name: string): { count: number } } } }, k: number) => {
@@ -372,12 +373,17 @@ describe("the band, as it is built", () => {
     expect(gaps.map(({ plays }: { plays: string }) => plays)).toEqual(["guitar", "bass", "guitar", "keys"]);
     // In the player's own metres: a head 0.027 across that stood off the face as it did, 0.065 before it, would fail this.
     for (const { plays, before } of gaps) expect([plays, before > -0.03 && before < 0.03]).toEqual([plays, true]);
-    // From the microphone's head, its stand's foot lies toward the crowd, +z on the stage, within 0.2 rad.
-    band.players.forEach((p: { plays: string; g: { matrix: unknown } }, k: number) => {
+    // Its stand's foot lies 15 cm toward the crowd from the microphone's head, +z on the stage, and 15 cm out to the player's right
+    // of their middle across the stage, -x, in their own metres and each within a centimetre, whichever way they turn: so from the
+    // crowd the stand rises over the right of the chest, not down its middle. And a boom reaches from the stand's top to the head:
+    // one part comes within 5 cm of the line the stand stands on, across, and within 15 cm of the head, in their metres.
+    band.players.forEach((p: { plays: string; g: { position: Vec; scale: Vec } }, k: number) => {
       const found = microphoneOf(band, k);
       if (!found) return;
-      const { foot, head } = found;
-      expect([p.plays, Math.abs(Math.atan2(foot.x - head.x, foot.z - head.z)) < 0.2 + (p.plays === "keys" ? 0.15 : 0)]).toEqual([p.plays, true]);
+      const { foot, head, bars } = found, s = p.g.scale.x;
+      expect([p.plays, Math.abs((foot.z - head.z) / s - 0.15) < 0.01, Math.abs((foot.x - p.g.position.x) / s + 0.15) < 0.01]).toEqual([p.plays, true, true]);
+      const boom = bars.filter((corners) => Math.min(...corners.map((c) => Math.hypot(c.x - foot.x, c.z - foot.z))) < 0.05 * s && Math.min(...corners.map((c) => gap(c, head))) < 0.15 * s);
+      expect([p.plays, boom.length]).toEqual([p.plays, 1]);
     });
   });
 });
@@ -752,6 +758,37 @@ describe("the band's look", () => {
       expect(d.hair.r).toBeGreaterThan(d.hair.b * 1.2);
     }
     expect([skins.size, hairs.size]).toEqual([6, 6]);
+  });
+
+  // A kit is a colour of its era's by the drummer's seat, lit as a guitar is (band.js ERA_CLOTHES `shells`), and no black mass: no
+  // seat of any era takes a shell near-black, two drummers play two colours, the bass drum's front head is the shell's colour
+  // lighter, by a third of the way to white or more, and what fills the kit between its drums is the shell's in shade, none of it
+  // near-black. A drum's other heads are white.
+  it("gives each drummer's kit a shell of its era's colours by the seat, none near-black, two drummers two kits, with a lighter front head and a fill in the shell's shade", () => {
+    for (const { key, era, players } of lineups()) {
+      const kits = players.filter(({ role }) => role === "drums").map(({ seat, dress }) => ({ seat, shell: dress.shell }));
+      for (const { seat, shell } of kits) expect([key, era, seat, lightness(shell) >= DARK]).toEqual([key, era, seat, true]);
+      expect([key, era, new Set(kits.map(({ shell }) => hex(shell))).size]).toEqual([key, era, kits.length]);
+    }
+    for (const { from, era } of ERAS) for (let seat = 0; seat < 7; seat++) expect([era, seat, lightness(dressOf(from, seat, "drums").shell) >= DARK]).toEqual([era, seat, true]);
+    const colour = new THREE.Color();
+    for (const { from, era } of ERAS) {
+      const band = buildBand(new THREE.Group(), FLOOR, SIX, from), paints = band.still.geometry.getAttribute("color");
+      band.players.forEach((p: { role: string; dress: { shell: { getHexString(): string } } }, k: number) => {
+        if (p.role !== "drums") return;
+        const shell = lightness(p.dress.shell as never), of = (as: string) => {
+          const out = new Set<number>();
+          for (const part of band.still.userData.parts as Part[]) if (part.of === "kit" && part.by === k && part.as === as) for (let i = part.from; i < part.from + part.count; i++) out.add(lightness(colour.fromBufferAttribute(paints, i) as never));
+          return [...out];
+        };
+        // The bass drum's faces: its shell, its back head, which is white as the snare's head is, and its front head, which is
+        // neither and lighter than the shell.
+        const drum = of("bass drum"), snare = of("snare"), fill = of("block");
+        const front = drum.filter((l) => l.toFixed(3) !== shell.toFixed(3) && !snare.some((w) => w.toFixed(3) === l.toFixed(3)));
+        expect([era, k, drum.length, drum.some((l) => l.toFixed(3) === shell.toFixed(3)), front.length, front[0] - shell >= (1 - shell) / 3]).toEqual([era, k, 3, true, 1, true]);
+        expect([era, k, fill.length, fill[0] < shell, fill[0] >= DARK]).toEqual([era, k, 1, true, true]);
+      });
+    }
   });
 
   // Faceless: a head is a smooth form, an ellipsoid in its skin, with its hair and a hat over it, and nothing on it: no eye, nose or

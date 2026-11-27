@@ -72,11 +72,12 @@ export const SCALE = 1.77;
    it is fretted, to its head, is fitted to the canvas (axe, NECK_PX); a crash's pole, a microphone's stand and the singer's
    microphone, an organ's legs, a keyboard player's lifted forearm and hand, a drummer's forearms, a tapping foot and the singer's
    legs are each as stout as a pixel of the canvas from the back of the crowd (SEEN, `fit`); a fretting hand lies where the arm's
-   bend is filled; a stand and a pole stand on no foot; boots reach up into a long coat; the keys stand on a case as wide as the
-   legs behind it; a cymbal tips toward the crowd, so it shows as a disc; and a drummer's stick is thickest at its tip, which is
-   what shows of it. And nothing comes within two pixels of the stage's own black, where it would read as part of the wall or a
-   PA stack. `band-outline.ts` draws each line-up with the stage as the shoot's devices draw them, counts the specks, and weighs
-   each player's outline against the panel by its contrast in luminance. */
+   bend is filled; a crash's pole and the singer's stand stand on no foot, and a microphone's stand on a low base that lies flat
+   on the floor; boots reach up into a long coat; the keys stand on a case as wide as the legs behind it; a cymbal tips toward
+   the crowd, so it shows as a disc; and a drummer's stick is thickest at its tip, which is what shows of it. And nothing comes
+   within two pixels of the stage's own black, where it would read as part of the wall or a PA stack. `band-outline.ts` draws each
+   line-up with the stage as the shoot's devices draw them, counts the specks, and weighs each player's outline against the panel
+   by its contrast in luminance. */
 export const HALF_OVER = 1.75, HALF_UNDER = 1.5;
 
 /* The counts in which a move comes and goes once, each set by a count of flashes (scripts/flash; the bar is 6 swings a second at a
@@ -355,16 +356,27 @@ const BASS = { strum: 0.2, joint: 0.47, nut: 1.14, neck: 0.058, head: 0.13, face
    0.39 times a frame at night, and 0.01 at 1.25 px (band-outline.test.ts). */
 const NECK_PX = 1.25, NECK_MOST = 3;
 
-/* A microphone on a stand, in a player's frame: the microphone at `to` (at the mouth), on a straight stand that rises from the
-   floor at `foot` ([x, z]), or, with `boom`, at the end of an arm from a taller stand there. The stand has no foot: a round foot on
-   the floor is a speck of its own from the back of the crowd on a phone. */
-/* A microphone's stand, its radius at the floor; and the head of the singer's microphone, which they hold before the mouth. */
-const STAND = 0.036, MIC_HEAD = 0.04;
-function microphone(to, [x, z], boom) {
-  const top = V(x, boom ? 1.38 : to.y - 0.1, z), aim = V().subVectors(to, top).normalize();
-  const parts = [paint(bar(V(x, 0, z), top, STAND, STAND - 0.002, 6), tone(STUFF.black)), paint(bar(to.clone().addScaledVector(aim, -0.15), to, 0.022, 0.03, 6), tone(STUFF.chrome))];
-  parts.push(paint(bar(boom ? top.clone().addScaledVector(aim, -0.28) : top, to.clone().addScaledVector(aim, -0.12), 0.034, 0.026, 6), tone(STUFF.black)));
-  return parts;
+/* A microphone on a stand, in a player's frame: the microphone at `to` (at the mouth), at the end of a short boom from the top of a
+   straight stand at the player's right, which rises from a low round base on the floor at `foot`; the microphone is the kit's
+   chrome. The stand is a dull steel (STUFF.steel), lit, so against a lit body it is a stand and no black bar, as it was in
+   black; and no lighter, for where it stands at the outline against the panel it reads against it as a lit body does: in the
+   kit's chrome the six of 1970-71's outline read 44 px of 180 from the back of the crowd on a phone at dusk, under its quarter
+   (band-outline.ts BAND_READS), and in this steel 47. Its top is BOOM_DROP under the microphone, and the boom reaches across and
+   up from there; the stand is the part buildBand's `fit` widens (the first). */
+/* A microphone's stand, its radius at the floor; how far under the microphone the stand's top is; and the head of the singer's
+   microphone, which they hold before the mouth. */
+const STAND = 0.036, BOOM_DROP = 0.36, MIC_BASE = 0.13, MIC_HEAD = 0.04;
+/* Where a microphone's stand stands, in the player's metres: MIC_BESIDE out to their right of their middle across the stage, and
+   MIC_FORE toward the crowd from the microphone. */
+const MIC_BESIDE = 0.15, MIC_FORE = 0.15;
+function microphone(to, foot) {
+  const top = V(foot.x, to.y - BOOM_DROP, foot.z), aim = V().subVectors(to, top).normalize(), steel = tone(STUFF.steel);
+  return [
+    paint(bar(V(foot.x, 0, foot.z), top, STAND, STAND - 0.002, 6), steel),
+    paint(bar(to.clone().addScaledVector(aim, -0.15), to, 0.022, 0.03, 6), tone(STUFF.chrome)),
+    paint(bar(top.clone().addScaledVector(aim, -0.05), to.clone().addScaledVector(aim, -0.12), 0.024, 0.02, 5), steel),
+    paint(new THREE.CylinderGeometry(0, MIC_BASE, 0.03, 6, 1, true).translate(foot.x, 0.015, foot.z), steel),
+  ];
 }
 /* A straight stand that leans, from the floor at `foot` up to `top`, `ra` in radius at the floor and `rb` at the top: its foot cut
    level with the floor, so the whole of it stands on the floor; and the way it leans (`along`), about which buildBand's `fit`
@@ -443,19 +455,19 @@ const PIANO_LIFT = { left: [0.14, 1.27, 0.3], right: [0.14, 1.27, 0.3], fingers:
    (band.test.ts). */
 const DEAL = {
   lead: { size: 1.035, broad: 0.93, hair: "cap", skirt: 0.58, coat: true, stance: 0.16, boots: 0.32, toes: 0.3, fret: 0.8, sway: 0.03, strum: 0.15, tap: 0.1, lag: 1,
-    hold: { ...TWO_HORNS, at: V(-0.13, 0.99, 0.18), rise: 0.78, yaw: 0.2, big: 1.1 }, mic: { reach: 0.04, boom: false } },
+    hold: { ...TWO_HORNS, at: V(-0.13, 0.99, 0.18), rise: 0.78, yaw: 0.2, big: 1.1 } },
   bass: { size: 0.93, broad: 1.0, hair: "knot", skirt: 0.8, stance: 0.16, toes: 0.22, fret: 0.96, sway: -0.035, strum: 0.05, tap: 0.13, lag: 0,
-    hold: { ...BASS, at: V(-0.1, 0.9, 0.18), rise: 0.85, yaw: 0.22, big: 1.08 }, mic: { reach: 0.18, boom: false } },
+    hold: { ...BASS, at: V(-0.1, 0.9, 0.18), rise: 0.85, yaw: 0.22, big: 1.08 } },
   rhythm: { size: 1.0, broad: 1.06, hair: "bob", skirt: 0.8, stance: 0.16, toes: 0.25, fret: 0.74, sway: 0.045, strum: 0.13, tap: 0.11, lag: 2,
-    hold: { ...ONE_CUT, at: V(-0.12, 1.02, 0.18), rise: 0.95, yaw: 0.3, big: 1.1 }, mic: { reach: 0.18, boom: false } },
+    hold: { ...ONE_CUT, at: V(-0.12, 1.02, 0.18), rise: 0.95, yaw: 0.3, big: 1.1 } },
   drums: [
     { size: 0.99, broad: 1.04, hair: "tail", lag: 2, kick: 0.31, toms: { left: [-0.19, 0.19], right: [0.195, 0.205], deep: 0.22 }, tom: V(-0.19, 0.93, 0.58),
       floor: { x: 0.54, r: 0.25 }, crash: { x: 0.735, y: 1.5, z: 0.45, r: 0.23, tip: 0.3 } },
     { size: 1.02, broad: 1.0, hair: "long", lag: 3, kick: 0.3, toms: { left: [-0.17, 0.21], right: [0.21, 0.185], deep: 0.25 }, tom: V(-0.06, 0.93, 0.58),
       floor: { x: 0.33, r: 0.17 }, crash: { x: 0.72, y: 1.42, z: 0.5, r: 0.21, tip: 0.5 } },
   ],
-  keys: { size: 1.02, broad: 0.95, hair: "short", stance: 0.09, sway: 0.03, lean: 0.1, lag: 3, mic: { reach: 0.18, boom: false } },
-  organ: { size: 0.98, broad: 0.9, hair: "beanie", stance: 0.1, sway: 0, lean: 0.1, lag: 0, still: true, mic: { reach: 0.18, boom: false } },
+  keys: { size: 1.02, broad: 0.95, hair: "short", stance: 0.09, sway: 0.03, lean: 0.1, lag: 3, mic: true },
+  organ: { size: 0.98, broad: 0.9, hair: "beanie", stance: 0.1, sway: 0, lean: 0.1, lag: 0, still: true, mic: true },
   piano: { size: 0.97, broad: 1.08, hair: "bunches", stance: 0, sway: 0, lean: 0.12, lag: 1, still: true, mic: null },
   voice: { size: 0.96, broad: 0.98, hair: "short", skirt: 0, stance: 0.13, toes: 0.24, sway: 0.03, tap: 0.1, lag: 3, mic: { foot: [0.42, 0.42], head: [0.03, -0.01, 0.125] } },
 };
@@ -539,8 +551,12 @@ export const WARDROBES = [
 /* Each era's clothes, a generic palette, as sRGB: what is worn on the chest (`tops`, each a cut and its colours: a "tee", short
    sleeved; a "shirt", long sleeved; an "open" shirt over a tee, its sleeves rolled; a "vest" over a shirt; a "check", a shirt in
    squares of two colours; a "print", a shirt in a scatter of two), the trousers (`lower`), a long skirt (`skirts`), a coat
-   (`coats`), the shoes, and a cap or a beanie (`hats`). Nothing here is anyone's: no list holds a colour or a cut that a player of
-   the band is known by, and each seat's is drawn from them by the seat's place on the stage and the era alone (dressOf). */
+   (`coats`), the shoes, a cap or a beanie (`hats`), and a drum kit's shells (`shells`): each a deep colour, none near-black, so a
+   kit shows its colour under the band's light as a guitar does, and none pale, for a kit's toms stand at the band's outline
+   against the panel, where a pale shell does not read against it (band-outline.ts): ivory, silver and maple read 7 px fewer of
+   the six of 1970-71's 180 from the back of the crowd on a phone at dusk. Nothing here is anyone's: no list holds a colour or a cut
+   that a player of the band is known by, and each seat's is drawn from them by the seat's place on the stage and the era alone
+   (dressOf). */
 const ERA_CLOTHES = {
   "the late sixties": {
     tops: [["print", 0xb8336a, 0xe0a030], ["vest", 0x5c3a21, 0xd2691e], ["print", 0x2a9d8f, 0x7b3fa0], ["shirt", 0x7b3fa0, 0], ["vest", 0x22222a, 0xd4a017],
@@ -550,6 +566,7 @@ const ERA_CLOTHES = {
     coats: [0x4b2a5e, 0x5c3a21, 0x2f2f35, 0x6a2a2a],
     shoes: [0x3b2a1e, 0x1a1a1a, 0x5a3a22],
     hats: [0x6b2d3a, 0x3b3b3b, 0x8a6d3b, 0x2a3a5a],
+    shells: [0x8a2a2a, 0x2a4a7a, 0x5a2a6a, 0x2a5a4a, 0x7a5a2a],
   },
   "the early seventies": {
     tops: [["shirt", 0x4a6a8e, 0], ["check", 0x8b2e2e, 0x2a2420], ["shirt", 0x8b5a2b, 0], ["open", 0x3e5a7e, 0xc8b890], ["check", 0x2e5e3a, 0x1e2e4e],
@@ -559,6 +576,7 @@ const ERA_CLOTHES = {
     coats: [0x6a4a2a, 0x3e5a7e, 0x5a4a3a, 0x3a3a30],
     shoes: [0x4a3020, 0x3a2a1e, 0x5a4030],
     hats: [0x5a4a3a, 0x3a4a5a, 0x6a3a2a, 0x4a4a30],
+    shells: [0x6a4022, 0x7a2a32, 0x4a5a2a, 0x3a4a6a, 0x7a5a3a],
   },
   "the late seventies and the eighties": {
     tops: [["tee", 0xe0dcd0, 0], ["open", 0x5a7a9a, 0x8a8a8a], ["tee", 0xb03030, 0], ["tee", 0x2a3f6a, 0], ["open", 0x9a3a3a, 0xe0dcd0],
@@ -568,6 +586,7 @@ const ERA_CLOTHES = {
     coats: [0x5a4a3a, 0x3a3a48, 0x6a5a40, 0x2e3e5e],
     shoes: [0xdedad0, 0x3a2a1e, 0x8a8a8a, 0x2a2a2a],
     hats: [0x2a3f6a, 0xb03030, 0x5a5048, 0x3a7a5a],
+    shells: [0x8a2222, 0x22408a, 0x6a4a2a, 0x2a5a3a, 0x6a2a4a],
   },
   "the nineties": {
     tops: [["tee", 0x1e1e22, 0], ["shirt", 0x3a6a7a, 0], ["tee", 0x2e2e38, 0], ["shirt", 0x6a4a7a, 0], ["tee", 0x4a1e2a, 0],
@@ -577,6 +596,7 @@ const ERA_CLOTHES = {
     coats: [0x2a2a30, 0x3a3040, 0x4a3a2a, 0x2a3a3a],
     shoes: [0x1e1e1e, 0x4a3a2a, 0xd0ccc0, 0x3a3a3a],
     hats: [0x1e1e22, 0x3a3a48, 0x4a1e2a, 0x2a3a3a],
+    shells: [0x2a5a6a, 0x6a2a3a, 0x3a4a7a, 0x2a5a3a, 0x6a4a2a],
   },
 };
 /* Skin, in a range of tones, and hair, every era's: no grey or white, which would put an age on a player. */
@@ -584,16 +604,15 @@ const SKINS = [0xe8bf9a, 0xd4a07a, 0xb98058, 0x9a6440, 0x7a4c30, 0x5c3820];
 const HAIRS = [0x1a1410, 0x2e2018, 0x4a3020, 0x6a3e22, 0x8a6a40, 0x3a2a20];
 /* The instruments' and the stage's things, in their materials, as sRGB. A guitar's or a bass's finish: its body's face from the
    middle (`burst`) to the edge (`face`), its edge's binding, its neck and its head: a sunburst, amber at the middle and dark brown
-   at the edge; cherry; natural wood; and black. A kit's shells: wine, black, ivory, wood or blue. */
+   at the edge; cherry; natural wood; and black. (A kit's shells are the era's, ERA_CLOTHES.) */
 const FINISHES = [
   { burst: 0xd8902a, face: 0x3a1a0a, edge: 0x1a0e06, neck: 0x8a5a2a, head: 0x161412 },
   { burst: 0x7a1a1a, face: 0x6a1414, edge: 0x2a0a0a, neck: 0x6a4024, head: 0x6a1414 },
   { burst: 0xc89a5a, face: 0xb8884a, edge: 0x5a3a1e, neck: 0xc89a5a, head: 0x8a5a2a },
   { burst: 0x161616, face: 0x161616, edge: 0xd8d0c0, neck: 0x6a4024, head: 0x161616 },
 ];
-const SHELLS = [0x5a1622, 0x18181a, 0xa49c8c, 0x8a5a2a, 0x24386a];
 const STUFF = {
-  drumhead: 0xd2c8b4, bronze: 0x8a6a2e, chrome: 0x5c5e64, black: 0x161618, stick: 0xd0b07a, keys: 0xe8e4d8, keyboard: 0x1c1c20,
+  drumhead: 0xd2c8b4, white: 0xf0ece4, bronze: 0x8a6a2e, chrome: 0x5c5e64, steel: 0x44464c, black: 0x161618, stick: 0xd0b07a, keys: 0xe8e4d8, keyboard: 0x1c1c20,
   organ: 0x5a361c, piano: 0x2a1a10, bench: 0x2a1a10, tambourine: 0xc8a060, monitor: 0x1c1c1e, grille: 0x2c2c30, case: 0x202024,
 };
 
@@ -641,7 +660,7 @@ export function dressOf(date, seat, role, coat = Boolean(DEAL[role]?.coat)) {
   const dress = {
     era, ...wear(top), lower: tone(pick(clothes.lower, "lower")), skirt: tone(pick(clothes.skirts, "skirt")), coat: over === null ? null : tone(over),
     shoes: tone(pick(clothes.shoes, "shoes")), hat: tone(pick(clothes.hats, "hat")), skin: tone(pick(SKINS, "skin")), hair: tone(pick(HAIRS, "hair")),
-    finish: Object.fromEntries(Object.entries(finish).map(([k, hex]) => [k, tone(hex)])), shell: tone(pick(SHELLS, "shell")),
+    finish: Object.fromEntries(Object.entries(finish).map(([k, hex]) => [k, tone(hex)])), shell: tone(pick(clothes.shells, "shell")),
   };
   const next = (list, item) => list[(list.indexOf(item) + 1) % list.length];
   for (let k = 0; role === "lead" && k < clothes.tops.length + clothes.coats.length; k++) {
@@ -872,12 +891,16 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
      middle flips it several times as it passes (a cap's top counted 8 swings in a second on a phone). The collar hides the join. */
   const keepHead = (p, t) => keep(p, "head", t.head.map((part) => (p.lean ? part.translate(-p.pivot.x, -p.pivot.y, -p.pivot.z).rotateX(p.lean).translate(p.pivot.x, p.pivot.y, p.pivot.z) : part)));
   /* A player's microphone on its stand, the microphone at the mouth where the body has it at rest: where it was drawn, for one who
-     stands upright, and leaned with the body for one who leans. The stand's foot is `reach` from there toward the crowd, the way
-     the stage faces, so from the crowd's side of the stage the stand and its arm rise in front of the singer and not beside them. */
-  function voice(p, t, mic) {
+     stands upright, and leaned with the body for one who leans. The stand stands MIC_FORE from it toward the crowd, the way the
+     stage faces, and MIC_BESIDE to the player's right of their middle across the stage, whichever way they turn: so from the
+     crowd it rises over the right of the chest, not down its middle, and the boom reaches across to the mouth. Further out, it
+     parts from the body by a pixel or two from the front of the crowd, which flickers (band.test.ts, the gaps). */
+  function voice(p, t) {
     const at = V(0, t.mouth.y - 0.005, 0.125), tip = p.lean ? leaned(p, at) : at, facing = p.g.rotation.y;
+    const fore = tip.z * Math.cos(facing) - tip.x * Math.sin(facing) + MIC_FORE;
+    const foot = V(-MIC_BESIDE * Math.cos(facing) - fore * Math.sin(facing), 0, fore * Math.cos(facing) - MIC_BESIDE * Math.sin(facing));
     stands.push({ at: fixed.length, by: p, r: STAND, sides: 6 });
-    keep(p, "microphone", microphone(tip, [tip.x - mic.reach * Math.sin(facing), tip.z + mic.reach * Math.cos(facing)], mic.boom));
+    keep(p, "microphone", microphone(tip, foot));
   }
 
   /* The players' moves, each a share of `level` (0 standing, 1 playing), on the band's count less the player's own lag, a whole
@@ -891,7 +914,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
      pocket stands open between the arm and the neck. The right forearm lies over the instrument from its elbow: it turns there,
      `strum` rad either way, the hand crossing the strings one way on a count and back on the next, over the instrument from the
      front. The left foot taps, down on the count. */
-  function strummer(role, spot, facing, { size, broad, hair, skirt, stance, toes, hold, fret, sway, strum, tap, lag, mic, boots, dress }) {
+  function strummer(role, spot, facing, { size, broad, hair, skirt, stance, toes, hold, fret, sway, strum, tap, lag, boots, dress }) {
     const p = player(role, role === "bass" ? "bass" : "guitar", spot, facing, size, dress);
     p.lag = lag;
     p.look = { size, broad, hair, skirt: skirt ?? 0 };
@@ -910,7 +933,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
       [bone(p, "strumming forearm", 0.1, 0.1, [0.03, 0.01]), bone(p, "strumming hand", 0.08, 0.05, [0.02, 0.012], face)]);
     const foot = stand(p, t, stance, toes, 0, true, boots);
     keepHead(p, t);
-    voice(p, t, mic);
+    voice(p, t);
     const { body, pivot } = p;
     p.pose = (count, level, time) => {
       const slow = swing(count - lag, SLOW), across = swing(count - lag, STRUM), beat = swing(count - lag, 1);
@@ -1006,7 +1029,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     if (seated) sit(p, t, 0.34, 0.42);
     else stand(p, t, stance, 0.18, -0.02, false);
     keepHead(p, t);
-    if (mic) voice(p, t, mic);
+    if (mic) voice(p, t);
     const { body, pivot } = p;
     p.pose = (count, level, time) => {
       const slow = swing(count - lag, 2 * SLOW, LIFT_MOVE), shift = level * sway * slow;
@@ -1065,7 +1088,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
        canvas about the stand's line. */
     const pole = leaning(foot, head.clone().addScaledVector(lean, -0.03), STAND, STAND - 0.002);
     stands.push({ at: fixed.length, by: p, r: STAND, sides: 6, axis: pole.along.transformDirection(p.g.matrix) }, { at: fixed.length + 1, by: p, r: MIC_HEAD, sides: 8, round: true });
-    keep(p, "microphone", [paint(pole.geo, tone(STUFF.black)), paint(ball(head, MIC_HEAD, 1, 1, 1, 1), tone(STUFF.chrome))]);
+    keep(p, "microphone", [paint(pole.geo, tone(STUFF.steel)), paint(ball(head, MIC_HEAD, 1, 1, 1, 1), tone(STUFF.chrome))]);
     const { body, pivot } = p;
     p.pose = (count, level, time) => {
       const slow = swing(count - lag, SLOW), beat = swing(count - lag, 1);
@@ -1118,10 +1141,12 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     });
     embody(p, [...t.parts, ...t.head, ...webs], t.pivot, DRUM_LEAN);
     const kit = (as, ...parts) => keep(p, "kit", parts, as);
-    /* A drum's heads are white, but for the bass drum's front head, which is its shell's colour a fifth of the way to white, so the
-       kit's largest face is no pale disc; its shell is the kit's (dress.shell); the hardware is chrome, the cymbals bronze, the stool
-       black, and what fills the kit between its drums the case's dark. */
-    const front = shell_.clone().lerp(tone(STUFF.drumhead), 0.2);
+    /* A drum's heads are white, but for the bass drum's front head, which is its shell's colour halfway to white: lighter than the
+       shell, so the kit's largest face shows as a drum's head and no dark disc, and of the kit's colour, so it is no pale disc of
+       its own either. Its shell is the kit's (dress.shell), the era's colour by the seat, lit as a guitar is; the hardware is
+       chrome, the cymbals bronze, the stool black, and what fills the kit between its drums the shell's colour in shade, so the kit
+       is one coloured mass and no black block. */
+    const front = shell_.clone().lerp(tone(STUFF.white), 0.5), fill = shell_.clone().multiplyScalar(0.75);
     kit("bass drum", paintBy(drum(V(0, kick + 0.005, 0.86), kick, kick, 0.4, 24, Math.PI / 2), (_, n) => (n.z > 0.9 ? front : n.z < -0.9 ? tone(STUFF.drumhead) : shell_)));
     /* A rack tom `r` in radius at `x`, as high as puts its head 2 cm under the right stick's tip where that rests. */
     const high = tom.y - (toms.deep / 2 + 0.02 - (TOM_Z - tom.z) * Math.sin(TOM_TIP)) / Math.cos(TOM_TIP);
@@ -1133,7 +1158,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
        tom's side out to the edge of the tom over it, so no light shows under that tom's overhang. And the kit's middle, between
        the bass drum, the snare and the knees: its top is under the snare's head, where the left stick lands. */
     const over = low.x > 0 ? toms.right : toms.left, edge = Math.abs(over[0]) + over[1];
-    kit("block", paint(box(0.28 + edge, 0.36, 0.2, (Math.sign(low.x) * (edge - 0.28)) / 2, 0.62, TOM_Z), tone(STUFF.case)), paint(box(0.44, 0.34, 0.5, 0, 0.43, 0.42), tone(STUFF.case)));
+    kit("block", paint(box(0.28 + edge, 0.36, 0.2, (Math.sign(low.x) * (edge - 0.28)) / 2, 0.62, TOM_Z), fill), paint(box(0.44, 0.34, 0.5, 0, 0.43, 0.42), fill));
     kit("stool", paint(drum(V(0, 0.5, -0.02), 0.17, 0.17, 0.07, 10), tone(STUFF.black)), paint(drum(V(0, 0.24, -0.02), 0.05, 0.09, 0.46, 8), tone(STUFF.chrome)));
     kit("hi-hat", paint(drum(HAT, 0.03, 0.15, 0.035, 12), tone(STUFF.bronze)), paint(drum(V(HAT.x, HAT.y - 0.045, HAT.z), 0.15, 0.03, 0.035, 12), tone(STUFF.bronze)));
     kit("pole", ...pole(-0.2, 0.3, HAT.y - 0.02));

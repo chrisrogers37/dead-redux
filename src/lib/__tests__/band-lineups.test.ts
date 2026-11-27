@@ -112,7 +112,7 @@ function stillOf(band: Band, of: (name: string) => boolean, k: number) {
 }
 const middleOf = (points: Vec[]) => points.reduce((sum, c) => sum.add(c), new THREE.Vector3()).divideScalar(points.length);
 // A player's microphone (band.test.ts `microphoneOf`): the middle of its stand's foot, and the middle of the end of its capsule away
-// from the foot.
+// from the foot; and its parts, each as its corners.
 function microphoneOf(band: Band, k: number) {
   const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
   const bars = (band.still.userData.parts as Part[]).filter((part) => part.of === "microphone" && part.by === k).map((part) => {
@@ -123,7 +123,7 @@ function microphoneOf(band: Band, k: number) {
   if (!bars.length) return null;
   const all = bars.flat(), low = Math.min(...all.map((c) => c.y)), foot = middleOf(all.filter((c) => c.y < low + 0.001));
   const capsule = bars.reduce((best, b) => (Math.max(...b.map((c) => c.y)) > Math.max(...best.map((c) => c.y)) ? b : best)), middle = middleOf(capsule);
-  return { foot, head: middleOf(capsule.filter((c) => gap(c, foot) > gap(middle, foot))) };
+  return { foot, head: middleOf(capsule.filter((c) => gap(c, foot) > gap(middle, foot))), bars };
 }
 // A point of the stage in a player's own frame and their own metres, where +x is their left and +z the way they face.
 const own = (band: Band, of: number, at: Vec) => new THREE.Vector3(at.x, at.y, at.z).applyMatrix4(band.players[of].g.matrix.clone().invert());
@@ -276,7 +276,7 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
     expect(Array.from(band.limbs.instanceMatrix.array as Float32Array)).toEqual(before);
   });
 
-  it("stands each microphone at its singer's mouth: its head within 3 cm of the face's front at its height, and its stand toward the crowd from there, the singer's out to their left", () => {
+  it("stands each microphone at its singer's mouth: its head within 3 cm of the face's front at its height, on a boom from a stand toward the crowd and out to the player's right, the singer's toward the crowd and out to their left", () => {
     stage.updateMatrixWorld(true);
     const singing = players.flatMap((p, k) => {
       const found = microphoneOf(band, k);
@@ -290,17 +290,20 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
         const c = own(band, k, at);
         if (Math.abs(c.y - mic.y) < 0.04 && Math.abs(c.x - mic.x) < 0.06) face = Math.max(face, c.z);
       });
-      const { foot, head } = found, out = own(band, k, foot).sub(mic);
-      return [{ role: p.role, before: mic.z - face, toward: Math.abs(Math.atan2(foot.x - head.x, foot.z - head.z)), out }];
+      const { foot, head, bars } = found, out = own(band, k, foot).sub(mic), s = p.g.scale.x;
+      const boom = bars.filter((c) => Math.min(...c.map((q) => Math.hypot(q.x - foot.x, q.z - foot.z))) < 0.05 * s && Math.min(...c.map((q) => gap(q, head))) < 0.15 * s).length;
+      return [{ role: p.role, before: mic.z - face, fore: (foot.z - head.z) / s, right: (foot.x - p.g.position.x) / s, boom, out }];
     });
     // Every one who stands sings but the pianist, who is seated side-on; no drummer does.
     expect(singing.map(({ role }) => role)).toEqual(players.filter((p) => !["drums", "piano"].includes(p.role)).map((p) => p.role));
-    // The stand's foot lies toward the crowd from the head, within 0.2 rad, and for one at a keyboard, who turns from the crowd, 0.35.
-    // The singer's lies toward the crowd and out to their left, 30 to 50 cm in their own metres, past the legs, which stand 13 cm out:
-    // so from the crowd it rises clear of them.
-    for (const { role, before, toward, out } of singing) {
+    // The stand's foot lies 15 cm toward the crowd from the head, +z on the stage, and 15 cm to the player's right of their middle
+    // across the stage, -x, in their own metres and each within a centimetre, whichever way they turn, a keyboard's player too; and
+    // one part, the boom, reaches from within 5 cm of the stand's line to within 15 cm of the head (band.test.ts). The singer's lies
+    // toward the crowd and out to their left, 30 to 50 cm in their own metres, past the legs, which stand 13 cm out: so from the
+    // crowd it rises clear of them.
+    for (const { role, before, fore, right, boom, out } of singing) {
       if (role === "voice") expect([role, before > -0.03 && before < 0.03, out.z > 0.2, out.x > 0.3 && out.x < 0.5]).toEqual([role, true, true, true]);
-      else expect([role, before > -0.03 && before < 0.03, toward < (["organ", "keys"].includes(role) ? 0.35 : 0.2)]).toEqual([role, true, true]);
+      else expect([role, before > -0.03 && before < 0.03, Math.abs(fore - 0.15) < 0.01, Math.abs(right + 0.15) < 0.01, boom]).toEqual([role, true, true, true, 1]);
     }
   });
 

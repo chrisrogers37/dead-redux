@@ -732,10 +732,12 @@ function drawWithStage(tris: Tri[], cam: Camera, day?: string) {
 // What share must: a quarter of the band's whole outline reads (BAND_READS), and a third of each player's stands apart
 // (PLAYER_STANDS), where it has SPECK px of outline or more against the panel. These two are a guard against the band getting worse,
 // set just under its worst today, and nothing else sets them: the least of the band's whole outline that reads, from any camera, at
-// night or at dusk, in any line-up, dressed for any era it played in, is 0.256 (the six of 1971, from the back of the crowd on a
-// phone at dusk); and the least of a player's outline that stands apart 0.385 (the singer of 1975 to 1978, 13 px of outline from the
-// back of the crowd on a desktop at dusk). A lit body is mostly darker than the panel, and reads by that. The black band before it
-// read whole against PANEL_LEAST, 4.1:1.
+// night or at dusk, in any line-up, dressed for any era it played in, is 0.256 (the five of 1965 to 1967 in the late sixties'
+// clothes, from the back of the crowd on a phone at dusk; the six of 1971 there 0.261, which with its microphones' stands in the
+// kit's chrome read 0.244, and with pale shells on its kits too 0.206: band.js STUFF.steel and ERA_CLOTHES); and the least of a
+// player's outline that stands apart 0.385 (the singer of 1975 to 1978, 13 px of outline from the back of the crowd on a desktop
+// at dusk). A lit body is mostly darker than the panel, and reads by that. The black band before it read whole against
+// PANEL_LEAST, 4.1:1.
 //
 // PANEL_LEAST is the dimmest pixel behind the band in the fixed day's band still on a desktop, 0.172 at night (in Drums) and 0.178 at
 // dusk. The panel goes dimmer. Its light (sky.js liquid) is the set's two colours, mixed by the field, and toward the first's dark
@@ -744,7 +746,7 @@ function drawWithStage(tris: Tri[], cam: Camera, day?: string) {
 // gain moves with the music (audio.js mappings `panel`), to 0.6 in a quiet passage: 2.7 % of the 45 maps' time is under 0.05 loud. So
 // the panel's least is 0.077 (0.079 found), in a quiet passage of set 2. The hour does not light it, and the fog takes 1.4 % of it at
 // the most (the path's camera, 97 m from it; fog from 80 m). Against that the band reads nowhere and stands apart by 0.067 at the
-// least; at 0.132, the field's least at full gain, it reads by 0.089 and stands apart by 0.231. Nothing darker than a panel of 0.10 or
+// least; at 0.132, the field's least at full gain, it reads by 0.083 and stands apart by 0.231. Nothing darker than a panel of 0.10 or
 // less stands 3:1 from it, not even the black band (2.4:1 at 0.079): there only a part lit to 0.34 or more would.
 export const PANEL_LEAST = 0.17, READS = 3, STANDS = Math.sqrt(3), BAND_READS = 1 / 4, PLAYER_STANDS = 1 / 3;
 export const contrast = (a: number, b: number) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
