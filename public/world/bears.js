@@ -103,13 +103,23 @@ const sum = (list, x, y, z) => {
 export const formAt = (x, y, z) => sum(FORM, x, y, z);
 export const shadeAt = (x, y, z) => sum(SHADE, x, y, z);
 /* A surface's normals from its own triangles, its seams closed first, so it shades as one smooth surface; and no uv, which no bear's
-   material reads. */
+   material reads. Each part of the body carries a `tone` at each corner, which the bear's colours make its colour (buildBear): how far
+   into an ear's cup, or out to the ruff's tips, the corner is; 0 where nothing depends on it. */
 function smoothed(geo) {
   geo.deleteAttribute("uv");
   geo.deleteAttribute("normal");
   const out = mergeVertices(geo, 1e-6);
   out.computeVertexNormals();
-  return out;
+  return toned(out);
+}
+function toned(geo, tones = new Float32Array(geo.attributes.position.count)) {
+  if (!geo.attributes.tone) geo.setAttribute("tone", new THREE.BufferAttribute(tones, 1));
+  return geo;
+}
+/* A ball, scaled or not: its own normals are true to it already, so only its uv goes. */
+function ball(geo) {
+  geo.deleteAttribute("uv");
+  return toned(geo);
 }
 /* The body's egg: 1.22 m to each side of its middle and 1.12 m fore and aft at its widest, 2.4 m up, drawing in by a fifth toward its
    shoulders (`draw`, by height), so the bear has a chest and a belly and not one round ball; from 0.6 m up to 4.15 m, which leaves its
@@ -154,9 +164,9 @@ const smooth = (edge0, edge1, x) => { const t = Math.max(0, Math.min(1, (x - edg
 
 /* An ear: a cupped disc EAR.wide m across and EAR.high m high, its back rounded and its front hollowed into a cup, the cup turned
    forward and a little out, tipped out and leaning back, set into the head to each side with its top EAR_TOP m up, the top of the
-   bear. `paint` takes how far into the cup a corner is (0 on the back and the rim, 1 in its middle). */
+   bear. Its tone is how far into the cup a corner is (0 on the back and the rim, 1 in its middle). */
 export const EAR = { wide: 0.37, high: 0.35, thick: 0.16, back: 0.1, cup: 0.24, at: [0.72, 0.55], turn: 0.45, tip: 0.25, lean: 0.12 }, EAR_TOP = 4.835;
-function ear(side, paint) {
+function ear(side) {
   const geo = new THREE.SphereGeometry(1, 16, 12), pos = geo.attributes.position, inner = new Float32Array(pos.count);
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
@@ -167,9 +177,7 @@ function ear(side, paint) {
   geo.rotateX(-EAR.lean).rotateZ(-side * EAR.tip).rotateY(side * EAR.turn);
   geo.computeBoundingBox();
   geo.translate(side * EAR.at[0], EAR_TOP - geo.boundingBox.max.y, EAR.at[1]);
-  const colors = new Float32Array(pos.count * 3);
-  for (let i = 0; i < pos.count; i++) paint(inner[i]).toArray(colors, i * 3);
-  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geo.setAttribute("tone", new THREE.BufferAttribute(inner, 1));
   return smoothed(geo);
 }
 
@@ -178,8 +186,8 @@ function ear(side, paint) {
    front and RUFF.thick at the back, so it stands that far proud of the body; its lower, outer edge falls into RUFF.tufts tufts, longest
    at the back, which hang down and out over the shoulders and the back by up to RUFF.hang m, so its edge is ragged and never a
    ring's. Each tuft is a lock of its own length (LOCKS, from the middle of the back round by the bear's left), drawn to a soft point,
-   with a broad, rounded gap to the next: RUFF_U is eight steps a tuft, so a tip is a curve and not a saw's tooth. `paint` takes how
-   far a corner is from the root, where the ruff grows out of the fur (0), to the tips (1). */
+   with a broad, rounded gap to the next: RUFF_U is eight steps a tuft, so a tip is a curve and not a saw's tooth. Its tone is how far
+   a corner is from the root, where the ruff grows out of the fur (0), to the tips (1). */
 export const RUFF = { up: 3.55, tilt: 0.06, thin: 0.11, thick: 0.22, tall: 1.2, tufts: 14, hang: 0.3 }, RUFF_U = 8 * RUFF.tufts, RUFF_V = 10;
 export const LOCKS = [1, 0.78, 0.92, 0.72, 0.97, 0.8, 0.88, 0.7, 0.9, 0.76, 1, 0.82, 0.74, 0.94];
 /* How far down a tuft hangs at `u` round the neck (0 at the back, π at the front): longest at the back, each tuft its lock's length.
@@ -195,8 +203,8 @@ export function ruffRing(u) {
   for (let k = 0; k < 3; k++) { out = bodyOut(dx, dz, y); y = RUFF.up + Math.tan(RUFF.tilt) * dz * out; }
   return { y, out };
 }
-function ruff(paint) {
-  const pos = [], colors = [], index = [];
+function ruff() {
+  const pos = [], tones = [], index = [];
   for (let i = 0; i <= RUFF_U; i++) {
     const u = (i / RUFF_U) * 2 * Math.PI, back = (1 + Math.cos(u)) / 2, dx = Math.sin(u), dz = -Math.cos(u);
     const roll = RUFF.thin + (RUFF.thick - RUFF.thin) * back, tuft = tuftAt(u), { y, out: ring } = ruffRing(u);
@@ -209,7 +217,7 @@ function ruff(paint) {
       const fall = Math.max(0, Math.cos(v + Math.PI / 4)) ** 2 * tuft, rim = ring + roll * out + 0.45 * fall;
       const along = up > 0 ? rim + (Math.min(rim, neck) - rim) * up ** 1.5 : rim;
       pos.push(dx * along, y + roll * (up > 0 ? RUFF.tall : 1) * up - 0.9 * fall, dz * along);
-      paint(Math.max(smooth(-0.6, 0.6, out - up * 0.4), fall / RUFF.hang)).toArray(colors, colors.length);
+      tones.push(Math.max(smooth(-0.6, 0.6, out - up * 0.4), fall / RUFF.hang));
     }
   }
   /* Wound so each face's front looks out of the roll. */
@@ -219,17 +227,41 @@ function ruff(paint) {
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+  geo.setAttribute("tone", new THREE.Float32BufferAttribute(tones, 1));
   geo.setIndex(index);
   return smoothed(geo);
 }
 
-/* A part of a bear's body, coloured by `paint`, which gives each vertex's colour from its place in the body. */
-function part(geo, paint) {
-  const pos = geo.attributes.position, colors = new Float32Array(pos.count * 3), at = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i++) paint(at.fromBufferAttribute(pos, i)).toArray(colors, i * 3);
-  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  return geo.attributes.uv ? smoothed(geo) : geo;
+/* A bear's shape, the same in every colour: its parts, merged into one geometry, with where each part's triangles stand in it (its
+   first index and how many) and its corners (its first corner and how many). It is built once, when the first bear is, and each bear
+   colours a copy of it (buildBear). */
+let SHAPE = null;
+function shape() {
+  if (SHAPE) return SHAPE;
+  const parts = {
+    torso: torso(),
+    head: ball(new THREE.SphereGeometry(HEAD.r, 24, 16).translate(0, HEAD.up, HEAD.ahead)),
+    /* The small parts are round enough to keep a round outline a snout's length from the eye, in first person. */
+    ears: mergeGeometries([ear(-1), ear(1)]),
+    muzzle: ball(new THREE.SphereGeometry(0.45, 16, 10).scale(1.15, 0.9, 1).translate(0, 3.4, 1.8)),
+    nose: ball(new THREE.SphereGeometry(NOSE.r, 12, 8).scale(1.2, 0.85, 1).translate(0, NOSE.up, NOSE.ahead)),
+    eyes: mergeGeometries([-0.42, 0.42].map((x) => ball(new THREE.SphereGeometry(0.11, 8, 6).translate(x, 3.9, 1.73)))),
+    /* What shows from behind, where the walk's camera stands: a ruff round the neck, standing a hand proud of the shoulders, in the
+       fur at its root and the trim at its tips, and a round tail. bears.test.ts holds both to showing: a ruff inside the body is no
+       ruff. */
+    ruff: ruff(),
+    tail: ball(new THREE.SphereGeometry(0.24, 12, 8).translate(0, 1.42, -1.02)),
+  };
+  const at = {}, corners = {};
+  let first = 0, corner = 0;
+  for (const [name, geo] of Object.entries(parts)) {
+    at[name] = [first, geo.index.count];
+    corners[name] = [corner, geo.attributes.position.count];
+    first += geo.index.count;
+    corner += geo.attributes.position.count;
+  }
+  SHAPE = { geo: mergeGeometries(Object.values(parts)), at, corners };
+  return SHAPE;
 }
 
 /* One bear in a colour: a group whose four limbs swing, the rest of it one mesh. It stands 4.85 m tall and faces +z, inside the sizes
@@ -248,30 +280,24 @@ export function buildBear(scene, hue) {
   const nearWhite = 0.2126 * fur.r + 0.7152 * fur.g + 0.0722 * fur.b > TRIM_OVER;
   const pale = nearWhite ? fur.clone().multiplyScalar(PALE_DEEP) : fur.clone().lerp(WHITE, 0.5);
   const trim = nearWhite ? fur.clone().multiplyScalar(TRIM_DEEP) : pale;
-  const plain = (c) => () => c;
   /* The belly: the front of the body, an oval 0.78 m to each side of its middle and 1.15 m above and below a point 2 m up. */
   const belly = (v) => mix.copy(fur).lerp(pale, v.z > 0.4 ? smooth(1, 0.72, Math.hypot(v.x / 0.78, (v.y - 2) / 1.15)) : 0);
   /* The fur on the body: the belly's, deeper in the folds (SHADE). */
   const coat = (v) => belly(v).multiplyScalar(1 - shadeAt(v.x, v.y, v.z));
   const g = new THREE.Group();
-  const parts = {
-    torso: part(torso(), coat),
-    head: part(new THREE.SphereGeometry(HEAD.r, 24, 16).translate(0, HEAD.up, HEAD.ahead), plain(fur)),
-    /* The small parts are round enough to keep a round outline a snout's length from the eye, in first person. */
-    ears: mergeGeometries([ear(-1, (k) => mix.copy(fur).lerp(pale, k)), ear(1, (k) => mix.copy(fur).lerp(pale, k))]),
-    muzzle: part(new THREE.SphereGeometry(0.45, 16, 10).scale(1.15, 0.9, 1).translate(0, 3.4, 1.8), plain(pale)),
-    nose: part(new THREE.SphereGeometry(NOSE.r, 12, 8).scale(1.2, 0.85, 1).translate(0, NOSE.up, NOSE.ahead), plain(INK)),
-    eyes: mergeGeometries([-0.42, 0.42].map((x) => part(new THREE.SphereGeometry(0.11, 8, 6).translate(x, 3.9, 1.73), plain(INK)))),
-    /* What shows from behind, where the walk's camera stands: a ruff round the neck, standing a hand proud of the shoulders, in the
-       fur at its root and the trim at its tips, and a round tail. bears.test.ts holds both to showing: a ruff inside the body is no
-       ruff. */
-    ruff: ruff((k) => mix.copy(fur).lerp(trim, k)),
-    tail: part(new THREE.SphereGeometry(0.24, 12, 8).translate(0, 1.42, -1.02), plain(trim)),
+  /* Each part's colour at a corner: the torso's by its place, the ears' and the ruff's by their tone, the rest one colour each. */
+  const { geo: shaped, at, corners } = shape(), geo = shaped.clone(), pos = geo.attributes.position, tone = geo.attributes.tone, v = new THREE.Vector3();
+  const paint = {
+    torso: (i) => coat(v.fromBufferAttribute(pos, i)), head: () => fur, ears: (i) => mix.copy(fur).lerp(pale, tone.getX(i)), muzzle: () => pale,
+    nose: () => INK, eyes: () => INK, ruff: (i) => mix.copy(fur).lerp(trim, tone.getX(i)), tail: () => trim,
   };
-  const body = new THREE.Mesh(mergeGeometries(Object.values(parts)), bodyMat);
+  const colors = new Float32Array(pos.count * 3);
+  for (const [name, [first, count]] of Object.entries(corners)) for (let i = first; i < first + count; i++) paint[name](i).toArray(colors, i * 3);
+  geo.deleteAttribute("tone");
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  const body = new THREE.Mesh(geo, bodyMat);
   /* Where each part's triangles stand in the one mesh, for the tests: its first index and how many. */
-  let first = 0;
-  body.userData.parts = Object.fromEntries(Object.entries(parts).map(([name, geo]) => { const at = [first, geo.index.count]; first += geo.index.count; return [name, at]; }));
+  body.userData.parts = Object.fromEntries(Object.entries(at).map(([name, range]) => [name, [...range]]));
   const legs = LIMBS.map(({ at: [x, y, z], scale: [sx, sy, sz] }, k) => {
     const leg = mesh(LEG, legMat, x, y, z);
     leg.scale.set(sx, sy, sz);
