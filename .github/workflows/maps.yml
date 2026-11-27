@@ -26,6 +26,8 @@ on:
 
 permissions: {}
 
+cache-mode: none
+
 concurrency:
   # One run at a time per target branch, so two publishes never race.
   group: maps-${{ inputs.branch || 'maps' }}
