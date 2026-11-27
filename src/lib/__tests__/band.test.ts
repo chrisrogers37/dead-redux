@@ -7,6 +7,7 @@ import {
 import { DAYBREAK, DEEP, lookAt, newLook } from "../../../public/world/night.js";
 import { beatStep } from "../../../public/world/beat.js";
 import { PERSON } from "../../../public/world/seats.js";
+import { compileGlsl, lightAt } from "./band-light";
 import { buildStage, FLOOR, FLOOR_R, FLOOR_SIDES, PANEL } from "../../../public/world/stage.js";
 
 // public/world/band.js builds the band here as stage.js builds it, from three itself, in a group of the test's own that stands where
@@ -754,14 +755,16 @@ describe("the band's look", () => {
   });
 
   // Faceless: a head is a smooth form, an ellipsoid in its skin, with its hair and a hat over it, and nothing on it: no eye, nose or
-  // mouth, which a corner off the ellipsoid or a colour of its own would draw.
-  it("draws every head, in every line-up and era, as one smooth ellipsoid in its skin, and the head's parts in its skin, its collar, its hair and its hat alone", () => {
+  // mouth, which a corner off the ellipsoid or a colour of its own would draw. The face is the head's front, seen from its middle:
+  // within FACE.side degrees of straight ahead, from FACE.low degrees under it to FACE.high over it.
+  const FACE = { side: 40, low: -40, high: 15 };
+  it("draws every head, in every line-up and era, as one smooth ellipsoid in its skin, the head's parts in its skin, its collar, its hair and its hat alone, and nothing of any colour on its face", () => {
     for (const [key] of Object.entries(STAGING)) for (const { from } of ERAS) {
       const stage = new THREE.Group(), band: Band = buildBand(stage, FLOOR, key.split(" "), from);
       stage.updateMatrixWorld(true);
       band.players.forEach((p: { dress: Record<string, { getHexString(): string }> }, k: number) => {
         const allowed = new Set(["skin", "hair", "hat", "top", "second", "coat"].filter((name) => p.dress[name]).map((name) => hex(p.dress[name])));
-        const skin: InstanceType<typeof THREE.Vector3>[] = [], colour = new THREE.Color(), x = new THREE.Vector3(1, 0, 0);
+        const skin: InstanceType<typeof THREE.Vector3>[] = [], all: InstanceType<typeof THREE.Vector3>[] = [], colour = new THREE.Color(), x = new THREE.Vector3(1, 0, 0);
         const { pivot, lean, body } = band.players[k];
         // Every corner in the player's own frame and metres, upright: a still part's (on the stage, leaned as the body is at rest)
         // and the body's (in its own frame, about its pivot).
@@ -772,12 +775,18 @@ describe("the band's look", () => {
           for (let i = part.from; i < part.from + part.count; i++) {
             colour.fromBufferAttribute(stillColour, i);
             if (part.of === "head") expect([key, from, k, allowed.has(colour.getHexString())]).toEqual([key, from, k, true]);
-            if (colour.getHexString() === hex(p.dress.skin)) skin.push(upright(new THREE.Vector3().fromBufferAttribute(still, i)));
+            const at = upright(new THREE.Vector3().fromBufferAttribute(still, i));
+            all.push(at);
+            if (colour.getHexString() === hex(p.dress.skin)) skin.push(at);
           }
         }
         if (body.geometry) {
           const at = body.geometry.getAttribute("position"), bodyColour = body.geometry.getAttribute("color");
-          for (let i = 0; i < at.count; i++) if (colour.fromBufferAttribute(bodyColour, i).getHexString() === hex(p.dress.skin)) skin.push(new THREE.Vector3().fromBufferAttribute(at, i).add(pivot));
+          for (let i = 0; i < at.count; i++) {
+            const c = new THREE.Vector3().fromBufferAttribute(at, i).add(pivot);
+            all.push(c);
+            if (colour.fromBufferAttribute(bodyColour, i).getHexString() === hex(p.dress.skin)) skin.push(c);
+          }
         }
         // The head's ellipsoid: 0.112 m round, 0.88 of it across, 1.12 up and 1 deep (band.js trunk), its middle under its crown,
         // the highest corner of skin over the neck (within 15 cm of the body's middle line, which takes in no hand); and what of that
@@ -785,9 +794,17 @@ describe("the band's look", () => {
         const [rx, ry, rz] = [0.112 * 0.88, 0.112 * 1.12, 0.112], over = skin.filter((c) => Math.abs(c.x) < 0.15 && Math.abs(c.z - 0.005) < 0.15);
         const mid = { x: 0, y: Math.max(...over.map((c) => c.y)) - ry, z: 0.005 }, head = over.filter((c) => c.y > mid.y - 0.05);
         expect([key, from, k, head.length >= 40]).toEqual([key, from, k, true]);
-        for (const c of head) {
-          const off = ((c.x - mid.x) / rx) ** 2 + ((c.y - mid.y) / ry) ** 2 + ((c.z - mid.z) / rz) ** 2;
-          expect([key, from, k, Math.abs(off - 1) < 1e-3]).toEqual([key, from, k, true]);
+        const offOf = (c: Vec) => ((c.x - mid.x) / rx) ** 2 + ((c.y - mid.y) / ry) ** 2 + ((c.z - mid.z) / rz) ** 2;
+        for (const c of head) expect([key, from, k, Math.abs(offOf(c) - 1) < 1e-3]).toEqual([key, from, k, true]);
+        // And nothing on the face: where a face would be, from the chin to the brow (FACE), no corner of the player, in any colour,
+        // stands off the head and within 0.3 of its radii of it; there only the head's own skin shows. Hair falls by it 49 degrees
+        // or more to either side, a cap's peak stands over it at 25 degrees up, and a hand that comes near it stays 48 degrees down.
+        for (const c of all) {
+          const dx = c.x - mid.x, dy = c.y - mid.y, dz = c.z - mid.z, off = offOf(c);
+          const side = (Math.atan2(dx, dz) * 180) / Math.PI, up = (Math.atan2(dy, Math.hypot(dx, dz)) * 180) / Math.PI;
+          if (Math.abs(side) < FACE.side && up > FACE.low && up < FACE.high && off > 1 + 1e-3 && off < 1.3 ** 2) {
+            expect([key, from, k, `a corner ${dz.toFixed(3)} m in front of the head's middle, ${side.toFixed(0)} degrees aside and ${up.toFixed(0)} up`]).toEqual([key, from, k, "none"]);
+          }
         }
       });
     }
@@ -844,25 +861,49 @@ describe("the band's look", () => {
     expect(at(DEEP)).toBeCloseTo((FILL_TINT[0] + FILL_TINT[1] + FILL_TINT[2]) * FILL_NIGHT, 2);
   });
 
-  // LIGHT's lines of plain numbers, run here, given the four dot products the line before them takes: the fill's, the key's and the
-  // back light's weights.
-  const weights = LIGHT.split("\n").filter((line: string) => /^float (sky|key|edge) =/.test(line)).join("\n");
-  const weigh = new Function("clamp", "max", "pow", `return function (facing, keyward, skyward, panelward) {${weights.replace(/\bfloat\s+/g, "let ")}\nreturn [sky, key, edge];\n};`)(
-    (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x)), Math.max, Math.pow) as (facing: number, keyward: number, skyward: number, panelward: number) => number[];
+  // LIGHT run from its own text (band-light.ts), through a camera off to the crowd's right and above the band, on a point of a body
+  // off the stage's middle: the key in red, the fill in green and the back light in blue, on a white face, so each channel is one
+  // light's weight there. What each is owed is said in the world's own frame, where the shader works in the view's.
+  const EYE = [3.2, 2.4, 8.5], AT = new THREE.Vector3(0.6, 1.5, 0.4);
+  const lightOn = (n: { x: number; y: number; z: number }) => {
+    const camera = new THREE.PerspectiveCamera(50, 1.5, 0.1, 100);
+    camera.position.set(EYE[0], EYE[1], EYE[2]);
+    camera.lookAt(0, 1.5, 0);
+    camera.updateMatrixWorld(true);
+    const { band } = stand(), u = band.uniforms;
+    const split = { ...u, uKey: { value: { r: 1, g: 0, b: 0 } }, uFill: { value: { r: 0, g: 1, b: 0 } }, uRim: { value: { r: 0, g: 0, b: 1 } } };
+    const [key, fill, rim] = lightAt(camera.matrixWorldInverse, AT, new THREE.Vector3(n.x, n.y, n.z).normalize(), [1, 1, 1], split);
+    return { key, fill, rim };
+  };
 
-  it("gives a body a lit side and a side in shadow, and a warm edge on its panel side alone: a face turned to the key takes all of it and one turned away none; the back light is none on a face turned to the eye or away from the panel, and whole on one edge-on to the eye and turned to the panel", () => {
-    expect(weights.split("\n")).toHaveLength(3);
-    expect(weigh(1, 1, 0, 0)).toEqual([FILL_BELOW + (1 - FILL_BELOW) * 0.5, 1, 0]);
-    expect(weigh(1, -1, 0, 0)[1]).toBe(0);
-    expect(weigh(0.5, 0.3, 0, 0)[1]).toBeCloseTo(0.3, 12);
-    // The fill: whole from straight above, FILL_BELOW of it from straight below.
-    expect(weigh(1, 0, 1, 0)[0]).toBeCloseTo(1, 12);
-    expect(weigh(1, 0, -1, 0)[0]).toBeCloseTo(FILL_BELOW, 12);
-    // The back light.
-    expect(weigh(1, 0, 0, 1)[2]).toBe(0);
-    expect(weigh(0, 0, 0, -1)[2]).toBe(0);
-    expect(weigh(0, 0, 0, 1)[2]).toBeCloseTo(1, 12);
-    expect(weigh(0.5, 0, 0, 1)[2]).toBeCloseTo(0.5 ** RIM_EDGE, 12);
+  it("runs its light from the shader's own text, as GLSL reads it: a whole number without its point, a name neither declared nor given and a value of the wrong size are refused", () => {
+    expect(() => compileGlsl("float a = 1;")).toThrow(/whole number/);
+    expect(() => compileGlsl("vec3 a = b;")({})).toThrow(/neither declared nor given/);
+    expect(() => compileGlsl("float a = vec3(1.0, 2.0, 3.0);")({})).toThrow(/given a value of 3/);
+    expect(compileGlsl("vec3 a = vec3(1.0, 2.0, 3.0) * 2.0; float b = dot(a, a.zyx); out.x = clamp(b, 0.0, 9.5) - pow(2.0, 3.0);")({})).toEqual({ "out.x": 1.5 });
+  });
+
+  it("gives a body a lit side and a side in shadow, and a warm edge on its panel side alone: a face turned to the key takes all of it and one turned away none; the fill whole from above and FILL_BELOW of it from below; the back light none on a face turned to the eye or away from the panel, and on one edge-on to the eye as much as it turns to the panel", () => {
+    const { band } = stand(), keyTo = band.uniforms.uKeyTo.value.clone(), panel = band.uniforms.uPanel.value.clone();
+    const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+    // The key, by Lambert's law: all of it turned to the key, none turned away, half at 60 degrees from it.
+    expect(lightOn(keyTo).key).toBeCloseTo(1, 12);
+    expect(lightOn(keyTo.clone().negate()).key).toBe(0);
+    const aside = V(0, 1, 0).cross(keyTo).normalize(), sixty = keyTo.clone().multiplyScalar(0.5).addScaledVector(aside, Math.sqrt(0.75));
+    expect(lightOn(sixty).key).toBeCloseTo(0.5, 12);
+    // The fill: whole from straight above, FILL_BELOW of it from straight below, halfway between on a face turned level.
+    expect(lightOn(V(0, 1, 0)).fill).toBeCloseTo(1, 12);
+    expect(lightOn(V(0, -1, 0)).fill).toBeCloseTo(FILL_BELOW, 12);
+    expect(lightOn(V(1, 0, 0)).fill).toBeCloseTo(FILL_BELOW + (1 - FILL_BELOW) / 2, 12);
+    // The back light: (1 - facing the eye)^RIM_EDGE, times how far the face turns to the panel's middle.
+    const toEye = V(EYE[0], EYE[1], EYE[2]).sub(AT).normalize(), toPanel = panel.clone().sub(AT).normalize();
+    const edgeOn = toPanel.clone().addScaledVector(toEye, -toPanel.dot(toEye)).normalize();
+    expect(lightOn(toEye).rim).toBeCloseTo(0, 12);
+    expect(lightOn(edgeOn).rim).toBeCloseTo(edgeOn.dot(toPanel), 12);
+    expect(edgeOn.dot(toPanel)).toBeGreaterThan(0.5);
+    expect(lightOn(edgeOn.clone().negate()).rim).toBe(0);
+    const half = toEye.clone().multiplyScalar(0.5).addScaledVector(edgeOn, Math.sqrt(0.75));
+    expect(lightOn(half).rim).toBeCloseTo(0.5 ** RIM_EDGE * half.dot(toPanel), 12);
   });
 });
 

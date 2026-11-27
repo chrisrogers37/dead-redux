@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import showCatalog from "../../../data/shows.json";
 import pickSchedule from "../../../data/pick-schedule.json";
@@ -116,6 +117,24 @@ describe("the stage, by the show's date", () => {
       { stage: "roof", day: "1974-10-21", from: "1974-10-21", to: "1995-07-09" },
     ]);
     expect(stagesOf(lineupOn("1986-07-04").roles as string[]).map((s) => s.stage)).toEqual(["roof"]);
+  });
+});
+
+describe("the stage main.js builds", () => {
+  // main.test.ts runs main.js on a stand-in for the stage, which plays the parts of it main.js reads. Each is the real stage's: the
+  // names main.js reads of what buildStage returns are the stand-in's and are all in the real one, and the band's own (its move, its
+  // fit and its light, `lightBand`) are the band's.
+  it("hands main.js every part of it main.js reads, as main.test.ts's stand-in plays them: the light, the rig, and the band's move, fit and light", () => {
+    const main = readFileSync(new URL("../../../public/world/main.js", import.meta.url), "utf8");
+    const name = main.match(/const (\w+) = buildStage\(/)![1];
+    // (Its file's name, stage.js, is no part of it.)
+    const reads = [...new Set([...main.matchAll(new RegExp(`\\b${name}\\.(?!js\\b)(\\w+)`, "g"))].map((m) => m[1]))].sort();
+    expect(reads).toEqual(["fit", "light", "lightBand", "move", "rig"]);
+    const standIn = readFileSync(new URL("./main.test.ts", import.meta.url), "utf8").match(/\n  type Stage = \{\n([\s\S]*?)\n  \};/)![1];
+    expect([...standIn.matchAll(/^ {4}(\w+):/gm)].map((m) => m[1]).sort()).toEqual(reads);
+    const built: Record<string, unknown> & { band: Record<string, unknown> } = stageFor().built;
+    for (const read of reads) expect([read, built[read] !== undefined]).toEqual([read, true]);
+    for (const [read, its] of [["move", "move"], ["fit", "fit"], ["lightBand", "light"]]) expect([read, built[read] === built.band[its]]).toEqual([read, true]);
   });
 });
 

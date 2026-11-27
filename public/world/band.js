@@ -707,7 +707,7 @@ export const RIM_FROM = [0, 3.7, -4.08], RIM = 0.5, RIM_TINT = [1, 0.72, 0.42], 
 export const FILL_BELOW = 0.35;
 const num = (v) => v.toFixed(4);
 /* The light, in place of three's own lights in a Lambert material: the view's normal (`normal`), the way to the eye (vViewPosition),
-   and the three parts above. Written in plain numbers, after the lines that take the dot products, so the unit tests run it. */
+   and the three parts above. Written in plain numbers, so the unit tests run it from its own text (band-light.ts). */
 export const LIGHT = `
 vec3 toEye = normalize(vViewPosition), keyTo = normalize((viewMatrix * vec4(uKeyTo, 0.0)).xyz), upward = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
 vec3 toPanel = normalize((viewMatrix * vec4(uPanel, 1.0)).xyz + vViewPosition);

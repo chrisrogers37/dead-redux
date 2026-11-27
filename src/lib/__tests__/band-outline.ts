@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
 import { BAND_POSE, BAND_POSE_PHONE } from "../../../.github/screenshots/band.mjs";
-import { buildBand, LIGHT, STAGING, WARDROBES } from "../../../public/world/band.js";
+import { buildBand, STAGING, WARDROBES } from "../../../public/world/band.js";
+import { lightAt, luminance, type LightUniforms } from "./band-light";
 import { FACING, SHELF_Y, STAGE, TEST_POSES } from "../../../public/world/ground.js";
 import { LINEUPS, lineupOn } from "../../../public/world/lineup.js";
 import { budgetFor, stepDown } from "../../../public/world/quality.js";
@@ -720,52 +721,50 @@ function drawWithStage(tris: Tri[], cam: Camera, day?: string) {
 // to as light as the panel (a white shirt, a drum's head); what keeps a player from running into the panel is the edge where the two
 // meet. Contrast is WCAG's ratio, (L1 + 0.05) / (L2 + 0.05), the lighter's relative luminance over the darker's (each 0 to 1).
 // A player's outline is its pixels that have the panel beside them (4-connected, the stage drawn as drawWithStage draws it), each as
-// lit as its triangle's face, turned to the eye, takes the band's light (LIGHT's own lines of plain numbers, run here) in its
-// colour, at the night's darkest or at dusk (band.js `light`), against the panel as dim as it is at its least (PANEL_LEAST). Two
-// measures of it, from every camera of the shoot:
+// lit as its triangle's face, turned to the eye, takes the band's light (LIGHT itself, run from its text: band-light.ts) in its
+// colour, at the night's darkest or at dusk (band.js `light`), against PANEL_LEAST: the panel as dim as the shoot's band still shows
+// it behind the band, which is not as dim as the panel goes (below). Two measures of it, from every camera of the shoot:
 //   - a pixel of the outline reads where it stands 3:1 from the panel (READS), WCAG's guideline for what identifies a graphic
-//     (1.4.11, non-text contrast), and a quarter of the band's whole outline reads (BAND_READS);
+//     (1.4.11, non-text contrast);
 //   - a pixel stands apart from the panel where it stands √3:1 from it (STANDS), half of 3:1 on luminance's log scale, and more than
 //     the panel's own light varies behind the band (its 99th percentile over its 1st, 1.33:1 at night and 1.58:1 at dusk, in the
-//     fixed day's band still on a desktop): no pixel so far from the panel's least can be taken for a part of the panel. A third of
-//     each player's outline stands apart (PLAYER_STANDS), where it has SPECK px of outline or more against the panel.
-// The band as it stands: the least of the band's whole outline that reads, from any camera, at night or at dusk, in any line-up,
-// dressed for any era it played in, is 0.26 (the six of 1971, from the back of the crowd on a phone at dusk); and the least of a
-// player's outline that stands apart 0.39 (the singer of 1975 to 1978, 13 px of outline from the back of the crowd on a desktop at
-// dusk). A lit body is mostly darker than the panel, and reads by that.
-// The black band before it read whole against the panel, 4.1:1.
+//     fixed day's band still on a desktop): no pixel so far from the panel's least can be taken for a part of the panel.
+// What share must: a quarter of the band's whole outline reads (BAND_READS), and a third of each player's stands apart
+// (PLAYER_STANDS), where it has SPECK px of outline or more against the panel. These two are a guard against the band getting worse,
+// set just under its worst today, and nothing else sets them: the least of the band's whole outline that reads, from any camera, at
+// night or at dusk, in any line-up, dressed for any era it played in, is 0.256 (the six of 1971, from the back of the crowd on a
+// phone at dusk); and the least of a player's outline that stands apart 0.385 (the singer of 1975 to 1978, 13 px of outline from the
+// back of the crowd on a desktop at dusk). A lit body is mostly darker than the panel, and reads by that. The black band before it
+// read whole against PANEL_LEAST, 4.1:1.
 //
-// The panel at its least: its dimmest pixel behind the band in the fixed day's band still on a desktop, 0.172 at night (in Drums)
-// and 0.178 at dusk. The panel's gain moves with the music (main.js `layer2.panel`), down to 0.6 of that in a quiet passage, where
-// even the black band stood 2.9:1 from it; the measure takes the panel as the band still draws it. No fog: the band stands nearer
-// every camera than the fog's start, 80 m.
+// PANEL_LEAST is the dimmest pixel behind the band in the fixed day's band still on a desktop, 0.172 at night (in Drums) and 0.178 at
+// dusk. The panel goes dimmer. Its light (sky.js liquid) is the set's two colours, mixed by the field, and toward the first's dark
+// veins by up to 0.6; it is dimmest in set 2's, magenta and teal, at 0.128 where the field is all magenta and all vein (0.132 the least
+// found at 10.8 million points of the panel's lower half, behind the band, through the show's energies and the tiers' octaves). And its
+// gain moves with the music (audio.js mappings `panel`), to 0.6 in a quiet passage: 2.7 % of the 45 maps' time is under 0.05 loud. So
+// the panel's least is 0.077 (0.079 found), in a quiet passage of set 2. The hour does not light it, and the fog takes 1.4 % of it at
+// the most (the path's camera, 97 m from it; fog from 80 m). Against that the band reads nowhere and stands apart by 0.067 at the
+// least; at 0.132, the field's least at full gain, it reads by 0.089 and stands apart by 0.231. Nothing darker than a panel of 0.10 or
+// less stands 3:1 from it, not even the black band (2.4:1 at 0.079): there only a part lit to 0.34 or more would.
 export const PANEL_LEAST = 0.17, READS = 3, STANDS = Math.sqrt(3), BAND_READS = 1 / 4, PLAYER_STANDS = 1 / 3;
 export const contrast = (a: number, b: number) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-// The weights of the band's light's three parts, as LIGHT's own lines give them from the four dot products the line before them takes.
-const WEIGHTS = LIGHT.split("\n").filter((line: string) => /^float (sky|key|edge) =/.test(line));
-const weigh = new Function("clamp", "max", "pow", `return function (facing, keyward, skyward, panelward) {${WEIGHTS.join("\n").replace(/\bfloat\s+/g, "let ")}\nreturn [sky, key, edge];\n};`)(
-  (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x)), Math.max, Math.pow) as (facing: number, keyward: number, skyward: number, panelward: number) => number[];
-type Lit = { uFill: { value: { r: number; g: number; b: number } }; uKey: { value: { r: number; g: number; b: number } }; uRim: { value: { r: number; g: number; b: number } }; uKeyTo: { value: Vec }; uPanel: { value: Vec } };
-// The luminance of a triangle lit by the band's light (`u`, its uniforms) seen from `eye`: its face's normal turned to the eye.
-export function litOf(t: Tri, eye: number[], u: Lit) {
+// The luminance of a triangle lit by the band's light (`u`, its uniforms) seen through `camera`: LIGHT itself, run on the triangle's
+// middle and its face's normal turned to the eye (band-light.ts), in the triangle's colour.
+export function litOf(t: Tri, camera: { position: Vec; matrixWorldInverse: { elements: number[] } }, u: LightUniforms) {
   const [a, b, c] = t.at, mid = new THREE.Vector3().add(a).add(b).add(c).divideScalar(3);
   const n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).normalize();
-  const toEye = new THREE.Vector3().fromArray(eye).sub(mid).normalize();
-  if (n.dot(toEye) < 0) n.negate();
-  const toPanel = new THREE.Vector3().copy(u.uPanel.value).sub(mid).normalize();
-  const [sky, key, edge] = weigh(n.dot(toEye), n.dot(u.uKeyTo.value), n.y, n.dot(toPanel));
-  const [r, g, bl] = (["r", "g", "b"] as const).map((ch, k) => t.colour[k] * (u.uFill.value[ch] * sky + u.uKey.value[ch] * key + u.uRim.value[ch] * edge));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  if (n.dot(new THREE.Vector3().copy(camera.position).sub(mid)) < 0) n.negate();
+  return luminance(lightAt(camera.matrixWorldInverse, mid, n, t.colour, u));
 }
 // Each player's outline against the panel from a camera, on the stage of a show on `day`, the band dressed for it, at rest and fitted
-// to the camera's canvas, lit for a night `dark` dark (night.js, 0 to 1): for each player from the crowd's left, how many pixels of
-// its outline there are (`edge`), how many read (`reads`) and how many stand apart (`stands`).
-export function outlineRead(roles: string[], cam: Camera, day: string | undefined, darks: number[]) {
+// to the camera's canvas, lit for a night `dark` dark (night.js, 0 to 1), against a panel `least` in luminance: for each player from
+// the crowd's left, how many pixels of its outline there are (`edge`), how many read (`reads`) and how many stand apart (`stands`).
+export function outlineRead(roles: string[], cam: Camera, day: string | undefined, darks: number[], least = PANEL_LEAST) {
   const { tris, built } = band(roles, 0, pixelOf(cam), day ?? null), players = roles.length;
-  const drawn = drawWithStage(tris, cam, day), { W, H, shows, whose } = drawn;
+  const drawn = drawWithStage(tris, cam, day), { W, H, shows, whose } = drawn, camera = lens(cam);
   return darks.map((dark) => {
     built.light(dark);
-    const lum = new Map(tris.map((t) => [t, litOf(t, cam.at, built.uniforms)]));
+    const lum = new Map(tris.map((t) => [t, litOf(t, camera, built.uniforms)]));
     const out = Array.from({ length: players }, () => ({ edge: 0, reads: 0, stands: 0 }));
     for (let o = 0; o < W * H; o++) {
       const k = shows[o];
@@ -773,7 +772,7 @@ export function outlineRead(roles: string[], cam: Camera, day: string | undefine
       const x = o % W, y = (o - x) / W;
       if (![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => x + dx >= 0 && y + dy >= 0 && x + dx < W && y + dy < H && shows[(y + dy) * W + x + dx] === STAGE_PANEL)) continue;
       out[k].edge++;
-      const ratio = contrast(lum.get(whose[o]!)!, PANEL_LEAST);
+      const ratio = contrast(lum.get(whose[o]!)!, least);
       if (ratio >= READS) out[k].reads++;
       if (ratio >= STANDS) out[k].stands++;
     }
