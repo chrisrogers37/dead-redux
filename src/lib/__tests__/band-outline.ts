@@ -810,7 +810,7 @@ export function stagesOf(roles: string[]) {
 }
 // How the tests name a stage, where a line-up stood on more than one, and its black.
 const STAGE_NAMES: Record<string, string> = { roof: "the roof's stage", wall: "the Wall of Sound" };
-const STAGE_BLACKS: Record<string, string> = { roof: "the roof, the back wall or a PA stack", wall: "the Wall's cabinets or the beam over its front" };
+const STAGE_BLACKS: Record<string, string> = { roof: "the roof, the back wall or a PA stack", wall: "the Wall's cabinets or the rig's bridge over its front" };
 
 /* The rules every line-up keeps, as a describe block of its own: `name` is how the tests name it, and `day` (YYYY-MM-DD) a date of its
    row of lineup.js, whose roles it is. What the band is held to against the stage, it is held to on every stage it stood on
