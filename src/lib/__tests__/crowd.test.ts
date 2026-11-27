@@ -2844,7 +2844,7 @@ describe("the crowd's shader", () => {
     expect(SOURCES).toEqual(["top", "legs", "hair", "self", "thing", "shoe"]);
   });
 
-  it("draws what of each figure shows in each colour from each side as the shader draws it: drawnOf's shares are the shader's within a few per cent on the whole, for seated figures too, no colour's leans more or less, and where they are not, its verdict on the figure's ends standing apart is the shader's on nearly every side of every figure", () => {
+  it("draws what of each figure shows in each colour from each side as the shader draws it: drawnOf's shares are the shader's within a few per cent on the whole and on seated figures alone, no colour's share leans either way, and where they are not, its verdict on the figure's ends standing apart is the shader's on nearly every side of every figure", () => {
     // Each figure of the three shows' crowds, desktop and phone, as seenApart draws it from far off each way DRAWN_VIEWS looks at it,
     // turned with the figure (aSize.z), its pixels by whose colour each face shows (sourceOf); and as drawnOf draws it, from its
     // tier's own figure and the numbers it carries (figureNumbers), its vertex shader's shaping of it at rest mirrored (crowd.js),
