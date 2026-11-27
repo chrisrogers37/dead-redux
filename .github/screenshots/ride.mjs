@@ -10,7 +10,8 @@
 // An awake page settles a wait after its last input, and the shoot's own work after a press takes the renderer's frames: a still
 // of the world is several of them to draw and save, and each read of the page waits for one. On a slow runner that work outlasted
 // the wait. So a still that needs the ride awake is taken with a key held down from its step's act (HOLD, awakeHolds), which an
-// awake page cannot settle under and a settled page is not woken by.
+// awake page cannot settle under and a settled page is not woken by. The page's own script holds it (holdEvent), not the browser's
+// keyboard, which would show the focus ring of the button just pressed.
 // scripts/__tests__/ride-shoot.test.ts holds every step to that, and the stills' names to the list there. The ride's recordings are
 // in the shoot's one list of them, with the button and the looks named here (RECORDINGS in recordings.mjs).
 
@@ -71,6 +72,17 @@ export async function stillInLook(page, need, take) {
 // right one, since a step of the sleep timer's page presses the left.
 export const HOLD = "ShiftRight";
 
+// HOLD's keydown or keyup (`type`), dispatched by script in the page (page.evaluate): from the focused element, as the browser's own
+// would come, bubbling to the window, where the ride (watchIdle in ride.ts) and the world (input.js) listen for keys, and none of
+// the page's listeners asks whether an event is the browser's (isTrusted). It is not pressed on Playwright's keyboard: a key the
+// browser sees puts the page in its keyboard mode, and the button a step has just clicked takes its focus ring (:focus-visible),
+// which a visitor who clicked it never sees. One dispatched by script leaves that mode as the click set it, so a still taken under
+// it differs from one taken without in nothing but the ride's look; and a click made under it is a plain one, with no shiftKey.
+export function holdEvent([type, code]) {
+  const from = document.activeElement ?? document.body ?? document;
+  from.dispatchEvent(new KeyboardEvent(type, { code, key: "Shift", location: 2, shiftKey: type === "keydown", bubbles: true, cancelable: true, composed: true }));
+}
+
 // For each of a page's steps, what the shoot does with HOLD. `hold`: it presses it straight after the step's act, where the step's
 // still needs the ride awake (a press that wakes the page, or one on a control of the awake look, comes first). `letGo`: once the
 // step's still has been read back it lets it go, unless the next step's press needs the ride awake too (`from: "awake"`), a press
@@ -80,20 +92,20 @@ export const awakeHolds = (steps) => steps.map((step, i) => ({ hold: step.ride =
 
 // HOLD over one page's steps as awakeHolds says, for the shoot's step loop: `acted(n)` once step n has acted, `after(n)` once its
 // still has been read back or the step has been skipped without one, and `done()` once the page's steps are over, so the key is
-// never down for the page after. `held()` says whether it is down now.
+// never down for the page after. `held()` says whether it is down now. Each press and letting go is holdEvent's, in the page.
 export function keyHold(page, steps) {
   const holds = awakeHolds(steps);
   let down = false;
   const up = async () => {
     if (!down) return;
     down = false;
-    await page.keyboard.up(HOLD);
+    await page.evaluate(holdEvent, ["keyup", HOLD]);
   };
   return {
     held: () => down,
     async acted(n) {
       if (!holds[n].hold || down) return;
-      await page.keyboard.down(HOLD);
+      await page.evaluate(holdEvent, ["keydown", HOLD]);
       down = true;
     },
     after: async (n) => {

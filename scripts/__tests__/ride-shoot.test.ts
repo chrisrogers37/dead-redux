@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EASE_MS, RECORDINGS } from "../../.github/screenshots/recordings.mjs";
-import { awakeHolds, cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, HOLD, keyHold, movePointer, pressFailure, pressWorld, RIDE, rideFailure, rideIdle, rideNow, ridePages, rideSteps, stillInLook } from "../../.github/screenshots/ride.mjs";
+import { awakeHolds, cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, HOLD, holdEvent, keyHold, movePointer, pressFailure, pressWorld, RIDE, rideFailure, rideIdle, rideNow, ridePages, rideSteps, stillInLook } from "../../.github/screenshots/ride.mjs";
 import { planFailures } from "../../.github/screenshots/shards.mjs";
 import { IDLE_S, watchIdle } from "../../src/components/world/ride";
 
@@ -28,6 +28,7 @@ const pages = ridePages(PLAY_WAIT_MS) as Record<string, Page>;
 // The ride's recordings, by their names.
 const recordings = (RECORDINGS as { device: string; name: string }[]).filter(({ name }) => /^ride(-|$)/.test(name));
 const shoot = readFileSync(join(__dirname, "../../.github/screenshots/shoot.mjs"), "utf8");
+const rideHarness = readFileSync(join(__dirname, "../../.github/screenshots/ride.mjs"), "utf8");
 // A page's stills, each with the look it needs: a step's own, and a later one's after it.
 const stills = (page: Page) => page.steps.flatMap((step) => [[step.shot, step.ride], ...(step.later ? [[step.later.shot, step.later.ride]] : [])]);
 
@@ -242,8 +243,10 @@ describe("the shoot's stills of the ride", () => {
     expect(shoot).toContain("console.log(`${step.shot}: no still, the world is not drawing`);\n            await hold.after(n);\n            continue;");
     expect(shoot).toContain("      }\n      await hold.done();\n      // The view and the shelves");
     expect(shoot.match(/await hold\.after\(n\);/g)).toHaveLength(3);
-    // Nothing else in the shoot presses or lets go of it.
+    // Nothing else in the shoot presses or lets go of it, and nothing holds it on Playwright's keyboard, whose key would put the page
+    // in its keyboard mode and give the button just clicked a focus ring that no visitor who clicked it sees (holdEvent, below).
     expect(shoot).not.toMatch(/keyboard\.(down|up)\(/);
+    expect(rideHarness).not.toMatch(/keyboard\.(down|up)\(/);
     // What Shift is to the world: the run of a walk, which alone is no control (input.js), and no control held, so a world under
     // reduced motion draws no frame for it; it is read nowhere but in a walk's pace (main.js). To the page it is a key that only
     // modifies another (ride.ts), and nothing in the page or the world reads a press's shiftKey: neither of the two presses made with
@@ -288,12 +291,75 @@ describe("the shoot's stills of the ride", () => {
     }
   });
 
+  it("holds HOLD by script in the page, from the focused element up to the window, where the ride and the world hear it as they hear a key the browser sends", () => {
+    // A key the browser sees puts the page in its keyboard mode: pressed on Playwright's keyboard after a click on the ride's button,
+    // HOLD gave that button its focus ring in the still (the Screenshots run of a85817c). One dispatched by script does not. The page
+    // hears it all the same: the ride and the world listen for keys on the window, and nothing in the page or the world asks whether
+    // an event came from the browser (isTrusted).
+    const world = (file: string) => readFileSync(join(__dirname, "../../public/world", file), "utf8");
+    const ride = readFileSync(join(__dirname, "../../src/components/world/ride.ts"), "utf8");
+    expect(ride).toContain("watchIdle(window, { ms: options.idleMs,");
+    expect(ride).toContain('const INPUTS = ["pointermove", "pointerdown", "pointerup", "pointercancel", "keydown", "keyup", "wheel"] as const;');
+    expect(world("input.js")).toContain('window.addEventListener("keydown", (e) => {');
+    expect(world("input.js")).toContain('window.addEventListener("keyup", (e) => { const k = KEYMAP[e.code]; if (k) keys[k] = false; });');
+    const sources = [
+      ...readdirSync(join(__dirname, "../../src"), { recursive: true, encoding: "utf8" }).filter((f) => /\.tsx?$/.test(f) && !f.includes("__tests__")).map((f) => join("src", f)),
+      ...readdirSync(join(__dirname, "../../public/world")).filter((f) => f.endsWith(".js")).map((f) => join("public/world", f)),
+    ];
+    for (const file of sources) expect(readFileSync(join(__dirname, "../..", file), "utf8"), file).not.toMatch(/isTrusted/);
+    // What holdEvent dispatches, in a page whose focus is on the ride's button, which here is the window the ride listens on: the
+    // right Shift's keydown and keyup, from the focused element and bubbling on, and not the browser's own. An awake page stays awake
+    // under it past ten of its waits, and settles one whole wait after it is let go.
+    class KeyboardEvent extends Event {
+      code: string; key: string; location: number; shiftKey: boolean;
+      constructor(type: string, init: KeyboardEventInit) {
+        super(type, init);
+        this.code = init.code ?? ""; this.key = init.key ?? ""; this.location = init.location ?? 0; this.shiftKey = init.shiftKey ?? false;
+      }
+    }
+    const button = new EventTarget(), heard: KeyboardEvent[] = [];
+    for (const type of ["keydown", "keyup"]) button.addEventListener(type, (e) => heard.push(e as KeyboardEvent));
+    vi.stubGlobal("document", { activeElement: button, body: null });
+    vi.stubGlobal("KeyboardEvent", KeyboardEvent);
+    vi.useFakeTimers();
+    try {
+      const MS = rideIdle("desktop") * 1000, told: boolean[] = [];
+      const stop = watchIdle(button, { ms: MS, settled: false, onChange: (settled) => told.push(settled) });
+      holdEvent(["keydown", HOLD]);
+      vi.advanceTimersByTime(10 * MS);
+      expect(told).toEqual([]);
+      holdEvent(["keyup", HOLD]);
+      vi.advanceTimersByTime(MS - 1);
+      expect(told).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(told).toEqual([true]);
+      stop();
+      expect(heard.map(({ type, code, key, location, shiftKey, bubbles, composed, isTrusted }) => ({ type, code, key, location, shiftKey, bubbles, composed, isTrusted }))).toEqual([
+        { type: "keydown", code: "ShiftRight", key: "Shift", location: 2, shiftKey: true, bubbles: true, composed: true, isTrusted: false },
+        { type: "keyup", code: "ShiftRight", key: "Shift", location: 2, shiftKey: false, bubbles: true, composed: true, isTrusted: false },
+      ]);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
   // A page's steps as the shoot's loop goes through them (shoot.mjs), with keyHold on a page that only records the key's presses and
-  // lettings go: each step is skipped (`skip`), or acts, takes its still, and then its later one. What is seen is each press a step
-  // makes, each still and each cursor read, with whether HOLD was down at it.
+  // lettings go, each holdEvent's in the page, and has no keyboard to press it on: each step is skipped (`skip`), or acts, takes its
+  // still, and then its later one. What is seen is each press a step makes, each still and each cursor read, with whether HOLD was
+  // down at it.
   async function throughSteps(steps: Step[], skip = -1) {
     const calls: string[] = [], seen: string[] = [];
-    const hold = keyHold({ keyboard: { down: async (key: string) => void calls.push(`down ${key}`), up: async (key: string) => void calls.push(`up ${key}`) } }, steps);
+    const page = {
+      get keyboard(): never {
+        throw new Error("HOLD pressed on Playwright's keyboard");
+      },
+      evaluate: async (fn: unknown, [type, key]: [string, string]) => {
+        if (fn !== holdEvent) throw new Error("HOLD pressed by another script than holdEvent");
+        calls.push(`${type === "keydown" ? "down" : type === "keyup" ? "up" : type} ${key}`);
+      },
+    };
+    const hold = keyHold(page, steps);
     for (const [n, step] of steps.entries()) {
       if (n === skip) {
         await hold.after(n);
