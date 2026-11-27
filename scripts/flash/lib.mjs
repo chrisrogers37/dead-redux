@@ -113,13 +113,14 @@ export const wcagLine = (tag, flash, dpr) => `${tag}, WCAG: ${flash.pass ? "pass
   `field ${flash.field.width}x${flash.field.height} px (${flash.field.width / dpr}x${flash.field.height / dpr} CSS px); ${flash.maskedPixels} px masked`;
 
 // What a run's end says of its `total` jobs: those over WCAG's bar, those that pass, and those that failed, which wrote no result and
-// so pass nothing. A result with no WCAG count passes nothing either. The run exits 1 when a job failed.
+// so pass nothing. A result with no WCAG count passes nothing either. The run exits 1 when a job is over the bar or failed, and 0 only
+// when every job passes.
 export function verdict(total, done, failures) {
   const passed = done.filter((j) => j.wcag?.pass === true), over = done.filter((j) => j.wcag?.pass !== true), lines = [];
   if (over.length) lines.push(`${over.length} of ${total} jobs are OVER WCAG's bar of ${MOST / 2} flashes in a second: ${over.map((j) => j.tag).join(", ")}`);
   lines.push(`${passed.length} of ${total} jobs pass WCAG's bar of ${MOST / 2} flashes in a second`);
   if (failures.length) lines.push(`${failures.length} of ${total} jobs FAILED and wrote no result, so pass nothing:\n${failures.join("\n")}`);
-  return { lines, passed: passed.map((j) => j.tag), over: over.map((j) => j.tag), exitCode: failures.length ? 1 : 0 };
+  return { lines, passed: passed.map((j) => j.tag), over: over.map((j) => j.tag), exitCode: over.length || failures.length ? 1 : 0 };
 }
 
 // What a job line may set, and what each is when the line leaves it out.

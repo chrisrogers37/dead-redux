@@ -120,7 +120,7 @@ describe("the command line and a run's end (capture.mjs)", () => {
     expect(under).toContain("field 40x30 px (40x30 CSS px); 0 px masked");
   });
 
-  it("ends a run by naming the jobs over the bar, counting those that pass of all of them, and never a failed job as a pass", () => {
+  it("ends a run by naming the jobs over the bar, counting those that pass of all of them, never a failed job as a pass, and exiting 1 unless every job passes", () => {
     const pass = flashOf(2), fail = flashOf(4);
     expect(verdict(2, [done("a", pass), done("b", pass)], [])).toEqual({ lines: ["2 of 2 jobs pass WCAG's bar of 3 flashes in a second"], passed: ["a", "b"], over: [], exitCode: 0 });
     const mixed = verdict(4, [done("a", pass), done("b", fail), done("c", undefined)], ["d: the world did not come in 60 s"]);
@@ -130,6 +130,9 @@ describe("the command line and a run's end (capture.mjs)", () => {
       "1 of 4 jobs FAILED and wrote no result, so pass nothing:\nd: the world did not come in 60 s",
     ]);
     expect(mixed).toMatchObject({ passed: ["a"], over: ["b", "c"], exitCode: 1 });
+    const overOnly = verdict(2, [done("a", pass), done("b", fail)], []);
+    expect(overOnly).toMatchObject({ passed: ["a"], over: ["b"], exitCode: 1 });
+    expect(verdict(1, [done("a", undefined)], [])).toMatchObject({ passed: [], over: ["a"], exitCode: 1 });
     expect(verdict(1, [], ["a: no"])).toMatchObject({ passed: [], exitCode: 1, lines: ["0 of 1 jobs pass WCAG's bar of 3 flashes in a second", "1 of 1 jobs FAILED and wrote no result, so pass nothing:\na: no"] });
   });
 });
