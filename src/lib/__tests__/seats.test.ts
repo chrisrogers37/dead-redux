@@ -825,11 +825,53 @@ describe("parting", () => {
     const raised = (x: number, z: number, y = h + 1.2) => { const point = { x, y, z }; p.over(point); return point.y; };
     expect(raised(s.x + edge - 0.01, s.z)).toBe(top);
     expect(raised(s.x, s.z + edge + 1)).toBeCloseTo(top - 1.5, 9);
-    expect(raised(s.x + 5.8, s.z)).toBe(h + 1.2);
+    // Past the slope's foot, 6.64 m out, it asks nothing, however far: just past it, and well past it each way.
+    for (const [dx, dz] of [[6.8, 0], [12, 0], [0, -30], [-60, 25]]) expect(raised(s.x + dx, s.z + dz)).toBe(h + 1.2);
     // A camera far below the figure: the slope reaches it 10 m out, with nothing cut off.
     expect(raised(s.x - 10, s.z, h - 10)).toBeCloseTo(top - 1.5 * (10 - edge), 9);
     expect(raised(s.x - 20, s.z, h - 10)).toBe(h - 10);
     expect(raised(s.x, s.z, top + 1)).toBe(top + 1);
+  });
+
+  it("raises a camera over each figure's own top where the crowd gives one, never over more than `top`", () => {
+    // Two figures 20 m apart: one whose own top is 1.5 m under `top`, and one that gives a top over it, which is held to `top`.
+    const s = [{ x: 70, z: -60 }, { x: 90, z: -60 }], p = parting(s, { ...OPTS, tops: [OPTS.top - 1.5, OPTS.top + 2] });
+    for (const [k, want] of [[0, OPTS.top - 1.5], [1, OPTS.top]] as const) {
+      const h = height(s[k].x, s[k].z), point = { x: s[k].x, y: h + 1.2, z: s[k].z };
+      p.over(point);
+      expect(point.y).toBeCloseTo(h + want + 1.1, 9);
+      const camera = { x: s[k].x - 10, y: height(s[k].x - 10, s[k].z) + 1.2, z: s[k].z }, way = Float64Array.of(10, 0, 0, 2, 20, 3, 0, 0);
+      p.ahead(camera, way);
+      // The most it asks along its way, over the camera as it would stand there, 1.2 m over the ground, read from the ground's table.
+      expect(Math.abs(way[7] - (want + 1.1 - 1.2))).toBeLessThan(0.05);
+    }
+  });
+
+  it("raises a camera over a figure's own top where it has stepped aside, and over a neighbouring cell's figure that stands higher", () => {
+    // A figure whose own top is 1.5 m under `top` steps aside from the visitor 3 m off and stands still, 4.2 m from its seat: a camera
+    // over it, or on its way over it, stands 1.5 m lower than over one of `top` where that one had stepped, as at its seat.
+    const s = { x: 70, z: -60 }, at = (tops: number[]) => {
+      const p = parting([s], { ...OPTS, tops });
+      p.step(1 / 60, { x: s.x - 3.4, z: s.z }, { x: s.x - 2.6, z: s.z }, true);
+      const fx = s.x + p.offset[0], fy = height(s.x, s.z) + p.offset[1], fz = s.z + p.offset[2], point = { x: fx, y: fy + 1.2, z: fz };
+      p.over(point);
+      const camera = { x: fx - 10, y: height(fx - 10, fz) + 1.2, z: fz }, way = Float64Array.of(10, 0, 0, 2, 20, 3, 0, 0);
+      p.ahead(camera, way);
+      return { moved: Math.hypot(p.offset[0], p.offset[2]), over: point.y - fy, most: way[7] };
+    };
+    const own = at([OPTS.top - 1.5]), full = at([OPTS.top]);
+    expect(own.moved).toBeGreaterThan(4);
+    expect(own.over).toBeCloseTo(OPTS.top - 1.5 + 1.1, 9);
+    expect(full.over - own.over).toBeCloseTo(1.5, 9);
+    expect(full.most - own.most).toBeCloseTo(1.5, 9);
+    // Two figures at their seats 2.5 m apart, in neighbouring cells of the parting's 2 m grid: a camera over the lower one, within the
+    // other's reach and 1.1 m, stands as high as that one asks, its own top over its own ground.
+    const pair = [{ x: 70.5, z: -60.5 }, { x: 73, z: -60.5 }], p = parting(pair, { ...OPTS, tops: [OPTS.top - 1.5, OPTS.top] });
+    // The grid starts `most` m short of the seats, in cells of 2 m: these stand in its sixth and seventh columns.
+    expect(pair.map(({ x }) => Math.floor((x - (pair[0].x - OPTS.most)) / 2))).toEqual([5, 6]);
+    const point = { x: pair[0].x, y: height(pair[0].x, pair[0].z) + 1.2, z: pair[0].z };
+    p.over(point);
+    expect(point.y).toBeCloseTo(height(pair[1].x, pair[1].z) + OPTS.top + 1.1, 9);
   });
 
   it("says how far a camera should climb now to stand as high as a figure asks when its way reaches it, and the most it asks on the way", () => {
