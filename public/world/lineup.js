@@ -59,10 +59,18 @@ export const ROLES = ["lead", "rhythm", "bass", "drums", "organ", "keys", "piano
 /* A date as the table reads it: YYYY-MM-DD, an unknown month or day ("XX") read as its first. */
 const readable = (date) => String(date).replace(/^(\d{4})-XX/, "$1-01").replace(/^(\d{4}-\d{2})-XX/, "$1-01");
 
+/* The row of a table of eras that a show on `date` (YYYY-MM-DD) falls in, by this table's rule: each row starts with its first date,
+   and the date takes the last row that starts on or before it, or the first row for a date before them all. The line-up (LINEUPS)
+   and the stage (stage.js STAGES) both read a date so. */
+export function eraOn(table, date) {
+  const day = readable(date);
+  let row = table[0];
+  for (const each of table) if (each[0] <= day) row = each;
+  return row;
+}
+
 /* The line-up that played a show on `date` (YYYY-MM-DD): its row of LINEUPS, as { from, to, roles }. */
 export function lineupOn(date) {
-  const day = readable(date);
-  let row = LINEUPS[0];
-  for (const each of LINEUPS) if (each[0] <= day) row = each;
+  const row = eraOn(LINEUPS, date);
   return { from: row[0], to: row[1], roles: row[2] };
 }

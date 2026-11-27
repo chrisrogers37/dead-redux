@@ -1,6 +1,8 @@
 name: Screenshots
 
 on:
+  # A pull request, as it is opened, pushed to or reopened: its shoot is of its head commit's preview, once that is ready.
+  pull_request:
   # Vercel posts a status for each deployment it builds.
   deployment_status:
   workflow_dispatch:
@@ -13,15 +15,20 @@ on:
 permissions:
   contents: read
 
+cache-mode: none
+
 env:
   # "true" makes the reduced-motion compare fail the run when its two stills differ.
   RM_COMPARE_ENFORCE: "true"
 
 jobs:
   shoot:
-    # Ready previews only; production is shot on demand.
+    # A pull request from a branch of this repo, and ready previews; production is shot on demand. A fork's pull request is skipped
+    # here, before anything is checked out.
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event.deployment_status.state == 'success' &&
       github.event.deployment.environment == 'Preview')
     runs-on: ubuntu-24.04
@@ -39,9 +46,10 @@ jobs:
     # both on 2026-11-23. By the second run's log its longest shard is `rest`: 24.2 minutes of pages and recordings, and 3.4 of set-up,
     # conversion, checks and upload, 27.6 in all. A slow runner takes 1.4 times as long (on the night of 2026-11-22 two runs took the
     # same 353 stills and recordings, one in 46.0 minutes and one in 64.8), which makes 38.6, and the browser's system packages, 70 s
-    # in that run, can take over ten minutes when the Ubuntu mirror is slow, 9 more: 47.6. A job cut at its limit uploads nothing, so
-    # the limit leaves 12 minutes over that for what later changes add to a shard.
-    timeout-minutes: 60
+    # in that run, can take over ten minutes when the Ubuntu mirror is slow, 9 more: 47.6. A pull request's shoot can wait up to 20
+    # minutes for its preview, which makes 67.6. A job cut at its limit uploads nothing, so the limit leaves 12 minutes over that for
+    # what later changes add to a shard.
+    timeout-minutes: 80
     env:
       # The part of the shoot this job does: shoot.mjs reads it, and stops at a name that is no shard's.
       SHARD: ${{ matrix.shard }}
@@ -49,8 +57,11 @@ jobs:
       run:
         working-directory: .github/screenshots
     steps:
+      # A pull request's head commit, not the merge with main its run would check out. The other triggers leave the ref empty, which
+      # checks out the run's own commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -100,10 +111,55 @@ jobs:
       - run: npx playwright install --with-deps --only-shell chromium
       # Playwright records video with its own ffmpeg.
       - run: npx playwright install ffmpeg
+      # A pull request's shoot is of the preview of its own commit. The Preview workflow records the preview's URL there, as a commit
+      # status named Preview, once Vercel says the preview is ready; this takes the newest posted by github-actions[bot], as that
+      # workflow's are, and checks its URL against this project's previews again. The status pins the project, not the commit: anyone
+      # who can write to this repo can post one, and the shoot takes it as this commit's. Vercel's own status reading failure or error
+      # fails the step at once, and so does no Preview status in 20 minutes, the step saying whether Vercel's status was green. It
+      # waits after the set-up, which takes about as long as Vercel's build.
+      - name: Wait for the preview's URL
+        id: preview
+        if: github.event_name == 'pull_request'
+        # The wait, and two minutes more for its last read.
+        timeout-minutes: 22
+        env:
+          SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          deadline=$((SECONDS + 20 * 60))
+          vercel="not read"
+          while :; do
+            # The commit's statuses, newest first. A read that fails is tried again at the next turn.
+            if statuses=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100"); then
+              url=$(jq -r '[.[] | select(.context == "Preview" and .state == "success" and .creator.login == "github-actions[bot]")]
+                | .[0].target_url // ""' <<<"$statuses")
+              vercel=$(jq -r '[.[] | select(.context == "Vercel")] | .[0].state // "missing"' <<<"$statuses")
+              if [ -n "$url" ]; then
+                if [[ ! $url =~ ^https://dead-redux-[a-z0-9]+-chrisrogers37\.vercel\.app$ ]]; then
+                  printf "The Preview status on %s names %q, which is not one of this project's previews\n" "$SHA" "$url" \
+                    | tee -a "$GITHUB_STEP_SUMMARY"
+                  exit 1
+                fi
+                echo "url=$url" >> "$GITHUB_OUTPUT"
+                echo "The preview of $SHA is $url"
+                exit 0
+              fi
+              if [ "$vercel" = failure ] || [ "$vercel" = error ]; then
+                echo "Vercel's status on $SHA reads $vercel: there is no preview to shoot" | tee -a "$GITHUB_STEP_SUMMARY"
+                exit 1
+              fi
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              if [ "$vercel" = success ]; then green=green; else green="not green ($vercel)"; fi
+              echo "No Preview status on $SHA in 20 minutes; Vercel's status is $green" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            sleep 30
+          done
       - id: shoot
         run: node shoot.mjs
         env:
-          SITE_URL: ${{ github.event.deployment_status.environment_url || inputs.url }}
+          SITE_URL: ${{ steps.preview.outputs.url || github.event.deployment_status.environment_url || inputs.url }}
           OUT_DIR: ${{ runner.temp }}/screenshots
       # MP4 copies of the recordings play on phones. ffmpeg is the ffmpeg-static package's build, which npm ci fetched from GitHub and
       # the step above checked, not apt's. Only `rest` records.
@@ -143,13 +199,13 @@ jobs:
         if: matrix.shard == 'rest' && (success() || steps.compare.outcome == 'failure')
         run: node install.mjs
         env:
-          SITE_URL: ${{ github.event.deployment_status.environment_url || inputs.url }}
+          SITE_URL: ${{ steps.preview.outputs.url || github.event.deployment_status.environment_url || inputs.url }}
       # Also runs when the shoot's gate, an enforced compare or the install check fails, so the shots and the diff are kept. Each shard's
       # artifact has its name at the end, and `gh run download` makes a folder of each.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: success() || steps.shoot.outcome == 'failure' || steps.compare.outcome == 'failure' || steps.install.outcome == 'failure'
         with:
-          name: screenshots-${{ steps.shoot.outputs.host }}-${{ github.sha }}-${{ matrix.shard }}
+          name: screenshots-${{ steps.shoot.outputs.host }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/screenshots
           if-no-files-found: error
           # A re-run of one failed shard replaces the artifact its earlier attempt uploaded, as the maps workflow's does.
