@@ -34,3 +34,32 @@ jobs:
           cache: npm
       - run: npm ci
       - run: ${{ matrix.run }}
+
+  maps-scope:
+    name: Maps scope
+    # The commits a pull request brings from the maps branch only add or change maps (scripts/maps-scope.sh).
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    cache-mode: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Every branch's commits and trees, maps' among them, and no file's contents but the checked-out commit's.
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - name: Check the commits from maps
+        shell: bash
+        run: |
+          # The run checks out GitHub's merge of the pull request into its base, whose parents are the base and the head.
+          base=$(git rev-parse --verify "$GITHUB_SHA^1")
+          head=$(git rev-parse --verify "$GITHUB_SHA^2")
+          # The check as the base has it, never the pull request's copy. A base from before the check, as for the pull request
+          # that adds it, has none to run.
+          if ! git rev-parse --verify --quiet "$base:scripts/maps-scope.sh" >/dev/null; then
+            echo "The base has no scripts/maps-scope.sh, so there is no check to run."
+            exit 0
+          fi
+          git show "$base:scripts/maps-scope.sh" > "$RUNNER_TEMP/maps-scope.sh"
+          bash "$RUNNER_TEMP/maps-scope.sh" "$base" "$head" refs/remotes/origin/maps

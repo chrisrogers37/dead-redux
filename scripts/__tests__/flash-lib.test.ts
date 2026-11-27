@@ -5,10 +5,11 @@ import { join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SHELVES, SHELVES_COOKIE as PAGE_COOKIE, SHELVES_STORAGE as PAGE_STORAGE } from "../../src/components/world/shelves";
 import {
-  installPlates, jobUrl, launch, mainSha, matrixJobs, openPage, parseJobs, readConfig, repoRoot, runFolder, SHELVES_AWAY, SHELVES_COOKIE, SHELVES_STORAGE, STEPPER, tagOf,
-  windowsFor, worldError, worldFrom, worldHash,
+  installPlates, jobUrl, launch, mainSha, matrixJobs, openPage, parseArgs, parseJobs, readConfig, repoRoot, resultOf, runFolder, SHELVES_AWAY, SHELVES_COOKIE, SHELVES_STORAGE,
+  STEPPER, tagOf, USAGE, verdict, wcagLine, windowsFor, worldError, worldFrom, worldHash,
 } from "../flash/lib.mjs";
 import { tables } from "../flash/table.mjs";
+import { wcagCounter } from "../flash/wcag.mjs";
 import windows from "../flash/windows.json";
 import schedule from "../../data/pick-schedule.json";
 import { showDateFor } from "../../src/lib/pick-schedule";
@@ -39,6 +40,13 @@ describe("parseJobs", () => {
     });
     // A pitch past what the world's look allows is the world's to refuse (main.js), and a job that asks it stops when the page loads.
     for (const pose of ["home", "stage", "near-3", "1,2,3,0.9"]) expect(job(`branch A pose=${pose} tier=tv dpr=1.5`)).toMatchObject({ pose, tier: "tv", dpr: 1.5 });
+  });
+
+  it("gives a job no grids where the 2x2 blocks are not counted (no --blocks), and refuses a line that names some", () => {
+    expect(parseJobs("main S dpr=1.5 still=1", WINDOWS, { blocks: false })).toEqual([
+      { variant: "main", window: "S", pose: "crowd", view: { width: 800, height: 500 }, dpr: 1.5, tier: "", still: true, rung: 0, grids: [] },
+    ]);
+    expect(() => parseJobs("branch Q\nmain Q grids=0,0", WINDOWS, { blocks: false })).toThrow('job line 2 ("main Q grids=0,0"): grids= is the 2x2 blocks\' count, which only --blocks runs');
   });
 
   it("reads one job a line, and nothing from a blank line or after a #", () => {
@@ -72,6 +80,60 @@ describe("parseJobs", () => {
   });
 });
 
+describe("the command line and a run's end (capture.mjs)", () => {
+  // A WCAG count of a 120 by 90 frame flickering black to white `hz` times a second, as capture.mjs takes one.
+  const flashOf = (hz: number) => {
+    const counter = wcagCounter(120, 90, { lead: 0 }), rgba = new Uint8Array(120 * 90 * 4);
+    for (let f = 0; f < 90; f++) { rgba.fill(Math.floor((f * 2 * hz) / 60) % 2 ? 255 : 0); counter.add(rgba); }
+    return counter.result();
+  };
+  const done = (tag: string, wcag: unknown) => ({ tag, wcag }) as never;
+
+  it("takes a command and its argument, with --blocks anywhere, and refuses anything else with the usage", () => {
+    expect(parseArgs(["jobs", "a.txt"])).toEqual({ blocks: false, command: "jobs", rest: ["a.txt"] });
+    expect(parseArgs(["--blocks", "matrix", "quick"])).toEqual({ blocks: true, command: "matrix", rest: ["quick"] });
+    expect(parseArgs(["one", "main S dpr=1.5", "--blocks"])).toEqual({ blocks: true, command: "one", rest: ["main S dpr=1.5"] });
+    for (const argv of [[], ["jobs"], ["count", "a.txt"], ["jobs", "a.txt", "--heat"], ["--block", "jobs", "a.txt"]]) expect(() => parseArgs(argv)).toThrow(USAGE);
+  });
+
+  it("writes a job's result with its WCAG count, the field in CSS px, and the 2x2 count's threshold only where it counted blocks", () => {
+    const flash = flashOf(4), base = { tag: "t", job: {}, url: "u", day: DAY, show: "s", window: {}, frame: { width: 120, height: 90 }, frames: 90, leadIn: 60, fps: 60, dpr: 1.5, wcag: flash, threshold: 0.1, world: {}, canvasCheck: {}, poseHeld: true, platesMasked: [], seconds: 1 };
+    const alone = resultOf({ ...base, results: [] });
+    expect(alone.measures).toEqual(["wcag"]);
+    expect(alone).not.toHaveProperty("threshold");
+    expect(alone.wcag.field.css).toEqual([40 / 1.5, 30 / 1.5]);
+    expect(alone.wcag.pass).toBe(false);
+    expect(alone.wcag.general.atOnce.mostInASecond).toBe(flash.general.atOnce.mostInASecond);
+    const both = resultOf({ ...base, results: [{ grid: [0, 0] }] });
+    expect(both.measures).toEqual(["wcag", "blocks"]);
+    expect(both.threshold).toBe(0.1);
+    expect(Object.keys(both)).toEqual(["tag", "job", "url", "day", "show", "window", "frame", "frames", "leadIn", "fps", "measures", "wcag", "threshold", "world", "canvasCheck", "poseHeld", "platesMasked", "seconds", "results"]);
+  });
+
+  it("says in a line whether a job passes, and each measure's count, at once and pixel by pixel", () => {
+    const over = wcagLine("job", flashOf(4), 1), under = wcagLine("job", flashOf(2), 1);
+    expect(over).toMatch(/^job, WCAG: OVER THE BAR; general: [89] transitions in a second/);
+    expect(over).toContain("pixel by pixel 9");
+    expect(over).toContain("100 % of a field at once at most");
+    expect(under).toMatch(/^job, WCAG: passes; general: 5 transitions in a second, 2.5 flashes/);
+    expect(under).toContain("red: 0 transitions in a second, 0 flashes (at once none; pixel by pixel none); nothing changed by a threshold; no pixel over 6 in a second");
+    expect(under).toContain("field 40x30 px (40x30 CSS px); 0 px masked");
+  });
+
+  it("ends a run by naming the jobs over the bar, counting those that pass of all of them, and never a failed job as a pass", () => {
+    const pass = flashOf(2), fail = flashOf(4);
+    expect(verdict(2, [done("a", pass), done("b", pass)], [])).toEqual({ lines: ["2 of 2 jobs pass WCAG's bar of 3 flashes in a second"], passed: ["a", "b"], over: [], exitCode: 0 });
+    const mixed = verdict(4, [done("a", pass), done("b", fail), done("c", undefined)], ["d: the world did not come in 60 s"]);
+    expect(mixed.lines).toEqual([
+      "2 of 4 jobs are OVER WCAG's bar of 3 flashes in a second: b, c",
+      "1 of 4 jobs pass WCAG's bar of 3 flashes in a second",
+      "1 of 4 jobs FAILED and wrote no result, so pass nothing:\nd: the world did not come in 60 s",
+    ]);
+    expect(mixed).toMatchObject({ passed: ["a"], over: ["b", "c"], exitCode: 1 });
+    expect(verdict(1, [], ["a: no"])).toMatchObject({ passed: [], exitCode: 1, lines: ["0 of 1 jobs pass WCAG's bar of 3 flashes in a second", "1 of 1 jobs FAILED and wrote no result, so pass nothing:\na: no"] });
+  });
+});
+
 describe("jobUrl", () => {
   it("opens the day driven by its map, with the job's hooks and no others", () => {
     expect(jobUrl("http://127.0.0.1:3000", DAY, job("branch Q"))).toBe("http://127.0.0.1:3000/2026-10-20?drive=map&pose=crowd");
@@ -92,6 +154,8 @@ describe("tagOf", () => {
     // The defaults spelled out are the same job, and so the same file.
     expect(tagOf(job("main Q pose=crowd view=800x500 dpr=1 tier= still=0 rung=0 grids=0,0+1,1+1,0+0,1"))).toBe(tags[0]);
     expect(tagOf(job("branch S pose=12.5,-30,1.2,0.1 view=400x800 dpr=1.5 tier=phone still=1 rung=1"))).toBe("branch_S_12.5~-30~1.2~0.1_400x800_x1.5_phone_still_rung1_g00+11+10+01");
+    // A job of the WCAG count alone has no grids, and its name ends at its rung: it is not the same file as one that counted blocks too.
+    expect(tagOf(parseJobs("main Q", WINDOWS, { blocks: false })[0])).toBe("main_Q_crowd_800x500_x1_auto_whole_rung0");
   });
 });
 
@@ -694,6 +758,57 @@ describe("tables", () => {
     "| device and frame | rung | window | pose | pass | grid | main: most swings in any second, blocks at 5 or more | branch: most swings in any second, blocks at 5 or more |",
     "|---|---|---|---|---|---|---|---|",
   ];
+
+  // A result of the WCAG count, as capture.mjs writes one: `general` and `red` are the most transitions in any second of any field, and
+  // `shares` the largest shares of a field that changed at once, and `over` those whose pixels each changed more than 6 times in a
+  // second; `counts`, where given, the 2x2 count's too (--blocks).
+  const wcagRow = (line: string, general: number, red: number, shares: [number, number], counts?: [number, number][], over: [number, number] = [0, 0]) => {
+    const j = parseJobs(line, WINDOWS, { blocks: !!counts })[0], base = row(counts ? line : `${line} grids=0,0`, counts ?? [[0, 0]]);
+    const side = (most: number, share: number, busy: number) => ({
+      mostInASecond: most, flashes: most / 2, atOnce: { largest: share ? { share } : null }, perPixel: { overTheBar: busy ? { share: busy } : null },
+    });
+    return {
+      ...base, tag: tagOf(j), job: j, results: counts ? base.results : undefined,
+      wcag: { field: { width: Math.round(base.frame.width / 3), height: Math.round(base.frame.height / 3) }, general: side(general, shares[0], over[0]), red: side(red, shares[1], over[1]), pass: general <= 6 && red <= 6 },
+    };
+  };
+
+  it("puts main's WCAG count beside the branch's, a row a job: the general and red flashes in any second, the largest share of a field changing at once, and the largest whose pixels each changed more than 6 times in a second", () => {
+    const { markdown, worlds } = tables([
+      wcagRow("branch S dpr=1.5 still=1", 1, 0, [0.04, 0.001]), wcagRow("main S dpr=1.5 still=1", 2, 0, [0.06, 0], undefined, [0.12, 0.02]),
+      wcagRow("main A tier=phone view=390x844 dpr=2", 0, 0, [0, 0]),
+    ]);
+    expect(markdown.split("\n")).toEqual([
+      "| device and frame | rung | window | pose | pass | 10° field, px | main: general, red flashes in any second (largest share of a field changing at once; largest share of a field whose pixels each changed more than 6 times in a second) | branch: the same |",
+      "|---|---|---|---|---|---|---|---|",
+      "| desktop, 1.5×: 1200×750 | 0 | S (Seeks through the night) | crowd | light alone | 400×250 | 1, 0 (6 %, 0 %; 12 %, 2 %) | 0.5, 0 (4 %, 0 %; 0 %, 0 %) |",
+      "| phone, 2×: 780×1688, drawn at 332×717 | 0 | A (Fire On The Mountain) | crowd | whole frame | 260×563 | 0, 0 (0 %, 0 %; 0 %, 0 %) | – |",
+    ]);
+    expect(worlds).toHaveLength(2);
+  });
+
+  it("reads a WCAG count from before the counter counted pixel by pixel, with the share at once alone", () => {
+    const old = wcagRow("main S dpr=1.5 still=1", 1, 0, [0.05, 0]);
+    old.wcag.general = { mostInASecond: 1, flashes: 0.5, largest: { share: 0.05 } } as never;
+    old.wcag.red = { mostInASecond: 0, flashes: 0, largest: null } as never;
+    expect(tables([old]).markdown.split("\n")[2]).toBe("| desktop, 1.5×: 1200×750 | 0 | S (Seeks through the night) | crowd | light alone | 400×250 | 0.5, 0 (5 %, 0 %; –, –) | – |");
+  });
+
+  it("sets the 2x2 count's worst grid beside the WCAG count where a job counted both, and then the 2x2 count a row a grid", () => {
+    const { markdown } = tables([wcagRow("main S dpr=1.5 grids=0,0+1,1", 0, 0, [0.03, 0], [[5, 2], [6, 1]]), wcagRow("main Q dpr=1.5", 0, 0, [0.01, 0])]);
+    const lines = markdown.split("\n");
+    expect(lines[0]).toContain("| main, 2×2 blocks: most swings in any second, blocks at 5 or more, worst grid | branch, 2×2 blocks: most swings in any second, blocks at 5 or more, worst grid |");
+    expect(lines.slice(2, 4)).toEqual([
+      "| desktop, 1.5×: 1200×750 | 0 | Q (Space) | crowd | whole frame | 400×250 | 0, 0 (1 %, 0 %; 0 %, 0 %) | – | – | – |",
+      "| desktop, 1.5×: 1200×750 | 0 | S (Seeks through the night) | crowd | whole frame | 400×250 | 0, 0 (3 %, 0 %; 0 %, 0 %) | – | 6, 1 | – |",
+    ]);
+    expect(lines[4]).toBe("");
+    expect(lines.slice(5)).toEqual([
+      ...HEAD,
+      "| desktop, 1.5×: 1200×750 | 0 | S (Seeks through the night) | crowd | whole frame | even | 5, 2 | – |",
+      "| desktop, 1.5×: 1200×750 | 0 | S (Seeks through the night) | crowd | whole frame | moved 1 px right, 1 px down | 6, 1 | – |",
+    ]);
+  });
 
   it("puts main's count beside the branch's for the same job, a row a grid, and names the two worlds", () => {
     // No grid is named, so each job has the four, in the order a job counts them.

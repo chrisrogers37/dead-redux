@@ -38,8 +38,8 @@ export const SCALE = 1.77;
    (RATE_SMOOTH) rises past it, when the count is held to that pace and comes back onto the beat after (RETUNE). The pull back onto
    the beat is held to the same pace, and never runs the count back: `move` returns the count, and a test steps it frame by frame.
 
-   How the band moves is set by CLAUDE.md's bar on flashes, which the six capsules this band replaced broke two and three times
-   over. A limb against the lit panel swings a point's brightness as its edge passes, and at the hill's distance an arm, a
+   How the band moves was set by the old bar on flashes (CLAUDE.md), which the six capsules this band replaced broke two and three
+   times over. A limb against the lit panel swings a point's brightness as its edge passes, and at the hill's distance an arm, a
    stick or a guitar's neck is a pixel wide: it flickers on and off whole as it moves. So the band plays gently and slowly. What
    shows against the panel comes and goes once in four counts: a sway of the hips, by no more than a hand's breadth, a pixel from
    the back of the crowd on a phone; a stick's stroke, which lifts its tip out past the drummer's shoulder, so the drummers show
@@ -80,8 +80,8 @@ export const SCALE = 1.77;
    by its contrast in luminance. */
 export const HALF_OVER = 1.75, HALF_UNDER = 1.5;
 
-/* The counts in which a move comes and goes once, each set by a count of flashes (scripts/flash; the bar is 6 swings a second at a
-   block). What shows against the panel takes SLOW counts: a sway once in two counted 8 where an arm passed a trunk, a stroke once in
+/* The counts in which a move comes and goes once, each set by a count of flashes (scripts/flash; the bar then was 6 swings a second at
+   a block). What shows against the panel takes SLOW counts: a sway once in two counted 8 where an arm passed a trunk, a stroke once in
    two counted 7 to 9 on a phone, and once in four both count 5 at the most. A strum takes STRUM, one way a count: down and up inside
    each count, riding the sway, it counted 6. Only a foot keeps the count itself, against the floor. */
 export const SLOW = 4, STRUM = 2;
