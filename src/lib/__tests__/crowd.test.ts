@@ -3,9 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
 import {
-  backOf, buildCrowd, COLOURS, CREST, crestOf, CUP_ARM, CUT, CYCLE, DROP, FEET, figureGeometry, FOLD, FOOT, FORMS, formOfMark, formsOf, FRIEND_HAND, groundUnder, HAND, HANG, HOLD_UP, inView, KNEES,
-  LEG, LYING, MOST, MOVES, only, OUTLINE, outlineOf, OVERHEAD, PART, partingOptions, people, PLAIN_LEAVES_OUT, plainly, poseOf, PROP_EVERY, PROPS, QUIET, SEAT, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE,
-  SITS, SPLAY, STANDS, TALL, TINTS, tone, TOP, wearing, without,
+  backOf, buildCrowd, CLOTH_MOST, CLOTHS, COLOURS, CREST, crestOf, CUP_ARM, CUT, CYCLE, DROP, DYE, DYED, DYED_PROPS, FEET, figureGeometry, FOLD, FOOT, FORMS, formOfMark, formsOf, FRIEND_HAND,
+  groundUnder, HAND, HANG, HOLD_UP, inView, KNEES, LEG, LYING, MOST, MOVES, only, OUTLINE, outlineOf, OVERHEAD, PART, partingOptions, people, PLAIN_LEAVES_OUT, plainly, poseOf, PROP_EVERY, PROPS, QUIET,
+  SEAT, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, TALL, TINTS, tone, TOP, wearing, without,
 } from "../../../public/world/crowd.js";
 import { MOVE as STEP, SLOW, STRUM, swing } from "../../../public/world/band.js";
 import { FACING, height, STAGE, STAGE_COLUMN, TEST_POSES } from "../../../public/world/ground.js";
@@ -222,10 +222,16 @@ describe("the crowd, as buildCrowd builds it", () => {
   it("parts its figures with the options for the standard figure's size, PERSON tall, and stands none taller than the largest those allow", () => {
     expect(kept.options.length).toBeGreaterThan(0);
     const options = kept.options[0];
-    expect(Object.keys(options).sort()).toEqual([...Object.keys(own), "keeps", "ground"].sort());
+    expect(Object.keys(options).sort()).toEqual([...Object.keys(own), "keeps", "ground", "tops"].sort());
     // The ground they stand on as they part is the one the crowd's figures stand on: the island's own height, unless main.js hands
     // buildCrowd the tier's (island.js surfaceOf).
     expect(options.ground).toBe(height);
+    // Each figure's own top, which the camera keeps clear of over it, is its reach over its feet (each.top) and how far its feet
+    // stand over the ground there, and none is higher than `top`.
+    const tops = options.tops as number[];
+    expect(tops.length).toBe(crowd.count);
+    for (let i = 0; i < crowd.count; i++) expect(Math.abs(tops[i] - (crowd.each.aPlace[4 * i + 1] - height(crowd.each.aPlace[4 * i], crowd.each.aPlace[4 * i + 2]) + crowd.each.top[i]))).toBeLessThan(1e-4);
+    expect(Math.max(...crowd.each.top)).toBeLessThanOrEqual(own.top);
     const off = Object.keys(own).filter((name) => !(Math.abs((options[name] as number) - own[name]) < 1e-5));
     expect(off.map((name) => `${name}: ${options[name]}, for ${own[name]}`)).toEqual([]);
     // A figure's head stands TALL over its feet and as much higher as its legs are longer; children stand a little over half PERSON.
@@ -779,7 +785,7 @@ describe("the figure, as figureGeometry builds it", () => {
   it("marks every vertex with how it hangs, its part's bit and whose colour it takes, each triangle one part of one colour, and carries nothing a texture would read", () => {
     expect([mark.itemSize, mark.count]).toEqual([4, n]);
     expect([...new Set(rig)].sort()).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-    expect([...new Set(tint)].sort()).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect([...new Set(tint)].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     expect([...new Set(bit)].sort((a, b) => a - b)).toEqual([0, ...Object.values(PART)]);
     for (let t = 0; t < n; t += 3) {
       expect([bit[t + 1], bit[t + 2], rig[t + 1], rig[t + 2], tint[t + 1], tint[t + 2], form[t + 1], form[t + 2]]).toEqual([bit[t], bit[t], rig[t], rig[t], tint[t], tint[t], form[t], form[t]]);
@@ -994,12 +1000,14 @@ describe("the crowd's shader", () => {
     // wears. Dancing at the dance's most (1.6, audio.js), no vertex passes the hand's reach (`wide`) or the highest (`top`). Standing
     // fully still, its arms down, as it does beside the visitor's bear, none passes its hanging arms' reach, HANG at the largest's
     // size. A broader build, a skirt, a hat's brim or a pole that reached past these would stand in the bear or in a neighbour.
-    const most = { wide: 0, top: 0, hang: 0, sat: 0, satHigh: 0, feet: 0, lean: 0, against: Infinity };
+    // And none passes its own top (each.top), which the camera keeps clear of over it (seats.js parting), so it climbs over one who
+    // holds something up and not over every head as if each did.
+    const most = { wide: 0, top: 0, hang: 0, sat: 0, satHigh: 0, feet: 0, lean: 0, against: Infinity, overOwn: -Infinity };
     let looked = 0;
-    for (const [list, vertices] of [[figures, rich], [phones, plain]] as const) for (const f of list) {
+    for (const [list, vertices, c] of [[figures, rich, crowd], [phones, plain, phone]] as const) for (const f of list) {
       const worn = vertices.filter((v) => wears(f, v)), beats = beatsOf(f);
       const reach = (pose: Pose, each: (out: number, up: number) => void) => {
-        for (const v of worn) { const p = put(f, v, pose); each(f.across * Math.hypot(p.x, p.z), f.up * p.y); looked += 1; }
+        for (const v of worn) { const p = put(f, v, pose); each(f.across * Math.hypot(p.x, p.z), f.up * p.y); most.overOwn = Math.max(most.overOwn, f.up * p.y - c.each.top[f.i]); looked += 1; }
       };
       for (const beat of beats) for (const pose of [{ dance: 1.6 }, { dance: 1.6, rise: 0.5 }, { dance: 1.6, rise: 1 }, { dance: 1.6, sit: 1 }, { dance: 0.9, rise: 0.25 }])
         reach({ ...pose, beat }, (out, up) => { most.wide = Math.max(most.wide, out); most.top = Math.max(most.top, up); });
@@ -1025,6 +1033,8 @@ describe("the crowd's shader", () => {
     expect(looked).toBeGreaterThan(2e6);
     expect(most.wide).toBeLessThanOrEqual(own.wide);
     expect(most.top).toBeLessThanOrEqual(own.top);
+    expect(most.overOwn).toBeLessThanOrEqual(0);
+    expect(most.overOwn).toBeGreaterThan(-0.05);
     expect(most.hang).toBeLessThanOrEqual(HANG * BIG);
     expect(most.feet).toBeLessThanOrEqual(FEET * BIG);
     expect(most.sat).toBeLessThanOrEqual(KNEES * BIG);
@@ -1315,7 +1325,8 @@ describe("the crowd's shader", () => {
     // middle one, which far off on CI's crowd stills read as a hole in the hill (#203). Each figure of three shows' crowds, as a
     // desktop draws them and as a phone does, standing at rest, drawn alone by a small depth-tested raster from behind and 30 degrees
     // up, each face in its own colour (the tones, as the shader gives them) lit by the hemisphere light's sky and ground (sky.js:
-    // 0xe8b04b over 0x1a1613) as it faces: the mean relative luminance of what is seen, against the crowd's median.
+    // 0xe8b04b over 0x1a1613) as it faces: the mean relative luminance of what is seen, against the crowd's median. What it holds up
+    // dyed (CLOTHS) is no part of how dark the figure itself is, and is left out.
     const N = 48, sky = new THREE.Color(0xe8b04b), ground = new THREE.Color(0x1a1613), down = Math.PI / 6;
     const ahead = [0, -Math.sin(down), Math.cos(down)], right = [1, 0, 0], up = [0, Math.cos(down), Math.sin(down)];
     const least: Record<string, number> = {};
@@ -1325,7 +1336,7 @@ describe("the crowd's shader", () => {
       const means = figuresOf(c).map((f) => {
         const depth = new Float64Array(N * N).fill(Infinity), lit = new Float64Array(N * N), colour = { r: 0, g: 0, b: 0 };
         for (let k = 0; k < corners.length; k += 3) {
-          if (!wears(f, corners[k])) continue;
+          if (!wears(f, corners[k]) || (corners[k].mark.z % 16 >= 10 && corners[k].mark.z % 16 <= 12)) continue;
           const tri = [0, 1, 2].map((j) => ({ ...put(f, corners[k + j], { beat: 0, dance: 0 }) }));
           colour.r = f.top.r; colour.g = f.top.g; colour.b = f.top.b;
           runTones(null, colour, corners[k].mark, f.fig, null, 1, f.body, f.wear, f.cut, f.tone, 0, 0, 0, 0, f.place);
@@ -2044,9 +2055,12 @@ describe("the crowd's shader", () => {
 
   it("colours a figure in deep colours alone: its top the instance's own colour, and the rest of it from the four tones it carries, none brighter than MOST", () => {
     // Each vertex's colour as the shader leaves it, for every figure and every vertex it wears. A bright crowd would no longer read
-    // as dark figures before the lit stage (CLAUDE.md, figures are silhouettes).
-    let brightest = 0, lightest = 0, looked = 0;
-    const seen = new Set<string>(), out: Rgb = { r: 0, g: 0, b: 0 };
+    // as dark figures before the lit stage (CLAUDE.md, figures are silhouettes). What is cloth or a balloon held up over the head is
+    // dyed, and nothing else: it is one of CLOTHS, none brighter than CLOTH_MOST, the figure's own dye or the third or fifth on
+    // from it, so from the hill it reads as colour over the dark heads (cloth, below).
+    let brightest = 0, lightest = 0, looked = 0, dyed = 0;
+    const seen = new Set<string>(), out: Rgb = { r: 0, g: 0, b: 0 }, dyedParts = new Set<number>(), dyes = new Set<string>();
+    const cloths = (CLOTHS as number[]).map((hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; });
     for (const [list, c] of [[figures, crowd], [phones, phone]] as const) {
       const mark = c.figure.getAttribute("aMark"), marksOnce = new Map<string, Vec>();
       for (let k = 0; k < mark.count; k++) { const m = vec(mark, k); marksOnce.set(`${m.y} ${m.z}`, m); }
@@ -2054,12 +2068,22 @@ describe("the crowd's shader", () => {
         if (!(m.y === 0 || Math.floor(f.wear.x / m.y) % 2 === 1)) continue;
         out.r = f.top.r; out.g = f.top.g; out.b = f.top.b;
         runTones(null, out, m, f.fig, null, 1, f.body, f.wear, f.cut, f.tone, 0, 0, 0, 0);
+        if (m.z % 16 >= 10 && m.z % 16 <= 12) {
+          const own = Math.floor(f.tone.w / DYE), k = cloths.findIndex((rgb) => Math.max(Math.abs(rgb[0] - out.r), Math.abs(rgb[1] - out.g), Math.abs(rgb[2] - out.b)) < 0.01 * CLOTH_MOST);
+          expect([m.z % 16, (k - own + 8) % 8]).toEqual([m.z % 16, [0, 3, 5][(m.z % 16) - 10]]);
+          expect(Math.max(out.r, out.g, out.b)).toBeLessThanOrEqual(CLOTH_MOST);
+          dyedParts.add(m.y); dyes.add(`${k}`); dyed += 1;
+          continue;
+        }
         brightest = Math.max(brightest, out.r, out.g, out.b);
         lightest = Math.max(lightest, light(out));
         seen.add([out.r, out.g, out.b].map((v) => v.toFixed(4)).join());
         looked += 1;
       }
     }
+    expect([...dyedParts].sort((a, b) => a - b)).toEqual([PART.FLAG, PART.BALLOON].sort((a, b) => a - b));
+    expect([dyes.size, dyed > 300]).toEqual([CLOTHS.length, true]);
+    expect(CLOTH_MOST).toBeLessThanOrEqual(0.5);
     expect(looked).toBeGreaterThan(3000);
     expect(brightest).toBeLessThanOrEqual(MOST);
     expect(MOST).toBeLessThanOrEqual(0.08);
@@ -2651,6 +2675,21 @@ describe("the crowd's skyline", () => {
         .map((i) => Math.min(...up.filter((j) => j !== i).map((j) => Math.hypot(placed[j].x - placed[i].x, placed[j].z - placed[i].z)))).sort((a, b) => a - b);
       expect(gaps.length).toBeGreaterThan(c === phone ? 80 : 120);
       expect(gaps[Math.floor(0.9 * (gaps.length - 1))]).toBeLessThan(far);
+    }
+  });
+
+  it("dyes what is held up so that no two within DYED m of each other hold up the same colour, and every colour is held up", () => {
+    for (const c of [crowd, hills[1], hills[2], phone]) {
+      const who = peopleOf(c), placed = placedOf.get(c)!;
+      const up = placed.map((_, i) => i).filter((i) => (DYED_PROPS as string[]).includes(who[i].prop));
+      for (const i of up) {
+        expect(who[i].colour.cloth).toBe(Math.floor(c.each.aTone[4 * i + 3] / DYE));
+        const same = up.filter((j) => j !== i && who[j].colour.cloth === who[i].colour.cloth && Math.hypot(placed[j].x - placed[i].x, placed[j].z - placed[i].z) < DYED);
+        expect([i, same]).toEqual([i, []]);
+      }
+      expect(new Set(up.map((i) => who[i].colour.cloth)).size).toBe(CLOTHS.length);
+      // And no one else carries a dye.
+      expect(placed.map((_, i) => i).filter((i) => !up.includes(i) && c.each.aTone[4 * i + 3] >= DYE)).toEqual([]);
     }
   });
 });

@@ -832,6 +832,20 @@ describe("parting", () => {
     expect(raised(s.x, s.z, top + 1)).toBe(top + 1);
   });
 
+  it("raises a camera over each figure's own top where the crowd gives one, never over more than `top`", () => {
+    // Two figures 20 m apart: one whose own top is 1.5 m under `top`, and one that gives a top over it, which is held to `top`.
+    const s = [{ x: 70, z: -60 }, { x: 90, z: -60 }], p = parting(s, { ...OPTS, tops: [OPTS.top - 1.5, OPTS.top + 2] });
+    for (const [k, want] of [[0, OPTS.top - 1.5], [1, OPTS.top]] as const) {
+      const h = height(s[k].x, s[k].z), point = { x: s[k].x, y: h + 1.2, z: s[k].z };
+      p.over(point);
+      expect(point.y).toBeCloseTo(h + want + 1.1, 9);
+      const camera = { x: s[k].x - 10, y: height(s[k].x - 10, s[k].z) + 1.2, z: s[k].z }, way = Float64Array.of(10, 0, 0, 2, 20, 3, 0, 0);
+      p.ahead(camera, way);
+      // The most it asks along its way, over the camera as it would stand there, 1.2 m over the ground, read from the ground's table.
+      expect(Math.abs(way[7] - (want + 1.1 - 1.2))).toBeLessThan(0.05);
+    }
+  });
+
   it("says how far a camera should climb now to stand as high as a figure asks when its way reaches it, and the most it asks on the way", () => {
     // On level ground 1.2 m off it, 10 m short of the figure and closing at 10 m/s, read 20 times over 2 s and climbing at 3 m/s: 0.7 s on
     // it is 3 m out, within the figure's reach and 1.1 m, where the figure asks the camera up to 1.1 m over its top, from 1.2 m over

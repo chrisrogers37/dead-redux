@@ -59,8 +59,9 @@ export const TINTS = 16;
 const RIG = { BODY: 0, LEG: 1, FOOT: 2, ARM_L: 3, ARM_R: 4, SKIRT: 5, HEAD: 6, GROUND: 7 };
 /* Whose colour a face takes (aMark.z, in its ones of TINTS): its top's (the figure's own colour, at each corner), or one of the four tones the figure carries (aTone): its
    legs', its hair's, its own dark and its things'. A shin is bare under shorts, a forearm under short sleeves, a skirt is a long
-   shirt's tail on some, and a scalp is bare on the bald. */
-const TINT = { TOP: 0, LEGS: 1, HAIR: 2, SELF: 3, THING: 4, SHIN: 5, FOREARM: 6, SKIRT: 7, SCALP: 8, SHOE: 9 };
+   shirt's tail on some, and a scalp is bare on the bald. What is held up over the heads is cloth or a balloon in one of three of
+   the figure's own cloth colours (CLOTH), not a tone: the figure stays dark, what it holds up reads as colour. */
+const TINT = { TOP: 0, LEGS: 1, HAIR: 2, SELF: 3, THING: 4, SHIN: 5, FOREARM: 6, SKIRT: 7, SCALP: 8, SHOE: 9, CLOTH: 10, CLOTH2: 11, CLOTH3: 12 };
 /* How a figure is cut (aWear.y, with its way of moving and what its arms do): flared trousers, shorts, short sleeves, a long shirt
    for a skirt, a big round head of hair, a bald head, a shawl for a poncho. */
 export const CUT = { BELLS: 1, SHORTS: 2, BARE: 4, TUNIC: 8, AFRO: 16, BALD: 32, SHAWL: 64 };
@@ -211,18 +212,23 @@ export function figureGeometry(plain = false) {
   add(new THREE.BoxGeometry(0.27, 0.36, 0.13).translate(0, 1.26, -0.205), RIG.BODY, PART.PACK, TINT.THING);
   add(new THREE.CylinderGeometry(0.062, 0.062, 0.36, 6).rotateZ(Math.PI / 2).translate(0, 1.5, -0.19), RIG.BODY, PART.ROLL, TINT.LEGS);
 
+  /* A plain figure, which a phone draws from the hill a few of its pixels across, holds up what it holds up on a pole as thick as a
+     pixel of the phone's there, 40 m off (POLE_R; the same distance inside the hand, IN, so it reaches no farther out), so that no
+     cloth reads as floating; its balloons on sticks of nearly that, not strings (STRING_R); its flags DROPS deeper and its streamers
+     THICK times as broad. */
+  const POLE_R = plain ? 0.034 : 0.015, IN = POLE_R - 0.015, STRING_R = plain ? 0.03 : 0.008, DROPS = plain ? 0.1 : 0, THICK = plain ? 1.8 : 1;
   /* In the hands and overhead. A pole in the right hand, and a flag on it over the head, which waves from the pole out (its weight
      along it); a balloon over the right shoulder on a string from that hand, which goes up past the head a hand's breadth out and
      leans from the hand up. */
-  add(new THREE.CylinderGeometry(0.015, 0.015, 2.04, round(4, 3)).translate(0.3, 1.88, 0.075), RIG.BODY, PART.POLE, TINT.SHOE);
-  add(new THREE.BoxGeometry(0.64, 0.5, 0.014, round(3, 1), 1, 1).translate(-0.02, 2.65, 0.075), RIG.BODY, PART.FLAG, TINT.THING, (x) => (0.3 - x) / 0.64);
+  add(new THREE.CylinderGeometry(POLE_R, POLE_R, 2.04, round(4, 3)).translate(0.3 - IN, 1.88, 0.075), RIG.BODY, PART.POLE, TINT.SHOE);
+  add(new THREE.BoxGeometry(0.64, 0.5 + DROPS, 0.014, round(3, 1), 1, 1).translate(-0.02, 2.65 - DROPS / 2, 0.075), RIG.BODY, PART.FLAG, TINT.CLOTH, (x) => (0.3 - x) / 0.64);
   const lift = (x, y) => Math.min(1, Math.max(0, (y - 0.885) / 1.1));
-  add(new THREE.SphereGeometry(0.13, round(7, 6), 4).scale(1, 1.18, 1).translate(0.2, 2.6, -0.03), RIG.BODY, PART.BALLOON, TINT.THING, lift);
-  add(rope([[0.285, 0.885, 0.03], [0.3, 1.7, 0], [0.2, 2.447, -0.03]], [0.008, 0.008, 0.008], 3), RIG.BODY, PART.BALLOON, TINT.SHOE, lift);
+  add(new THREE.SphereGeometry(0.13, round(7, 6), 4).scale(1, 1.18, 1).translate(0.2, 2.6, -0.03), RIG.BODY, PART.BALLOON, TINT.CLOTH, lift);
+  add(rope([[0.285, 0.885, 0.03], [0.3 - IN, 1.7, 0], [0.2, 2.447, -0.03]], [STRING_R, STRING_R, STRING_R], 3), RIG.BODY, PART.BALLOON, TINT.SHOE, lift);
   /* A taper's stand before the left foot, on the ground: a pole to over the head, a bar across its top and, but on a plain figure, a
-     microphone at each end. */
-  add(new THREE.CylinderGeometry(0.014, 0.014, 2.2, 4, 1, true).translate(STAND_X, 1.1, STAND_Z), RIG.GROUND, PART.STAND, TINT.SHOE);
-  add(new THREE.BoxGeometry(0.18, 0.022, 0.022).translate(STAND_X, 2.19, STAND_Z), RIG.GROUND, PART.STAND, TINT.SHOE);
+     microphone at each end; a plain figure's pole and bar as thick as its other poles, so the bar does not float. */
+  add(new THREE.CylinderGeometry(POLE_R - 0.001, POLE_R - 0.001, 2.2, 4, 1, true).translate(STAND_X, 1.1, STAND_Z), RIG.GROUND, PART.STAND, TINT.SHOE);
+  add(new THREE.BoxGeometry(0.18, 0.022 + 2 * IN, 0.022 + 2 * IN).translate(STAND_X, 2.19, STAND_Z), RIG.GROUND, PART.STAND, TINT.SHOE);
   if (!plain) for (const side of [-1, 1]) add(new THREE.BoxGeometry(0.034, 0.085, 0.034).translate(STAND_X + side * 0.08, 2.195, STAND_Z), RIG.GROUND, PART.STAND, TINT.SHOE);
   add(new THREE.ConeGeometry(0.06, 0.1, 3).translate(STAND_X, 0.05, STAND_Z), RIG.GROUND, PART.STAND, TINT.SHOE);
   /* The finger of the right hand, for the one who holds it up for a ticket. */
@@ -276,27 +282,27 @@ export function figureGeometry(plain = false) {
      a puppet's head in a ruff. And what else flies from a straight pole, from its top out over the head: a swallowtail, a pennant and
      two streamers, which wave from the pole out as the square flag does. None of them is printed with anything. */
   const flies = (x) => Math.min(1, Math.max(0, (0.3 - x) / 0.64));
-  add(rope([[0.3, 0.86, 0.075], [0.14, 2.6, 0]], [0.015, 0.015], round(4, 3)), RIG.BODY, PART.POLE, TINT.SHOE, null, FORM.POLE.lean);
-  add(slab([[0.3, 2.42], [0.3, 2.9], [-0.34, 2.9], [-0.14, 2.66], [-0.34, 2.42]], 0.075, 0.014), RIG.BODY, PART.FLAG, TINT.THING, flies, FORM.FLAG.swallowtail);
-  add(slab([[0.3, 2.56], [0.3, 2.9], [-0.34, 2.73]], 0.075, 0.014), RIG.BODY, PART.FLAG, TINT.THING, flies, FORM.FLAG.pennant);
-  for (const [y, wide, far, tint] of [[2.83, 0.045, -0.34, TINT.THING], [2.66, 0.04, -0.27, TINT.LEGS]]) {
+  add(rope([[0.3 - IN, 0.86, 0.075], [0.14, 2.6, 0]], [POLE_R, POLE_R], round(4, 3)), RIG.BODY, PART.POLE, TINT.SHOE, null, FORM.POLE.lean);
+  add(slab([[0.3, 2.42 - DROPS], [0.3, 2.9], [-0.34, 2.9], [-0.14, 2.66 - DROPS / 2], [-0.34, 2.42 - DROPS]], 0.075, 0.014), RIG.BODY, PART.FLAG, TINT.CLOTH, flies, FORM.FLAG.swallowtail);
+  add(slab([[0.3, 2.56 - DROPS], [0.3, 2.9], [-0.34, 2.73 - DROPS / 2]], 0.075, 0.014), RIG.BODY, PART.FLAG, TINT.CLOTH, flies, FORM.FLAG.pennant);
+  for (const [y, wide, far, tint] of [[2.83, 0.045 * THICK, -0.34, TINT.CLOTH], [2.66, 0.04 * THICK, -0.27, TINT.CLOTH2]]) {
     const along = Array.from({ length: 6 }, (_, k) => [0.3 + ((far - 0.3) * k) / 5, y + 0.03 * Math.sin(2.4 * k)]), half = (k) => wide * (1 - 0.7 * (k / 5));
     add(slab([...along.map(([x, v], k) => [x, v + half(k)]), ...along.map(([x, v], k) => [x, v - half(k)]).reverse()], 0.075, 0.012), RIG.BODY, PART.FLAG, tint, flies, FORM.FLAG.streamer);
   }
   const star = Array.from({ length: 10 }, (_, k) => [0.14 + (k % 2 ? 0.085 : 0.2) * Math.sin((Math.PI * k) / 5), 2.75 + (k % 2 ? 0.085 : 0.2) * Math.cos((Math.PI * k) / 5)]);
-  add(slab(star, 0, 0.02), RIG.BODY, PART.FLAG, TINT.THING, null, FORM.FLAG.star);
+  add(slab(star, 0, 0.02), RIG.BODY, PART.FLAG, TINT.CLOTH, null, FORM.FLAG.star);
   /* The moon: the part of a circle 0.2 round (0.14, 2.76) outside one 0.1667 round a point 0.1 over that, its thick middle below. */
   const arc = (cy, r, from, to) => Array.from({ length: 9 }, (_, k) => { const a = from + ((to - from) * k) / 8; return [0.14 + r * Math.cos(a), cy + r * Math.sin(a)]; });
   const horn = Math.atan2(0.0833, 0.1247), inner = Math.atan2(0.0083, 0.1247);
-  add(slab([...arc(2.76, 0.2, Math.PI - horn, 2 * Math.PI + horn), ...arc(2.86, 0.1667, inner, -Math.PI - inner).slice(1, -1)], 0, 0.02), RIG.BODY, PART.FLAG, TINT.THING, null, FORM.FLAG.moon);
-  add(tube([{ y: 2.71, rx: 0.02, cx: 0.14 }, { y: 2.67, rx: 0.15, cx: 0.14 }, { y: 2.6, rx: 0.21, cx: 0.14 }], round(8, 6), { top: true, bottom: true }), RIG.BODY, PART.FLAG, TINT.THING, null, FORM.FLAG.parasol);
-  add(new THREE.IcosahedronGeometry(0.2, round(1, 0)).scale(1, 1.3, 1).translate(0.14, 2.72, 0), RIG.BODY, PART.FLAG, TINT.THING, null, FORM.FLAG.puppet);
-  add(tube([{ y: 2.5, rx: 0.08, cx: 0.14 }, { y: 2.46, rx: 0.17, cx: 0.14 }, { y: 2.42, rx: 0.065, cx: 0.14 }], round(8, 6)), RIG.BODY, PART.FLAG, TINT.LEGS, null, FORM.FLAG.puppet);
+  add(slab([...arc(2.76, 0.2, Math.PI - horn, 2 * Math.PI + horn), ...arc(2.86, 0.1667, inner, -Math.PI - inner).slice(1, -1)], 0, 0.02), RIG.BODY, PART.FLAG, TINT.CLOTH, null, FORM.FLAG.moon);
+  add(tube([{ y: 2.71, rx: 0.02, cx: 0.14 }, { y: 2.67, rx: 0.15, cx: 0.14 }, { y: 2.6, rx: 0.21, cx: 0.14 }], round(8, 6), { top: true, bottom: true }), RIG.BODY, PART.FLAG, TINT.CLOTH, null, FORM.FLAG.parasol);
+  add(new THREE.IcosahedronGeometry(0.2, round(1, 0)).scale(1, 1.3, 1).translate(0.14, 2.72, 0), RIG.BODY, PART.FLAG, TINT.CLOTH, null, FORM.FLAG.puppet);
+  add(tube([{ y: 2.5, rx: 0.08, cx: 0.14 }, { y: 2.46, rx: 0.17, cx: 0.14 }, { y: 2.42, rx: 0.065, cx: 0.14 }], round(8, 6)), RIG.BODY, PART.FLAG, TINT.CLOTH2, null, FORM.FLAG.puppet);
   /* Three balloons on three strings from the one hand, each its own colour, at three heights over the shoulder: each string passes the
      head a hand's breadth out. */
-  for (const [x, y, z, r, tint] of [[0.215, 2.4, 0.06, 0.11, TINT.THING], [0.12, 2.62, -0.08, 0.11, TINT.TOP], [0.23, 2.78, 0.02, 0.1, TINT.LEGS]]) {
+  for (const [x, y, z, r, tint] of [[0.215, 2.4, 0.06, 0.11, TINT.CLOTH], [0.12, 2.62, -0.08, 0.11, TINT.CLOTH2], [0.23, 2.78, 0.02, 0.1, TINT.CLOTH3]]) {
     add((plain ? new THREE.IcosahedronGeometry(r, 0) : new THREE.SphereGeometry(r, 7, 4)).scale(1, 1.18, 1).translate(x, y, z), RIG.BODY, PART.BALLOON, tint, lift, FORM.BALLOON.bunch);
-    add(rope([[0.285, 0.885, 0.03], [0.3, 1.7, 0], [x, y - 1.18 * r, z]], [0.008, 0.008, 0.008], 3), RIG.BODY, PART.BALLOON, TINT.SHOE, lift, FORM.BALLOON.bunch);
+    add(rope([[0.285, 0.885, 0.03], [0.3 - IN, 1.7, 0], [x, y - 1.18 * r, z]], [STRING_R, STRING_R, STRING_R], 3), RIG.BODY, PART.BALLOON, TINT.SHOE, lift, FORM.BALLOON.bunch);
   }
   /* What the hand held up holds up, past it as the hand hangs, so over it once raised: a hat, its brim flat and its crown on top, or a
      tambourine's ring, seen whole from behind. Each is built in the fist, TUCK of its size. */
@@ -544,12 +550,19 @@ export const COLOURS = {
   thing: [0x38190d, 0x0f232c, 0x2c260e, 0x230f29, 0x0d2619, 0x350f14, 0x191b36, 0x2c1f15, 0x212121, 0x362c19],
 };
 const SHOE = 0.006;
+/* What is held up over the heads, cloth and balloons, is dyed: eight colours a flag or a balloon is, the brightest channel of any
+   CLOTH_MOST of full light, so that from the hill at dusk each reads as a patch of colour over the dark heads, lit by the island's
+   light on the crowd's own material as the figures are, and as dark as they at night. Each figure that holds something up holds it
+   in one of them (its `colour.cloth`, which people deals so that no two such within DYED m share one), and its second and third in
+   the dyes three and five on from that. A figure carries its dye in aTone.w over its things' tone, DYE times it. */
+export const CLOTHS = [0xa8281e, 0xb07a12, 0x2a5fa0, 0x2f8a3c, 0x7a3a98, 0x178a86, 0xa82a6a, 0xb85a18];
+export const CLOTH_MOST = 0.5, DYE = 128 ** 3, DYED = 6;
 /* A colour as one number a figure can carry: each channel's light as 0 to 127 on a square-root scale up to MOST, the red in the
    ones, the green in the 128s and the blue in the 16384s. */
 const shade = new THREE.Color();
-export function tone(hex) {
+export function tone(hex, most = MOST) {
   shade.setHex(hex);
-  const n = (c) => Math.min(127, Math.round(127 * Math.sqrt(c / MOST)));
+  const n = (c) => Math.min(127, Math.round(127 * Math.sqrt(c / most)));
   return n(shade.r) + 128 * n(shade.g) + 16384 * n(shade.b);
 }
 
@@ -579,6 +592,8 @@ export const PROPS = ["flag", "parasol", "balloon", "aloft", "stand", "puppet", 
   "streamer", "tambourine", "rider", "drum"], PROP_EVERY = 3;
 export const OVERHEAD = PROPS.filter((prop) => !["finger", "hoop", "drum"].includes(prop));
 const FLIES = ["flag", "swallowtail", "pennant", "streamer"], STANDS_ON = ["star", "moon", "parasol", "puppet"], BALLOONS = ["balloon", "bunch"];
+/* What is cloth or a balloon held up over the head, dyed one of CLOTHS. */
+export const DYED_PROPS = [...FLIES, ...STANDS_ON, ...BALLOONS];
 /* The one way of moving each of these props leaves its holder (person); any other prop leaves it to sway or to watch. */
 const MOVES_HOLDING = { stand: ["watch"], rider: ["sway"], hoop: ["sway"], drum: ["bob"] };
 /* What makes a figure's outline, which no two figures of a crowd share (people). */
@@ -764,6 +779,14 @@ export function people(placed) {
       const worn = new Set(near.filter(([other, , share]) => share === SHARE[0] && other.top === best.top).map(([other]) => other.colour.top));
       const free = COLOURS.top.findIndex((_, k) => !worn.has(k));
       if (free >= 0) best.colour = { ...best.colour, top: free };
+    }
+    /* What it holds up is dyed: the first of CLOTHS, on from one its place in the seats' order picks, that no one within DYED m of it
+       before it holds up. */
+    if (DYED_PROPS.includes(best.prop)) {
+      const held = new Set();
+      for (let j = 0; j < i; j++) if (out[j].colour.cloth !== undefined && Math.hypot(placed[j].x - seat.x, placed[j].z - seat.z) < DYED) held.add(out[j].colour.cloth);
+      const from = (5 * i) % CLOTHS.length, k = CLOTHS.findIndex((_, m) => !held.has((from + m) % CLOTHS.length));
+      best.colour = { ...best.colour, cloth: (from + Math.max(k, 0)) % CLOTHS.length };
     }
     taken.add(outlineOf(plainly(best)));
     crests.push(seat.sit ? null : [crestOf(best), crestOf(plainly(best))]);
@@ -1316,12 +1339,18 @@ float tint = mod(aMark.z, ${n(TINTS)});
 if (!(${is("tint", TINT.TOP)})) {
   float cutting = mod(floor(aWear.y / ${n(STYLE.CUT)}), ${n(STYLE.STANCE / STYLE.CUT)});
   bool shorts = ${has("cutting", CUT.SHORTS)}, bare = ${has("cutting", CUT.BARE)}, tunic = ${has("cutting", CUT.TUNIC)}, bald = ${has("cutting", CUT.BALD)};
-  float tone = ${is("tint", TINT.LEGS)} ? aTone.x : ${is("tint", TINT.HAIR)} ? aTone.y : ${is("tint", TINT.SELF)} ? aTone.z : ${is("tint", TINT.THING)} ? aTone.w
+  float things = mod(aTone.w, ${n(DYE)}), most = ${f(MOST)};
+  float tone = ${is("tint", TINT.LEGS)} ? aTone.x : ${is("tint", TINT.HAIR)} ? aTone.y : ${is("tint", TINT.SELF)} ? aTone.z : ${is("tint", TINT.THING)} ? things
     : ${is("tint", TINT.SHIN)} ? (shorts ? aTone.z : aTone.x) : ${is("tint", TINT.FOREARM)} ? (bare ? aTone.z : -1.0) : ${is("tint", TINT.SKIRT)} ? (tunic ? -1.0 : aTone.x)
     : ${is("tint", TINT.SCALP)} ? (bald ? aTone.z : aTone.y) : -2.0;
+  if (tint > ${n(TINT.CLOTH - 0.5)} && tint < ${n(TINT.CLOTH3 + 0.5)}) {
+    float dye = mod(floor(aTone.w / ${n(DYE)}) + (${is("tint", TINT.CLOTH2)} ? 3.0 : ${is("tint", TINT.CLOTH3)} ? 5.0 : 0.0), ${n(CLOTHS.length)});
+    tone = ${CLOTHS.map((hex, k) => (k < CLOTHS.length - 1 ? `dye < ${n(k + 0.5)} ? ${n(tone(hex, CLOTH_MOST))} : ` : n(tone(hex, CLOTH_MOST)))).join("")};
+    most = ${f(CLOTH_MOST)};
+  }
   if (tone > -0.5) {
     float red = mod(tone, 128.0) / 127.0, green = mod(floor(tone / 128.0), 128.0) / 127.0, blue = floor(tone / 16384.0) / 127.0;
-    vColor.r = ${f(MOST)} * red * red; vColor.g = ${f(MOST)} * green * green; vColor.b = ${f(MOST)} * blue * blue;
+    vColor.r = most * red * red; vColor.g = most * green * green; vColor.b = most * blue * blue;
   } else if (tone < -1.5) {
     vColor.r = ${f(SHOE)}; vColor.g = ${f(SHOE)}; vColor.b = ${f(SHOE)};
   }
@@ -1374,15 +1403,12 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
       .replace("#include <begin_vertex>", `#include <begin_vertex>${DANCE}`)
       .replace("#include <project_vertex>", PROJECT);
   };
-  /* The parting (partingOptions), each figure keeping clear of what the seats keep clear of, and its hands of the stage's solids
-     (STAGE_COLUMN). */
-  const opts = partingOptions(scale);
-  const parts = parting(placed, { ...opts, keeps: [...keepOuts(around), [STAGE[0], STAGE[1], STAGE_COLUMN.r + opts.wide]], ground: surface });
   /* Each figure's own numbers, a figure to a row: where it stands (as a matrix), its top's colour, and what the shader reads of it;
-     and the parting's own two rows, where it has stepped each figure and how far it lets its arms rise. */
+     how high it reaches over its feet at the most, in metres (`top`, reaches); and the parting's own two rows, where it has stepped each figure and how far
+     it lets its arms rise. */
   const each = { count: n, matrix: new Float32Array(16 * n), colour: new Float32Array(3 * n), aFig: new Float32Array(4 * n), aBody: new Float32Array(4 * n),
     aWear: new Float32Array(4 * n), aCut: new Float32Array(4 * n), aTone: new Float32Array(4 * n), aPlace: new Float32Array(4 * n), aSize: new Float32Array(4 * n),
-    forms: new Array(n), offset: parts.offset, rising: parts.rising, ball: new Float32Array(4 * n) };
+    forms: new Array(n), top: new Float32Array(n), offset: /** @type {Float32Array} */ (null), rising: /** @type {Float32Array} */ (null), ball: new Float32Array(4 * n) };
   const near = Math.min(...placed.map((p) => p.r)), far = Math.max(...placed.map((p) => p.r));
   const dummy = new THREE.Object3D(), color = new THREE.Color();
   const who = mix(people(placed), placed);
@@ -1393,7 +1419,7 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
   const sized = (one) => {
     const { out, top, feet } = reaches(one, wearing(one));
     const tall = Math.min((scale * one.tall * TALL) / (TALL + LEG * (one.leg - 1)), (TOP * big - 0.005) / top);
-    return { tall, broad: Math.min(one.slim, (HANG * big - 0.003) / (tall * out), (FEET * big - 0.003) / (tall * feet)) };
+    return { tall, top: top * tall, broad: Math.min(one.slim, (HANG * big - 0.003) / (tall * out), (FEET * big - 0.003) / (tall * feet)) };
   };
   const under = (p, tall, broad, face) => {
     const cos = Math.cos(face), sin = Math.sin(face), wide = tall * broad;
@@ -1431,7 +1457,7 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
   placed.forEach((p, i) => {
     /* A friend whose arm is round the other's waist dances as the other does: its way, its phase and how far. */
     const lead = dealt[i].lead ?? i, mine = { ...who[i], move: who[lead].move, size: who[lead].size, stance: dealt[i] };
-    const one = plain ? plainly(mine) : mine, worn = fitted(one), { tall, broad } = sized(one);
+    const one = plain ? plainly(mine) : mine, worn = fitted(one), { tall, broad, top } = sized(one);
     /* The plane it lies on there (groundUnder): the ground as drawn bends away from a plane where a fold between two of its triangles
        runs under the figure, or where the hill rounds, so it is the plane that fits where the figure rests on the ground, standing or
        seated as its seat has it. */
@@ -1439,6 +1465,7 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     const sits = p.sit && !dealt[i].stands;
     const { drop, rises, lift, other } = sits ? groundUnder(at, tall, dealt[i].sit, "stand", worn) : groundUnder(at, tall, "stand", dealt[i].sit, worn);
     dummy.position.set(p.x, at(0, 0) + lift, p.z);
+    each.top[i] = top;
     dummy.rotation.set(0, turn, 0);
     dummy.scale.set(wide, tall, wide);
     dummy.updateMatrix();
@@ -1449,12 +1476,19 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     each.aWear.set([worn.parts, worn.style, one.stoop, one.size], 4 * i);
     each.aCut.set([one.hairLength, one.hem, one.crown, one.brim], 4 * i);
     each.forms[i] = formsOf(one);
-    each.aTone.set([tone(COLOURS.legs[one.colour.legs]), tone(COLOURS.hair[one.colour.hair]), tone(COLOURS.self[one.colour.self]), tone(COLOURS.thing[one.colour.thing])], 4 * i);
+    each.aTone.set([tone(COLOURS.legs[one.colour.legs]), tone(COLOURS.hair[one.colour.hair]), tone(COLOURS.self[one.colour.self]),
+      tone(COLOURS.thing[one.colour.thing]) + DYE * (one.colour.cloth ?? 0)], 4 * i);
     /* The same place as the shader takes it: where it stands and how the ground rises across it; and its breadth, its height, its turn,
        and how much higher it stands the other way, standing or seated, in its own units. */
     each.aPlace.set([dummy.position.x, dummy.position.y, dummy.position.z, rises], 4 * i);
     each.aSize.set([tall * broad, tall, turn, (other - lift) / tall], 4 * i);
   });
+  /* The parting (partingOptions), each figure keeping clear of what the seats keep clear of, and its hands of the stage's solids
+     (STAGE_COLUMN); a camera over the crowd keeps clear of each figure's own top, so it climbs over a flag and not over every head as
+     if each held one. */
+  const opts = partingOptions(scale);
+  const parts = parting(placed, { ...opts, tops: placed.map((p, i) => each.aPlace[4 * i + 1] - surface(p.x, p.z) + each.top[i]), keeps: [...keepOuts(around), [STAGE[0], STAGE[1], STAGE_COLUMN.r + opts.wide]], ground: surface });
+  each.offset = parts.offset; each.rising = parts.rising;
 
   /* The mesh: every figure's body and the parts it wears, each in its form, and nothing it does not, one figure after another in the
      seats' order. Each corner carries its figure's numbers beside its own place and mark. */
