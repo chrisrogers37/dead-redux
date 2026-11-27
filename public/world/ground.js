@@ -17,7 +17,7 @@ export const FACING = Math.atan2(-STAGE[0], -STAGE[1]);
    its centre below the platform's top. */
 export const STAGE_REACH = 11;
 /* The column the third-person camera keeps out of (avatar.js): every solid of the stage stands inside it, the PA stacks' outer corners
-   10.9 m from the centre and the roof's top 8.45 m above the floor, and no walk does. */
+   and the ends of the arena's truss 10.9 m from the centre and the roof's and the truss's tops 8.45 m above the floor, and no walk does. */
 export const STAGE_COLUMN = { x: STAGE[0], z: STAGE[1], r: 10.95, top: SHELF_Y + 8.45 };
 /* The test hook ?pose=stage: on the slope in front of the stage, on its axis 34 m from its centre and 8 m above its floor, facing it and
    looking a little down. In third person the look down raises the boom, so the stage stands over the bear's head. */

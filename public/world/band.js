@@ -370,10 +370,10 @@ const STAND = 0.036, MIC_BASE = 0.1, MIC_HEAD = 0.04;
    microphone's tip, just before the strumming hand, its top MIC.drop under the tip, and the boom reaches up and across from there
    to the microphone. A keyboard player's stands MIC.clear before the front of the keyboard, MIC.aside from their middle toward
    the hand that lifts out wide (`keyboardist`'s LIFT), its top MIC.high, over the keys, and the boom rises from there over the
-   keyboard to the microphone. Of the other places tried for it: past the keyboard's end toward the stage's edge, it came within
-   two pixels of a PA stack and stood before the lifted hand from the front (band-outline.ts); past the other end, before the
-   keyboard's middle, 5 cm nearer the middle or 5 cm further before the keyboard, it parted from the body by a pixel or two from
-   the front of the crowd (band.test.ts, the gaps); and as far toward the other hand, that hand lifted through the boom
+   keyboard to the microphone. Of the other places tried for it, on the roof's stage: past the keyboard's end toward the stage's edge,
+   it came within two pixels of a PA stack and stood before the lifted hand from the front (band-outline.ts); past the other end,
+   before the keyboard's middle, 5 cm nearer the middle or 5 cm further before the keyboard, it parted from the body by a pixel or
+   two from the front of the crowd (band.test.ts, the gaps); and as far toward the other hand, that hand lifted through the boom
    (band.test.ts, "a microphone's stand"). */
 const MIC = { off: 0.16, tip: 0.5, long: 0.15, beside: 0.15, fore: 0.17, drop: 0.36, aside: 0.2, clear: 0.15, high: 1.05 };
 /* How far a keyboard's parts reach before its player, in their frame. */
