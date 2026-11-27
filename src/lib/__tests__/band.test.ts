@@ -1219,7 +1219,7 @@ describe("the band's outlines, from the front, through four counts of playing", 
     return { thin, pockets };
   }
 
-  it("leaves few gaps under 3 px with a moving part at their edge: from the hill no more than 36 thin pixels and 3 small pockets in any of 16 poses, and from the front of the crowd 55 and 4", () => {
+  it("leaves few gaps under 3 px with a moving part at their edge: from the hill no more than 36 thin pixels and 3 small pockets in any of 16 poses, and from the front of the crowd 50 and 4", () => {
     const built = stand();
     built.play(1.5, 96);
     const most = { far: { thin: 0, pockets: 0 }, near: { thin: 0, pockets: 0 } };
@@ -1242,11 +1242,11 @@ describe("the band's outlines, from the front, through four counts of playing", 
     // keyboard's other end, 33 and 1, and 48 and 2. A guitar's or the bass's 17 cm out to the player's right, not 15, counted 32
     // and 1, and 50 and 3.
     // Something is counted: a wedge's tip is thin wherever two parts part.
-    // Shaped as people, with elbows, closed hands and knees, 36 and 3, and 52 and 4: the bar from the front of the crowd is loosened
-    // from 45 and 3 to 55 and 4, under the old flash bar's rule (CLAUDE.md, "Motion and flashes"), with frames of the band in play
+    // Shaped as people, with elbows, closed hands and knees, 34 and 3, and 48 and 4: the bar from the front of the crowd is loosened
+    // from 45 and 3 to 50 and 4, under the old flash bar's rule (CLAUDE.md, "Motion and flashes"), with frames of the band in play
     // from the front of the crowd to show it (the PR's sheets).
     expect(most.far.thin).toBeGreaterThan(10);
-    expect([most.far.thin <= 36, most.far.pockets <= 3, most.near.thin <= 55, most.near.pockets <= 4]).toEqual([true, true, true, true]);
+    expect([most.far.thin <= 36, most.far.pockets <= 3, most.near.thin <= 50, most.near.pockets <= 4]).toEqual([true, true, true, true]);
   });
 });
 
