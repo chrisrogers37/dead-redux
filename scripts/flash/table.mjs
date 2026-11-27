@@ -2,7 +2,9 @@
 //
 //   node scripts/flash/table.mjs [--mixed] <run's folder> [<run's folder> ...]
 //
-// One row for each job and each grid, main's count beside the branch's. The table goes to stdout, what to know about it to stderr.
+// The WCAG count: one row for each job, main's general and red flashes beside the branch's, and where a job counted the 2x2 blocks too
+// (--blocks), their worst grid's count beside them. Then the 2x2 count, from results that have it, as every count before 2026-11-27
+// was made: one row for each job and each grid. The tables go to stdout, what to know about them to stderr.
 // Rows whose branch worlds differ, or whose main worlds do, are refused: they are of different code, and a table of them would set
 // one PR's counts beside another's. --mixed prints them all the same, and says so.
 import { readdirSync, readFileSync } from "fs";
@@ -15,15 +17,25 @@ const device = (j) => `${j.world.tier}, ${j.job.dpr}×: ${j.frame.width}×${j.fr
 const gridName = ([ox, oy]) => (ox || oy ? `moved ${ox} px right, ${oy} px down` : "even");
 // A result's count on a grid: the most swings at one block in any second, and how many blocks reach 5.
 const count = (j, grid) => {
-  const r = j.results.find((g) => g.grid.join() === grid);
+  const r = (j.results ?? []).find((g) => g.grid.join() === grid);
   return r ? `${r.maxSwingsInASecond}, ${r.blocksAtLeast[5]}` : "–";
 };
-// A variant's cell for a job: its result's count. Where the rows hold more than one result of the job (two runs, which --mixed lets
-// be of two worlds), every one, each named by its world's hash; two that say the same of the same world are said once.
-const cell = (jobs, grid) => {
-  const said = [...new Set(jobs.map((j) => `${count(j, grid)} (${j.world.hash.slice(0, 12)})`))];
-  return jobs.length === 0 ? "–" : said.length === 1 ? count(jobs[0], grid) : said.join("; ");
+// Its 2x2 count at its worst grid, the one with the most swings at a block in a second: the old bar's number for the job.
+const worstGrid = (j) => {
+  const r = (j.results ?? []).reduce((a, b) => (!a || b.maxSwingsInASecond > a.maxSwingsInASecond ? b : a), null);
+  return r ? `${r.maxSwingsInASecond}, ${r.blocksAtLeast[5]}` : "–";
 };
+// Its WCAG count: the most general flashes and the most red in any second in any field, and the largest share of a field that changed
+// one way at once, general and red.
+const pct = (r) => (r.largest ? `${Math.round(r.largest.share * 100)} %` : "0 %");
+const flashes = (j) => (j.wcag ? `${j.wcag.general.flashes}, ${j.wcag.red.flashes} (${pct(j.wcag.general)}, ${pct(j.wcag.red)})` : "–");
+// A variant's cell for a job: its result's count, by `said`. Where the rows hold more than one result of the job (two runs, which
+// --mixed lets be of two worlds), every one, each named by its world's hash; two that say the same of the same world are said once.
+const cellBy = (jobs, said) => {
+  const all = [...new Set(jobs.map((j) => `${said(j)} (${j.world.hash.slice(0, 12)})`))];
+  return jobs.length === 0 ? "–" : all.length === 1 ? said(jobs[0]) : all.join("; ");
+};
+const cell = (jobs, grid) => cellBy(jobs, (j) => count(j, grid));
 // A world as a reader tells it from another: the start of its hash, and where it came from.
 const worldName = (w) => `${w.hash.slice(0, 12)} (${w.from === "main" ? `main at ${w.commit.slice(0, 7)}` : w.from === "server" ? `the server's own, ${w.ref}` : `${w.ref}${w.commit ? ` at ${w.commit.slice(0, 7)}` : ""}${w.dirty ? ", changed since" : ""}`})`;
 
@@ -59,14 +71,32 @@ export function tables(rows, { mixed = false } = {}) {
     for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
     return 0;
   });
-  const out = [
-    "| device and frame | rung | window | pose | pass | grid | main: most swings in any second, blocks at 5 or more | branch: most swings in any second, blocks at 5 or more |",
-    "|---|---|---|---|---|---|---|---|",
-  ];
-  for (const g of sorted) {
-    const j = g.main[0] ?? g.branch[0];
-    for (const grid of j.job.grids) {
-      out.push(`| ${device(j)} | ${j.job.rung} | ${j.job.window} (${j.window.name.split(":")[0]}) | ${j.job.pose} | ${j.job.still ? "light alone" : "whole frame"} | ${gridName(grid)} | ${cell(g.main, grid.join())} | ${cell(g.branch, grid.join())} |`);
+  const out = [], of = (g) => [...g.main, ...g.branch];
+  const what = (j) => `| ${device(j)} | ${j.job.rung} | ${j.job.window} (${j.window.name.split(":")[0]}) | ${j.job.pose} | ${j.job.still ? "light alone" : "whole frame"} |`;
+  // The WCAG count, with the 2x2 count's worst grid beside it where the rows have both.
+  const counted = sorted.filter((g) => of(g).some((j) => j.wcag)), both = counted.some((g) => of(g).some((j) => j.results?.length));
+  if (counted.length) {
+    out.push(
+      "| device and frame | rung | window | pose | pass | 10° field, px | main: general, red flashes in any second (largest share of a field changing at once) | branch: general, red flashes in any second (largest share of a field changing at once) |" +
+        (both ? " main, 2×2 blocks: most swings in any second, blocks at 5 or more, worst grid | branch, 2×2 blocks: most swings in any second, blocks at 5 or more, worst grid |" : ""),
+      `|---|---|---|---|---|---|---|---|${both ? "---|---|" : ""}`,
+    );
+    for (const g of counted) {
+      const j = of(g).find((k) => k.wcag);
+      out.push(`${what(j)} ${j.wcag.field.width}×${j.wcag.field.height} | ${cellBy(g.main, flashes)} | ${cellBy(g.branch, flashes)} |` + (both ? ` ${cellBy(g.main, worstGrid)} | ${cellBy(g.branch, worstGrid)} |` : ""));
+    }
+  }
+  // The 2x2 count, a row a grid, from the results that have it.
+  const blocks = sorted.filter((g) => of(g).some((j) => j.results?.length));
+  if (blocks.length) {
+    if (out.length) out.push("");
+    out.push(
+      "| device and frame | rung | window | pose | pass | grid | main: most swings in any second, blocks at 5 or more | branch: most swings in any second, blocks at 5 or more |",
+      "|---|---|---|---|---|---|---|---|",
+    );
+    for (const g of blocks) {
+      const j = g.main[0] ?? g.branch[0];
+      for (const grid of j.job.grids) out.push(`${what(j)} ${gridName(grid)} | ${cell(g.main, grid.join())} | ${cell(g.branch, grid.join())} |`);
     }
   }
   const renderers = [...new Set(rows.map((j) => j.world.renderer))];

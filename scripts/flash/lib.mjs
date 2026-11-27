@@ -89,7 +89,8 @@ const POSE = /^(?:[a-z]+(?:-\d+)?|-?\d+(?:\.\d+)?(?:,-?\d+(?:\.\d+)?){3})$/;
 //   still=0          1 stills the figures (?still=1): the pass the README calls the light alone
 //   rung=0           how many rungs down its quality ladder the world starts and holds (?rung=N)
 //   grids=0,0+1,1+1,0+0,1   the grids of 2x2 blocks counted, each by how many px it stands right and down of the frame's corner
-export function parseJobs(text, windows) {
+// The grids are the 2x2 count's, which only --blocks runs (`blocks`): without it a job has none, and a line that names some is refused.
+export function parseJobs(text, windows, { blocks = true } = {}) {
   const jobs = [];
   for (const [n, raw] of text.split("\n").entries()) {
     const line = raw.replace(/#.*$/, "").trim();
@@ -118,7 +119,8 @@ export function parseJobs(text, windows) {
     if (!["", "phone", "tv"].includes(given.tier)) fail(`tier=${given.tier}: phone, tv, or nothing for the page's own pick`);
     if (given.still !== "0" && given.still !== "1") fail(`still=${given.still}: 0 or 1`);
     if (!/^\d{1,2}$/.test(given.rung)) fail(`rung=${given.rung}: a whole number from 0 to 99`);
-    const grids = given.grids.split("+");
+    if (!blocks && seen.has("grids")) fail("grids= is the 2x2 blocks' count, which only --blocks runs");
+    const grids = blocks ? given.grids.split("+") : [];
     if (grids.some((g) => !/^[01],[01]$/.test(g)) || new Set(grids).size !== grids.length) fail(`grids=${given.grids}: one or more of 0,0 1,0 0,1 1,1, joined by +`);
     jobs.push({
       variant, window, pose: given.pose, view, dpr, tier: given.tier, still: given.still === "1", rung: Number(given.rung),
@@ -132,10 +134,11 @@ export function parseJobs(text, windows) {
 export const jobUrl = (siteUrl, day, job) => `${siteUrl}/${day}?drive=map` + (job.pose === "home" ? "" : `&pose=${job.pose}`) +
   (job.tier ? `&tier=${job.tier}` : "") + (job.still ? "&still=1" : "") + (job.rung ? `&rung=${job.rung}` : "");
 
-// A file-safe name from every field that tells one job from another, so two jobs never share a result.
+// A file-safe name from every field that tells one job from another, so two jobs never share a result. A job with no grids is counted
+// by WCAG's thresholds alone, and its name ends at its rung; one with grids by the 2x2 blocks too (--blocks), and names them.
 export const tagOf = (job) => [
   job.variant, job.window, job.pose, `${job.view.width}x${job.view.height}`, `x${job.dpr}`, job.tier || "auto", job.still ? "still" : "whole",
-  `rung${job.rung}`, `g${job.grids.map(([x, y]) => `${x}${y}`).join("+")}`,
+  `rung${job.rung}`, ...(job.grids.length ? [`g${job.grids.map(([x, y]) => `${x}${y}`).join("+")}`] : []),
 ].join("_").replace(/[^A-Za-z0-9._+-]/g, "~");
 
 // The two sets of jobs, as job lines. `quick`, for a first look: Space and the seeks from behind the crowd on a desktop, the whole
