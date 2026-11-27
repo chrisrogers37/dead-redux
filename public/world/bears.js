@@ -177,10 +177,17 @@ function ear(side, paint) {
    and tipped forward RUFF.tilt rad, so it lies lower on the back and rides up under the chin. Its roll is RUFF.thin m thick at the
    front and RUFF.thick at the back, so it stands that far proud of the body; its lower, outer edge falls into RUFF.tufts tufts, longest
    at the back, which hang down and out over the shoulders and the back by up to RUFF.hang m, so its edge is ragged and never a
-   ring's. `paint` takes how far a corner is from the root, where the ruff grows out of the fur (0), to the tips (1). */
-export const RUFF = { up: 3.55, tilt: 0.06, thin: 0.11, thick: 0.22, tall: 1.2, tufts: 15, hang: 0.3 }, RUFF_U = 60, RUFF_V = 10;
-/* How far down a tuft hangs at `u` round the neck (0 at the back, π at the front): the tufts' peaks, longest at the back. */
-export const tuftAt = (u) => RUFF.hang * (0.3 + 0.7 * ((1 + Math.cos(u)) / 2)) * (0.8 + 0.2 * Math.cos(4 * u + 1)) * (0.15 + 0.85 * ((1 + Math.cos(RUFF.tufts * u)) / 2) ** 1.5);
+   ring's. Each tuft is a lock of its own length (LOCKS, from the middle of the back round by the bear's left), drawn to a soft point,
+   with a broad, rounded gap to the next: RUFF_U is eight steps a tuft, so a tip is a curve and not a saw's tooth. `paint` takes how
+   far a corner is from the root, where the ruff grows out of the fur (0), to the tips (1). */
+export const RUFF = { up: 3.55, tilt: 0.06, thin: 0.11, thick: 0.22, tall: 1.2, tufts: 14, hang: 0.3 }, RUFF_U = 8 * RUFF.tufts, RUFF_V = 10;
+export const LOCKS = [1, 0.78, 0.92, 0.72, 0.97, 0.8, 0.88, 0.7, 0.9, 0.76, 1, 0.82, 0.74, 0.94];
+/* How far down a tuft hangs at `u` round the neck (0 at the back, π at the front): longest at the back, each tuft its lock's length.
+   Between two tufts the lock's own part is nothing, so the edge runs on unbroken where one lock gives way to the next. */
+export const tuftAt = (u) => {
+  const n = RUFF.tufts, k = ((Math.round((n * u) / (2 * Math.PI)) % n) + n) % n;
+  return RUFF.hang * (0.3 + 0.7 * ((1 + Math.cos(u)) / 2)) * (0.8 + 0.2 * Math.cos(4 * u + 1)) * (0.15 + 0.85 * LOCKS[k] * ((1 + Math.cos(n * u)) / 2) ** 2.5);
+};
 /* The ring's height and its distance out from the middle line at `u`, on the body's surface. */
 export function ruffRing(u) {
   const dx = Math.sin(u), dz = -Math.cos(u);
@@ -296,7 +303,7 @@ const REST = legReach(0);
 export function stride(bear, swing) {
   const { legs, body } = bear, drop = Math.max(0, REST - legReach(Math.abs(swing)));
   /* The rock: a turn about ROCK_AXIS, and the shift that keeps the axis where it was, across and along; the body comes down by the
-     drop alone, so the axis's ends stand a few tenths of a millimetre lower as it turns. */
+     drop alone, so the axis's ends stand lower as it turns, by under 3 mm at a run's swing (0.7). */
   rocked.setFromAxisAngle(ROCK_AXIS, ROCK * swing);
   shift.copy(TAIL_BACK).applyQuaternion(rocked).negate().add(TAIL_BACK).setY(0 - drop);
   body.quaternion.copy(rocked);

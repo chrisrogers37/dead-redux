@@ -169,7 +169,7 @@ describe("buildBear", () => {
   });
 
   it("joins its parts to its body: each limb's top in it, the ruff's root and the tail sunk in it, and the ears set into the head", () => {
-    const bear = buildBear(new THREE.Scene(), 0xd4607a), { torso, head, ears, tail } = partsOf(bear);
+    const bear = buildBear(new THREE.Scene(), 0xd4607a), { torso, head, ears, ruff, tail } = partsOf(bear);
     // The limb's top: the corners of its rounded end, above the middle of that end (the limb is a capsule 0.29 m round hanging from its
     // origin), where it hangs from the body.
     const limb = bear.legs[0].geometry.attributes.position, v = new THREE.Vector3(), into = new THREE.Matrix4();
@@ -198,15 +198,28 @@ describe("buildBear", () => {
     // The tail is sunk in the body: its front half's middle inside the torso, its back outside it (the test above).
     expect(within(torso.tris, TAIL_BACK.x, TAIL_BACK.y, TAIL_BACK.z + 0.36)).toBe(true);
     expect(Math.max(...tail.corners.map((c) => c.at[2]))).toBeGreaterThan(TAIL_BACK.z + 0.36);
+    // The ruff's top lies back into the neck, with no ledge: in each ring of it, one way round the neck, the highest corner is
+    // inside the torso or the head.
+    const rings = new Map<number, Corner[]>();
+    for (const c of ruff.corners) {
+      const turn = Math.round((Math.atan2(c.at[0], -c.at[2]) * 180) / Math.PI * 10) / 10;
+      rings.set(turn, [...(rings.get(turn) ?? []), c]);
+    }
+    expect(rings.size).toBeGreaterThanOrEqual(100);
+    for (const [turn, ring] of rings) {
+      const [x, y, z] = ring.reduce((a, c) => (c.at[1] > a.at[1] ? c : a)).at;
+      expect(within(torso.tris, x, y, z) || within(head.tris, x, y, z), `top at ${turn}°`).toBe(true);
+    }
   });
 
   it("has its tail and its ears where they belong: the tail on its middle line at the back, between its haunches, and an ear to each side on top of its head, its cup to the front and its back behind", () => {
     const bear = buildBear(new THREE.Scene(), 0xd4607a), { torso, ears, tail } = partsOf(bear), fur = bear.color;
     // The tail: about the middle line, its back the bear's furthest back under its hips (TAIL_BACK, crowd.js's BEAR_TAIL is reckoned
     // from it), 1.2 to 1.7 m up.
-    const xs = tail.corners.map((c) => c.at[0]);
+    const xs = tail.corners.map((c) => c.at[0]), ys = tail.corners.map((c) => c.at[1]);
     expect(Math.min(...xs) + Math.max(...xs)).toBeCloseTo(0, 6);
     expect(Math.min(...tail.corners.map((c) => c.at[2]))).toBeCloseTo(TAIL_BACK.z, 6);
+    expect((Math.min(...ys) + Math.max(...ys)) / 2).toBeCloseTo(TAIL_BACK.y, 6);
     expect(TAIL_BACK.y).toBeGreaterThan(1.2);
     expect(TAIL_BACK.y).toBeLessThan(1.7);
     // Between the haunches: at their middle height (HAUNCH) and at the tail's, the torso's back stands further back 0.45 m to either
@@ -233,10 +246,14 @@ describe("buildBear", () => {
       const coat = own.filter((c) => c.colour.every((v, k) => Math.abs(v - [fur.r, fur.g, fur.b][k]) < 1e-6)).map(normalAt);
       expect(cup.length).toBeGreaterThanOrEqual(6);
       expect(coat.length).toBeGreaterThan(cup.length);
-      const [cx, , cz] = mean(cup), [, , bz] = mean(coat);
+      const [cx, cy, cz] = mean(cup), [, , bz] = mean(coat);
       expect(cz).toBeGreaterThan(0.5);
       expect(cx * side).toBeGreaterThan(0.1);
       expect(bz).toBeLessThan(-0.2);
+      // The cup is hollow: the way it faces, its rim stands 2 cm and more proud of its pale middle.
+      const ahead = (c: Corner) => (c.at[0] * cx + c.at[1] * cy + c.at[2] * cz) / Math.hypot(cx, cy, cz);
+      const middle = own.filter((c) => c.colour.every((v, k) => Math.abs(v - [pale.r, pale.g, pale.b][k]) < 1e-6));
+      expect(Math.max(...middle.map(ahead))).toBeLessThan(Math.max(...own.map(ahead)) - 0.02);
     }
   });
 
