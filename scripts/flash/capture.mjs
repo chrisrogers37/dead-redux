@@ -1,26 +1,33 @@
 // The flash counter. Renders a window of the show frame by frame on a virtual clock of 60 frames a second, from the branch (the
 // server's world, or WORLD_DIR's) or from main (the world modules of MAIN_REF, routed in), takes a screenshot of every frame, and counts
-// the swings in relative luminance per 2x2 block of device pixels as the frames arrive. README.md here says what a count is, how to
-// run one and what a PR reports.
+// the flashes by WCAG 2.3.1's general and red flash thresholds as the frames arrive (wcag.mjs); with --blocks, the swings in relative
+// luminance per 2x2 block of device pixels too, the bar before 2026-11-27 (analyse.mjs), from the same frames. README.md here says what
+// a count is, how to run one and what a PR reports.
 //
-//   node scripts/flash/capture.mjs matrix quick|standard
-//   node scripts/flash/capture.mjs jobs <file>
-//   node scripts/flash/capture.mjs one "<variant> <window> [key=value ...]"
+//   node scripts/flash/capture.mjs [--blocks] matrix quick|standard
+//   node scripts/flash/capture.mjs [--blocks] jobs <file>
+//   node scripts/flash/capture.mjs [--blocks] one "<variant> <window> [key=value ...]"
 //
-// Each run writes into a new folder of its own under OUT_DIR, which is outside the repo: <tag>.json for each job; with HEAT=1 a heat
-// map of each grid, and with STILLS=1 a still of every 30th frame. A job that did not measure what it was asked to stops and writes
-// nothing: a clock that did not keep its rate, a frame the screenshot did not show, a page error, a pose the walk moved.
+// Each run writes into a new folder of its own under OUT_DIR, which is outside the repo: <tag>.json for each job; with HEAT=1 and
+// --blocks a heat map of each grid, and with STILLS=1 a still of every 30th frame. A job that did not measure what it was asked to
+// stops and writes nothing: a clock that did not keep its rate, a frame the screenshot did not show, a page error, a pose the walk moved.
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import { blockLuminance, counter, platesMask, THRESHOLD } from "./analyse.mjs";
-import { cue, FPS, hideDevIndicator, jobUrl, launch, loadPlaywright, mainSha, matrixJobs, openPage, parseJobs, readConfig, readPlates, runFolder, tagOf, windowsFor, worldFrom, worldHash } from "./lib.mjs";
+import {
+  cue, FPS, hideDevIndicator, jobUrl, launch, loadPlaywright, mainSha, matrixJobs, openPage, parseArgs, parseJobs, readConfig, readPlates, resultOf, runFolder, tagOf, verdict,
+  wcagLine, windowsFor, worldFrom, worldHash,
+} from "./lib.mjs";
 import { tables } from "./table.mjs";
+import { platesPixelMask, wcagCounter } from "./wcag.mjs";
 
 const SETTLE_S = 12, WARM_FRAMES = 60;
-// The lead-in: a second of frames before each window. They set every block's state and count for nothing else (analyse.mjs).
+// The lead-in: a second of frames before each window. They set every pixel's, window's and block's state and count for nothing else
+// (wcag.mjs, analyse.mjs).
 const LEAD = FPS;
-// Blocks within this many px of a plate's box are masked with it (a plate's edge is antialiased over a fraction of a pixel).
-const PAD = 2;
+// Blocks within this many px of a plate's box are masked with it: a block a plate's edge straddles is part plate. The WCAG count masks
+// the pixels a plate's box touches and no more, every one of them part plate.
+const PAD = 2, WCAG_PAD = 0;
 // A frame of the virtual clock, in ms, and how far the clock may stand from where the frames put it: a sum's rounding and no more.
 const FRAME_MS = 1000 / FPS, CLOCK_SLACK = 1e-6;
 // How far a screenshot may differ from the canvas at a checked point, of 255: the browser's own rounding as it composites.
@@ -51,8 +58,10 @@ async function run(browser, PNG, config, day, job) {
   const VIEWPORT = job.view, DPR = job.dpr;
   // The frame that is counted: the screenshot, in device pixels.
   const FRAME = { width: Math.round(VIEWPORT.width * DPR), height: Math.round(VIEWPORT.height * DPR) };
-  // Each grid of 2x2 blocks, with its own count. One moved a pixel right or down counts the blocks that straddle the even grid's lines,
-  // and leaves out a column or a row of pixels at the frame's edge.
+  // The WCAG count, of the whole frame.
+  const wcag = wcagCounter(FRAME.width, FRAME.height, { fps: FPS, lead: LEAD });
+  // With --blocks, each grid of 2x2 blocks, with its own count. One moved a pixel right or down counts the blocks that straddle the even
+  // grid's lines, and leaves out a column or a row of pixels at the frame's edge. Without it the job has no grids.
   const grids = job.grids.map(([ox, oy]) => {
     const bw = Math.floor((FRAME.width - ox) / 2), bh = Math.floor((FRAME.height - oy) / 2);
     return { ox, oy, bw, bh, count: counter(bw, bh, FPS, LEAD) };
@@ -108,8 +117,10 @@ async function run(browser, PNG, config, day, job) {
     if (last.steps - before.steps !== stepped || Math.abs(last.now - before.now - stepped * FRAME_MS) > CLOCK_SLACK) stop(`${stepped} frames were stepped before the window, and the virtual clock moved ${last.steps - before.steps} steps and ${last.now - before.now} ms`);
     if (last.frames - before.frames !== stepped) stop(`${stepped} frames were stepped before the window, and the world drew ${last.frames - before.frames}`);
 
-    // Every plate drawn at any frame is masked: these, and any a frame adds.
+    // Every plate drawn at any frame is masked: these, and any a frame adds. The 2x2 count masks a plate's blocks through the whole run;
+    // the WCAG count masks its pixels from the frame it is first drawn on, since it counts each frame's fields as the frames arrive.
     const plates = new Map((await readPlates(page)).map((p) => [plateKey(p), p]));
+    wcag.mask(platesPixelMask([...plates.values()], FRAME.width, FRAME.height, DPR, WCAG_PAD));
     // Points the canvas's own pixels are read at, to check each screenshot against the frame just drawn: a grid, clear of the plates.
     // Only where the canvas's buffer is the screen's own pixels: a frame drawn at another size and scaled to the screen cannot be
     // checked so, which is every job on the phone's tier or the TV's and every rung of 1 or more.
@@ -161,7 +172,11 @@ async function run(browser, PNG, config, day, job) {
           stop(`frame ${f}: the visitor stands at ${w.x},${w.z},${w.heading},${w.pitch}, not ${stand.x},${stand.z},${stand.heading},${stand.pitch}${asked ? " as asked" : " as at the first frame"}: the walk's limits moved them (the island's edge, the stage, a bear)`);
         }
       }
-      for (const p of read.plates) if (!plates.has(plateKey(p))) plates.set(plateKey(p), { ...p, fromFrame: f });
+      for (const p of read.plates) {
+        if (plates.has(plateKey(p))) continue;
+        plates.set(plateKey(p), { ...p, fromFrame: f });
+        wcag.mask(platesPixelMask([p], FRAME.width, FRAME.height, DPR, WCAG_PAD));
+      }
       const buf = await page.screenshot({ clip: { x: 0, y: 0, width: VIEWPORT.width, height: VIEWPORT.height }, type: "png" });
       const png = PNG.sync.read(buf);
       if (png.width !== FRAME.width || png.height !== FRAME.height) stop(`screenshot is ${png.width}x${png.height}`);
@@ -175,12 +190,15 @@ async function run(browser, PNG, config, day, job) {
         if (worst > SHOT_SLACK) stop(`frame ${f}: the screenshot differs from the canvas by ${worst}/255 at a checked point: it does not show the frame just drawn`);
         check.checked += 1; check.worst = Math.max(check.worst, worst);
       } else check.unchecked += 1;
-      // Relative luminance of each 2x2 block, on each grid, from the one screenshot, counted as it arrives.
+      // The WCAG count, and with --blocks the relative luminance of each 2x2 block on each grid, from the one screenshot, as it arrives.
+      wcag.add(d);
       for (const g of grids) g.count.add((out, base) => blockLuminance(d, FRAME.width, g.bw, g.bh, g.ox, g.oy, out, base));
       if (stills && f >= 0 && (f % 30 === 0 || f === nFrames - 1)) await writeFile(join(stills, `f${String(f).padStart(4, "0")}.png`), buf);
     }
     if (points.length && check.unchecked) console.warn(`WARNING ${tag}: ${check.unchecked} of ${check.checked + check.unchecked} frames could not be read from the canvas and were not checked against it`);
     const platesMasked = [...plates.values()], results = [];
+    const flash = wcag.result();
+    console.log(wcagLine(tag, flash, DPR));
     for (const g of grids) {
       const mask = platesMask(platesMasked, g.bw, g.bh, DPR, PAD);
       const { maps, ...rest } = g.count.result(mask);
@@ -194,12 +212,11 @@ async function run(browser, PNG, config, day, job) {
       console.log(`${tag}, ${gridName(g.ox, g.oy)}: max ${rest.maxSwingsInASecond} (strict ${rest.maxSwingsInASecondStrict}) swings in a second; blocks >=5: ${rest.blocksAtLeast[5]}; >=1: ${rest.blocksAtLeast[1]}; ` +
         `worst ${w ? `(${w.x}, ${w.y}) from frame ${w.runStartsAtFrame}, range ${w.range}` : "none"}; ${Math.round((100 * rest.unmaskedBlocks) / (g.bw * g.bh))} % counted`);
     }
-    const out = {
-      tag, job, url, day: config.day, show: day.show, window: win, frame: FRAME, frames: nFrames, leadIn: LEAD, fps: FPS, threshold: THRESHOLD,
+    const out = resultOf({
+      tag, job, url, day: config.day, show: day.show, window: win, frame: FRAME, frames: nFrames, leadIn: LEAD, fps: FPS, dpr: DPR, wcag: flash, threshold: THRESHOLD,
       world: { hash: worldHash(served), modules: served.length, ...worldFrom(job.variant, config), tier: world.tier, scale: world.scale, renderer: world.renderer, bufferW: canvas.bufferW, bufferH: canvas.bufferH },
-      canvasCheck: check, poseHeld, platesMasked, seconds: Math.round((Date.now() - t0) / 1000),
-      results,
-    };
+      canvasCheck: check, poseHeld, platesMasked, seconds: Math.round((Date.now() - t0) / 1000), results,
+    });
     await writeFile(join(config.runDir, `${tag}.json`), JSON.stringify(out));
     console.log(`${tag}: frame ${FRAME.width}x${FRAME.height} (buffer ${canvas.bufferW}x${canvas.bufferH}), tier ${world.tier}, rung ${world.rung}, scale ${world.scale}; ${world.renderer}; world ${out.world.hash.slice(0, 12)}; ` +
       `${check.checked} frames checked against the canvas, worst ${check.worst}/255; plates ${platesMasked.length}; ${out.seconds} s`);
@@ -209,21 +226,21 @@ async function run(browser, PNG, config, day, job) {
   }
 }
 
-const USAGE = `usage: node scripts/flash/capture.mjs matrix quick|standard
-       node scripts/flash/capture.mjs jobs <file>
-       node scripts/flash/capture.mjs one "<variant> <window> [key=value ...]"`;
-const [, , command, ...rest] = process.argv;
-if (!["matrix", "jobs", "one"].includes(command) || !rest.length) {
-  console.error(USAGE);
+let args;
+try {
+  args = parseArgs(process.argv.slice(2));
+} catch (e) {
+  console.error(e.message);
   process.exit(2);
 }
+const { blocks, command, rest } = args;
 // The settings and the jobs, read before a browser is launched: a setting or a job line that is wrong stops the run here, by name.
 let config, day, jobs;
 try {
   config = readConfig(process.env);
   day = windowsFor(config.day);
   const text = command === "matrix" ? matrixJobs(rest[0]).join("\n") : command === "jobs" ? await readFile(rest[0], "utf8") : rest.join(" ");
-  jobs = parseJobs(text, day.windows);
+  jobs = parseJobs(text, day.windows, { blocks });
   const tags = jobs.map(tagOf);
   const twice = tags.find((tag, k) => tags.indexOf(tag) !== k);
   if (twice) throw new Error(`the job ${twice} is there twice`);
@@ -238,7 +255,7 @@ try {
 // The run's own folder: made new, so a folder that is there already (a run of the same second) stops the run.
 await mkdir(config.outDir, { recursive: true });
 await mkdir(config.runDir);
-console.log(`${jobs.length} job${jobs.length === 1 ? "" : "s"}, ${config.parallel} at a time, at ${config.siteUrl}/${config.day}; results in ${config.runDir}`);
+console.log(`${jobs.length} job${jobs.length === 1 ? "" : "s"}, ${config.parallel} at a time, counted by WCAG's thresholds${blocks ? " and the 2x2 blocks" : ""}, at ${config.siteUrl}/${config.day}; results in ${config.runDir}`);
 const { chromium, PNG } = loadPlaywright();
 const browser = await launch(chromium, config.gpu);
 const done = [], failures = [];
@@ -263,8 +280,8 @@ if (done.length) {
     console.warn(`WARNING: no table: ${e.message}`);
   }
 }
-if (failures.length) {
-  console.log(`${failures.length} of ${jobs.length} jobs FAILED and wrote no result:\n${failures.join("\n")}`);
-  process.exitCode = 1;
-}
+// The jobs over WCAG's bar, those that pass, and those that failed and so are no pass.
+const end = verdict(jobs.length, done, failures);
+for (const line of end.lines) console.log(line);
+process.exitCode = end.exitCode;
 console.log(`results in ${config.runDir}`);

@@ -8,6 +8,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, isAbsolute, join, relative, resolve } from "path";
 import { fileURLToPath } from "url";
+import { MOST } from "./wcag.mjs";
 
 export const FPS = 60;
 
@@ -73,6 +74,54 @@ export function windowsFor(day) {
   return all[day];
 }
 
+// The command line: `[--blocks] matrix quick|standard`, `[--blocks] jobs <file>` or `[--blocks] one "<job line>"`. Anything else
+// throws the usage.
+export const USAGE = `usage: node scripts/flash/capture.mjs [--blocks] matrix quick|standard
+       node scripts/flash/capture.mjs [--blocks] jobs <file>
+       node scripts/flash/capture.mjs [--blocks] one "<variant> <window> [key=value ...]"
+--blocks counts the swings at each 2x2 block too, the bar before 2026-11-27, from the same frames.`;
+export function parseArgs(argv) {
+  const blocks = argv.includes("--blocks");
+  const [command, ...rest] = argv.filter((arg) => arg !== "--blocks");
+  if (!["matrix", "jobs", "one"].includes(command) || !rest.length || rest.some((arg) => arg.startsWith("--"))) throw new Error(USAGE);
+  return { blocks, command, rest };
+}
+
+// A job's result as capture.mjs writes it: the job and its page, the WCAG count with its field in CSS px too, and with --blocks (a
+// result of each grid in `results`) the 2x2 count's threshold.
+export function resultOf({ tag, job, url, day, show, window, frame, frames, leadIn, fps, dpr, wcag, threshold, world, canvasCheck, poseHeld, platesMasked, seconds, results }) {
+  const blocks = results.length > 0;
+  return {
+    tag, job, url, day, show, window, frame, frames, leadIn, fps, measures: blocks ? ["wcag", "blocks"] : ["wcag"],
+    wcag: { ...wcag, field: { ...wcag.field, css: [wcag.field.width / dpr, wcag.field.height / dpr] } },
+    ...(blocks ? { threshold } : {}),
+    world, canvasCheck, poseHeld, platesMasked, seconds, results,
+  };
+}
+
+// A job's WCAG count in a line: whether it passes, and for each measure its count, the worse of at once and pixel by pixel, each with
+// where and when, the largest share of a field that changed at once, and the largest whose pixels each changed more than the bar.
+const percent = (share) => `${Math.round(share * 1000) / 10} %`;
+function measureLine(m) {
+  const a = m.atOnce, p = m.perPixel;
+  return `${m.mostInASecond} transitions in a second, ${m.flashes} flashes (at once ${a.worst ? `${a.mostInASecond}, strict ${a.mostInASecondStrict}, at the field at (${a.worst.x}, ${a.worst.y}) from frame ${a.worst.runStartsAtFrame}` : "none"}; ` +
+    `pixel by pixel ${p.worst ? `${p.mostInASecond}, at the field at (${p.worst.x}, ${p.worst.y}) in the second to frame ${p.worst.frame}` : "none"}); ` +
+    `${a.largest ? `${percent(a.largest.share)} of a field at once at most, at (${a.largest.x}, ${a.largest.y}), frame ${a.largest.frame}` : "nothing changed by a threshold"}; ` +
+    `${p.overTheBar ? `${percent(p.overTheBar.share)} of a field of pixels over ${MOST} in a second, at (${p.overTheBar.x}, ${p.overTheBar.y}) to frame ${p.overTheBar.frame}` : `no pixel over ${MOST} in a second`}`;
+}
+export const wcagLine = (tag, flash, dpr) => `${tag}, WCAG: ${flash.pass ? "passes" : "OVER THE BAR"}; general: ${measureLine(flash.general)}; red: ${measureLine(flash.red)}; ` +
+  `field ${flash.field.width}x${flash.field.height} px (${flash.field.width / dpr}x${flash.field.height / dpr} CSS px); ${flash.maskedPixels} px masked`;
+
+// What a run's end says of its `total` jobs: those over WCAG's bar, those that pass, and those that failed, which wrote no result and
+// so pass nothing. A result with no WCAG count passes nothing either. The run exits 1 when a job failed.
+export function verdict(total, done, failures) {
+  const passed = done.filter((j) => j.wcag?.pass === true), over = done.filter((j) => j.wcag?.pass !== true), lines = [];
+  if (over.length) lines.push(`${over.length} of ${total} jobs are OVER WCAG's bar of ${MOST / 2} flashes in a second: ${over.map((j) => j.tag).join(", ")}`);
+  lines.push(`${passed.length} of ${total} jobs pass WCAG's bar of ${MOST / 2} flashes in a second`);
+  if (failures.length) lines.push(`${failures.length} of ${total} jobs FAILED and wrote no result, so pass nothing:\n${failures.join("\n")}`);
+  return { lines, passed: passed.map((j) => j.tag), over: over.map((j) => j.tag), exitCode: failures.length ? 1 : 0 };
+}
+
 // What a job line may set, and what each is when the line leaves it out.
 // All four grids: a 2x2 flash lies whole in a block of exactly one of them, and is seen at a half or a quarter by the rest.
 const DEFAULTS = { pose: "crowd", view: "800x500", dpr: "1", tier: "", still: "0", rung: "0", grids: "0,0+1,1+1,0+0,1" };
@@ -89,7 +138,8 @@ const POSE = /^(?:[a-z]+(?:-\d+)?|-?\d+(?:\.\d+)?(?:,-?\d+(?:\.\d+)?){3})$/;
 //   still=0          1 stills the figures (?still=1): the pass the README calls the light alone
 //   rung=0           how many rungs down its quality ladder the world starts and holds (?rung=N)
 //   grids=0,0+1,1+1,0+0,1   the grids of 2x2 blocks counted, each by how many px it stands right and down of the frame's corner
-export function parseJobs(text, windows) {
+// The grids are the 2x2 count's, which only --blocks runs (`blocks`): without it a job has none, and a line that names some is refused.
+export function parseJobs(text, windows, { blocks = true } = {}) {
   const jobs = [];
   for (const [n, raw] of text.split("\n").entries()) {
     const line = raw.replace(/#.*$/, "").trim();
@@ -118,7 +168,8 @@ export function parseJobs(text, windows) {
     if (!["", "phone", "tv"].includes(given.tier)) fail(`tier=${given.tier}: phone, tv, or nothing for the page's own pick`);
     if (given.still !== "0" && given.still !== "1") fail(`still=${given.still}: 0 or 1`);
     if (!/^\d{1,2}$/.test(given.rung)) fail(`rung=${given.rung}: a whole number from 0 to 99`);
-    const grids = given.grids.split("+");
+    if (!blocks && seen.has("grids")) fail("grids= is the 2x2 blocks' count, which only --blocks runs");
+    const grids = blocks ? given.grids.split("+") : [];
     if (grids.some((g) => !/^[01],[01]$/.test(g)) || new Set(grids).size !== grids.length) fail(`grids=${given.grids}: one or more of 0,0 1,0 0,1 1,1, joined by +`);
     jobs.push({
       variant, window, pose: given.pose, view, dpr, tier: given.tier, still: given.still === "1", rung: Number(given.rung),
@@ -132,10 +183,11 @@ export function parseJobs(text, windows) {
 export const jobUrl = (siteUrl, day, job) => `${siteUrl}/${day}?drive=map` + (job.pose === "home" ? "" : `&pose=${job.pose}`) +
   (job.tier ? `&tier=${job.tier}` : "") + (job.still ? "&still=1" : "") + (job.rung ? `&rung=${job.rung}` : "");
 
-// A file-safe name from every field that tells one job from another, so two jobs never share a result.
+// A file-safe name from every field that tells one job from another, so two jobs never share a result. A job with no grids is counted
+// by WCAG's thresholds alone, and its name ends at its rung; one with grids by the 2x2 blocks too (--blocks), and names them.
 export const tagOf = (job) => [
   job.variant, job.window, job.pose, `${job.view.width}x${job.view.height}`, `x${job.dpr}`, job.tier || "auto", job.still ? "still" : "whole",
-  `rung${job.rung}`, `g${job.grids.map(([x, y]) => `${x}${y}`).join("+")}`,
+  `rung${job.rung}`, ...(job.grids.length ? [`g${job.grids.map(([x, y]) => `${x}${y}`).join("+")}`] : []),
 ].join("_").replace(/[^A-Za-z0-9._+-]/g, "~");
 
 // The two sets of jobs, as job lines. `quick`, for a first look: Space and the seeks from behind the crowd on a desktop, the whole
