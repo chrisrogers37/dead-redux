@@ -57,7 +57,7 @@ const FORM = Object.fromEntries(Object.entries(FORMS).map(([name, list]) => [nam
 export const TINTS = 16;
 /* How a part hangs on the figure (aMark.x): with its body, on a leg or a foot, on an arm, round the legs as a skirt does, on its head,
    or standing on the ground beside it. */
-const RIG = { BODY: 0, LEG: 1, FOOT: 2, ARM_L: 3, ARM_R: 4, SKIRT: 5, HEAD: 6, GROUND: 7 };
+export const RIG = { BODY: 0, LEG: 1, FOOT: 2, ARM_L: 3, ARM_R: 4, SKIRT: 5, HEAD: 6, GROUND: 7 };
 /* Whose colour a face takes (aMark.z, in its ones of TINTS): its top's (the figure's own colour, at each corner), or one of the four tones the figure carries (aTone): its
    legs', its hair's, its skin's and its things'. A shin is bare under shorts, a forearm under short sleeves, a skirt is a long
    shirt's tail on some, and a scalp is bare on the bald. What is held up over the heads is cloth or a balloon in one of three of

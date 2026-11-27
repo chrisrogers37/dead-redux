@@ -5,7 +5,7 @@ import * as THREE from "three";
 import {
   backOf, BEAR_LEGS, BEAR_TAIL, buildCrowd, CLOTHS, COLOURS, CREST, crestOf, CUP_ARM, CUT, CYCLE, DROP, DYE, DYED, DYED_PROPS, FEET, figureGeometry, FOLD, FOOT, FORMS, formOfMark, formsOf,
   FRIEND_HAND, groundUnder, HAND, HANG, HOLD_UP, inView, KNEES, LEG, LOW, lyingOf, MOST, MOVES, only, OUTLINE, outlineOf, OVERHEAD, PART, partingOptions, people, PLAIN_LEAVES_OUT, plainly, poseOf,
-  PROP_EVERY, PROPS, QUIET, dressOn, HAIRS, SKIN, DRESS, PATTERN, PATTERNS, SEEDS, seedOf, CLOTHES, RIM, RIM_LEAST, RIM_SIDE, RIM_TINT, RIM_TO, LIT, HOUSE, HOUSE_LOW, HOUSE_TINT, LAMP_HALF, LAMP_TINT, LAMP_TO, COVER, APART, legsFor, lightOf, topLight, TINT, SEAT, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, stances, TALL, TINTS, tone, TOP, wearing, without,
+  PROP_EVERY, PROPS, QUIET, dressOn, HAIRS, SKIN, DRESS, PATTERN, PATTERNS, SEEDS, seedOf, CLOTHES, RIM, RIM_LEAST, RIM_SIDE, RIM_TINT, RIM_TO, LIT, HOUSE, HOUSE_LOW, HOUSE_TINT, LAMP_HALF, LAMP_TINT, LAMP_TO, COVER, APART, legsFor, lightOf, topLight, TINT, RIG, DRESS_FINE, SEAT, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, stances, TALL, TINTS, tone, TOP, wearing, without,
 } from "../../../public/world/crowd.js";
 import { MOVE as STEP, SLOW, STRUM, swing } from "../../../public/world/band.js";
 import { FLOOR } from "../../../public/world/stage.js";
@@ -636,6 +636,10 @@ describe("the crowd, as buildCrowd builds it", () => {
     // The stage's light falls on a face as squarely as the face turns to the stage, on none turned away, and half as strong LAMP_HALF
     // off; the house lights as far as the face turns up, HOUSE_LOW of them on a face turned down.
     expect(lampWeight).not.toBe("");
+    // The way to the stage and up that the line is handed, in the view's space, as the shader takes them (its vectors keep these tests
+    // from running that line).
+    expect(lampLines).toContain("vec3 toLamp = (viewMatrix * vec4(uLamp, 1.0)).xyz + vViewPosition;");
+    expect(lampLines).toContain(`float lampFacing = dot(normal, normalize(toLamp)), lampFar = length(toLamp) / ${LAMP_HALF.toFixed(4)}, houseUp = dot(normal, normalize(mat3(viewMatrix) * vec3(0.0, 1.0, 0.0)));`);
     const [full, house] = runLamp(LIT, HOUSE, 1, 0, 1);
     expect([full, house]).toEqual([LIT, HOUSE]);
     expect(runLamp(LIT, HOUSE, -0.3, 0, -1)[0]).toBe(0);
@@ -1718,6 +1722,25 @@ describe("the crowd's shader", () => {
     expect(brightest).toBeGreaterThan(1.5 * fill);
   });
 
+  it("gives each body a lit side and a shadow side at night: the side turned to the stage takes LIT_SIDE times the light of the side turned away, at every figure's distance", () => {
+    // An upright face of a figure at the deep of the night, turned to the stage or away from it: the sky's light on it (half its sky
+    // colour and half its ground's, the hemisphere's 1.1 pi at the hour's gain, over pi), the house lights, half turned up, and the
+    // stage's light as the shader's own line weighs it, for every figure of the fixed day's crowd, at its middle's distance from the
+    // stage's light. Every figure's stage side is lit at least LIT_SIDE times as brightly as its far side, so the stage, not the sky,
+    // models each body; the nearest, by more.
+    const LIT_SIDE = 1.5, deep = lookAt(DEEP, newLook()), srgb = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    const sky = 0.5 * (light({ r: srgb(deep.ambient[0]), g: srgb(deep.ambient[1]), b: srgb(deep.ambient[2]) }) + light({ r: srgb(deep.ground[0]), g: srgb(deep.ground[1]), b: srgb(deep.ground[2]) })) * 1.1 * deep.ambientGain;
+    const tint = light({ r: LAMP_TINT[0], g: LAMP_TINT[1], b: LAMP_TINT[2] }), houseTint = light({ r: HOUSE_TINT[0], g: HOUSE_TINT[1], b: HOUSE_TINT[2] });
+    const ratios = figuresOf(SHOWS[0].desktop).map((f) => {
+      const far = Math.hypot(f.place!.x - LAMP_TO[0], f.place!.y + 0.5 * TALL * f.size!.y - LAMP_TO[1], f.place!.z - LAMP_TO[2]) / LAMP_HALF;
+      const [lit, house] = runLamp(LIT * deep.dark, HOUSE * deep.dark, 1, far, 0), [unlit] = runLamp(LIT * deep.dark, HOUSE * deep.dark, -1, far, 0);
+      return (sky + lit * tint + house * houseTint) / (sky + unlit * tint + house * houseTint);
+    });
+    expect(deep.dark).toBe(1);
+    expect(Math.min(...ratios)).toBeGreaterThanOrEqual(LIT_SIDE);
+    expect(Math.max(...ratios)).toBeGreaterThan(4);
+  });
+
   it("draws each figure's rim as an edge: from the hill its outline is lit and its middle barely, and from the side the stage's side alone", () => {
     // Every figure of the fixed day's crowds, desktop and phone, at rest, drawn alone by a depth-tested raster that culls the faces
     // turned away, as the GPU's front side does, each pixel the rim its face takes, the face flat as three's flat shading has it.
@@ -2520,7 +2543,7 @@ describe("the crowd's shader", () => {
     // a hundredth of MOST, the tone's rounding; and the dyes held up as before (the skyline's tests).
     const near = (out: Rgb, hex: number) => { const c = rgb(hex); return Math.max(Math.abs(out.r - c.r), Math.abs(out.g - c.g), Math.abs(out.b - c.b)) < 0.01 * MOST; };
     const out: Rgb = { r: 0, g: 0, b: 0 }, dress = { x: 0, y: 0, z: 0, w: 0 }, second = { x: 0, y: 0, z: 0, w: 0 };
-    let looked = 0, moved = 0;
+    let looked = 0, moved = 0, vests = 0;
     const patterned = new Set<number>(), skins = new Set<number>(), hairs = new Set<number>();
     for (const { date, desktop, phone: small } of SHOWS) for (const c of [desktop, small]) {
       const palette = dressOn(date) as Palette, list = figuresOf(c), who = peopleOf(c);
@@ -2538,6 +2561,11 @@ describe("the crowd's shader", () => {
           expect(second.w).toBeCloseTo(seedOf(f.i) / (SEEDS - 1), 6);
           patterned.add(pattern);
         }
+        // The pattern runs down the sleeves too, but for a vest's: those are its shirt's, plain.
+        out.r = f.top.r; out.g = f.top.g; out.b = f.top.b; dress.w = 0;
+        runTones(null, out, { x: RIG.ARM_L, y: 0, z: TINT.TOP, w: 0 }, f.fig, null, 1, f.body, f.wear, f.cut, f.tone, 0, 0, 0, 0, f.place, f.size, dress, second);
+        expect([f.i, near(out, shirt), dress.w]).toEqual([f.i, true, pattern === PATTERN.VEST ? 0 : pattern]);
+        vests += pattern === PATTERN.VEST ? 1 : 0;
         // Its trousers are the era's, the ones it was dealt or the next that stand APART from its top (legsFor).
         const legs = legsFor(palette, p.colour.top, p.colour.legs);
         expect([f.i, near(at(1), palette.legs[legs]), near(at(4), palette.thing[p.colour.thing])]).toEqual([f.i, true, true]);
@@ -2548,6 +2576,7 @@ describe("the crowd's shader", () => {
       }
     }
     expect(looked).toBeGreaterThan(1000);
+    expect(vests).toBeGreaterThan(10);
     expect(moved).toBeGreaterThan(looked / 10);
     expect(moved).toBeLessThan(0.75 * looked);
     expect([skins.size, hairs.size]).toEqual([SKIN.length, HAIRS.length]);
@@ -2589,6 +2618,9 @@ describe("the crowd's shader", () => {
     for (const pattern of [PATTERN.TIE, PATTERN.VEST, PATTERN.PRINT]) expect(dressLines).toContain(`cover = ${COVER[pattern as keyof typeof COVER].toFixed(4)}`);
     expect([PATTERN.TIE, PATTERN.STRIPE, PATTERN.CHECK].map((pattern) => COVER[pattern as keyof typeof COVER])).toEqual([0.5, 0.5, 0.5]);
     expect(dressLines.match(/cover = /g)?.length).toBe(3);
+    // And far off, as its bands come nearer than DRESS_FINE of a pixel, a pattern turns to that colour on the whole: the fragment
+    // shader's own words, which its vectors keep these tests from running.
+    expect(dressLines).toContain(`diffuseColor.rgb = mix(dressed, mix(vColor.rgb, second, cover), smoothstep(${DRESS_FINE[0].toFixed(4)}, ${DRESS_FINE[1].toFixed(4)}, fine));`);
     // The trousers it was dealt where they stand APART, and else the next in the era's list that do, round to its start.
     const palette = dressOn(FIXED) as Palette;
     for (let top = 0; top < palette.top.length; top++) for (let dealt = 0; dealt < palette.legs.length; dealt++) {
