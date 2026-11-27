@@ -186,6 +186,11 @@ const lampLines = ownLights.slice(0, ownLights.indexOf("vec3 toEye"));
 const rimWeight = rimLines.split("\n").find((line) => line.startsWith("float rimLit")) ?? "";
 const runRim = new Function(...Object.keys(GLSL), "pow", `return function (uRim, facing, stageward, behind) {${rimWeight.replace(/\bfloat\s+/g, "let ")}\nreturn rimLit;\n};`)(
   ...Object.values(GLSL), Math.pow) as (uRim: number, facing: number, stageward: number, behind: number) => number;
+// So is the line that weighs the crowd's own lights, given how squarely the face turns to the stage and up, and how far the stage is
+// in LAMP_HALFs.
+const lampWeight = lampLines.split("\n").find((line) => line.startsWith("float lampLit")) ?? "";
+const runLamp = new Function(...Object.keys(GLSL), `return function (uLit, uHouse, lampFacing, lampFar, houseUp) {${lampWeight.replace(/\bfloat\s+/g, "let ")}\nreturn [lampLit, houseLit];\n};`)(
+  ...Object.values(GLSL)) as (uLit: number, uHouse: number, lampFacing: number, lampFar: number, houseUp: number) => [number, number];
 // The rim a face takes, its normal `n`, with the eye and the stage each a unit way `toEye` and `toStage` from it, as the shader weighs
 // it in the view's space: the three dot products are the same in any frame.
 const dot3 = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -628,6 +633,15 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect(writes(rimLines)).toEqual(["outgoingLight"]);
     expect(rimLines).toContain("outgoingLight += rimLit * vec3(");
     expect(reads(lampLines)).toEqual(["diffuseColor", "normal", "outgoingLight", "uHouse", "uLamp", "uLit", "vViewPosition", "viewMatrix"]);
+    // The stage's light falls on a face as squarely as the face turns to the stage, on none turned away, and half as strong LAMP_HALF
+    // off; the house lights as far as the face turns up, HOUSE_LOW of them on a face turned down.
+    expect(lampWeight).not.toBe("");
+    const [full, house] = runLamp(LIT, HOUSE, 1, 0, 1);
+    expect([full, house]).toEqual([LIT, HOUSE]);
+    expect(runLamp(LIT, HOUSE, -0.3, 0, -1)[0]).toBe(0);
+    expect(runLamp(LIT, HOUSE, -0.3, 0, -1)[1]).toBeCloseTo(HOUSE * HOUSE_LOW, 12);
+    expect(runLamp(LIT, HOUSE, 0.5, 1, 0)[0]).toBeCloseTo(0.25 * LIT, 12);
+    expect(runLamp(LIT, HOUSE, 0.5, 1, 0)[1]).toBeCloseTo(HOUSE * (HOUSE_LOW + 0.5 * (1 - HOUSE_LOW)), 12);
     expect(writes(lampLines)).toEqual(["outgoingLight"]);
     expect(lampLines).toContain("outgoingLight += diffuseColor.rgb * (");
     // A top's pattern reads what the vertex shader handed it and writes the face's colour, and nothing else: it lights nothing.
@@ -1569,8 +1583,8 @@ describe("the crowd's shader", () => {
     type Light = ReturnType<typeof lightAt>;
     // The luminance a face of colour `c` sends to `eye`, its unit normal `n`, at `at`.
     const onFace = (L: Light, c: number[], n: number[], at: number[], eye: number[]) => {
-      const up = 0.5 + 0.5 * n[1], key = Math.max(dot3(n, L.to), 0), toLamp = LAMP_TO.map((q: number, j: number) => q - at[j]), far = Math.hypot(...toLamp) / LAMP_HALF;
-      const lamp = (L.lit * Math.max(dot3(n, unit(toLamp)), 0)) / (1 + far * far), house = L.house * (HOUSE_LOW + (1 - HOUSE_LOW) * up);
+      const up = 0.5 + 0.5 * n[1], key = Math.max(dot3(n, L.to), 0), toLamp = LAMP_TO.map((q: number, j: number) => q - at[j]);
+      const [lamp, house] = runLamp(L.lit, L.house, dot3(n, unit(toLamp)), Math.hypot(...toLamp) / LAMP_HALF, n[1]);
       const rim = rimOf(n, unit(eye.map((q, j) => q - at[j])), unit(RIM_TO.map((q: number, j: number) => q - at[j])), L.rim);
       return Y(c.map((q, j) => q * (((L.ground[j] + (L.sky[j] - L.ground[j]) * up) * L.hemi + L.key[j] * L.keyGain * key) / Math.PI + lamp * LAMP_TINT[j] + house * HOUSE_TINT[j]) + rim * RIM_TINT[j]));
     };

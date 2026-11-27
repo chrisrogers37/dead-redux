@@ -1517,7 +1517,8 @@ outgoingLight += rimLit * vec3(${RIM_TINT.map(f).join(", ")});
    figure: the stage light swings with the bass, the flame with it too, and a crowd that took them would swing with the music across
    the frame. Nor does the music's share of the sky's light (audio.js mappings, `hemi`), which `uSky` takes back out. So the music,
    the beat, the beams, the map and the downgrade's rungs move no light on the crowd: only the hour does. The beams still light no
-   figure, and draw before it (main.js). */
+   figure, and draw before it (main.js). How much of each a face takes is written in plain numbers, after a line that takes how
+   squarely it turns to the stage and up and how far the stage is, so that the unit tests run it. */
 export const LAMP_TO = [STAGE[0], SHELF_Y + 7, STAGE[1]], LAMP_HALF = 22, LIT = 0.55, LAMP_TINT = [1, 0.8, 0.58], HOUSE = 0.07, HOUSE_LOW = 0.35,
   HOUSE_TINT = [1, 0.93, 0.82];
 const FRAGMENT_DECLARE = `uniform float uRim;
@@ -1530,9 +1531,8 @@ varying vec4 vDress;
 varying vec4 vSecond;`;
 const STAGE_LIGHT = `
 vec3 toLamp = (viewMatrix * vec4(uLamp, 1.0)).xyz + vViewPosition;
-float lampFar = length(toLamp) / ${f(LAMP_HALF)};
-float lampLit = uLit * max(dot(normal, normalize(toLamp)), 0.0) / (1.0 + lampFar * lampFar);
-float houseLit = uHouse * (${f(HOUSE_LOW)} + ${f(1 - HOUSE_LOW)} * (0.5 + 0.5 * dot(normal, normalize(mat3(viewMatrix) * vec3(0.0, 1.0, 0.0)))));
+float lampFacing = dot(normal, normalize(toLamp)), lampFar = length(toLamp) / ${f(LAMP_HALF)}, houseUp = dot(normal, normalize(mat3(viewMatrix) * vec3(0.0, 1.0, 0.0)));
+float lampLit = uLit * max(lampFacing, 0.0) / (1.0 + lampFar * lampFar), houseLit = uHouse * (${f(HOUSE_LOW)} + ${f(1 - HOUSE_LOW)} * (0.5 + 0.5 * houseUp));
 outgoingLight += diffuseColor.rgb * (lampLit * vec3(${LAMP_TINT.map(f).join(", ")}) + houseLit * vec3(${HOUSE_TINT.map(f).join(", ")}));
 `;
 /* Three's lights, but for the point lights: their block, from its #if to its own #endif, left out. A newer three that writes it
