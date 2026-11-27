@@ -55,10 +55,11 @@ export function stageOn(date) {
    end, beside the panel: a tower of the bass's cabinets, END_COLS of them END_W wide across and END_ROWS high, from the ground to the
    column's top, END_D deep, its inner front corner on the panel's edge at END_AT and turned END_TURN rad toward the crowd, so the Wall
    wraps the band; its outer back corner is the stage's furthest from its centre, 10.85 m. Each cabinet carries four speakers, two by
-   two, of TOP_R m and END_R m. Over the front of the platform, on the posts, the rig's bridge: the roof's front BRIDGE m, which the
-   lamps hang under as they hang under the roof (rig.js LAMP_Y, LAMP_Z). It is that deep so that from the hill it hides the top of the
-   panel as the roof does: over a beam half a metre deep the panel's top showed from there as a bright strip between the beam and the
-   cabinets, which at night the beams' feet lit near white. */
+   two, of TOP_R m and END_R m. Over the front of the platform, on the posts, the rig's bridge: the roof's front BRIDGE m, as wide as
+   the roof, which the lamps hang under as they hang under the roof (rig.js LAMP_Y, LAMP_Z). It is that deep so that from the hill it
+   hides the top of the panel as the roof does: over a beam half a metre deep the panel's top showed from there as a bright strip
+   between the beam and the cabinets, which at night the beams' feet lit near white. It is the roof's width so that from among the
+   people the panel's top corner does not show past its end beside the tower. */
 const CONE = 0.06, SIDES = 8, BRIDGE = 2.5;
 const WALL_COLS = 20, TOP_W = 0.805, TOP_H = 2.2 / 3, TOP_D = 0.75, TOP_Y = 6.25, TOP_Z = -4.1, TOP_R = 0.14;
 const TOP_ROWS = [2, 2, 2, 1, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 2, 2, 1, 2, 2, 2];
@@ -132,7 +133,7 @@ const STILL = {
      wall's below the top of the panel; and over the front, on the posts, the bridge (BRIDGE), the roof's front with the same front
      edge. The towers stand on the ground, which there is 3 to 14 cm over the shelf. */
   wall(still, group, dark) {
-    still.add(mesh(new THREE.BoxGeometry(16.6, 0.5, BRIDGE), dark, 0, 8.2, 4.5 - BRIDGE / 2));
+    still.add(mesh(new THREE.BoxGeometry(18, 0.5, BRIDGE), dark, 0, 8.2, 4.5 - BRIDGE / 2));
     still.add(mesh(new THREE.BoxGeometry(WALL_COLS * TOP_W, TOP_Y + 0.05 - FLOOR, 0.4), dark, 0, (TOP_Y + 0.05 + FLOOR) / 2, TOP_Z - 0.2));
     TOP_ROWS.forEach((rows, c) => stack(still, dark, [TOP_W * (c + 0.5 - WALL_COLS / 2), TOP_Z], 0, TOP_Y, TOP_W, TOP_H, TOP_D, rows, TOP_R));
     for (const side of [-1, 1]) {

@@ -130,10 +130,11 @@ describe("the Wall of Sound", () => {
     expect([Math.round(Math.max(...roof.map((p) => Math.hypot(p.x, p.z))) * 100) / 100, Math.max(...roof.map((p) => p.y))]).toEqual([10.91, expect.closeTo(STAGE_COLUMN.top - SHELF_Y, 5)]);
   });
 
-  it("stands behind the band, with no PA stack at either side and no roof behind the rig's bridge: nothing outside the platform's foot stands forward of 2.5 m behind its middle, and nothing over the band but the bridge, the roof's front 2.5 m", () => {
+  it("stands behind the band, with no PA stack at either side and no roof behind the rig's bridge: nothing under the roof's height outside the platform's foot stands forward of 2.5 m behind its middle, and nothing over the band but the bridge, the roof's front 2.5 m", () => {
     const at = corners(stageFor(WALL_DAY).still);
-    // The platform's foot is 9.5 m out (stage.js), its corners there to the float's last place.
-    expect(at.filter((p) => Math.hypot(p.x, p.z) > 9.5 + 1e-6 && p.z > -2.5)).toEqual([]);
+    // The platform's foot is 9.5 m out (stage.js), its corners there to the float's last place. Over it at the roof's height, 7.95 m up
+    // and more, the bridge's ends reach out as the roof's corners do.
+    expect(at.filter((p) => Math.hypot(p.x, p.z) > 9.5 + 1e-6 && p.z > -2.5 && p.y < 7.9)).toEqual([]);
     // Over the band, where the roof stood, the sky: looking straight down on the floor between the bridge and the wall, the first thing
     // met is the floor, where on the roof's stage it is the roof; over the bridge's 2.5 m, it is the bridge's top, the roof's height.
     const down = (date: string | undefined, x: number, z: number) => {
@@ -147,7 +148,7 @@ describe("the Wall of Sound", () => {
     }
     // The roof's stage has its stacks, as main has.
     const roof = corners(stageFor().still);
-    expect(roof.filter((p) => Math.hypot(p.x, p.z) > 9.5 + 1e-6 && p.z > -2.5).length).toBeGreaterThan(0);
+    expect(roof.filter((p) => Math.hypot(p.x, p.z) > 9.5 + 1e-6 && p.z > -2.5 && p.y < 7.9).length).toBeGreaterThan(0);
   });
 
   it("hangs every lamp of the rig under the roof's front edge, as the roof's stage does: straight over each, within 0.1 m, is the underside of the still mesh", () => {
@@ -165,7 +166,7 @@ describe("the Wall of Sound", () => {
 
   // The panel's light show and the band's outlines against it are what the flash bar and the outlines' gates were measured on: the Wall
   // stands round the panel, and no part of it in front of what the roof's stage shows of it.
-  it("hides nothing of the light panel that the roof's stage shows, from any camera of the shoot, and shows next to nothing more: from the hill the rig's bridge hides the panel's top, as the roof does, so no strip of it shows over the bridge", () => {
+  it("shows exactly the light panel that the roof's stage shows, from every camera of the shoot: the rig's bridge, the roof's front, hides the panel's top from the hill as the roof does, so no strip of it shows over the bridge, and no corner of it past the bridge's end", () => {
     for (const cam of [...CAMERAS, ...FLASH_CAMERAS]) {
       const roof = stageFrom(cam).shows, wall = stageFrom(cam, WALL_DAY).shows;
       let hidden = 0, roofs = 0, more = 0;
@@ -174,9 +175,9 @@ describe("the Wall of Sound", () => {
         if (roof[o] === STAGE_PANEL && wall[o] !== STAGE_PANEL) hidden++;
         if (wall[o] === STAGE_PANEL && roof[o] !== STAGE_PANEL) more++;
       }
-      // A thousandth: from among the people, one column of 6 pixels at the panel's right edge, near its top, shows that the roof's stage
-      // draws black. Over a beam half a metre deep, 13 to 30 % more showed from the hill, as a strip along the panel's top.
-      expect([cam.name, roofs > 0, hidden, more <= roofs / 1000]).toEqual([cam.name, true, 0, true]);
+      // Over a beam half a metre deep, 13 to 30 % more showed from the hill, as a strip along the panel's top; over a bridge 16.6 m wide,
+      // a column of 6 pixels by the right tower from among the people, where the panel's top corner showed past the bridge's end.
+      expect([cam.name, roofs > 0, hidden, more]).toEqual([cam.name, true, 0, 0]);
     }
   }, 60_000);
 
