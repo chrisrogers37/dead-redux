@@ -1075,14 +1075,13 @@ describe("the crowd's shader", () => {
   it("keeps every seated figure clear of the visitor's bear as near as the parting lets it come, on level ground: every part of the figure, at its height, clear of the bear's own shape there, turned any way and at every swing of its legs", () => {
     // The parting keeps the visitor's bear's middle `hang` from a seated figure's axis (seats.js hold, partingOptions). The bear's
     // reach at each height, every 2 cm up: every triangle of its meshes, at every swing of its legs, every fortieth of a radian or
-    // less, to the widest it swings at any speed (swingAt), its
-    // corner farthest across from its middle, 0.4 m ahead of its centre, at every height the triangle spans; all round, since it
-    // turns. A part of a seated figure, still, that stands further from its axis at a height than hang less that reach would be in the
-    // bear. This test once held a seated figure under 0.65 units up to the hanging arms' reach (HANG) and took the bear's belly to
-    // reach 1.3 m from its middle there: but its hind legs, swung back at a run, reach 1.59 m below a metre, and its tail 1.66 m
-    // below two, and a broad figure's head lying back went 9.8 cm into the tail (seed 10) and a cross-legged one's knees 6.3 cm into
-    // the legs (seed 25). The ground is taken level between the seat and the bear, as the parting takes it; where the hill rises
-    // between them it is not held (#207's text).
+    // less, to the widest it swings at any speed (swingAt), its corner farthest across from its middle, 0.4 m ahead of its centre, at
+    // every height the triangle spans; all round, since it turns. A part of a seated figure, still, that stands further from its axis
+    // at a height than hang less that reach would be in the bear. This test once held a seated figure under 0.65 units up to the
+    // hanging arms' reach (HANG) and took the bear's belly to reach 1.3 m from its middle there: but its hind legs, swung back at a
+    // run, reach 1.59 m below a metre, and its tail 1.66 m below two, and a broad figure's head lying back went 9.8 cm into the tail
+    // (seed 10) and a cross-legged one's knees 6.3 cm into the legs (seed 25). The ground is taken level between the seat and the
+    // bear, as the parting takes it; where the hill rises between them it is not held (#207's text).
     const widest = Math.max(...Array.from({ length: 401 }, (_, k) => swingAt(k / 10))), n = Math.ceil(widest / 0.025);
     const BAND = 0.02, reach: number[] = [], SWINGS = Array.from({ length: 2 * n + 1 }, (_, k) => (widest * (k - n)) / n);
     expect(widest).toBeGreaterThan(0);
@@ -1258,7 +1257,7 @@ describe("the crowd's shader", () => {
     expect(hipsOf(1.6) - hipsOf(1)).toBeCloseTo(0.044 * 0.6, 6);
   });
 
-  it("stands every figure on the ground as its tier draws it, on twelve days' hills, twenty-six more on a television and seventeen crowds a sweep of mixes of people found cases on, standing, seated, and dancing seated and standing: nothing of it goes more than 3.5 cm into that ground, and its feet, turning on the spot or not, its seat, its knees kneeling and its hands leaning back stand no more than 4.6 cm over it", () => {
+  it("stands every figure on the ground as its tier draws it, on twelve days' hills, twenty-six more on a television and twelve crowds a sweep of mixes of people found cases on, standing, seated, and dancing seated and standing: nothing of it goes more than 3 cm into that ground, and its feet, turning on the spot or not, its seat, its knees kneeling and its hands leaning back stand no more than 4 cm over it; and on five crowds a further sweep found the most on, 3.5 and 4.6 cm", () => {
     // The island's mesh lies flat between the points of its tier's grid (island.js surfaceOf), up to half a metre over or under the
     // hill's own height on a phone's. A figure stood on the hill's own height went as far into the ground drawn, and a seated one,
     // facing away with its legs hidden, read as sunk to its waist (#203). So each stands on its tier's ground, its legs lean with that
@@ -1277,16 +1276,17 @@ describe("the crowd's shader", () => {
     // mix's kind does: turning, a flared cuff 3.6 cm into a phone's ground and feet 4.9 over it; holding, a seated hand 4.6 to 5.9
     // cm into each tier's; stout, a kneeling figure's knee 4.2 cm over a desktop's ground; and as dealt, a hand lying back 5 cm over a
     // television's, a slight figure's seat leaning back 4.05 over a desktop's, and a kneeling figure's skirt, which went 3.03 cm into
-    // a phone's where its hem was not looked at (HEMS). And on the days a sweep of further days found the most on (below): as dealt, a
-    // kneeling figure's skirt 3.37 cm into a phone's ground (565); stout, the feet of one turning on the spot 3.22 cm into a phone's
-    // (555) and a seat leaning back 4.07 over a desktop's (645); and every figure as broad as any may be (`widest`), a kneeling
+    // a phone's where its hem was not looked at (HEMS). And the crowds a sweep of further days found the most on (FURTHER, below): as
+    // dealt, a kneeling figure's skirt 3.37 cm into a phone's ground (565); stout, the feet of one turning on the spot 3.22 cm into a
+    // phone's (555) and a seat leaning back 4.07 over a desktop's (645); and every figure as broad as any may be (`widest`), a kneeling
     // figure's knee 4.49 over a television's (657) and a seat with its knees up 3.23 into it (564).
     const STRESS: [string, string, number][] = [["turning", "phone", 59], ["turning", "desktop", 18], ["turning", "phone", 7], ["holding", "desktop", 3],
       ["holding", "phone", 24], ["holding", "tv", 30], ["stout", "desktop", 55], ["stout", "tv", 49], ["stout", "desktop", 47], ["", "tv", 38], ["", "desktop", 56],
-      ["", "phone", 36], ["", "phone", 565], ["stout", "phone", 555], ["stout", "desktop", 645], ["widest", "tv", 657], ["widest", "tv", 564]];
+      ["", "phone", 36]];
+    const FURTHER: [string, string, number][] = [["", "phone", 565], ["stout", "phone", 555], ["stout", "desktop", 645], ["widest", "tv", 657], ["widest", "tv", 564]];
     const turns = (f: Figure, state: string) => state === "dancing standing" && MOVES[f.wear.y % 8] === "spin";
     const holds = (f: Figure, state: string) => state === "dancing seated" && Math.floor(f.wear.y / 8) % 8 === 1;
-    const low: Record<string, number> = {}, high: Record<string, number> = {};
+    const low: Record<string, number> = {}, high: Record<string, number> = {}, lowFurther: Record<string, number> = {}, highFurther: Record<string, number> = {};
     let looked = 0, lying = 0, broadest = 0;
     vi.stubGlobal("window", { devicePixelRatio: 1 });
     const budgets = Object.fromEntries(["desktop", "tv", "phone"].map((tier) => [tier, budgetFor(tier) as { crowd: number; grid: number }]));
@@ -1294,8 +1294,10 @@ describe("the crowd's shader", () => {
     for (const [tier, small] of [["desktop", false], ["tv", true], ["phone", true]] as const) {
       const surface = surfaceOf(budgets[tier].grid), count = budgets[tier].crowd;
       const jobs = [...TWELVE.map((seed) => [seed, "", () => true]), ...(tier === "tv" ? MORE : []).map((seed) => [seed, "", turns]),
-        ...STRESS.filter(([, t]) => t === tier).map(([mix, , seed]) => [seed, mix, mix === "holding" ? holds : turns])] as [number, string, (f: Figure, state: string) => boolean][];
-      for (const [seed, mix, dances] of jobs) {
+        ...STRESS.filter(([, t]) => t === tier).map(([mix, , seed]) => [seed, mix, mix === "holding" ? holds : turns]),
+        ...FURTHER.filter(([, t]) => t === tier).map(([mix, , seed]) => [seed, mix, turns, true])] as [number, string, (f: Figure, state: string) => boolean, boolean?][];
+      for (const [seed, mix, dances, further] of jobs) {
+        const lows = further ? lowFurther : low, highs = further ? highFurther : high;
         const c = buildCrowd(new THREE.Scene(), { count, path, line, landmarks: [], plain: small, seed, surface, mix: MIXES[mix] }), e = c.each;
         const near = verticesOf(c.figure).filter((v) => v.mark.x !== 7 && (v.y < 0.95 || v.mark.x === 3 || v.mark.x === 4));
         for (const f of figuresOf(c)) if (SITS[Math.floor(Math.floor(f.wear.y / 16384) / 16)] === "recline") { lying += 1; broadest = Math.max(broadest, e.aSize[4 * f.i] * lyingOf(e.aBody[4 * f.i + 3])); }
@@ -1311,7 +1313,7 @@ describe("the crowd's shader", () => {
             const p = put(f, v, pose), x = place.x + wide * (cos * p.x + sin * p.z), z = place.z + wide * (cos * p.z - sin * p.x), key = `${tier} ${state}`;
             const over = place.y + tall * p.y - surface(x, z), side = v.x > 0 ? "right" : "left";
             const turning = state === "dancing standing" && v.mark.x === 2 && MOVES[f.wear.y % 8] === "spin" ? `${key}, its feet turning` : key;
-            low[turning] = Math.min(low[turning] ?? Infinity, over);
+            lows[turning] = Math.min(lows[turning] ?? Infinity, over);
             looked += 1;
             if (!rests || state === "dancing seated") continue;
             const contact = v.mark.x === 2 ? `foot ${side}` : state !== "seated" ? null
@@ -1322,7 +1324,7 @@ describe("the crowd's shader", () => {
           }
           for (const [contact, over] of Object.entries(lowest)) {
             const key = `${tier} ${state === "seated" ? sits : MOVES[f.wear.y % 8] === "spin" ? "turning" : "standing"} ${contact.split(" ")[0]}`;
-            high[key] = Math.max(high[key] ?? -Infinity, over);
+            highs[key] = Math.max(highs[key] ?? -Infinity, over);
           }
         }
       }
@@ -1336,7 +1338,7 @@ describe("the crowd's shader", () => {
     // further apart: a flared cuff 3.9 cm, a kneeling figure's skirt 5.5, and the feet of one turning on the spot, which sweep round
     // its middle, 6.2; now they are looked at too (nearing). And a seated hand that held a pole or a string hung at it 6 cm into the
     // ground beside the figure; it holds them higher now (HOLD_UP).
-    for (const [key, under] of Object.entries(low)) expect([key, under > -0.035]).toEqual([key, true]);
+    for (const [key, under] of Object.entries(low)) expect([key, under > -0.03]).toEqual([key, true]);
     expect(Object.keys(low).length).toBe(15);
     // A seat with its knees up was dealt anywhere, and one that turns on the spot turned anywhere, its feet as high as a bump under
     // its sweep: they stood up to 4.4 and 4.8 cm over the ground on these days, and on others 7.4 and 4.9. Each is dealt now only
@@ -1345,9 +1347,15 @@ describe("the crowd's shader", () => {
     // they come, and with every standing figure turning, every figure stout, and every standing one holding a pole or a string, 720
     // crowds, nothing went more than 2.74 cm into the ground and no contact stood more than 3.92 over it. On eighty days more (540 to
     // 579, 640 to 679), as dealt, stout, every figure as broad as any may be, and that with every standing one turning, 960 crowds,
-    // they went 3.37 cm into it and 4.49 over it (#207's text). So these bounds hold what that sweep of 1,680 crowds measured, with
-    // 1.3 and 1.1 mm to spare: they are its most, not a bound any day must keep.
-    for (const [key, over] of Object.entries(high)) expect([key, over < 0.046]).toEqual([key, true]);
+    // they went 3.37 cm into it and 4.49 over it (#207's text). So the rest are held to 3 and 4 cm, the first sweep's most with 2.6
+    // and 0.8 mm to spare, and the five crowds of the further days that went furthest to 3.5 and 4.6 cm, that sweep's most with 1.3
+    // and 1.1 mm to spare, each of them past 3 and 4.4 cm. Each bound is a sweep's most, not one any day must keep. Held to 3.5 and 4.6
+    // everywhere, the test let go a flared cuff's guard (CUFFS) and a seat's hands leaning back out with its shoulders (touching).
+    for (const [key, over] of Object.entries(high)) expect([key, over < 0.04]).toEqual([key, true]);
+    for (const [key, under] of Object.entries(lowFurther)) expect([key, under > -0.035]).toEqual([key, true]);
+    for (const [key, over] of Object.entries(highFurther)) expect([key, over < 0.046]).toEqual([key, true]);
+    expect(Math.min(...Object.values(lowFurther))).toBeLessThan(-0.03);
+    expect(Math.max(...Object.values(highFurther))).toBeGreaterThan(0.044);
     // Every tier's feet standing, and turning; seated, every stance's seat or knees and feet, and the hands of those that lean back.
     expect(Object.keys(high).length).toBe(3 * (2 + 2 * 5 + 2 + 2));
   }, 120000);
