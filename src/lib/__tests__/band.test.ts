@@ -1049,7 +1049,7 @@ describe("a microphone's stand", () => {
 
   // What a stand passes through, by name: the stand's part and the other part, each with its player's role.
   const named = (band: Band, t: Tri) => (t.by === null ? `the stage's ${t.of}` : `the ${band.players[t.by].role}${["keys", "drums"].includes(band.players[t.by].role) ? "'" : "'s"} ${t.of}`);
-  function through(band: Band, tris: Tri[], out: Map<string, Set<string>>, held: Vec[] | null, as: string) {
+  function through(band: Band, tris: Tri[], out: Map<string, Set<string>>, held: Vec[], as: string) {
     const edge = FLOOR_R * Math.cos(Math.PI / FLOOR_SIDES), note = (what: string) => out.set(what, (out.get(what) ?? new Set<string>()).add(as));
     // Each player's stand as one box, and what lies in any of them.
     const stands = tris.filter((t) => t.stand), boxes = new Map<number, Tri>();
@@ -1068,12 +1068,29 @@ describe("a microphone's stand", () => {
         if ((o.stand && o.by === s.by) || !near(s, o)) continue;
         // The singer's hand holds their stand: what of the singer's body their stand meets is that hand's, round it.
         const holds = band.players[s.by!].role === "voice" && s.of === "stand" && o.by === s.by && o.of === "body";
-        if (holds && !held) continue;
         const at = meeting(s, o);
-        if (at && holds) held!.push(at);
+        if (at && holds) held.push(at);
         else if (at) note(`${named(band, s)} through ${named(band, o)}`);
       }
     }
+  }
+
+  // The singer's hand round their stand: something of the singer's body meets the stand, the hand, and all that does lies within a
+  // hand's breadth of one point, 7 cm in the singer's metres, and under the microphone's head. A trunk that swayed into the stand
+  // would meet it far from the hand: with the singer's sway 10 cm and not 3 (band.js DEAL), the body meets the stand 7.1 cm from
+  // that point as the band plays. What meets it now lies 5.7 cm from it at the most at rest, and 6.2 cm as the band plays.
+  function holding(band: Band, stands: Tri[], held: Vec[], out: Map<string, Set<string>>, as: string) {
+    const note = (what: string, how = "") => out.set(what, (out.get(what) ?? new Set<string>()).add(as + how));
+    const singer = band.players.findIndex((p: { role: string }) => p.role === "voice");
+    if (singer < 0) {
+      if (held.length) note("a stand held with no singer");
+      return;
+    }
+    if (!held.length) return note("the voice's hand off its stand");
+    const s = band.players[singer].g.scale.x, mid = middleOf(held), spread = Math.max(...held.map((c) => gap(c, mid))) / s;
+    const head = Math.min(...stands.filter((t) => t.stand && t.by === singer && t.of === SINGERS[1]).flatMap((t) => t.at.map((c) => c.y)));
+    if (spread >= 0.07) note("the voice's body round its stand over more than a hand's breadth", `, ${spread.toFixed(3)} m from one point`);
+    if (mid.y >= head) note("the voice's hand round its stand at or over the microphone's head");
   }
 
   it("stands every microphone, in every line-up and era, clear of the band and on the floor: no part of a stand, its base, stand, boom or microphone, passes through an instrument, a keyboard, a kit, a wedge, a shoe, a head, a body or a limb at rest, or another's stand, nor stands out past the floor's edge or down into it; but for the singer's hand, round their stand under its head", () => {
@@ -1096,12 +1113,7 @@ describe("a microphone's stand", () => {
         const what = `${named(band, { by: k, of: "boom" } as Tri)} within 10 cm of the head`;
         if (boom.length && least < 0.1) out.set(what, (out.get(what) ?? new Set<string>()).add(`${key}, ${from}, ${least.toFixed(3)} m off`));
       });
-      // The hand: everything of the body that the stand meets lies within a hand's breadth of one point, 7 cm in the singer's
-      // metres, and under the microphone's head.
-      const singer = band.players.findIndex((p: { role: string }) => p.role === "voice");
-      if (singer < 0) { expect(held).toEqual([]); continue; }
-      const s = band.players[singer].g.scale.x, mid = middleOf(held), head = Math.min(...tris.filter((t) => t.stand && t.by === singer && t.of === SINGERS[1]).flatMap((t) => t.at.map((c) => c.y)));
-      expect([key, from, held.length > 0, Math.max(...held.map((c) => gap(c, mid))) < 0.07 * s, mid.y < head]).toEqual([key, from, true, true, true]);
+      holding(band, tris, held, out, `${key}, ${from}`);
     }
     expect([...out].map(([what, where]) => `${what}: ${where.size} of ${Object.keys(STAGING).length * ERAS.length}, as ${[...where][0]}`)).toEqual([]);
   }, 120_000);
@@ -1109,8 +1121,8 @@ describe("a microphone's stand", () => {
   // And as the band plays, its moving parts: a keyboard player's hands lift past their microphone's boom, which comes down to the
   // microphone over them (band.js MIC). Through sixteen counts at 96 a minute in every line-up, from rest, in which each hand of
   // a keyboard's player lifts twice (band.js LIFT), a pose every tenth of a second. The singer's hand, which holds
-  // their stand, sways round it with the hips (`singer`).
-  it("lets nothing that moves pass through a stand as the band plays, in any line-up: no hand that lifts, nor any other", () => {
+  // their stand, sways round it with the hips (`singer`), and is held to it in each pose as at rest (`holding`).
+  it("lets nothing that moves pass through a stand as the band plays, in any line-up: no hand that lifts, nor any other, and the singer's hand stays round their stand", () => {
     const out = new Map<string, Set<string>>();
     for (const key of Object.keys(STAGING)) {
       const stage = new THREE.Group(), band: Band = buildBand(stage, FLOOR, key.split(" "));
@@ -1121,7 +1133,9 @@ describe("a microphone's stand", () => {
         band.move(1 / 60, frame / 60, (beats += 96 / 3600), true);
         if (frame % 6) continue;
         stage.updateMatrixWorld(true);
-        through(band, [...stands, ...trianglesOf(band, false)], out, null, `${key}, ${(frame / 60).toFixed(1)} s in`);
+        const held: Vec[] = [], as = `${key}, ${(frame / 60).toFixed(1)} s in`;
+        through(band, [...stands, ...trianglesOf(band, false)], out, held, as);
+        holding(band, stands, held, out, as);
       }
     }
     expect([...out].map(([what, where]) => `${what}: ${where.size} poses, the first ${[...where][0]}`)).toEqual([]);
