@@ -169,7 +169,7 @@ function start(gl) {
 
   /* ---------- the crowd ---------- */
   /* The day's gathering (seats.js), before the ground, which wears it: the grass its people tread and the blankets they sit on. */
-  const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks, plain: tier !== "desktop", seed: data.seed, surface });
+  const crowd = buildCrowd(scene, { count: budget.crowd, path, line, landmarks, plain: tier !== "desktop", seed: data.seed, surface, date: data.showDate });
 
   /* Nothing grows or lies within TRUNK_ROOM of a trunk. */
   const { caves, shade, flora, lit } = buildIsland(scene, budget.grid, phone, loop, (x, z) => placed.near(x, z, TRUNK_ROOM), bands, crowd.ground);
@@ -639,6 +639,10 @@ function start(gl) {
     stage.lightBand(look.dark);
     /* The lit bands glow a third as bright in the deep of the night, where their own glow at dusk would outshine the stage. */
     if (bands) bands.glow.value = BAND_GLOW * (1 - 0.68 * look.dark);
+    /* The crowd's own lights, the stage's on it, the house lights and its rims, brighten as the night darkens, and are steady: the hour
+       alone moves them, never the music, the beat or the stage light, which the downgrade may turn off; and the crowd takes the music's
+       share back out of the sky's light (crowd.js light). */
+    crowd.light(look.dark, layer2.hemi);
     /* Whether a song plays: the crowd dances and the rig lights for one. */
     const dances = playing && crowdAt[index].dance ? 1 : 0;
     if (!reduced) {
