@@ -588,7 +588,7 @@ const LATE = 1, ON_TIME = 2;
 const RISE_EASE = 0.25, RISE_HOLD = 0.5, RISE_KEEP = 0.5;
 /* A group in a pass that moves less than half the pace it walks back at for STOOD s stands: the pass ends, and the group passes no
    one again until it is back on its seat or needs room (parting, apart). */
-const STOOD = 0.25;
+export const STOOD = 0.25;
 
 /* The parting: the figures make room for the visitor. Each keeps `keep` m from the visitor's middle, halfway between their bear's feet
    and its head. Ahead of the visitor, as far as they walk in `lead` s, a figure steps across their way, and beside or behind them
@@ -1205,7 +1205,8 @@ export function parting(placed, { keep, reach, hang, lead, step: pace, back, spa
     }
   }
 
-  return { offset, rising, step, over, ahead, hold, farthest, get parted() { return parted; } };
+  /* `passes` is for the tests: how long each group has stood in a pass, and whether it stood there too long to pass anyone again. */
+  return { offset, rising, step, over, ahead, hold, farthest, get parted() { return parted; }, get passes() { return { stood, halted, groupOf }; } };
 }
 
 /* How the world reads a track's title: one rule for every part of it that asks whether a track is Drums, Space, the band tuning or a

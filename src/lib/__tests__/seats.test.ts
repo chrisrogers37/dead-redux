@@ -5,7 +5,7 @@ import { budgetFor } from "../../../public/world/quality.js";
 import {
   across, AISLE, AMONG_KEEP, APART, BANDS, BLANKET_TONES, CLEARING, COUNT, crowdPlan, FULL, fromStage, gathering, GROUPS_APART, GROUPS_FROM, GROUPS_TO,
   intoAisle, intoCrowdGround, isBetweenSongs, isDrums, isNotASong, isSpace, isTuning, LATTICE, LEGS, NEXT, OFF, offAxis, onAxes, onCrowdGround, parting,
-  PERSON, RISE, RISE_AT, riseAhead, seats, songsOf, SPANS, THIN, toStage, wholeGroups,
+  PERSON, RISE, RISE_AT, riseAhead, seats, songsOf, SPANS, STOOD, THIN, toStage, wholeGroups,
 } from "../../../public/world/seats.js";
 
 type Seat = { x: number; z: number; r: number; sit: boolean; face: number; blanket: number; group: number };
@@ -616,18 +616,27 @@ describe("parting", () => {
 
   // A walk at 12 m/s along `at`, `length` m from its start, the stage's solids and a hand kept clear, as buildCrowd keeps them, then
   // 5 s standing at its end: the most anyone stepped in a frame past the visitor's step, or past the pace it steps aside at where the
-  // visitor's step is less; then how many stand off their seats, and the nearest two.
+  // visitor's step is less; then how many stand off their seats, and the nearest two. A step is read from the offsets as the mesh
+  // takes them, 32-bit numbers, which a figure carried 15 to 23 m up the hill holds to 2 µm: so a step is too far by more than 4 µm.
+  const ROUNDING = 4e-6;
+  // And how near the cap the steps come, the most of a step over its cap; and how long each group had stood in a pass when it stood
+  // there too long to pass anyone again (STOOD), in s.
   const walked = (day: Seat[], at: (t: number) => ReturnType<typeof bear>, length: number) => {
     const p = parting(day, { ...OPTS, keeps: [[STAGE[0], STAGE[1], STAGE_COLUMN.r + OPTS.wide]] });
     // The visitor arrives at the walk's start at once, and the figures stand at once where they would end.
     p.step(0, at(0).feet, at(0).head, false);
-    let last = Float32Array.from(p.offset), was = 0, past = 0;
+    let last = Float32Array.from(p.offset), was = 0, past = 0, fullest = 0;
+    const { stood, halted } = p.passes as { stood: Float64Array; halted: Uint8Array }, halts: number[] = [];
     const step = (t: number) => {
+      const before = Uint8Array.from(halted);
       p.step(1 / 60, at(t).feet, at(t).head, false);
+      for (let g = 0; g < halted.length; g++) if (halted[g] === 1 && before[g] === 0) halts.push(stood[g]);
       // The visitor's middle moves as far as their bear does.
-      const visitorStep = Math.abs(t - was);
-      for (let i = 0; i < day.length; i++)
-        past = Math.max(past, Math.hypot(p.offset[4 * i] - last[4 * i], p.offset[4 * i + 2] - last[4 * i + 2]) - Math.max(visitorStep, OPTS.step / 60));
+      const visitorStep = Math.abs(t - was), cap = Math.max(visitorStep, OPTS.step / 60);
+      for (let i = 0; i < day.length; i++) {
+        const stepped = Math.hypot(p.offset[4 * i] - last[4 * i], p.offset[4 * i + 2] - last[4 * i + 2]);
+        past = Math.max(past, stepped - cap); fullest = Math.max(fullest, stepped / cap);
+      }
       last = Float32Array.from(p.offset); was = t;
     };
     for (let t = 0; t <= length; t += 0.2) step(t);
@@ -635,7 +644,7 @@ describe("parting", () => {
     const xs = day.map((s, i) => s.x + p.offset[4 * i]), zs = day.map((s, i) => s.z + p.offset[4 * i + 2]);
     let nearest = Infinity;
     for (let i = 0; i < day.length; i++) for (let j = i + 1; j < day.length; j++) nearest = Math.min(nearest, Math.hypot(xs[i] - xs[j], zs[i] - zs[j]));
-    return { past, left: day.filter((_, i) => p.offset[4 * i] !== 0 || p.offset[4 * i + 2] !== 0).length, nearest };
+    return { past, fullest, halts, left: day.filter((_, i) => p.offset[4 * i] !== 0 || p.offset[4 * i + 2] !== 0).length, nearest };
   };
 
   it("sends everyone back after a walk down past the stage's solids, no two nearer than APART once they stand, and steps no one faster in a frame than the visitor or the pace it steps aside at", () => {
@@ -650,7 +659,7 @@ describe("parting", () => {
       for (let off = -14; off <= 14; off += 2) {
         const at = (t: number) => bear(STAGE[0] + (62 - t) * ux - off * uz, STAGE[1] + (62 - t) * uz + off * ux, -ux, -uz);
         const { past, left, nearest } = walked(day, at, 62);
-        if (past > 1e-6 || left > 0 || nearest < APART - 1e-9)
+        if (past > ROUNDING || left > 0 || nearest < APART - 1e-9)
           faults.push(`day ${seed}, ${off} m: a step ${past.toFixed(6)} m too far, ${left} off their seats, the nearest two ${nearest.toFixed(3)} m apart`);
       }
     }
@@ -664,9 +673,12 @@ describe("parting", () => {
     // standing in each other on: up the hill on day 125; across the front rows on days 68, 69 and 109, and day 76 past a seat.
     const mx = -STAGE[0] / Math.hypot(...STAGE), mz = -STAGE[1] / Math.hypot(...STAGE);
     const ax = Math.sin(FACING), az = Math.cos(FACING), nx = az, nz = -ax, faults: string[] = [];
+    let fullest = 0;
+    const halts: number[] = [];
     const check = (name: string, day: Seat[], at: (t: number) => ReturnType<typeof bear>, length: number) => {
-      const { past, nearest } = walked(day, at, length);
-      if (past > 1e-6 || nearest < APART - 1e-9) faults.push(`${name}: a step ${past.toFixed(6)} m too far, the nearest two ${nearest.toFixed(3)} m apart`);
+      const walk = walked(day, at, length), { past, nearest } = walk;
+      fullest = Math.max(fullest, walk.fullest); halts.push(...walk.halts);
+      if (past > ROUNDING || nearest < APART - 1e-9) faults.push(`${name}: a step ${past.toFixed(6)} m too far, the nearest two ${nearest.toFixed(3)} m apart`);
     };
     const up = seats(none, 125) as Seat[];
     for (let off = -14; off <= 14; off += 4)
@@ -677,6 +689,13 @@ describe("parting", () => {
         check(`across on day ${seed}, ${off} m`, day, (t) => bear(STAGE[0] + off * ax + (t - 26) * nx, STAGE[1] + off * az + (t - 26) * nz, nx, nz), 52);
     }
     expect(faults).toEqual([]);
+    // The cap is reached, so a step held to less than the visitor's or the pace would show here: the fullest step is the cap's own.
+    expect(fullest).toBeGreaterThan(0.999);
+    // And a group in a pass that stands stops passing after it has stood STOOD s, a quarter second: these walks need it. Fifteen 60ths
+    // add up to a hair under it, so it stops on the sixteenth frame, and never later.
+    expect(STOOD).toBe(0.25);
+    expect(halts.length).toBeGreaterThan(3);
+    for (const s of halts) expect([s >= STOOD - 1e-9, s < STOOD + 2 / 60 - 1e-6]).toEqual([true, true]);
   }, 30000);
 
   it("brings a still figure's arms down over a quarter second and up as slowly, turning them at most once each half second, and keeps them down through a dip", () => {
