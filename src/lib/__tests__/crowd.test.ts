@@ -2571,6 +2571,10 @@ describe("the crowd's shader", () => {
       runTones(null, out, { x: 0, y: 0, z: 0, w: 0 }, null, null, 1, null, { x: 0, y: 0, z: 0, w: 1 }, null, { x: 0, y: 0, z: 0, w: 0 }, 0, 0, 0, 0);
       expect(lightOf(hex)).toBeCloseTo(light(out), 9);
     }
+    // The shader draws each pattern's second colour over as much of the top on the whole as COVER says, which is what topLight reads.
+    for (const pattern of [PATTERN.TIE, PATTERN.VEST, PATTERN.PRINT]) expect(dressLines).toContain(`cover = ${COVER[pattern as keyof typeof COVER].toFixed(4)}`);
+    expect([PATTERN.TIE, PATTERN.STRIPE, PATTERN.CHECK].map((pattern) => COVER[pattern as keyof typeof COVER])).toEqual([0.5, 0.5, 0.5]);
+    expect(dressLines.match(/cover = /g)?.length).toBe(3);
     // The trousers it was dealt where they stand APART, and else the next in the era's list that do, round to its start.
     const palette = dressOn(FIXED) as Palette;
     for (let top = 0; top < palette.top.length; top++) for (let dealt = 0; dealt < palette.legs.length; dealt++) {

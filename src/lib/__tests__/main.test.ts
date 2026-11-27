@@ -102,6 +102,7 @@ const fake = vi.hoisted(() => {
     // The crowd: the seed it was built for, whether the island was built yet, the ground it handed back; and what the island was given
     // to wear of it.
     crowdSeed: undefined as unknown,
+    crowdDate: undefined as unknown,
     crowdBeforeIsland: false,
     crowdGround: undefined as unknown,
     islandCrowd: undefined as unknown,
@@ -440,9 +441,10 @@ const fake = vi.hoisted(() => {
     crowd: {
       // As many figures as the tier asks for, of which the downgrade may have only the first half drawn, the pose each frame gives
       // them, its parting, and its own word on whether a camera has a figure in view.
-      buildCrowd: (_scene: Scene, { count, plain, seed, surface }: { count: number; plain: boolean; seed: number; surface?: unknown }) => {
+      buildCrowd: (_scene: Scene, { count, plain, seed, surface, date }: { count: number; plain: boolean; seed: number; surface?: unknown; date?: string }) => {
         let shown = count;
         world.crowdSeed = seed;
+        world.crowdDate = date;
         world.crowdSurface = surface ?? null;
         world.crowdBeforeIsland = !world.made.includes("island");
         return {
@@ -659,6 +661,7 @@ async function startWorld({ playing = false, routing = "webaudio", search = "", 
   fake.world.treesBuilt = [];
   fake.world.made = [];
   fake.world.crowdSeed = undefined;
+  fake.world.crowdDate = undefined;
   fake.world.crowdBeforeIsland = false;
   fake.world.crowdGround = undefined;
   fake.world.islandCrowd = undefined;
@@ -1533,9 +1536,10 @@ describe("main.js's frames", () => {
     expect(hill().crowd.drawn).toBe(made);
   });
 
-  it("builds the stage for the show's date, so the band is the line-up that played it (lineup.js)", async () => {
+  it("builds the stage for the show's date, so the band is the line-up that played it (lineup.js), and the crowd for it, so it wears its era's clothes", async () => {
     await startWorld();
     expect(fake.world.stageShow).toBe(SHOW);
+    expect(fake.world.crowdDate).toBe(SHOW);
   });
 
   it("fits the band's thin parts (its crashes' poles, its microphones' stands, its lifted hands and its necks' tips) to the canvas's pixel once the stage is built, and again as each rung shrinks the canvas", async () => {
