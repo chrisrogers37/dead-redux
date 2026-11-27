@@ -5,10 +5,11 @@ import * as THREE from "three";
 import {
   backOf, BEAR_LEGS, BEAR_TAIL, buildCrowd, CLOTH_MOST, CLOTHS, COLOURS, CREST, crestOf, CUP_ARM, CUT, CYCLE, DROP, DYE, DYED, DYED_PROPS, FEET, figureGeometry, FOLD, FOOT, FORMS, formOfMark, formsOf,
   FRIEND_HAND, groundUnder, HAND, HANG, HOLD_UP, inView, KNEES, LEG, LOW, lyingOf, MOST, MOVES, only, OUTLINE, outlineOf, OVERHEAD, PART, partingOptions, people, PLAIN_LEAVES_OUT, plainly, poseOf,
-  PROP_EVERY, PROPS, QUIET, SEAT, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, stances, TALL, TINTS, tone, TOP, wearing, without,
+  PROP_EVERY, PROPS, QUIET, RIM, RIM_LEAST, RIM_SIDE, RIM_TINT, RIM_TO, SEAT, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, stances, TALL, TINTS, tone, TOP, wearing, without,
 } from "../../../public/world/crowd.js";
 import { MOVE as STEP, SLOW, STRUM, swing } from "../../../public/world/band.js";
 import { buildBear, stride } from "../../../public/world/bears.js";
+import { DAYBREAK, DEEP, lookAt, newLook } from "../../../public/world/night.js";
 import { swingAt } from "../../../public/world/avatar.js";
 import { FACING, height, STAGE, STAGE_COLUMN, TEST_POSES } from "../../../public/world/ground.js";
 import { makeBuilders } from "../../../public/world/landmarks.js";
@@ -168,6 +169,17 @@ const READS = ["transformed", "vColor", "aMark", "aFig", "aPart", "aRise", "aBod
 const asJs = (glsl: string) =>
   new Function(...Object.keys(GLSL), `return function (${READS.join(", ")}) {${glsl.replace(/\b(?:float|bool)\s+/g, "let ")}\n};`)(...Object.values(GLSL)) as (...reads: unknown[]) => void;
 const runDance = asJs(dance), runTones = asJs(tones);
+// The fragment shader is three's own with the rim added (crowd.js RIM_LIGHT): its two uniforms after common, and its lines before
+// opaque_fragment. The line that weighs it is plain numbers, and runs here too, given the three dot products the line before it takes.
+const STOCK = THREE.ShaderLib.lambert.fragmentShader as string, RIM_UNIFORMS = "\nuniform float uRim;\nuniform vec3 uStage;";
+const rimLines = compiled.fragmentShader.split("#include <envmap_fragment>")[1].split("#include <opaque_fragment>")[0];
+const rimWeight = rimLines.split("\n").find((line) => line.startsWith("float rimLit")) ?? "";
+const runRim = new Function(...Object.keys(GLSL), "pow", `return function (uRim, facing, stageward, behind) {${rimWeight.replace(/\bfloat\s+/g, "let ")}\nreturn rimLit;\n};`)(
+  ...Object.values(GLSL), Math.pow) as (uRim: number, facing: number, stageward: number, behind: number) => number;
+// The rim a face takes, its normal `n`, with the eye and the stage each a unit way `toEye` and `toStage` from it, as the shader weighs
+// it in the view's space: the three dot products are the same in any frame.
+const dot3 = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const rimOf = (n: number[], toEye: number[], toStage: number[], uRim = RIM) => runRim(uRim, dot3(n, toEye), dot3(n, toStage), -dot3(toEye, toStage));
 
 // A vertex of the figure, with its marks; a figure, with the numbers its corners carry and its scale across and up, in metres a
 // unit, and the ground's rise across it (aPlace.w, flat where it is not given); and a pose: the phase in beats, how far the crowd dances, the build-up and the sit as main.js gives them, how still the
@@ -567,9 +579,10 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect(Object.keys(figureGeometry().attributes).sort()).toEqual(["aMark", "position"]);
   });
 
-  it("is lit by nothing the island's own light is not, and hides nothing: a solid Lambert material that three's own fragment shader draws", () => {
+  it("is lit by the island's own light and its rim alone, and hides nothing: a solid Lambert material that three's own fragment shader draws, the rim's lines added", () => {
     // The rig's beams never light a figure because the crowd draws after them and covers them (draw-order.test.ts). A crowd that
-    // glowed, or let the beams show through it, or wrote no depth, would undo that from inside.
+    // glowed, or let the beams show through it, or wrote no depth, would undo that from inside. Its one light of its own is the rim,
+    // which the night alone gives (the rim's tests, below).
     const material = crowd.mesh.material;
     expect(material.isMeshLambertMaterial).toBe(true);
     expect([material.transparent, material.opacity, material.depthWrite, material.depthTest, material.blending]).toEqual([false, 1, true, true, THREE.NormalBlending]);
@@ -578,7 +591,22 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect([material.fog, material.flatShading, material.vertexColors, material.side]).toEqual([true, true, true, THREE.FrontSide]);
     // main.js sets the mesh's render order, after the rig's (main.test.ts); buildCrowd leaves it alone.
     expect(crowd.mesh.renderOrder).toBe(0);
-    expect(compiled.fragmentShader).toBe(THREE.ShaderLib.lambert.fragmentShader);
+    // The fragment shader is three's own, but for the rim's two uniforms after common and its lines before opaque_fragment, each once.
+    const gap = STOCK.split("#include <envmap_fragment>")[1].split("#include <opaque_fragment>")[0];
+    expect(compiled.fragmentShader.split(RIM_UNIFORMS)).toHaveLength(2);
+    expect(compiled.fragmentShader.split(rimLines)).toHaveLength(2);
+    expect(compiled.fragmentShader.replace(RIM_UNIFORMS, "").replace(rimLines, gap)).toBe(STOCK);
+    expect(rimWeight).not.toBe("");
+    // The rim reads of the crowd's uniforms only its own two, uRim and uStage: no beat, no dance, no rise and no sit. Of three's it
+    // reads only the face's normal, the way to the eye and the view's matrix, and so no light of the scene's, the stage's among them.
+    // And it writes only to the light the face sends out, which it adds to.
+    const own = new Set([...rimLines.matchAll(/\b(?:float|vec3)\s+([^;]+);/g)].flatMap((m) => m[1].split(/,(?![^(]*\))/).map((d) => d.trim().split(/\s|=/)[0])));
+    const language = ["clamp", "dot", "float", "normalize", "pow", "vec3", "vec4"];
+    const read = [...new Set([...rimLines.matchAll(/(?<![.\w])[A-Za-z_]\w*/g)].map((m) => m[0]))].filter((name) => !own.has(name) && !language.includes(name));
+    expect(read.sort()).toEqual(["normal", "outgoingLight", "uRim", "uStage", "vViewPosition", "viewMatrix"]);
+    const rimWrites = [...rimLines.matchAll(/(?:^|[;{}]\s*|\)\s+)([A-Za-z_]\w*)(?:\.[xyzwrgb]+)?\s*[-+*/]?=(?!=)/gm)].map((m) => m[1]).filter((name) => !own.has(name));
+    expect(rimWrites).toEqual(["outgoingLight"]);
+    expect(rimLines).toContain("outgoingLight += rimLit * vec3(");
     // What the crowd adds to the vertex shader writes a vertex's place and its colour, and nothing else.
     const written = [...`${dance}\n${tones}`.matchAll(/(?:^|[;{}]\s*|\)\s+)([A-Za-z_]\w*)(?:\.[xyzwrgb]+)?\s*[-+*/]?=(?!=)/gm)].map((m) => m[1]);
     const names = new Set([...`${dance}\n${tones}`.matchAll(/\b(?:float|bool)\s+([^;]+);/g)].flatMap((m) => m[1].split(/,(?![^(]*\))/).map((d) => d.trim().split(/\s|=/)[0])));
@@ -672,7 +700,7 @@ describe("the crowd, as buildCrowd builds it", () => {
     c.cull(lens);
   }, 30000);
 
-  it("draws a frame from four numbers, and sends up the parting's two attributes only in a frame where a figure moved, and only at that figure's corners", () => {
+  it("draws a frame from four numbers and the night's rim, and sends up the parting's two attributes only in a frame where a figure moved, and only at that figure's corners", () => {
     const geo = crowd.mesh.geometry, fixed = ["aFig", "aBody", "aWear", "aCut", "aTone", "aMark", "position", "aPlace", "aSize", "color"], held = [...fixed, "aPart", "aRise"];
     const before = held.map((name) => geo.getAttribute(name)), arrays = before.map((a) => a.array), versions = () => [...held.map((name) => geo.getAttribute(name).version), geo.index.version];
     const uniforms = { ...compiled.uniforms }, aPart = geo.getAttribute("aPart"), aRise = geo.getAttribute("aRise");
@@ -685,10 +713,30 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect([...settled.slice(0, fixed.length), settled[held.length]]).toEqual([...was.slice(0, fixed.length), was[held.length]]);
     // The same attributes on the same arrays, each the very one it was.
     expect(held.map((name, k) => geo.getAttribute(name) === before[k] && geo.getAttribute(name).array === arrays[k])).toEqual(held.map(() => true));
-    for (const name of ["uBeat", "uDance", "uRise", "uSit"]) expect(compiled.uniforms[name]).toBe(uniforms[name]);
+    for (const name of ["uBeat", "uDance", "uRise", "uSit", "uRim", "uStage"]) expect(compiled.uniforms[name]).toBe(uniforms[name]);
+    expect(Object.keys(compiled.uniforms).sort()).toEqual(["uBeat", "uDance", "uRim", "uRise", "uSit", "uStage"]);
     // The phase is kept to CYCLE beats, and the rest are passed as they come.
+    crowd.rim(0.25);
     crowd.pose(3 * CYCLE + 2.5, 1.2, 0.4, 0.7);
     expect(["uBeat", "uDance", "uRise", "uSit"].map((name) => compiled.uniforms[name].value)).toEqual([2.5, 1.2, 0.4, 0.7]);
+    // The rim is the night's alone: a pose leaves it as it was, and the rim leaves the pose. The stage it faces never moves.
+    expect(compiled.uniforms.uRim.value).toBeCloseTo(RIM * (RIM_LEAST + (1 - RIM_LEAST) * 0.25), 15);
+    crowd.rim(1);
+    expect(["uBeat", "uDance", "uRise", "uSit", "uRim"].map((name) => compiled.uniforms[name].value)).toEqual([2.5, 1.2, 0.4, 0.7, RIM]);
+    expect((compiled.uniforms.uStage.value as unknown as Xyz)).toMatchObject({ x: RIM_TO[0], y: RIM_TO[1], z: RIM_TO[2] });
+    // As dark as the night gets, the whole rim; where it is not dark at all, RIM_LEAST of it; and in between, as the night is.
+    const rimAt = (dark: number) => { crowd.rim(dark); return compiled.uniforms.uRim.value as number; };
+    expect(rimAt(0)).toBeCloseTo(RIM * RIM_LEAST, 15);
+    expect(rimAt(0.5)).toBeCloseTo(RIM * (1 + RIM_LEAST) / 2, 15);
+    // So through the night's looks (night.js): in the last light, the stage's lights on and the sky still bright, a figure alone in
+    // the open keeps an edge, at least 0.4 of the deep's; at daybreak, the lightest, no more than 0.6 of it; and the deep has the whole.
+    const at = (hour: number) => rimAt(lookAt(hour, newLook()).dark) / RIM;
+    expect(at(DEEP)).toBeCloseTo(1, 12);
+    expect(at(0)).toBeGreaterThan(0.4);
+    expect(at(0)).toBeLessThan(0.6);
+    expect(at(DAYBREAK)).toBeGreaterThan(0.4);
+    expect(at(DAYBREAK)).toBeLessThan(0.6);
+    crowd.rim(0);
     // Among the crowd figures step aside, and only the parting's two go up: at the corners of the figures that moved or eased their
     // arms in that frame, and at no other corner of the hundred thousand. A renderer takes the ranges and forgets them; so here.
     // From every figure at its seat, whatever walks the tests before this one took, so what is counted here is the same run alone.
@@ -1495,6 +1543,136 @@ describe("the crowd's shader", () => {
     }
     expect(Object.keys(least).length).toBe(6);
     for (const [key, share] of Object.entries(least)) expect([key, share > 0.5]).toEqual([key, true]);
+  }, 60000);
+
+  it("lights a face's rim as it stands edge-on to the eye and as the stage stands behind the figure: all round from behind, the stage's side alone from the side, and none within 60 degrees of the stage's way", () => {
+    // The shader's own line, given the three dot products. A unit way `v` to the eye; faces edge-on to it, and one turned to it.
+    const v = [0, 0, 1], up = [0, 1, 0], right = [1, 0, 0], left = [-1, 0, 0], back = [0, 0, -1];
+    // The stage straight behind the figure, as from the hill: every face edge-on to the eye takes the whole rim, whichever way it
+    // looks, and a face turned to the eye none.
+    for (const n of [up, right, left, [0, -1, 0], [Math.SQRT1_2, Math.SQRT1_2, 0]]) expect(rimOf(n, v, back)).toBeCloseTo(RIM, 12);
+    expect(rimOf(v, v, back)).toBe(0);
+    // It falls off fast as a face turns toward the eye, so that a broad face near edge-on, a cape's or a hat's crown, takes little:
+    // turned a third of the way, between a fortieth and a twelfth of the rim (RIM_EDGE 4: under a twentieth, where 3 gave nearly a
+    // tenth); halfway, under a hundredth.
+    const turned = (a: number) => [Math.sin(a), 0, Math.cos(a)];
+    expect(rimOf(turned(Math.PI / 3), v, back)).toBeLessThan(RIM / 12);
+    expect(rimOf(turned(Math.PI / 3), v, back)).toBeGreaterThan(RIM / 40);
+    expect(rimOf(turned(Math.PI / 4), v, back)).toBeLessThan(RIM / 100);
+    // From the side, the stage to the eye's right: the edge toward the stage takes RIM_SIDE of the rim, and the far edge none.
+    expect(RIM_SIDE).toBeGreaterThan(0.2);
+    expect(RIM_SIDE).toBeLessThan(0.75);
+    expect(rimOf(right, v, right)).toBeCloseTo(RIM * RIM_SIDE, 12);
+    expect(rimOf(left, v, right)).toBe(0);
+    expect(rimOf(up, v, right)).toBe(0);
+    // With the eye within 60 degrees of the stage's way from the figure, as from the stage or beside it, no face takes any: tried for
+    // every face the eye sees, from a sphere of ways.
+    let most = 0;
+    for (let a = 0; a <= 60; a += 5) for (let k = 0; k < 400; k++) {
+      const t = (Math.PI * a) / 180, toStage = [Math.sin(t), 0, Math.cos(t)];
+      const z = 1 - (2 * (k + 0.5)) / 400, r = Math.sqrt(1 - z * z), phi = k * 2.399963, n = [r * Math.cos(phi), r * Math.sin(phi), z];
+      if (dot3(n, v) >= 0) most = Math.max(most, rimOf(n, v, toStage));
+    }
+    expect(most).toBe(0);
+    // And it is as bright as uRim, which the night sets (crowd.rim), whatever the face.
+    for (const share of [0, 0.45, 0.6, 1]) expect(rimOf(up, v, back, RIM * share)).toBeCloseTo(RIM * share, 12);
+  });
+
+  it("never makes a swing of the flash counter's by itself: at its brightest the rim adds under a tenth of white's luminance to a pixel", () => {
+    // The counter counts a block's change of 0.1 in relative luminance (scripts/flash). The rim is added light, so it is at its
+    // brightest where a face is edge-on and the stage straight behind; its colour is RIM_TINT, as the shader writes it.
+    expect(rimLines).toContain(`vec3(${RIM_TINT.map((c: number) => c.toFixed(4)).join(", ")})`);
+    let most = 0;
+    for (let facing = 0; facing <= 1; facing += 0.05) for (let stageward = -1; stageward <= 1; stageward += 0.05) for (let behind = -1; behind <= 1; behind += 0.05) {
+      most = Math.max(most, runRim(RIM, facing, stageward, behind));
+    }
+    expect(most).toBeCloseTo(RIM, 12);
+    const brightest = most * light({ r: RIM_TINT[0], g: RIM_TINT[1], b: RIM_TINT[2] });
+    expect(brightest).toBeLessThan(0.1);
+    // And bright enough to show on a dark figure at night: over four times the light the brightest colour a figure may wear sends
+    // back under the deep night's sky (a tenth of a unit's sky light, the hemisphere's at its 0.15 gain).
+    expect(brightest).toBeGreaterThan(4 * MOST * 0.1);
+  });
+
+  it("draws each figure's rim as an edge: from the hill its outline is lit and its middle barely, and from the side the stage's side alone", () => {
+    // Every figure of the fixed day's crowds, desktop and phone, at rest, drawn alone by a depth-tested raster that culls the faces
+    // turned away, as the GPU's front side does, each pixel the rim its face takes, the face flat as three's flat shading has it.
+    // The eye at the hill's test pose (?pose=crowd), FIRST_EYE high, and the stage at RIM_TO: each figure's ways to them. A pixel of
+    // the outline has a neighbour that shows none of the figure.
+    const [hx, hz] = [TEST_POSES.crowd.x, TEST_POSES.crowd.z], eye = [hx, height(hx, hz) + 3.2, hz];
+    const unit = (a: number[]) => { const l = Math.hypot(...a); return a.map((c) => c / l); };
+    const cross3 = (a: number[], b: number[]) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const N = 64;
+    const drawn = (c: typeof crowd, side: boolean) => {
+      const position = c.figure.getAttribute("position"), mark = c.figure.getAttribute("aMark"), corners: Vertex[] = [];
+      for (let k = 0; k < position.count; k++) corners.push({ x: position.getX(k), y: position.getY(k), z: position.getZ(k), mark: vec(mark, k) });
+      return figuresOf(c).map((f) => {
+        const s = f.size!, p = f.place!, middle = [p.x, p.y + 0.5 * s.y, p.z], toStage = unit(RIM_TO.map((q: number, j: number) => q - middle[j]));
+        // From the side: the eye level with the figure, square to the stage's way across the ground.
+        const toEye = side ? unit([-toStage[2], 0, toStage[0]]) : unit(eye.map((q, j) => q - middle[j]));
+        const ahead = toEye.map((q) => -q), across = unit(cross3(ahead, [0, 1, 0])), over = cross3(across, ahead);
+        const toWorld = (q: Xyz) => {
+          const cc = Math.cos(s.z), ss = Math.sin(s.z), wide = q.x * s.x, deep = q.z * s.x;
+          return [cc * wide + ss * deep, s.y * q.y, -ss * wide + cc * deep];
+        };
+        const tris: { at: number[][]; rim: number }[] = [];
+        for (let k = 0; k < corners.length; k += 3) {
+          if (!wears(f, corners[k])) continue;
+          const tri = [0, 1, 2].map((j) => toWorld({ ...put(f, corners[k + j], { beat: 0, dance: 0 }) }));
+          const n = cross3(tri[1].map((q, j) => q - tri[0][j]), tri[2].map((q, j) => q - tri[0][j])), length = Math.hypot(...n);
+          if (length < 1e-12 || dot3(n, toEye) <= 0) continue;
+          tris.push({ at: tri.map((q) => [dot3(q, across), dot3(q, over), dot3(q, ahead)]), rim: rimOf(n.map((q) => q / length), toEye, toStage) });
+        }
+        const xs = tris.flatMap((t) => t.at.map((q) => q[0])), ys = tris.flatMap((t) => t.at.map((q) => q[1]));
+        const x0 = Math.min(...xs), y0 = Math.min(...ys), span = Math.max(Math.max(...xs) - x0, Math.max(...ys) - y0) * 1.02, px = N / span;
+        const depth = new Float64Array(N * N).fill(Infinity), rim = new Float64Array(N * N);
+        for (const t of tris) {
+          const on = t.at.map((q) => [(q[0] - x0) * px, (q[1] - y0) * px, q[2]]);
+          const area = (a: number[], b: number[], c2: number[]) => (b[0] - a[0]) * (c2[1] - a[1]) - (b[1] - a[1]) * (c2[0] - a[0]), whole = area(on[0], on[1], on[2]);
+          if (Math.abs(whole) < 1e-12) continue;
+          const bx0 = Math.max(0, Math.floor(Math.min(...on.map((q) => q[0])))), bx1 = Math.min(N - 1, Math.ceil(Math.max(...on.map((q) => q[0]))));
+          const by0 = Math.max(0, Math.floor(Math.min(...on.map((q) => q[1])))), by1 = Math.min(N - 1, Math.ceil(Math.max(...on.map((q) => q[1]))));
+          for (let y = by0; y <= by1; y++) for (let x = bx0; x <= bx1; x++) {
+            const at2 = [x + 0.5, y + 0.5], b = [area(on[1], on[2], at2) / whole, area(on[2], on[0], at2) / whole, area(on[0], on[1], at2) / whole];
+            if (b[0] < 0 || b[1] < 0 || b[2] < 0) continue;
+            const d = b[0] * on[0][2] + b[1] * on[1][2] + b[2] * on[2][2];
+            if (d < depth[y * N + x]) { depth[y * N + x] = d; rim[y * N + x] = t.rim; }
+          }
+        }
+        // The outline's pixels and the rest; and, from the side, the outline on the stage's side of the figure's middle and on the
+        // far side.
+        const seen = (x: number, y: number) => x >= 0 && y >= 0 && x < N && y < N && depth[y * N + x] < Infinity;
+        const towardStage = dot3(toStage, across) > 0, mid = -x0 * px;
+        const sums = { edge: [0, 0], inner: [0, 0], near: [0, 0], far: [0, 0], patch: 0 };
+        for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+          if (!seen(x, y)) continue;
+          const r = rim[y * N + x] / RIM, outline = !seen(x - 1, y) || !seen(x + 1, y) || !seen(x, y - 1) || !seen(x, y + 1);
+          const bin = outline ? sums.edge : sums.inner;
+          bin[0] += r; bin[1] += 1;
+          if (!outline && r > 0.25) sums.patch += 1;
+          if (outline) { const which = (x + 0.5 > mid) === towardStage ? sums.near : sums.far; which[0] += r; which[1] += 1; }
+        }
+        const mean = ([sum, count]: number[]) => (count ? sum / count : 0);
+        return { edge: mean(sums.edge), inner: mean(sums.inner), patch: sums.patch / sums.inner[1], near: mean(sums.near), far: mean(sums.far) };
+      });
+    };
+    const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+    const { desktop, phone: small } = SHOWS[0];
+    for (const [tier, c] of [["desktop", desktop], ["phone", small]] as const) {
+      const hill = drawn(c, false), side = drawn(c, true);
+      const edge = median(hill.map((h) => h.edge)), inner = median(hill.map((h) => h.inner));
+      // From the hill the middle figure's outline takes over three times what the rest of it does, and 5.5 % of the rim on the mean
+      // (measured 6.9 % on a desktop and 6.1 % on a phone, against 1.2 % within on both). Its flat faces light whole, but those that
+      // light are the ones the eye sees edge-on, so narrow: of the pixels within the outline, a figure has a median of under 1 % at
+      // over a quarter of the rim (0.5 % and 0.4 %), and the most 12 % and 5.5 %. At RIM_EDGE 3 the outline took 9.5 %, but the
+      // middle 2.1 % and the most 16 %; at 5, the outline only 5.2 %.
+      expect([tier, edge > 3 * inner, edge > 0.055]).toEqual([tier, true, true]);
+      expect([tier, median(hill.map((h) => h.patch)) < 0.01, Math.max(...hill.map((h) => h.patch)) < 0.15]).toEqual([tier, true, true]);
+      // From the side, the outline on the stage's side takes over ten times what the far side's does (measured 4.9 % and 4.5 % of
+      // the rim, against 0.1 %), and less than the outline from the hill.
+      const near = median(side.map((h) => h.near)), far = median(side.map((h) => h.far));
+      expect([tier, near > 10 * far, near < edge, median(side.map((h) => h.edge)) < edge]).toEqual([tier, true, true, true]);
+    }
   }, 60000);
 
   it("lays a seated figure's foot along the ground as it falls ahead of its seat, and a standing figure's along the ground it stands on", () => {

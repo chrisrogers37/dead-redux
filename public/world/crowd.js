@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { MOVE as STEP, SLOW, STRUM } from "./band.js";
-import { height, STAGE, STAGE_COLUMN, TEST_POSES } from "./ground.js";
+import { height, SHELF_Y, STAGE, STAGE_COLUMN, TEST_POSES } from "./ground.js";
 import { gathering, keepOuts, parting, PERSON, seats, wholeGroups } from "./seats.js";
 
 /* The crowd on the hill: a few hundred people, no two of them alike, faceless and dark like the band's silhouettes, on the slope in
@@ -1389,6 +1389,29 @@ float putX = aPlace.x + turnC * wide + turnS * deep + aPart.x, putY = aPlace.y +
 vec4 mvPosition = modelViewMatrix * vec4(putX, putY, putZ, 1.0);
 gl_Position = projectionMatrix * mvPosition;`;
 
+/* The rim: a thin edge of light on each figure's stage side, as a stage lights a crowd from behind, which parts the figures from
+   one another and from the ground at night. It is light added to what the figure reflects, and the night alone gives it: RIM at
+   the deep of the night, and less as the night is less dark, down to RIM_LEAST of it where the night is not dark at all (`rim`,
+   which main.js hands the look's `dark`, night.js). So in the last light, when the stage's lights are on but the sky is bright, a
+   figure alone in the open keeps a faint edge, and at night the whole crowd is outlined. Nothing of the music moves it, nor the
+   beat, the rig, the stage's own light or the map, so it holds still while the figures dance; and the beams still light no figure
+   (main.js). A face takes it as far as it stands edge-on to the eye, its facing to the power RIM_EDGE; and as far as the stage
+   stands behind the figure from the eye (behind), or, seen from the side, as the face turns to the stage (stageward, RIM_SIDE of
+   it). So from the hill, the stage beyond the figures, their outlines are lit all round; from the side, only the stage's side,
+   and fainter; and from the stage, which stands before them, nothing. RIM_TO is the stage's middle at its lit panel's height
+   (stage.js PANEL), RIM_TINT a warm white. At its brightest the rim adds under a tenth of full white's luminance to a pixel, so
+   that it never makes one of the flash counter's swings by itself (crowd.test.ts). Its weight is written in plain numbers, after
+   a line that takes the three dot products, so that the unit tests run it. */
+export const RIM = 0.1, RIM_LEAST = 0.45, RIM_EDGE = 4, RIM_SIDE = 0.5, RIM_TINT = [1, 0.74, 0.46], RIM_TO = [STAGE[0], SHELF_Y + 3.7, STAGE[1]];
+/* Before opaque_fragment, where the light the face reflects is summed: its normal in the view's space (`normal`, which three's flat
+   shading takes from the face's own plane), and the way to the eye (`vViewPosition`). */
+const RIM_LIGHT = `
+vec3 toEye = normalize(vViewPosition), toStage = normalize((viewMatrix * vec4(uStage, 1.0)).xyz + vViewPosition);
+float facing = dot(normal, toEye), stageward = dot(normal, toStage), behind = -dot(toEye, toStage);
+float rimLit = uRim * pow(1.0 - clamp(facing, 0.0, 1.0), ${f(RIM_EDGE)}) * clamp(behind + ${f(RIM_SIDE)} * stageward, 0.0, 1.0);
+outgoingLight += rimLit * vec3(${RIM_TINT.map(f).join(", ")});
+`;
+
 /* Builds the crowd: at most `count` figures, on whole groups of the day's gathering (`seed`, seats.js) in the order it thins them,
    none of a group cut by the path, the bears' line or a circle round each landmark's bounds. It reads those bounds, so it runs before the landmarks merge
    (landmarks.js) empties them. Each figure faces the way its seat does, and is its own person (people): the standard figure stands
@@ -1417,7 +1440,7 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
   const n = placed.length;
   const figure = figureGeometry(plain);
   const scale = PERSON / TALL, big = scale * 1.08;
-  const uniforms = { uBeat: { value: 0 }, uDance: { value: 0 }, uRise: { value: 0 }, uSit: { value: 0 } };
+  const uniforms = { uBeat: { value: 0 }, uDance: { value: 0 }, uRise: { value: 0 }, uSit: { value: 0 }, uRim: { value: 0 }, uStage: { value: new THREE.Vector3(...RIM_TO) } };
   const mat = new THREE.MeshLambertMaterial({ flatShading: true, vertexColors: true });
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
@@ -1426,6 +1449,9 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
       .replace("#include <color_vertex>", `#include <color_vertex>${TONE}`)
       .replace("#include <begin_vertex>", `#include <begin_vertex>${DANCE}`)
       .replace("#include <project_vertex>", PROJECT);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform float uRim;\nuniform vec3 uStage;")
+      .replace("#include <opaque_fragment>", `${RIM_LIGHT}#include <opaque_fragment>`);
   };
   /* The options the parting (below) keeps the figures by, which also bound how broad one in a poncho may be (sized). */
   const opts = partingOptions(scale);
@@ -1607,6 +1633,12 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     uniforms.uSit.value = sit;
   }
 
+  /* Lights the figures' rims for a frame by how dark the night is, `dark` 0-1 (night.js lookAt), and by nothing else: RIM_LEAST of
+     RIM where it is not dark at all, and the whole of it in the deep of the night (RIM). */
+  function rim(dark) {
+    uniforms.uRim.value = RIM * (RIM_LEAST + (1 - RIM_LEAST) * dark);
+  }
+
   /* Moves the figures round the visitor for a frame `dt` s long, the visitor's bear standing with its feet and head at `feet` and `head`
      (avatar.js), at once under reduced motion; the two attributes go up only in a frame where a figure moved or eased its arms, and
      only at that figure's corners. */
@@ -1642,6 +1674,6 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     return seen;
   }
 
-  return { mesh, each, figure, corners, faces, count: n, ground, get shown() { return shown; }, pose, part, show, cull, over: parts.over, ahead: parts.ahead, hold: parts.hold,
+  return { mesh, each, figure, corners, faces, count: n, ground, get shown() { return shown; }, pose, rim, part, show, cull, over: parts.over, ahead: parts.ahead, hold: parts.hold,
     get parted() { return parts.parted; } };
 }
