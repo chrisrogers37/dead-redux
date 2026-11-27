@@ -8,13 +8,17 @@ import * as THREE from "three";
 
 /* The lamps, in the stage's own frame (stage.js: +z toward the crowd): BEAMS of them along the roof's front edge, from -SPAN to SPAN m,
    just under it. */
-const BEAMS = 8, SPAN = 7.5, LAMP_Y = 7.9, LAMP_Z = 4.3;
+export const BEAMS = 8;
+const SPAN = 7.5, LAMP_Y = 7.9, LAMP_Z = 4.3;
 /* A beam: a cone LENGTH m long, R0 m in radius at its lamp and R1 at its end, which fades to nothing along it. */
 const LENGTH = 44, R0 = 0.2, R1 = 3, SIDES = 12;
 /* The fan at rest: the beams spread from -SPREAD to SPREAD rad across, every other one lower (EL_LOW) or higher (EL_HIGH), in rad above
    level. At those angles a beam's lower edge stays above the reach of a figure's raised hands everywhere along it, over the whole of
    its swing. */
 const SPREAD = 0.7, EL_LOW = 0.45, EL_HIGH = 0.7;
+/* Lamp `i`'s place, and the way its beam points at rest: its azimuth from the stage's facing and its elevation, in rad. The rig hangs
+   its beams by it, and the arena's stage a clamp straight over each lamp (stage.js). */
+export const lampOf = (i) => ({ x: -SPAN + (2 * SPAN * i) / (BEAMS - 1), y: LAMP_Y, z: LAMP_Z, az: SPREAD * ((2 * i) / (BEAMS - 1) - 1), el: i % 2 ? EL_HIGH : EL_LOW });
 /* On the figures' beat each beam swings out SWAY rad to either side and back once every eight beats, and tilts TILT rad up and down two
    beats behind its swing, so it draws a loop; each is at its widest on a beat, the next beam along the rig a beat after it, so a ripple
    runs along the rig once every eight beats. Nothing in the rig goes faster: at the top of the figures' range (160 a minute, beat.js) a
@@ -87,7 +91,7 @@ void main() {
 export function buildRig(group, { uC0, uC1 }) {
   const geo = new THREE.CylinderGeometry(R0, R1, LENGTH, SIDES, 1, true).translate(0, -LENGTH / 2, 0).rotateX(-Math.PI / 2);
   const beam = new Float32Array(3 * BEAMS);
-  for (let i = 0; i < BEAMS; i++) beam.set([SPREAD * ((2 * i) / (BEAMS - 1) - 1), i % 2 ? EL_HIGH : EL_LOW, i], 3 * i);
+  for (let i = 0; i < BEAMS; i++) beam.set([lampOf(i).az, lampOf(i).el, i], 3 * i);
   geo.setAttribute("aBeam", new THREE.InstancedBufferAttribute(beam, 3));
   /* What aims and lights the beams, which the frame writes here: the figures' phase (beat.js), kept to eight beats, the swing's cycle,
      for the shader's precision; how far the rig is lit, 0 dark to 1 lit; how far the beams swing; the build-up before a peak as it acts
@@ -101,7 +105,7 @@ export function buildRig(group, { uC0, uC1 }) {
     blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
   const mesh = new THREE.InstancedMesh(geo, mat, BEAMS);
   const m = new THREE.Matrix4();
-  for (let i = 0; i < BEAMS; i++) mesh.setMatrixAt(i, m.makeTranslation(-SPAN + (2 * SPAN * i) / (BEAMS - 1), LAMP_Y, LAMP_Z));
+  for (let i = 0; i < BEAMS; i++) mesh.setMatrixAt(i, m.makeTranslation(lampOf(i).x, lampOf(i).y, lampOf(i).z));
   /* Every beam stays within its length and its width of its lamp, and every lamp within SPAN of the rig's middle, whatever the aim, so the
      mesh culls against the camera without measuring its moving beams. */
   mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, LAMP_Y, LAMP_Z), SPAN + LENGTH + R1);
