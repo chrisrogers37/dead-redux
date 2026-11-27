@@ -420,33 +420,69 @@ describe("the arena's stage", () => {
 
   // The side-fills and the backline stand on the platform's floor, 1.2 m over the shelf and 9 m out to the corners of its sixteen
   // sides (stage.js FLOOR), and nothing new stands at the front of the platform where the PA stacks stood on the ground: what is new
-  // under the flown PA, but for the towers in the posts' place, stands on the floor.
-  it("stands its side-fills and its backline on the platform's floor, and nothing new on the ground: every new corner under 5 m but the towers' is on or over the floor and inside its edge", () => {
+  // under the flown PA, but for the towers in the posts' place, stands on the floor. And each of its parts rests on what is under it:
+  // straight down from the middle of each of their faces that faces down, from a millimetre inside it, the first thing a ray meets
+  // is within 2 mm of where it starts, the floor or the part under it (a cabinet under a cabinet, an amplifier under its head), so
+  // that none floats over the floor or another part by as much as a millimetre.
+  it("stands its side-fills and its backline on the platform's floor, each part resting on what is under it to the millimetre, and nothing new on the ground: every new corner under 5 m but the towers' is on or over the floor and inside its edge", () => {
     const key = (p: { x: number; y: number; z: number }) => [p.x, p.y, p.z].map((v) => v.toFixed(4)).join(" ");
     const roofs = new Set(corners(stageFor().still).map(key));
     const tower = (p: { x: number; z: number }) => Math.abs(Math.abs(p.x) - 8) <= 0.3 + 1e-6 && Math.abs(p.z - 4) <= 0.3 + 1e-6;
-    const low = corners(stageFor(ARENA_DAY).still).filter((p) => p.y < 5 && !roofs.has(key(p)) && !tower(p));
+    const { built, still } = stageFor(ARENA_DAY), at = corners(still);
+    const low = at.filter((p) => p.y < 5 && !roofs.has(key(p)) && !tower(p));
     // The floor's edge: the sixteen sides of the platform's top, their corners FLOOR_R m out at every sixteenth of a turn from +z.
     const reach = (p: { x: number; z: number }) => Math.max(...Array.from({ length: 16 }, (_, k) => { const a = ((k + 0.5) / 16) * 2 * Math.PI; return p.x * Math.sin(a) + p.z * Math.cos(a); }));
     expect(low.length).toBeGreaterThan(0);
     expect(low.filter((p) => p.y < 1.2 - 1e-6 || reach(p) > 9 * Math.cos(Math.PI / 16) + 1e-6)).toEqual([]);
     // Both wings have them.
     expect([low.some((p) => p.x < -7), low.some((p) => p.x > 7)]).toEqual([true, true]);
+    // The new triangles under 5 m that face down, but the towers', which stand in the platform as the posts did.
+    const P = (i: number) => new THREE.Vector3(at[i].x, at[i].y, at[i].z), ray = new THREE.Raycaster(), down = new THREE.Vector3(0, -1, 0);
+    const feet = Array.from({ length: at.length / 3 }, (_, k) => 3 * k).filter((t) => {
+      const ps = [t, t + 1, t + 2].map((i) => at[i]);
+      if (ps.some((p) => p.y >= 5 || tower(p)) || ps.every((p) => roofs.has(key(p)))) return false;
+      const [a, b, c] = [t, t + 1, t + 2].map(P);
+      return b.clone().sub(a).cross(c.clone().sub(a)).normalize().y < -0.999;
+    });
+    // Two to a face: a side-fill's four cabinets and an amplifier's cabinet and head, at each wing.
+    expect([feet.length, feet.filter((t) => at[t].x < 0).length]).toEqual([2 * (2 * 4 + 3 * 2), 2 * (4 + 2 * 2)]);
+    for (const t of feet) {
+      const middle = P(t).add(P(t + 1)).add(P(t + 2)).divideScalar(3);
+      ray.set(middle.clone().setY(middle.y + 0.001).applyMatrix4(built.group.matrixWorld), down);
+      const hit = ray.intersectObject(still)[0];
+      expect([t, middle.y.toFixed(3), hit !== undefined && hit.distance <= 0.002]).toEqual([t, middle.y.toFixed(3), true]);
+    }
   });
 
-  it("hangs every lamp of the rig where the roof's stage hangs it, with a clamp of the truss's grey straight over each, 2 cm over it, and nothing under any lamp", () => {
+  // The clamps, read by rays straight up from the lamps' height every 2 mm across each lamp, along the stage's x and its z: a ray
+  // that meets the truss's grey 3 cm up meets a clamp. Each clamp's middle is its lamp's, to the step, and it is 14 cm wide and 20 cm
+  // deep (stage.js CLAMP).
+  it("hangs every lamp of the rig where the roof's stage hangs it, with a clamp of the truss's grey 3 cm straight over it, the lamp at the clamp's middle, and nothing under any lamp", () => {
     const { built, still } = stageFor(ARENA_DAY), roof = stageFor("1990-02-25"), rig = built.rig.mesh, m = new THREE.Matrix4(), ray = new THREE.Raycaster();
     expect(Array.from(rig.instanceMatrix.array)).toEqual(Array.from(roof.built.rig.mesh.instanceMatrix.array));
     const colour = still.geometry!.getAttribute("color"), grey = new THREE.Color(0x6a665f);
-    const lamps = Array.from({ length: rig.count }, (_, k) => { rig.getMatrixAt(k, m); return new THREE.Vector3().setFromMatrixPosition(m).applyMatrix4(built.group.matrixWorld); });
+    const isGrey = (a: number) => Math.abs(colour.getX(a) - grey.r) + Math.abs(colour.getY(a) - grey.g) + Math.abs(colour.getZ(a) - grey.b) < 1e-5;
+    // The lamps in the stage's own frame, and a ray up from a point of that frame: the distance and the first corner of what it meets.
+    const lamps = Array.from({ length: rig.count }, (_, k) => { rig.getMatrixAt(k, m); return new THREE.Vector3().setFromMatrixPosition(m); });
     expect(lamps).toHaveLength(8);
+    const up = (p: THREE.Vector3) => {
+      ray.set(p.clone().applyMatrix4(built.group.matrixWorld), new THREE.Vector3(0, 1, 0));
+      return ray.intersectObject(still)[0] as unknown as { distance: number; face: { a: number } } | undefined;
+    };
+    const clamp = (lamp: THREE.Vector3, along: THREE.Vector3) => {
+      const on: number[] = [];
+      for (let k = -75; k <= 75; k++) {
+        const hit = up(lamp.clone().addScaledVector(along, k * 0.002));
+        if (hit && Math.abs(hit.distance - 0.03) < 1e-4 && isGrey(hit.face.a)) on.push(k * 0.002);
+      }
+      return { from: Math.min(...on), to: Math.max(...on), runs: on.every((d, i) => i === 0 || Math.abs(d - on[i - 1] - 0.002) < 1e-9) };
+    };
     for (const [k, lamp] of lamps.entries()) {
-      ray.set(lamp, new THREE.Vector3(0, 1, 0));
-      const hit = ray.intersectObject(still)[0] as unknown as { distance: number; face: { a: number } };
-      const shade = [colour.getX(hit.face.a), colour.getY(hit.face.a), colour.getZ(hit.face.a)];
-      expect([k, hit.distance]).toEqual([k, expect.closeTo(0.03, 5)]);
-      expect([k, shade]).toEqual([k, [expect.closeTo(grey.r, 5), expect.closeTo(grey.g, 5), expect.closeTo(grey.b, 5)]]);
-      ray.set(lamp, new THREE.Vector3(0, -1, 0));
+      for (const [axis, along, size] of [["x", new THREE.Vector3(1, 0, 0), 0.14], ["z", new THREE.Vector3(0, 0, 1), 0.2]] as const) {
+        const { from, to, runs } = clamp(lamp, along);
+        expect([k, axis, runs, Math.abs((from + to) / 2) <= 0.002, Math.abs(to - from - size) <= 0.004]).toEqual([k, axis, true, true, true]);
+      }
+      ray.set(lamp.clone().applyMatrix4(built.group.matrixWorld), new THREE.Vector3(0, -1, 0));
       ray.far = 7.9 - 1.2 - 0.01;
       expect([k, ray.intersectObject(still).length]).toEqual([k, 0]);
       ray.far = Infinity;
@@ -533,7 +569,7 @@ describe("the arena's stage", () => {
 
   it("stands the backline at the wings: the lead guitar's and the bass's amplifiers at the crowd's left, where they stand, and the rhythm guitar's at its right, each a grille under a head, facing across the stage and turned to the crowd, and none in front of the band", () => {
     const { still } = stageFor(ARENA_DAY), at = corners(still), colour = still.geometry!.getAttribute("color");
-    const grille = new THREE.Color(0x5a544c);
+    const grille = new THREE.Color(0x635c53);
     const tris = Array.from({ length: at.length / 3 }, (_, k) => 3 * k).filter((t) => [t, t + 1, t + 2].some((i) => Math.abs(colour.getX(i) - grille.r) + Math.abs(colour.getY(i) - grille.g) + Math.abs(colour.getZ(i) - grille.b) < 1e-5));
     // Each grille is the middle of one face, eight triangles of its frame and two of its middle; the faces stand apart.
     const middles: THREE.Vector3[] = [];
@@ -550,10 +586,10 @@ describe("the arena's stage", () => {
     expect(middles.every((m) => Math.abs(m.x) > 7.5 && m.z < 1)).toBe(true);
   });
 
-  // Nothing lit is new on the arena's stage: what is lit is the roof's stage's own, and its new parts are the stage's dark and four
-  // shades that the stage light and the sun light as they light the rest: the truss's grey, the towers' cores, the grilles, the seams
-  // and the speakers. What changes is what the lit parts are seen against, the truss's open webs in place of the roof's front.
-  it("changes nothing lit: the panel, the stage light and the rig are the roof's stage's, and the arena's still parts are the stage's own dark and wood, the truss's grey, a dark grey for the towers' cores, the grilles' and the PA's seams and speakers, in the one still mesh, which glows nowhere; and nothing else of the stage's group is new", () => {
+  // Nothing lit is new on the arena's stage: what is lit is the roof's stage's own, and its new parts are the stage's dark, the posts'
+  // stone (the towers' cores) and four shades that the stage light and the sun light as they light the rest: the truss's grey, the
+  // grilles, the seams and the speakers. What changes is what the lit parts are seen against, the truss's open webs in place of the roof's front.
+  it("changes nothing lit: the panel, the stage light and the rig are the roof's stage's, and the arena's still parts are the stage's own dark, wood and stone (the towers' cores, the posts' stone), the truss's grey, the grilles' and the PA's seams and speakers, in the one still mesh, which glows nowhere; and nothing else of the stage's group is new", () => {
     // The roof's stage on the first show after the arena's, whose line-up is the fixed day's.
     const roof = stageFor("1990-02-25"), arena = stageFor(ARENA_DAY);
     expect(lineupOn("1990-02-25").roles).toEqual(lineupOn(ARENA_DAY).roles);
@@ -575,13 +611,25 @@ describe("the arena's stage", () => {
     const key = (hex: number) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b].map((v) => v.toFixed(5)).join(" "); };
     const roofs = colours(roof.still), arenas = colours(arena.still);
     expect([...roofs].sort()).toEqual([0x1a1816, 0x6b4e2e, 0x8e8a82].map(key).sort());
-    expect([...arenas].sort()).toEqual([0x1a1816, 0x6b4e2e, 0x6a665f, 0x47433e, 0x5a544c, 0x2e2a26, 0x0b0a09].map(key).sort());
+    expect([...arenas].sort()).toEqual([0x1a1816, 0x6b4e2e, 0x8e8a82, 0x6a665f, 0x635c53, 0x2e2a26, 0x0b0a09].map(key).sort());
     const kinds = (built: { group: Obj }) => {
       const out: string[] = [];
       built.group.traverse((o: Obj) => { if (o.isMesh || o.isLight) out.push(`${o.isInstancedMesh ? "instanced " : ""}${o.isLight ? "light" : o.material!.type}`); });
       return out;
     };
     expect(kinds(arena.built)).toEqual(kinds(roof.built));
+  });
+
+  // The outline gates draw a still part with no channel at 0.05 or over as the stage's black, and hold the band two pixels clear of it
+  // (band-outline.ts). A shade just over that line would pass the gates while it read as dark as the black: so every shade of each
+  // stage is under the line or at least twice it. On the arena's stage the band stands within two pixels of the towers' stone and
+  // the truss's grey (the seven of 1974 to 1979's pianist, from among the crowd, as of the post on the Wall).
+  it("keeps every shade of each stage's still mesh clear of the outline gates' line for the stage's black: under 0.05 in linear light, or 0.1 and over", () => {
+    for (const date of [undefined, WALL_DAY, ARENA_DAY]) {
+      const c = stageFor(date).still.geometry!.getAttribute("color"), shades = new Map<string, number>();
+      for (let i = 0; i < c.count; i++) shades.set([c.getX(i), c.getY(i), c.getZ(i)].map((v) => v.toFixed(5)).join(" "), Math.max(c.getX(i), c.getY(i), c.getZ(i)));
+      for (const [shade, most] of shades) expect([date, shade, most < 0.05 || most >= 0.1]).toEqual([date, shade, true]);
+    }
   });
 
   // As the Wall's: the still mesh is one (landmarks.js mergeStill), so what the arena's stage adds is triangles, on every tier alike.

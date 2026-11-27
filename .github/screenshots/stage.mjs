@@ -1,6 +1,7 @@
-// The stage's stills on a day of the Wall of Sound (public/world/stage.js STAGES), the one stage of the era table that no other day of
-// the shoot stands on: the fixed day's show, 1986-07-04, stands on the arena's stage, which its stills of the stage, the crowd and the
-// band show, as does 2026-05-10's, 1977-XX-XX, and the other days' shows on the roof's stage. It is taken from the back of the crowd
+// The stage's stills on a day of the Wall of Sound (public/world/stage.js STAGES). This file shoots only the Wall's day. Of the era
+// table's other stages, the arena's stands on two of the shoot's days, which are shot elsewhere in shoot.mjs: the fixed day, whose show
+// is 1986-07-04, in its stills of the stage, the crowd and the band; and 2026-05-10, whose show is the catalog's 1977-XX-XX, a 1977
+// recording from various venues. The shoot's other days stand on the roof's stage. The Wall is taken from the back of the crowd
 // (?pose=crowd) and from among it (?pose=among), as the fixed day's stage is, and from the front of the crowd, where the band's stills
 // stand (band.mjs), in first person with the HUD's shelves put away, so the Wall is seen whole at the size a visitor at the front sees
 // it; on a desktop and on a phone. The pages only load and shoot: no 1974 show has a map yet (public/maps), so none plays, and the

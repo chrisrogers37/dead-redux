@@ -88,7 +88,7 @@ const END_AT = [WALL_COLS * TOP_W / 2, TOP_Z], END_TURN = 0.61, END_R = 0.22;
 
 /* The arena's stage, in the stage's own frame: the roof's stage with no PA stacks on the ground, and
 
-   - in the posts' place, a tower of the truss's (tower), round a core of a dark grey (CORE_C), CORE m inside its chords;
+   - in the posts' place, a tower of the truss's (tower), round a core of the posts' stone, CORE m inside its chords;
    - over the front, the lighting truss: the roof's front TRUSS_D m, its height and thickness, a box truss in place of the roof's slab,
      reaching TRUSS_X m out to either side, past the roof's ends, in the truss's grey (TRUSS): a chord CHORD m square along each edge,
      on its front and its top a zigzag of webs WEB m square from chord to chord, a bay BAY m or so long, and between its bottom chords
@@ -115,13 +115,17 @@ const END_AT = [WALL_COLS * TOP_W / 2, TOP_Z], END_TURN = 0.61, END_R = 0.22;
    edges shading to the dark BEVEL m in; on it, PROUD m proud and in the speakers' shade, a horn's mouth HORN[0] of its width across
    and HORN[1] of its height high, HORN[2] of its height over its middle, and under it a woofer, a disc WOOFER of its width across,
    WOOFER_SIDES sided. An amplifier's cabinet is AMP[0] wide, AMP[1] high and AMP[2] deep, its face a grille of GRILLE in a frame of
-   the dark; its head AMP[3] high and as wide and deep, its face a strip of the truss's grey (its panel) in a frame of the dark. */
+   the dark; its head AMP[3] high and as wide and deep, its face a strip of the truss's grey (its panel) in a frame of the dark.
+
+   Each of its shades is either the stage's black to the outline gates, under 0.05 in linear light (the dark, the seams and the
+   speakers), or at least twice that (the truss's grey 0.144, the grilles' 0.125, the posts' stone 0.27 and the platform's wood
+   0.147), so that the band keeps its outline against what is near it by contrast and not by a hair (band-outline.ts, stage.test.ts). */
 const TRUSS = 0x6a665f, TRUSS_D = 0.6, TRUSS_X = 9.9, CHORD = 0.08, WEB = 0.05, BAY = 0.5, ROOF_UNDER = 7.95, ROOF_TOP = 8.45;
-const CLAMP = [0.14, 0.2, 0.02], CORE = 0.02, CORE_C = 0x47433e;
+const CLAMP = [0.14, 0.2, 0.02], CORE = 0.02;
 const CAB = [0.6, 0.78, 0.6], HORN = [0.6, 0.18, 0.3], WOOFER = 0.7, WOOFER_SIDES = 12;
 const FLY_COLS = 2, FLY_ROWS = 3, FLY_HANG = 0.25, FLY_AT = [9.1, 4.05], FLY_DOWN = 0.12, FLY_IN = 0.15;
 const SIDE_COLS = 2, SIDE_ROWS = 2, SIDE_AT = [7.76, 2.7];
-const AMP = [0.8, 0.95, 0.45, 0.3], GRILLE = 0x5a544c, AMP_TURN = 0.35;
+const AMP = [0.8, 0.95, 0.45, 0.3], GRILLE = 0x635c53, AMP_TURN = 0.35;
 const AMPS = [{ role: "lead", at: [-8.25, -1.05] }, { role: "bass", at: [-8.45, 0.25] }, { role: "rhythm", at: [8.45, -0.85] }];
 
 /* Builds the stage. With `shadows` the sun casts the desktop's one shadow map, framed on the stage alone. `panelMat` is the light panel's
@@ -213,9 +217,9 @@ const STILL = {
 
 /* The arena's stage (TRUSS and the rest): the roof's slab behind the truss and its back wall, the truss and its clamps, and at each side
    the flown PA, the side-fill and the backline. */
-STILL.arena = function arena(still, group, { dark }) {
+STILL.arena = function arena(still, group, { dark, stone }) {
   const grey = new THREE.MeshLambertMaterial({ color: TRUSS, flatShading: true });
-  for (const x of [-8, 8]) tower(still, grey, x);
+  for (const x of [-8, 8]) tower(still, grey, stone, x);
   const mats = { dark, seam: new THREE.Color(SEAM), speaker: new THREE.MeshLambertMaterial({ color: SPEAKER, flatShading: true }) };
   const front = [4.5 - TRUSS_D, 4.5], under = ROOF_UNDER - CLAMP[2] + CHORD / 2;
   still.add(mesh(new THREE.BoxGeometry(18, ROOF_TOP - ROOF_UNDER, 9 - TRUSS_D), dark, 0, (ROOF_UNDER + ROOF_TOP) / 2, -TRUSS_D / 2));
@@ -274,16 +278,16 @@ function bake(still, group) {
 }
 
 /* A tower of box truss in the posts' place, the post's width and as high as the truss's bottom, round a core, so that it stands in the
-   way of what the post stood in the way of: a truss on end (truss), its webs on all four faces, round a core of CORE_C. The core is a
-   dark grey and not the stage's dark, as the post was stone, so that a player seen beside it keeps an outline against it
-   (band-outline.ts), as the seven of 1974 to 1979's pianist is from among the crowd. */
-function tower(still, grey, x) {
-  const core = new THREE.MeshLambertMaterial({ color: CORE_C, flatShading: true });
+   way of what the post stood in the way of: a truss on end (truss), its webs on all four faces in the truss's grey, round a core of the
+   post's own stone, CORE m inside the chords. A player seen beside the tower is seen against the stone and the grey as against the
+   post, which is no part of the stage's black (band-outline.ts): the seven of 1974 to 1979's pianist, from among the crowd, stands
+   within two pixels of it, as of the post. */
+function tower(still, grey, stone, x) {
   const t = new THREE.Group(), r = 0.3;
   t.position.set(x, 0, 4);
   t.rotation.z = Math.PI / 2;
   truss(t, grey, 0, ROOF_UNDER, [-r, r], [-r, r], ["front", "back", "top", "bottom"]);
-  t.add(mesh(new THREE.BoxGeometry(ROOF_UNDER, 2 * r - 2 * CORE, 2 * r - 2 * CORE), core, ROOF_UNDER / 2, 0, 0));
+  t.add(mesh(new THREE.BoxGeometry(ROOF_UNDER, 2 * r - 2 * CORE, 2 * r - 2 * CORE), stone, ROOF_UNDER / 2, 0, 0));
   bake(still, t);
 }
 

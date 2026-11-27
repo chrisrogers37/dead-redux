@@ -875,8 +875,9 @@ const FILM_PLACES = process.env.BAND_FILM === "all" ? PHASES : [[0, 0]];
 const FILM_AT = FILM_PLACES.length === 1 ? "at the shoot's own place of the pixel grid" : `at any of ${FILM_PLACES.length} places of the pixel grid`;
 
 /* The stages a line-up stood on (stage.js STAGES): each stage that any row of lineup.js with its roles overlaps, once, named by the first
-   day of the line-up on it, in date order. The six of 1972 to 1974 played on the roof's stage and on the Wall of Sound, and so did
-   the seven of 1974 to 1979, whose first show was the Wall's last. */
+   day of the line-up on it, in date order. The six of 1972 to 1974 played on the roof's stage and on the Wall of Sound; the seven of
+   1974 to 1979, whose first show was the Wall's last, on the Wall and the arena's stage; and the six of 1979 to 1990 on the arena's
+   stage and, from 1990, the roof's. */
 export function stagesOf(roles: string[]) {
   const out: { stage: string; day: string; from: string; to: string }[] = [];
   for (const [from, to, its] of LINEUPS as [string, string, string[]][]) {
@@ -967,9 +968,9 @@ export function outlineChecks(name: string, day: string, bars: Bars = {}) {
       expect([...film().alone].sort()).toEqual([...(bars.apart ?? []), "monitor"].sort());
     }, 120_000);
 
-    // Measured with the six as they stand: four pixels at the closest, from among the crowd on a desktop (the first guitar, by the left
-    // PA stack) and from the back of the crowd at half a phone's pixels (the keys player, by the right of the back wall). In the band
-    // before it the keys' cabinet ran into the back wall's black from the front of the crowd.
+    // Measured with the six as they stand, on the roof's stage: four pixels at the closest, from among the crowd on a desktop (the first
+    // guitar, by the left PA stack) and from the back of the crowd at half a phone's pixels (the keys player, by the right of the back
+    // wall). In the band before it the keys' cabinet ran into the back wall's black from the front of the crowd.
     for (const stage of stages) {
       it(`keeps the band clear of the stage's own black from every camera and at every rung of a phone's${on(stage)}: two pixels of something else at the least between any part of the band and ${STAGE_BLACKS[stage.stage]}`, () => {
         // The band at MOMENTS, fitted to each canvas as main.js fits it: played once a canvas's pixel, from every camera that has it.
