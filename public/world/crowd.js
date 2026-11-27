@@ -501,7 +501,7 @@ export const CYCLE = 8;
 /* The rise before a peak: a figure stands, its arms go up to ARM_UP rad and its knees bend on every beat and twice as deep, as
    `rise` passes from RISE_FROM to RISE_FROM + RISE_W at the crowd's front and RISE_SPAN later at its back (aFig.z, 0 at the front and 1
    at the back), so the rise ripples outward from the stage and the whole crowd is up at the peak, but for the hands that hold
-   something. */
+   something; one that turns on the spot stops turning before its arms go up (DANCE, stops). */
 const ARM_UP = 2.7, RISE_FROM = 0.3, RISE_SPAN = 0.6, RISE_W = 0.1;
 /* How far a figure reaches in its own units, over every pose: its farthest vertex HAND from its axis (its arms level partway up the
    rise, swaying at the dance's widest), its highest TOP over its feet (what it holds up over the heads round it, half a figure's
@@ -1118,6 +1118,11 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x, form = floor(aMark.z / ${n(
   float stride = ${swung("own", SLOW, SLOW / 4)}, turned = ${swung("own", 2 * SLOW, SLOW / 2)};
   float bounce = 0.5 + 0.5 * stride, slow = 0.5 + 0.5 * ${swung("own", STRUM, STEP)}, fling = 1.0 - abs(turned);
   float spin = spinner ? 1.0 : 0.0;
+  /* One that turns on the spot stops turning as the build-up lifts it, facing its seat's way once it is half risen (stops), and only
+     then puts its arms up (lifted, below); as the rise falls its arms come down first and it turns again after, so that no hand held
+     up sweeps round as it turns. Two that turned side by side at a build-up, their arms up, swept their hands across the lit ground
+     between their heads 7 times in a second (scripts/flash). */
+  float stops = spin * min(2.0 * rise, 1.0);
   /* How far it leans toward a friend; and its weight: on the leg its stance stands it on, or, for one that shifts it, from one foot to
      the other and back over eight beats, holding on each a while, and half as far with its arm round a friend, so that each one's
      hand stays on the other's back; as far as it stands and dances where it stands. */
@@ -1155,7 +1160,7 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x, form = floor(aMark.z / ${n(
     if (legRig) { z *= thick * flare; y *= aBody.z; }
   }
   if (skirtRig) {
-    float hem = aCut.y, swirl = 0.5 * spin * dance * fling * (1.0 - sit), mid = hem < 0.5 ? 0.5 : 0.5 * (1.0 + hem);
+    float hem = aCut.y, swirl = 0.5 * spin * dance * fling * (1.0 - sit) * (1.0 - stops), mid = hem < 0.5 ? 0.5 : 0.5 * (1.0 + hem);
     if (y < 0.2) {
       /* As it flares out turning, its hem rises, 0.3 of the way it goes out: flared flat, it went 5.5 cm into a phone's ground, which
          lies off the plane its figure stands on further out. And it rises to no more than 2 cm under the ring at the knee (mid): a
@@ -1205,7 +1210,7 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x, form = floor(aMark.z / ${n(
       lift = 0.05 * stand + outward * (outward > 0.0 ? reach : min(reach, 0.05 * stand + 0.04)); bend = ${f(BENT[3])} * stand;
     }
     else if (waver) { lift = aloft * (2.65 + side * 0.3 * min(dance, 1.3) * stride); bend = aloft * 0.25; inward = 1.0; }
-    else if (spinner) { lift = aloft * (${f(SPIN_OUT)} + 0.12 * side + 0.2 * fling); bend = ${f(SPIN_BEND)} * aloft; inward = -1.0; }
+    else if (spinner) { lift = aloft * (${f(SPIN_OUT)} + 0.12 * side + 0.2 * fling * (1.0 - stops)); bend = ${f(SPIN_BEND)} * aloft; inward = -1.0; }
     else if (nodder) { lift = 0.12 * stand; fore = 0.25 * stand; bend = 1.75 * stand; inward = 0.75; }
     else if (clapper) { fore = 0.6 * aloft; bend = 1.75 * aloft; inward = 0.35 + 0.37 * slow; }
     if (${is("arms", ARMS.flag)} && side > 0.0) { lift = 0.0; fore = ${f(HOLD[0])} * sit; bend = ${f(HOLD[1])} * sit; inward = 0.0; held = 1.0; }
@@ -1217,7 +1222,7 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x, form = floor(aMark.z / ${n(
        but on the side it does not hold with. */
     float resting = sit * (1.0 - held);
     lift += resting * sitL; fore += resting * sitF; bend += resting * sitB; inward = mix(inward, sitI, resting);
-    float lifted = rise * (1.0 - held);
+    float lifted = (spinner ? max(2.0 * rise - 1.0, 0.0) : rise) * (1.0 - held);
     lift = mix(lift, ${f(ARM_UP)}, lifted); fore *= 1.0 - lifted; bend *= 1.0 - lifted;
     float sx = side * ${f(SHOULDER_X)} * aBody.y, sy = ${f(SHOULDER_Y)} + up;
     float px = x + side * ${f(SHOULDER_X)} * (aBody.y - 1.0) - sx, py = y - sy, pz = z;
@@ -1334,7 +1339,7 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x, form = floor(aMark.z / ${n(
       y += sk * x + (ck - 1.0) * over; x = ck * x - sk * over;
     }
     float pivot = onLeg ? 0.0 : sit * (legL - lower), cs = cos(tilt), ss = sin(tilt), tx = cs * x - ss * (y - pivot), ty = ss * x + cs * (y - pivot) + pivot;
-    float turn = spin * 1.6 * min(dance, 1.3) * turned * (1.0 - sit), cr = cos(turn), sr = sin(turn);
+    float turn = spin * 1.6 * min(dance, 1.3) * turned * (1.0 - sit) * (1.0 - stops), cr = cos(turn), sr = sin(turn);
     x = cr * tx + sr * z; y = ty; z = cr * z - sr * tx + sit * sitAhead;
   }
   /* The ground under the figure falls or rises ahead of its seat as far as its seated feet follow it, and rises across it. Standing,

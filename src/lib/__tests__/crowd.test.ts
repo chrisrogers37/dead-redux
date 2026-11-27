@@ -2031,6 +2031,36 @@ describe("the crowd's shader", () => {
     expect(out2.x).toBeGreaterThan(0.45);
   });
 
+  it("stops turning before its arms go up for a peak, and turns again only once they are down: no hand held up sweeps round as it turns", () => {
+    // At Fire On The Mountain's build-up two that turned on the spot side by side, their arms up, swept their hands across the lit
+    // ground between their heads 7 times in a second, seen from among the crowd (scripts/flash). Over the first half of its rise one
+    // that turns comes round to face its seat's way, and only over the second does it put its arms up; as the rise falls its arms
+    // come down to where they dance, and only then does it turn again.
+    const spin = figureOf("spin"), nose = rich.filter((v) => v.mark.x === 6 && v.mark.y === 0).reduce((a, b) => (b.z > a.z ? b : a));
+    const hands = [bodyOf(3).reduce(lowest), bodyOf(4).reduce(lowest)];
+    const shoulder = rich.find((v) => v.mark.x === 0 && v.mark.y === 0 && Math.abs(v.y - SHOULDER_Y) < 0.01 && v.x > 0.3)!;
+    const beats = Array.from({ length: 65 }, (_, k) => (k * CYCLE) / 64);
+    // How far round from its seat's way it faces, in rad; and how much higher its hands stand over its shoulder than with no rise, in
+    // its own units: the most of either over a cycle, at the dance's height, at a rise.
+    const facing = (rise: number) => Math.max(...beats.map((beat) => {
+      const p = at2(spin, nose, { beat, dance: 1.6, rise });
+      return Math.abs(Math.atan2(p.x, p.z) - Math.atan2(nose.x, nose.z));
+    }));
+    const over = (v: Vertex, pose: Pose) => at2(spin, v, pose).y - at2(spin, shoulder, pose).y;
+    const raised = (rise: number) => Math.max(...beats.flatMap((beat) => hands.map((v) => over(v, { beat, dance: 1.6, rise }) - over(v, { beat, dance: 1.6 }))));
+    // With no rise it turns well round; half risen it faces its seat's way, and its hands are where they dance; fully risen they are up.
+    expect(facing(0)).toBeGreaterThan(1.5);
+    for (const rise of [0.5, 0.6, 0.8, 1]) expect([rise, facing(rise)]).toEqual([rise, expect.closeTo(0, 9)]);
+    for (const rise of [0.1, 0.3, 0.45, 0.5]) expect([rise, raised(rise)]).toEqual([rise, expect.closeTo(0, 9)]);
+    expect(raised(1)).toBeGreaterThan(0.3);
+    // And as the rise falls from the peak, a fiftieth at a time: its arms are down before it first turns again.
+    const falling = Array.from({ length: 51 }, (_, k) => 1 - k / 50);
+    const up = falling.filter((rise) => raised(rise) > 1e-6), turning = falling.filter((rise) => facing(rise) > 1e-6);
+    expect(up.length).toBeGreaterThan(10);
+    expect(turning.length).toBeGreaterThan(10);
+    expect(Math.min(...up)).toBeGreaterThan(Math.max(...turning));
+  });
+
   it("stands each way it stands, and dances its own way: on one leg, a hand on its hip, arms folded, a cup, hands behind or in its pockets, an arm round a friend; bobbing with its elbows bent, turning slowly with its arms out, shifting its weight", () => {
     // In the figure's own units, standing with no dance but where it says, a plain standard figure at the front. Its hands, its hips
     // (the body's lowest ring, either side), its knees and its feet, its elbows.
