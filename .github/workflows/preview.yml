@@ -1,0 +1,43 @@
+name: Preview
+
+# Vercel sends the repo an event when a deployment is ready, naming the deployment's project, its environment, the commit it was
+# built from and its URL (vercel.deployment.success). For each preview of this project, this records the preview's URL on that
+# commit, as a commit status named Preview that links to it.
+on:
+  repository_dispatch:
+    types: [vercel.deployment.success]
+
+permissions:
+  statuses: write
+
+cache-mode: none
+
+jobs:
+  record:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      # Any other deployment, production's among them, is skipped with one line in the log, each value in it quoted by printf's %q.
+      - name: Record the preview's URL on its commit
+        shell: bash
+        env:
+          PROJECT: ${{ github.event.client_payload.project.name }}
+          ENVIRONMENT: ${{ github.event.client_payload.environment }}
+          SHA: ${{ github.event.client_payload.git.sha }}
+          URL: ${{ github.event.client_payload.url }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          host=${URL#https://}
+          if [ "$PROJECT" != dead-redux ]; then
+            printf 'Skipped: a deployment of %q, not of dead-redux\n' "$PROJECT"
+          elif [ "$ENVIRONMENT" != preview ]; then
+            printf 'Skipped: a %q deployment, not a preview\n' "$ENVIRONMENT"
+          elif [[ ! $SHA =~ ^[0-9a-f]{40}$ ]]; then
+            printf 'Skipped: %q is not a full commit SHA\n' "$SHA"
+          elif [[ ! $host =~ ^dead-redux-[a-z0-9]+-chrisrogers37\.vercel\.app$ ]]; then
+            printf "Skipped: %q is not the URL of one of this project's deployments\n" "$URL"
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$SHA" --silent \
+              -f state=success -f context=Preview -f target_url="https://$host" -f description="$host"
+            echo "Recorded https://$host on $SHA"
+          fi

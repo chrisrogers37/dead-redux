@@ -18,6 +18,7 @@ import {
 } from "./assets.mjs";
 import { BAND_DAYS, bandPath } from "./band.mjs";
 import { shaderProblem } from "./shader.mjs";
+import { stagePages } from "./stage.mjs";
 import { NEAR_FRAMES, nearPages, standFailure } from "./near.mjs";
 import { EASE_MS, press, RECORD_MS, RECORDINGS, step, WORLD_MS, worldStarted } from "./recordings.mjs";
 import { cursorFailure, cursorNow, fileFailures, FOCUS_STOPS, HOLD, keyHold, movePointer, pressFailure, pressWorld, rideIdle, ridePages, stillInLook } from "./ride.mjs";
@@ -295,6 +296,9 @@ const PAGES = [
   // The fixed day from ?pose=among: the visitor's bear among the crowd's middle rows, off the aisle, and the figures round it stepped
   // aside.
   { path: "/2026-10-20?pose=among", devices: ["desktop"], shots: ["fixed-crowd-among"] },
+  // The stage on a day of the Wall of Sound, the one stage of public/world/stage.js's STAGES that is not the roof's (stage.mjs): from
+  // the back of the crowd, from among it and from the front, on a desktop and a phone.
+  ...stagePages(),
   // The fixed day from inside the groves, each from a pose of four numbers (GROVE_POSES, assets.mjs): the pine wood, looking in
   // through its trunks, and the broad-crowned grove, looking north-east through its trunks. Each is shot whole, as the near pages are: in first person, with the shelves away, so
   // a phone's title shelf does not cover the crowns. The stats line's `avatar.head` says where the visitor's bear stands, 0.8 m

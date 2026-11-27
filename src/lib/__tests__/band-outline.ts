@@ -4,9 +4,9 @@ import * as THREE from "three";
 import { BAND_POSE, BAND_POSE_PHONE } from "../../../.github/screenshots/band.mjs";
 import { buildBand, STAGING } from "../../../public/world/band.js";
 import { FACING, SHELF_Y, STAGE, TEST_POSES } from "../../../public/world/ground.js";
-import { lineupOn } from "../../../public/world/lineup.js";
+import { LINEUPS, lineupOn } from "../../../public/world/lineup.js";
 import { budgetFor, stepDown } from "../../../public/world/quality.js";
-import { buildStage, FLOOR, PANEL } from "../../../public/world/stage.js";
+import { buildStage, FLOOR, PANEL, STAGES } from "../../../public/world/stage.js";
 
 // The band as the shoot's devices show it (band.js), for each line-up it stands as (lineup.js): nothing in the world is antialiased,
 // so a part of a player is drawn a whole pixel at a time, black where the pixel's middle is inside one of its triangles. A phone
@@ -629,12 +629,13 @@ export function filmOf(roles: string[], label: (bits: number) => string, cams: C
   return film;
 }
 
-// The stage's own parts as stage.js builds them, as triangles in the world, each with what it shows as: the stage's black, as dark as
-// the band (the roof, the back wall and the PA stacks), the light panel, or the rest of what stands between a camera and what is
-// behind it (the platform and the posts).
-function stageParts() {
+// The stage's own parts as stage.js builds them for a show on `day` (its stage of STAGES; with none, the roof's), as triangles in the
+// world, each with what it shows as: the stage's black, as dark as the band (the roof, the back wall and the PA stacks, or the Wall
+// of Sound's cabinets and its beam), the light panel, or the rest of what stands between a camera and what is behind it (the platform
+// and the posts).
+function stageParts(day?: string) {
   const scene = new THREE.Scene();
-  const built = buildStage(scene, null, false, new THREE.MeshBasicMaterial(), { uC0: { value: null }, uC1: { value: null } });
+  const built = buildStage(scene, null, false, new THREE.MeshBasicMaterial(), { uC0: { value: null }, uC1: { value: null } }, day);
   scene.updateMatrixWorld(true);
   const out: { at: Vec[]; shows: number }[] = [];
   type Part = { isMesh?: boolean; matrixWorld: unknown; geometry: { index: unknown; toNonIndexed(): Part["geometry"]; getAttribute(name: string): { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number } | undefined } };
@@ -653,8 +654,8 @@ function stageParts() {
 // The band and the stage drawn together from a camera, nearest first: for each pixel of the canvas, the player whose part shows there
 // (as many as the players for the monitors), or NONE, or what of the stage shows there (STAGE_BLACK, STAGE_PANEL or STAGE_ELSE);
 // and, where the band shows, its triangle.
-const NONE = -1, STAGE_BLACK = -2, STAGE_PANEL = -3, STAGE_ELSE = -4;
-let STAGE_PARTS: { at: Vec[]; shows: number }[] | null = null;
+export const NONE = -1, STAGE_BLACK = -2, STAGE_PANEL = -3, STAGE_ELSE = -4;
+const STAGE_PARTS = new Map<string, { at: Vec[]; shows: number }[]>();
 // A triangle drawn from a camera (`e`, its projection and view, on a canvas W by H) with depth, within a window of the canvas (x0, y0,
 // w by h, in which `depth` and `shows` are): where it is nearer than what is drawn, it shows as `tag`, and `whose` is told the pixel.
 type Depth = { x0: number; y0: number; w: number; h: number; depth: Float32Array; shows: Int8Array };
@@ -683,28 +684,30 @@ function fillDeep(e: number[], W: number, H: number, into: Depth, a: Vec, b: Vec
   }
 }
 const viewOf = (cam: Camera) => new THREE.Matrix4().multiplyMatrices(lens(cam).projectionMatrix, lens(cam).matrixWorldInverse).elements as number[];
-// The stage alone from a camera, over its whole canvas, drawn once a camera.
+// The stage of a show on `day` alone from a camera, over its whole canvas, drawn once a camera and a stage: for each pixel, what of
+// the stage shows there (STAGE_BLACK, STAGE_PANEL, STAGE_ELSE, or NONE), and its depth.
 const STAGE_DRAWN = new Map<string, Depth>();
-function stageFrom(cam: Camera) {
-  const key = JSON.stringify(cam), drawn = STAGE_DRAWN.get(key);
+export function stageFrom(cam: Camera, day?: string) {
+  const key = `${JSON.stringify(cam)} ${day}`, drawn = STAGE_DRAWN.get(key);
   if (drawn) return drawn;
-  STAGE_PARTS ??= stageParts();
+  const parts = STAGE_PARTS.get(`${day}`) ?? stageParts(day);
+  STAGE_PARTS.set(`${day}`, parts);
   const W = cam.cols, H = cam.rows, e = viewOf(cam), into = { x0: 0, y0: 0, w: W, h: H, depth: new Float32Array(W * H).fill(Infinity), shows: new Int8Array(W * H).fill(NONE) };
-  for (const t of STAGE_PARTS) fillDeep(e, W, H, into, t.at[0], t.at[1], t.at[2], t.shows);
+  for (const t of parts) fillDeep(e, W, H, into, t.at[0], t.at[1], t.at[2], t.shows);
   STAGE_DRAWN.set(key, into);
   return into;
 }
-function drawWithStage(tris: Tri[], cam: Camera) {
-  const W = cam.cols, H = cam.rows, e = viewOf(cam), stage = stageFrom(cam), whose: (Tri | null)[] = new Array(W * H).fill(null);
+function drawWithStage(tris: Tri[], cam: Camera, day?: string) {
+  const W = cam.cols, H = cam.rows, e = viewOf(cam), stage = stageFrom(cam, day), whose: (Tri | null)[] = new Array(W * H).fill(null);
   const into = { ...stage, depth: stage.depth.slice(), shows: stage.shows.slice() };
   for (const t of tris) fillDeep(e, W, H, into, t.at[0], t.at[1], t.at[2], t.owner, (o) => { whose[o] = t; });
   return { W, H, shows: into.shows, whose };
 }
-// Who of the band comes within `reach` pixels of the stage's black from a camera: the band drawn with the stage, as drawWithStage draws
-// them, its corners `world` (nine numbers a triangle) and each triangle's `owner`, over the band's box on the canvas and a pixel more
-// than `reach` round it, which holds every pixel it can cover and those round each.
-function nearBlack(world: Float64Array, owner: Uint8Array, cam: Camera, reach = 2) {
-  const W = cam.cols, H = cam.rows, e = viewOf(cam), stage = stageFrom(cam), n = owner.length;
+// Who of the band comes within `reach` pixels of the stage's black from a camera: the band drawn with the stage of a show on `day`,
+// as drawWithStage draws them, its corners `world` (nine numbers a triangle) and each triangle's `owner`, over the band's box on the
+// canvas and a pixel more than `reach` round it, which holds every pixel it can cover and those round each.
+function nearBlack(world: Float64Array, owner: Uint8Array, cam: Camera, day?: string, reach = 2) {
+  const W = cam.cols, H = cam.rows, e = viewOf(cam), stage = stageFrom(cam, day), n = owner.length;
   const at = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
   let lx = Infinity, ly = Infinity, hx = -Infinity, hy = -Infinity;
   for (let i = 0; i < n * 3; i++) {
@@ -791,10 +794,30 @@ type Bars = { lift?: Record<string, Least>; touch?: string[]; apart?: string[] }
 const FILM_PLACES = process.env.BAND_FILM === "all" ? PHASES : [[0, 0]];
 const FILM_AT = FILM_PLACES.length === 1 ? "at the shoot's own place of the pixel grid" : `at any of ${FILM_PLACES.length} places of the pixel grid`;
 
+/* The stages a line-up stood on (stage.js STAGES): each stage that any row of lineup.js with its roles overlaps, once, named by the first
+   day of the line-up on it, in date order. The six of 1972 to 1974 played on the roof's stage and on the Wall of Sound, and so did
+   the seven of 1974 to 1979, whose first show was the Wall's last. */
+export function stagesOf(roles: string[]) {
+  const out: { stage: string; day: string; from: string; to: string }[] = [];
+  for (const [from, to, its] of LINEUPS as [string, string, string[]][]) {
+    if (its.join(" ") !== roles.join(" ")) continue;
+    for (const [first, last, stage] of STAGES as [string, string, string][]) {
+      if (first > to || last < from || out.some((s) => s.stage === stage)) continue;
+      out.push({ stage, day: first > from ? first : from, from: first, to: last });
+    }
+  }
+  return out;
+}
+// How the tests name a stage, where a line-up stood on more than one, and its black.
+const STAGE_NAMES: Record<string, string> = { roof: "the roof's stage", wall: "the Wall of Sound" };
+const STAGE_BLACKS: Record<string, string> = { roof: "the roof, the back wall or a PA stack", wall: "the Wall's cabinets or the rig's bridge over its front" };
+
 /* The rules every line-up keeps, as a describe block of its own: `name` is how the tests name it, and `day` (YYYY-MM-DD) a date of its
-   row of lineup.js, whose roles it is. */
+   row of lineup.js, whose roles it is. What the band is held to against the stage, it is held to on every stage it stood on
+   (stagesOf). */
 export function outlineChecks(name: string, day: string, bars: Bars = {}) {
   const roles = lineupOn(day).roles as string[];
+  const stages = stagesOf(roles), on = (s: { stage: string }) => (stages.length > 1 ? `, on ${STAGE_NAMES[s.stage] ?? s.stage}` : "");
   const lift = { ...LIFT_LEAST, ...bars.lift };
   // The players as the band numbers them, from the crowd's left (band.js STAGING), which is not the order of the table's row.
   const order = STAGING[roles.join(" ") as keyof typeof STAGING].players.map(([role]) => String(role));
@@ -854,18 +877,20 @@ export function outlineChecks(name: string, day: string, bars: Bars = {}) {
     // Measured with the six as they stand: four pixels at the closest, from among the crowd on a desktop (the first guitar, by the left
     // PA stack) and from the back of the crowd at half a phone's pixels (the keys player, by the right of the back wall). In the band
     // before it the keys' cabinet ran into the back wall's black from the front of the crowd.
-    it("keeps the band clear of the stage's own black from every camera and at every rung of a phone's: two pixels of something else at the least between any part of the band and the roof, the back wall or a PA stack", () => {
-      // The band at MOMENTS, fitted to each canvas as main.js fits it: played once a canvas's pixel, from every camera that has it.
-      const near = new Set<string>(), cams = [...CAMERAS, ...FLASH_CAMERAS, ...RUNGS];
-      for (const perPx of new Set(cams.map(pixelOf))) {
-        const played = playing(roles, perPx);
-        for (const seconds of MOMENTS) {
-          played.to(Math.round(seconds * 60));
-          for (const cam of cams.filter((c) => pixelOf(c) === perPx)) for (const k of nearBlack(played.world, played.owner, cam)) near.add(`${cam.name} at ${seconds} s: ${k === monitors ? "monitor" : k}`);
+    for (const stage of stages) {
+      it(`keeps the band clear of the stage's own black from every camera and at every rung of a phone's${on(stage)}: two pixels of something else at the least between any part of the band and ${STAGE_BLACKS[stage.stage]}`, () => {
+        // The band at MOMENTS, fitted to each canvas as main.js fits it: played once a canvas's pixel, from every camera that has it.
+        const near = new Set<string>(), cams = [...CAMERAS, ...FLASH_CAMERAS, ...RUNGS];
+        for (const perPx of new Set(cams.map(pixelOf))) {
+          const played = playing(roles, perPx);
+          for (const seconds of MOMENTS) {
+            played.to(Math.round(seconds * 60));
+            for (const cam of cams.filter((c) => pixelOf(c) === perPx)) for (const k of nearBlack(played.world, played.owner, cam, stage.day)) near.add(`${cam.name} at ${seconds} s: ${k === monitors ? "monitor" : k}`);
+          }
         }
-      }
-      expect([...near]).toEqual([]);
-    }, 120_000);
+        expect([...near]).toEqual([]);
+      }, 120_000);
+    }
 
     // CI's phone at rung 5, half its pixels, from the back of the crowd at daybreak: each crash stood alone in the air, its pole under
     // half a pixel (band.js `fit`).
@@ -875,9 +900,9 @@ export function outlineChecks(name: string, day: string, bars: Bars = {}) {
 
     // Every keyboard player of the line-up is held to its role's least (LIFT_LEAST): the keys, the organ and the piano.
     const keyboards = order.map((role, k) => [role, k] as const).filter(([role]) => KEYBOARDS.includes(role));
-    for (const [role, at] of keyboards) {
-      it(`shows the ${role} player playing from the front of the crowd and from the stage pose, on a desktop and on a phone: at the top of each lift the forearm and the hand stand against the panel, and the body shows from below the shoulders`, () => {
-        const shows = liftShown(roles, at);
+    for (const [role, at] of keyboards) for (const stage of stages) {
+      it(`shows the ${role} player playing from the front of the crowd and from the stage pose, on a desktop and on a phone${on(stage)}: at the top of each lift the forearm and the hand stand against the panel, and the body shows from below the shoulders`, () => {
+        const shows = liftShown(roles, at, stage.day);
         // Both hands lift, but at the piano only the one nearer the crowd (band.js).
         expect(shows.map(({ side }) => side)).toEqual(role === "piano" ? ["left"] : ["left", "right"]);
         for (const { cam, side, arm, body } of shows.flatMap(({ side, at: seen }) => seen.map((m) => ({ side, ...m })))) {
@@ -937,19 +962,19 @@ function liftTops(roles: string[], at: number) {
   });
 }
 // How much of keyboard player `at` shows at the top of each of its lifts, from the front of the crowd and the stage pose, on a desktop
-// and on a phone (`shown`), fitted to each camera's canvas.
-export function liftShown(roles: string[], at: number) {
+// and on a phone (`shown`), fitted to each camera's canvas, on the stage of a show on `day`.
+export function liftShown(roles: string[], at: number, day?: string) {
   return liftTops(roles, at).map(({ side, seconds }) => ({
     side,
-    at: [...CAMERAS.filter((c) => c.pose.startsWith("band") || c.pose === "stage"), ...FLASH_CAMERAS].map((cam) => ({ cam: cam.name, ...shown(band(roles, seconds, pixelOf(cam)), cam, at, side) })),
+    at: [...CAMERAS.filter((c) => c.pose.startsWith("band") || c.pose === "stage"), ...FLASH_CAMERAS].map((cam) => ({ cam: cam.name, ...shown(band(roles, seconds, pixelOf(cam)), cam, at, side, day) })),
   }));
 }
 
 // How much of player `at` shows at a moment from a camera, in the canvas's pixels: `arm`, the `side` forearm and hand where, without
 // that arm, the panel shows; and `body`, the trunk where it shows below the shoulders' line, which is the upper arms' tops.
-function shown(tris: Tri[], cam: Camera, at: number, side: string) {
+function shown(tris: Tri[], cam: Camera, at: number, side: string, day?: string) {
   const reach = new RegExp(`^${side} (upper arm|forearm|hand)$`);
-  const full = drawWithStage(tris, cam), bare = drawWithStage(tris.filter((x) => !(x.owner === at && reach.test(x.bone))), cam);
+  const full = drawWithStage(tris, cam, day), bare = drawWithStage(tris.filter((x) => !(x.owner === at && reach.test(x.bone))), cam, day);
   let arm = 0;
   for (let o = 0; o < full.W * full.H; o++) {
     const tri = full.whose[o];
