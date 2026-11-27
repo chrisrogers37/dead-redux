@@ -1031,7 +1031,7 @@ describe("the crowd's shader", () => {
       // Seated and fully still, a figure's feet and knees reach further: its feet FEET out at the largest's size, along the ground,
       // as they did, and its knees, fallen apart, with the forearms on them and a skirt over them, KNEES; what of it passes the bear
       // is held below. A seated figure that holds a flag or a balloon holds it up its pole or string (HOLD_UP), the upper arm turned
-      // back and the elbow 0.215 behind the shoulder, which its fit counts (reaches): its upper arms and what it holds reach no
+      // back and the elbow 0.18 behind the shoulder, which its fit counts at 0.215 (reaches): its upper arms and what it holds reach no
       // further than its hanging arms do standing, HANG (a broad one's elbow went 1 cm past it). Where the ground rises across it
       // (aPlace.w), its legs lean with it, and no part of them goes up or down by more than the ground under that part does (a
       // taper's stand, which is stood whole on the ground where it stands, is held to that below).
@@ -2853,6 +2853,19 @@ describe("the crowd's skyline", () => {
     expect(shares).toEqual(["34/195 9", "48/237 10", "18/117 4"]);
   }, 60000);
 
+  it("flies a flag from the top of its straight pole, which reaches down past the hand that holds it, on a desktop and a phone", () => {
+    // A flag's cloth hangs from the top of its pole, and the pole goes on through the hand (at the hand's middle, SHOULDER_Y less
+    // 0.565, as it hangs), so that no cloth reads as flying off a pole's end.
+    for (const list of [rich, plain]) {
+      const of = (bit: number, form: number) => list.filter((v) => v.mark.y === bit && formOfMark(v.mark.z) === form).map((v) => v.y);
+      const pole = of(PART.POLE as number, FORMS.POLE.indexOf("straight")), cloth = of(PART.FLAG as number, FORMS.FLAG.indexOf("oblong"));
+      expect(pole.length).toBeGreaterThan(0);
+      expect(cloth.length).toBeGreaterThan(0);
+      expect(Math.max(...pole)).toBeGreaterThanOrEqual(Math.max(...cloth) - 1e-6);
+      expect(Math.min(...pole)).toBeLessThan(SHOULDER_Y - 0.565);
+    }
+  });
+
   it("spreads what is held up across the hill: nine in ten of those who stand out of the test poses' view of the band have something held up within 4.5 m, or 5.5 m on a phone", () => {
     // Where things stand over the heads, rather than in a clump of them: the fixed day's and two other hills' crowds, and the fixed
     // day's on a phone, from each standing figure's seat to the nearest seat whose figure holds something up over its head.
@@ -2867,6 +2880,12 @@ describe("the crowd's skyline", () => {
   });
 
   it("dyes what is held up so that no two within DYED m of each other hold up the same colour, and every colour is held up", () => {
+    expect(DYED).toBe(6);
+    // A figure carries its dye over its things' tone in aTone.w, a float: it holds every whole number to 2^24 exactly, and the most a
+    // figure carries is the last dye over the brightest tone, 2^24 - 1. A ninth dye, or a wider tone, would not fit.
+    expect(tone(0xffffff, 1e-6)).toBe(DYE - 1);
+    expect(DYE - 1 + DYE * (CLOTHS.length - 1)).toBe(2 ** 24 - 1);
+    expect([Math.fround(2 ** 24 - 1), Math.fround(2 ** 24 + 1)]).toEqual([2 ** 24 - 1, 2 ** 24]);
     for (const c of [crowd, hills[1], hills[2], phone]) {
       const who = peopleOf(c), placed = placedOf.get(c)!;
       const up = placed.map((_, i) => i).filter((i) => (DYED_PROPS as string[]).includes(who[i].prop));
@@ -2880,4 +2899,31 @@ describe("the crowd's skyline", () => {
       expect(placed.map((_, i) => i).filter((i) => !up.includes(i) && c.each.aTone[4 * i + 3] >= DYE)).toEqual([]);
     }
   });
+
+  it("keeps what is held up and what shows over the shoulders apart on sixty days' gatherings: no two within 6 m hold up one dye, no two within 4 m carry one thing, and no two standing within 8 m share a crest, on a desktop or as a phone draws them", () => {
+    // The hills above are four; these rules are kept as people() deals, a figure at a time, so a hill where a figure is left no way
+    // to keep one looks like any other. Where all eight dyes were held up within 6 m, a flag once took a dye one of them held: on 58
+    // of a thousand days' gatherings, five of these sixty. The deal now passes such a figure over for what is dyed. A rule broken on
+    // one gathering in fourteen goes unseen on sixty about one time in eighty.
+    expect([DYED, CREST]).toEqual([6, 8]);
+    const broken: string[] = [], pairs = { dye: 0, prop: 0, crest: 0 };
+    for (let seed = 0; seed < 60; seed++) {
+      const placed = seatsOf({ path: [], line: [], landmarks: [] }, seed) as Seat[], who = people(placed) as { prop: string; colour: { cloth?: number } }[];
+      const up = who.map((p) => (DYED_PROPS as string[]).includes(p.prop)), crest = who.map((p) => [crestOf(p), crestOf(plainly(p))]);
+      for (let i = 0; i < who.length; i++) for (let j = i + 1; j < who.length; j++) {
+        const d = Math.hypot(placed[j].x - placed[i].x, placed[j].z - placed[i].z);
+        if (d < 6 && up[i] && up[j]) { pairs.dye += 1; if (who[i].colour.cloth === who[j].colour.cloth) broken.push(`day ${seed}: ${i} and ${j}, ${d.toFixed(2)} m, one dye`); }
+        if (d < 4 && who[i].prop !== "none" && who[j].prop !== "none") { pairs.prop += 1; if (who[i].prop === who[j].prop) broken.push(`day ${seed}: ${i} and ${j}, ${d.toFixed(2)} m, both ${who[i].prop}`); }
+        if (d < 8 && !placed[i].sit && !placed[j].sit) {
+          pairs.crest += 1;
+          if (crest[i][0] === crest[j][0] || crest[i][1] === crest[j][1]) broken.push(`day ${seed}: ${i} and ${j}, ${d.toFixed(2)} m, crest ${crest[i][1]}`);
+        }
+      }
+    }
+    expect(broken).toEqual([]);
+    // And there were many such pairs to keep apart.
+    expect(pairs.dye).toBeGreaterThan(5000);
+    expect(pairs.prop).toBeGreaterThan(7000);
+    expect(pairs.crest).toBeGreaterThan(150000);
+  }, 60000);
 });
