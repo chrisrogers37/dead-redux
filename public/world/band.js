@@ -313,9 +313,9 @@ const STANDING = { hips: 0.92, waist: 0.01 }, SEATED = { hips: 0.6, waist: 0.02 
    deepest and forward; the shoulders' line, widest; and the slope up to the neck. A ring stands at each line where the clothes'
    colours change (`trunk`: the belt's at 0.04, a check's rows at 0.223 and 0.337, the shoulders' at 0.49), since each face takes
    the colour at its middle, and a line between two rings came out in teeth. */
-const TORSO = [[-0.1, 0.165, 0.12, 0], [0, 0.175, 0.125, 0], [0.04, 0.171, 0.122, 0.001], [0.08, 0.166, 0.118, 0.002], [0.16, 0.15, 0.108, 0.006],
-  [0.223, 0.158, 0.112, 0.011], [0.26, 0.167, 0.116, 0.014], [0.337, 0.184, 0.123, 0.019], [0.35, 0.187, 0.124, 0.02], [0.42, 0.198, 0.118, 0.014],
-  [0.47, 0.188, 0.1, 0.004], [0.49, 0.172, 0.094, 0.002], [0.51, 0.15, 0.085, 0], [0.54, 0.1, 0.07, -0.002], [0.56, 0.068, 0.06, -0.004]];
+const TORSO = [[-0.1, 0.165, 0.12, 0], [0, 0.175, 0.125, 0], [0.04, 0.171, 0.122, 0.001], [0.08, 0.166, 0.118, 0.002], [0.16, 0.142, 0.106, 0.006],
+  [0.223, 0.152, 0.111, 0.011], [0.26, 0.164, 0.116, 0.014], [0.337, 0.186, 0.123, 0.019], [0.35, 0.19, 0.124, 0.02], [0.42, 0.205, 0.118, 0.014],
+  [0.47, 0.195, 0.1, 0.004], [0.49, 0.18, 0.094, 0.002], [0.51, 0.162, 0.086, 0], [0.54, 0.118, 0.072, -0.002], [0.56, 0.072, 0.06, -0.004]];
 /* How wide a front stands open at a height up the chest (`up`, 0 at the waist and 1 at the shoulders), as an angle from the front to
    either side, in rad: a coat's down its front, wider at the top where its lapels turn back; a vest's in a deep V; an open shirt's. */
 const OPEN = { coat: (u) => 0.1 + 0.32 * Math.max(0, u - 0.3), vest: (u) => Math.max(0, 0.58 * (u - 0.3)), open: (u) => 0.08 + 0.26 * Math.max(0, u - 0.4) };
@@ -569,7 +569,7 @@ const PIANO_LIFT = { left: [0.14, 1.27, 0.3], right: [0.14, 1.27, 0.3], fingers:
    (band.test.ts). */
 const DEAL = {
   lead: { size: 1.035, broad: 0.93, hair: "cap", skirt: 0.58, coat: true, stance: 0.16, boots: 0.32, toes: 0.3, fret: 0.8, sway: 0.03, strum: 0.15, tap: 0.1, lag: 1,
-    lean: 0.07, knee: 0.08, solo: 0.07,
+    lean: 0.09, knee: 0.08, solo: 0.07,
     hold: { ...TWO_HORNS, at: V(-0.13, 0.99, 0.18), rise: 0.78, yaw: 0.2, big: 1.1 } },
   bass: { size: 0.93, broad: 1.0, hair: "knot", skirt: 0.8, stance: 0.16, toes: 0.22, fret: 0.96, sway: -0.035, strum: 0.05, tap: 0.13, lag: 0,
     knee: 0.05,
