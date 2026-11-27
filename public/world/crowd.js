@@ -1118,11 +1118,12 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x, form = floor(aMark.z / ${n(
   float stride = ${swung("own", SLOW, SLOW / 4)}, turned = ${swung("own", 2 * SLOW, SLOW / 2)};
   float bounce = 0.5 + 0.5 * stride, slow = 0.5 + 0.5 * ${swung("own", STRUM, STEP)}, fling = 1.0 - abs(turned);
   float spin = spinner ? 1.0 : 0.0;
-  /* One that turns on the spot stops turning as the build-up lifts it, facing its seat's way once it is half risen (stops), and only
-     then puts its arms up (lifted, below); as the rise falls its arms come down first and it turns again after, so that no hand held
-     up sweeps round as it turns. Two that turned side by side at a build-up, their arms up, swept their hands across the lit ground
-     between their heads 7 times in a second (scripts/flash). */
-  float stops = spin * min(2.0 * rise, 1.0);
+  /* One that turns on the spot turns less as the build-up grows, from its start, and faces its seat's way once it is half risen
+     (stops); only then does it put its arms up (lifted, below). As the build-up falls after the peak its arms come down first, and
+     it turns again after them, as gently as it stopped, so that no hand held up sweeps round as it turns. Two that turned side by
+     side at a build-up, their arms up, swept their hands across the lit ground between their heads 7 times in a second
+     (scripts/flash); and stopped over its own half rise alone, a turn came back whole in 2 or 3 frames as the build-up fell. */
+  float stops = spin * clamp(uRise / (${f(RISE_FROM + RISE_W / 2)} + ${f(RISE_SPAN)} * aFig.z), 0.0, 1.0);
   /* How far it leans toward a friend; and its weight: on the leg its stance stands it on, or, for one that shifts it, from one foot to
      the other and back over eight beats, holding on each a while, and half as far with its arm round a friend, so that each one's
      hand stays on the other's back; as far as it stands and dances where it stands. */
