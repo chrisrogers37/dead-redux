@@ -171,11 +171,10 @@ const runDance = asJs(dance), runTones = asJs(tones);
 
 // A vertex of the figure, with its marks; a figure, with the numbers its corners carry and its scale across and up, in metres a
 // unit, and the ground's rise across it (aPlace.w, flat where it is not given); and a pose: the phase in beats, how far the crowd dances, the build-up and the sit as main.js gives them, how still the
-// parting holds the figure (aPart.w) and how far it lets its arms rise (aRise); or, for `rise`, the build-up as main.js hands it to the
-// whole crowd (`build`, uRise).
+// parting holds the figure (aPart.w) and how far it lets its arms rise (aRise).
 type Vertex = { x: number; y: number; z: number; mark: Vec };
 type Figure = { i: number; across: number; up: number; fig: Vec; body: Vec; wear: Vec; cut: Vec; tone: Vec; top: Rgb; place?: Vec; size?: Vec; forms?: Record<number, number> };
-type Pose = { beat: number; dance: number; rise?: number; build?: number; sit?: number; still?: number; rising?: number };
+type Pose = { beat: number; dance: number; rise?: number; sit?: number; still?: number; rising?: number };
 const vec = (attribute: { getX(i: number): number; getY(i: number): number; getZ(i: number): number; getW(i: number): number }, i: number): Vec =>
   ({ x: attribute.getX(i), y: attribute.getY(i), z: attribute.getZ(i), w: attribute.getW(i) });
 // The geometry's vertices, each once, however many triangles share it.
@@ -201,15 +200,14 @@ function figuresOf(c: typeof crowd): Figure[] {
 const carries = (f: Figure, bit: number, form = 0) => Math.floor(f.wear.x / bit) % 2 === 1 && (f.forms?.[bit] ?? 0) === form;
 const wears = (f: Figure, v: Vertex) => v.mark.y === 0 || carries(f, v.mark.y, formOfMark(v.mark.z));
 // Where the shader puts a vertex of a figure in a pose, in the figure's own units. The pose's build-up and sit are the figure's own:
-// the uniforms are set so that this figure has risen `rise` and sat `sit`, whatever its row and its turn, unless the pose gives the
-// whole crowd's build-up instead.
+// the uniforms are set so that this figure has risen `rise` and sat `sit`, whatever its row and its turn.
 const moved = { x: 0, y: 0, z: 0 }, part: Vec = { x: 0, y: 0, z: 0, w: 0 }, flat: Vec = { x: 0, y: 0, z: 0, w: 0 };
 function put(f: Figure, v: Vertex, pose: Pose) {
   moved.x = v.x; moved.y = v.y; moved.z = v.z;
   part.w = pose.still ?? 0;
   const rise = pose.rise ?? 0, sit = pose.sit ?? 0;
   runDance(moved, null, v.mark, f.fig, part, pose.rising ?? 1, f.body, f.wear, f.cut, f.tone, pose.beat, pose.dance,
-    pose.build ?? (rise > 0 ? 0.3 + 0.6 * f.fig.z + 0.1 * rise : 0), sit > 0 ? (sit + 0.5 * f.fig.y) / 1.5 : 0, f.place ?? flat, f.size ?? flat);
+    rise > 0 ? 0.3 + 0.6 * f.fig.z + 0.1 * rise : 0, sit > 0 ? (sit + 0.5 * f.fig.y) / 1.5 : 0, f.place ?? flat, f.size ?? flat);
   return moved;
 }
 // The beats a figure is looked at through a cycle: 16 across it, and those where each of its moves' waves stands at its ends.
@@ -2031,49 +2029,6 @@ describe("the crowd's shader", () => {
     expect(palm.y).toBeGreaterThan(0.85);
     expect(palm.y).toBeLessThan(1.15);
     expect(out2.x).toBeGreaterThan(0.45);
-  });
-
-  it("stops turning before its arms go up for a peak, and turns again only once they are down, gently: no hand held up sweeps round as it turns", () => {
-    // At Fire On The Mountain's build-up two that turned on the spot side by side, their arms up, swept their hands across the lit
-    // ground between their heads 7 times in a second, seen from among the crowd (scripts/flash). As the build-up grows one that turns
-    // turns less, and it faces its seat's way by the time it is half risen; only over the second half of its rise does it put its arms
-    // up. As the rise falls its arms come down to where they dance, and only then does it turn again.
-    const spin = figureOf("spin"), nose = rich.filter((v) => v.mark.x === 6 && v.mark.y === 0).reduce((a, b) => (b.z > a.z ? b : a));
-    const hands = [bodyOf(3).reduce(lowest), bodyOf(4).reduce(lowest)];
-    const shoulder = rich.find((v) => v.mark.x === 0 && v.mark.y === 0 && Math.abs(v.y - SHOULDER_Y) < 0.01 && v.x > 0.3)!;
-    const beats = Array.from({ length: 65 }, (_, k) => (k * CYCLE) / 64);
-    // How far round from its seat's way it faces, in rad; and how much higher its hands stand over its shoulder than with no rise, in
-    // its own units: the most of either over a cycle, at the dance's height, at a rise.
-    const facing = (rise: number) => Math.max(...beats.map((beat) => {
-      const p = at2(spin, nose, { beat, dance: 1.6, rise });
-      return Math.abs(Math.atan2(p.x, p.z) - Math.atan2(nose.x, nose.z));
-    }));
-    const over = (v: Vertex, pose: Pose) => at2(spin, v, pose).y - at2(spin, shoulder, pose).y;
-    const raised = (rise: number) => Math.max(...beats.flatMap((beat) => hands.map((v) => over(v, { beat, dance: 1.6, rise }) - over(v, { beat, dance: 1.6 }))));
-    // With no rise it turns well round; half risen it faces its seat's way, and its hands are where they dance; fully risen they are up.
-    expect(facing(0)).toBeGreaterThan(1.5);
-    for (const rise of [0.5, 0.6, 0.8, 1]) expect([rise, facing(rise)]).toEqual([rise, expect.closeTo(0, 9)]);
-    for (const rise of [0.1, 0.3, 0.45, 0.5]) expect([rise, raised(rise)]).toEqual([rise, expect.closeTo(0, 9)]);
-    expect(raised(1)).toBeGreaterThan(0.3);
-    // And as the rise falls from the peak, a fiftieth at a time: its arms are down before it first turns again.
-    const falling = Array.from({ length: 51 }, (_, k) => 1 - k / 50);
-    const up = falling.filter((rise) => raised(rise) > 1e-6), turning = falling.filter((rise) => facing(rise) > 1e-6);
-    expect(up.length).toBeGreaterThan(10);
-    expect(turning.length).toBeGreaterThan(10);
-    expect(Math.min(...up)).toBeGreaterThan(Math.max(...turning));
-    // And it turns back as gently as it stopped. After a peak main.js lets the build-up fall from 1 to nought in 0.8 s: frame by
-    // frame, at the end of its turn, one in the front row, which turns back the soonest and the fastest, comes round no more than 0.15
-    // rad a frame (0.12), where its turn itself goes 0.064 a frame at 110 beats a minute. Stopped over its own half rise alone, it came
-    // round 0.87 rad in a frame.
-    for (const beat of [1, 5]) {
-      const round = Array.from({ length: 49 }, (_, k) => {
-        const p = at2(spin, nose, { beat, dance: 1.6, build: 1 - k / 48 });
-        return Math.atan2(p.x, p.z);
-      });
-      expect(Math.abs(round[48])).toBeGreaterThan(1.5);
-      const step = Math.max(...round.slice(1).map((a, k) => Math.abs(a - round[k])));
-      expect([beat, step < 0.15]).toEqual([beat, true]);
-    }
   });
 
   it("stands each way it stands, and dances its own way: on one leg, a hand on its hip, arms folded, a cup, hands behind or in its pockets, an arm round a friend; bobbing with its elbows bent, turning slowly with its arms out, shifting its weight", () => {
