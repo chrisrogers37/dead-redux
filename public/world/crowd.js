@@ -724,7 +724,8 @@ export const movingAlike = (a, b) => a.move === b.move && a.legs === b.legs && a
    through Space neither with its body leaning back nor hugging its knees (fitsBack, fitsForward), or where four, one that could not
    do both, so that it has a way to sit none of them has. It draws on for at most 400 TRIES: on three thousand gatherings swept, no
    figure was left with such a crest or share, but where four seats before it stand close, on fewer than one gathering in a hundred
-   a figure found none that could do both, and is, of those with the fewest such clashes, the one least like its neighbours. */
+   a figure found none that could do both, and is, of those with the fewest such clashes, the one least like its neighbours: stances
+   then sits it only in the ways it can, as it sits any figure that cannot do one of them. */
 const TRIES = 20, NEAR = 8, CLOSE = 4;
 export const SHARE = [4, 5];
 /* Whether each seat stands beside another of its group as two friends could stand together (stances): both standing, near, facing
@@ -849,9 +850,10 @@ export const backOf = (y, girth) => (y < 1.01 ? 0.74 * (0.17 - (0.005 * (y - 0.8
   * (1 + 0.35 * (girth - 1) * Math.max(1 - Math.abs(y - 1.02) / 0.4, 0));
 /* Whether one seated can lean its body back on its hands, its hair and hat within the seated reaches as it leans, and hug its knees
    leaning forward, with nothing held up over its head going forward with it and no full poncho (stances; people deals the crowded
-   ones a head that does one). A knit cap and a jester's cap keep it from leaning back, and not from hugging the knees: the knit's tip
-   bends back and the jester's points go out and up behind (figureGeometry), so leaning back carries them past the seated reaches
-   behind, and leaning forward carries them away from the knees, which a brim or a bill (hat, topper, floppy, plumed, cap) goes into. */
+   ones a head that does one). A knit cap and a jester's cap keep a figure from leaning back, and not from hugging the knees: the
+   knit's tip bends back and the jester's points go out and up behind (figureGeometry), so a figure leaning back carries them past the
+   seated reaches behind, and leaning forward carries them away from the knees, which a brim or a bill (hat, topper, floppy, plumed,
+   cap) goes into. */
 const fitsBack = (p) => !["afro", "dreads"].includes(p.hair) && !["hat", "topper", "floppy", "bandana", "knit", "jester", "plumed"].includes(p.head) && p.back === "none";
 const fitsForward = (p) => !["hat", "topper", "floppy", "cap", "plumed"].includes(p.head) && p.hair !== "afro" && ARMS[p.prop] !== ARMS.flag && p.top !== "poncho"
   && p.stoop < 0.05;
