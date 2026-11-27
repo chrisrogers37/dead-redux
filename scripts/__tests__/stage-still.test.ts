@@ -45,7 +45,7 @@ describe("the Wall of Sound's stills", () => {
         return { path: `/2027-06-13?pose=${x},${z},${heading},${pitch}`, devices: [device], whole: true, shots: ["1974-07-19-wall-front"] };
       }),
     ]);
-    const env = { ...process.env, SHOOT_PLAN: "1" };
+    const env: NodeJS.ProcessEnv = { ...process.env, SHOOT_PLAN: "1" };
     for (const name of ["SHARD", "SITE_URL"]) delete env[name];
     const run = spawnSync(process.execPath, [".github/screenshots/shoot.mjs"], { cwd: ROOT, env, encoding: "utf8" });
     expect(run.status, run.stderr).toBe(0);
