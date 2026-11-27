@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
-import { buildBand, HALF_OVER, HALF_UNDER, SCALE } from "../../../public/world/band.js";
+import {
+  buildBand, DARK_TOP, dressOf, FILL_BELOW, FILL_DUSK, FILL_NIGHT, FILL_TINT, HALF_OVER, HALF_UNDER, KEY, KEY_TINT, KEY_TO, LIGHT, RIM, RIM_EDGE, RIM_FROM, RIM_TINT, SCALE, STAGING, WARDROBES,
+} from "../../../public/world/band.js";
+import { DAYBREAK, DEEP, lookAt, newLook } from "../../../public/world/night.js";
 import { beatStep } from "../../../public/world/beat.js";
 import { PERSON } from "../../../public/world/seats.js";
 import { buildStage, FLOOR, FLOOR_R, FLOOR_SIDES, PANEL } from "../../../public/world/stage.js";
@@ -143,7 +146,7 @@ describe("the band, as it is built", () => {
     expect(across).toEqual([...across].sort((a, b) => a - b));
   });
 
-  it("draws everything with one material, flat black and unlit, never transparent, in eight draws at three's default order", () => {
+  it("draws everything with one material, a solid Lambert one in its corners' colours, never transparent, in eight draws at three's default order", () => {
     const meshes: { material: unknown; renderOrder: number; isInstancedMesh?: boolean }[] = [];
     const orders: number[] = [];
     stage.traverse((part: { isMesh?: boolean; material: unknown; renderOrder: number }) => {
@@ -153,10 +156,18 @@ describe("the band, as it is built", () => {
     // Six bodies, the limbs and the still parts.
     expect(meshes).toHaveLength(8);
     expect(meshes.filter((m) => m.isInstancedMesh)).toHaveLength(1);
-    expect(meshes.filter((m) => m.material !== band.black)).toEqual([]);
-    expect(band.black.isMeshBasicMaterial).toBe(true);
-    expect(band.black.color.getHex()).toBe(0x0b0b0d);
-    expect([band.black.transparent, band.black.vertexColors, band.black.map, band.black.depthWrite, band.black.blending]).toEqual([false, false, null, true, THREE.NormalBlending]);
+    expect(meshes.filter((m) => m.material !== band.material)).toEqual([]);
+    const material = band.material;
+    expect(material.isMeshLambertMaterial).toBe(true);
+    expect(material.color.getHex()).toBe(0xffffff);
+    expect([material.transparent, material.opacity, material.vertexColors, material.map, material.depthWrite, material.depthTest, material.blending, material.side, material.fog]).toEqual([false, 1, true, null, true, true, THREE.NormalBlending, THREE.FrontSide, true]);
+    expect(material.emissive.getHex()).toBe(0);
+    // Every corner has its colour and its normal; each bone of the limbs its own colour.
+    for (const m of meshes as unknown as { geometry: { getAttribute(name: string): { count: number } | undefined }; isInstancedMesh?: boolean; instanceColor?: { count: number } | null; count: number }[]) {
+      const corners = m.geometry.getAttribute("position")!.count;
+      expect([m.geometry.getAttribute("color")?.count, m.geometry.getAttribute("normal")?.count]).toEqual([corners, corners]);
+      if (m.isInstancedMesh) expect(m.instanceColor?.count).toBe(m.count);
+    }
     // The rig's beams draw at order 1 (main.js), after the band.
     expect(orders.filter((order) => order !== 0)).toEqual([]);
   });
@@ -545,15 +556,17 @@ describe("the band on the stage", () => {
   it("is built by the stage itself, in the stage's group, and played by the stage's move", () => {
     const scene = new THREE.Scene();
     const built = buildStage(scene, null, false, new THREE.MeshBasicMaterial(), { uC0: { value: null }, uC1: { value: null } });
-    // The band's meshes are the ones drawn in its black: six bodies, the limbs and the still parts, all under the stage's group.
-    type Drawn = { isMesh?: boolean; isInstancedMesh?: boolean; material?: { type: string; color?: { getHex(): number } }; instanceMatrix?: { array: Float32Array } };
-    const black: Drawn[] = [];
-    built.group.traverse((o: Drawn) => { if (o.isMesh && o.material?.type === "MeshBasicMaterial" && o.material.color?.getHex() === 0x0b0b0d) black.push(o); });
-    expect(black).toHaveLength(8);
+    // The band's meshes are the ones drawn in its material: six bodies, the limbs and the still parts, all under the stage's group.
+    type Drawn = { isMesh?: boolean; isInstancedMesh?: boolean; material?: unknown; instanceMatrix?: { array: Float32Array } };
+    const drawn: Drawn[] = [];
+    built.group.traverse((o: Drawn) => { if (o.isMesh && o.material === built.band.material) drawn.push(o); });
+    expect(drawn).toHaveLength(8);
     const elsewhere: Drawn[] = [];
-    scene.traverse((o: Drawn) => { if (o.isMesh && o.material?.type === "MeshBasicMaterial" && o.material.color?.getHex() === 0x0b0b0d && !black.includes(o)) elsewhere.push(o); });
+    scene.traverse((o: Drawn) => { if (o.isMesh && o.material === built.band.material && !drawn.includes(o)) elsewhere.push(o); });
     expect(elsewhere).toEqual([]);
-    const limbs = black.find((o) => o.isInstancedMesh)!;
+    // The stage hands main.js the band's own light.
+    expect(built.lightBand).toBe(built.band.light);
+    const limbs = drawn.find((o) => o.isInstancedMesh)!;
     const before = Array.from(limbs.instanceMatrix!.array);
     let beats = 0;
     for (let frame = 1; frame <= 90; frame++) built.move(1 / 60, frame / 60, (beats += 96 / 3600), true);
@@ -649,6 +662,177 @@ describe("the band on the stage", () => {
     const { band } = stand();
     const keys = band.players.find((p: { plays: string }) => p.plays === "keys");
     expect(Math.abs(keys.g.rotation.y)).toBeLessThan(0.5);
+  });
+});
+
+// What the band wears and how it is lit (band.js dressOf and LIGHT). The band is real people: no seat keeps a look of its own, and
+// no role picks one; each is the era's and the seat's.
+describe("the band's look", () => {
+  // A day of each era of clothes, and its line-ups' seats: seven at the most.
+  const ERAS = (WARDROBES as [string, string, string][]).map(([from, to, era]) => ({ from, to, era }));
+  const ROLES = ["lead", "rhythm", "bass", "drums", "organ", "keys", "piano", "voice"];
+  const hex = (c: { getHexString(): string }) => c.getHexString();
+  const look = (d: ReturnType<typeof dressOf>) => JSON.stringify(Object.fromEntries(Object.entries(d).map(([k, v]) => [k, typeof v === "string" ? v : "r" in (v as object) ? hex(v as { getHexString(): string }) : Object.values(v as object).map((c) => hex(c as { getHexString(): string }))])));
+
+  it("dresses each seat by the era and the seat alone: any day of an era and any role but the lead's give the same, and the seven seats of an era seven different tops", () => {
+    for (const { from, to, era } of ERAS) {
+      for (let seat = 0; seat < 7; seat++) {
+        const first = look(dressOf(from, seat, "rhythm"));
+        expect(JSON.parse(first).era).toBe(era);
+        for (const role of ROLES.filter((r) => r !== "lead")) expect([era, seat, role, look(dressOf(to, seat, role))]).toEqual([era, seat, role, first]);
+      }
+      const tops = Array.from({ length: 7 }, (_, seat) => { const d = dressOf(from, seat, "rhythm"); return `${d.cut} ${hex(d.top)} ${hex(d.second)}`; });
+      expect([era, new Set(tops).size]).toEqual([era, 7]);
+    }
+    // A show with no date is dressed as the six of 1979 to 1990 are.
+    expect(look(dressOf(null as unknown as string, 2, "bass"))).toBe(look(dressOf("1986-07-04", 2, "bass")));
+  });
+
+  it("keeps no seat's look from one era to the next: each seat's skin, hair and top change at each turn of an era", () => {
+    for (let seat = 0; seat < 7; seat++) {
+      const looks = ERAS.map(({ from }) => dressOf(from, seat, "rhythm"));
+      for (let k = 1; k < looks.length; k++) for (const part of ["skin", "hair", "top"] as const) {
+        expect([seat, ERAS[k].era, part, hex(looks[k][part]) !== hex(looks[k - 1][part])]).toEqual([seat, ERAS[k].era, part, true]);
+      }
+    }
+  });
+
+  it("never dresses the lead guitar in a near-black top, though the nineties dress others in one, and changes nothing else of the lead's", () => {
+    const light = (c: { getHSL(t: { h: number; s: number; l: number }, space: string): { l: number } }) => c.getHSL({ h: 0, s: 0, l: 0 }, THREE.SRGBColorSpace).l;
+    let dark = 0, moved = 0;
+    for (const { from } of ERAS) for (let seat = 0; seat < 7; seat++) {
+      const lead = dressOf(from, seat, "lead"), other = dressOf(from, seat, "rhythm");
+      expect([from, seat, light(lead.top) >= DARK_TOP]).toEqual([from, seat, true]);
+      if (light(other.top) < DARK_TOP) dark++;
+      if (hex(lead.top) !== hex(other.top)) moved++;
+      expect(look({ ...lead, top: other.top, second: other.second, cut: other.cut })).toBe(look(other));
+    }
+    // Only a dark top moves the lead to the next.
+    expect([dark, moved]).toEqual([dark, dark]);
+    expect(dark).toBeGreaterThan(0);
+  });
+
+  it("gives every player skin of a tone of six and hair of a colour of six, none grey: a brown's red over its blue", () => {
+    const skins = new Set<string>(), hairs = new Set<string>();
+    for (const { from } of ERAS) for (let seat = 0; seat < 7; seat++) {
+      const d = dressOf(from, seat, "rhythm");
+      skins.add(hex(d.skin));
+      hairs.add(hex(d.hair));
+      expect(d.hair.r).toBeGreaterThan(d.hair.b * 1.2);
+    }
+    expect([skins.size, hairs.size]).toEqual([6, 6]);
+  });
+
+  // Faceless: a head is a smooth form, an ellipsoid in its skin, with its hair and a hat over it, and nothing on it: no eye, nose or
+  // mouth, which a corner off the ellipsoid or a colour of its own would draw.
+  it("draws every head, in every line-up and era, as one smooth ellipsoid in its skin, and the head's parts in its skin, its collar, its hair and its hat alone", () => {
+    for (const [key] of Object.entries(STAGING)) for (const { from } of ERAS) {
+      const stage = new THREE.Group(), band: Band = buildBand(stage, FLOOR, key.split(" "), from);
+      stage.updateMatrixWorld(true);
+      band.players.forEach((p: { dress: Record<string, { getHexString(): string }> }, k: number) => {
+        const allowed = new Set(["skin", "hair", "hat", "top", "second", "coat"].filter((name) => p.dress[name]).map((name) => hex(p.dress[name])));
+        const skin: InstanceType<typeof THREE.Vector3>[] = [], colour = new THREE.Color(), x = new THREE.Vector3(1, 0, 0);
+        const { pivot, lean, body } = band.players[k];
+        // Every corner in the player's own frame and metres, upright: a still part's (on the stage, leaned as the body is at rest)
+        // and the body's (in its own frame, about its pivot).
+        const upright = (at: Vec) => own(band, k, at).sub(pivot).applyAxisAngle(x, -lean).add(pivot);
+        const still = band.still.geometry.getAttribute("position"), stillColour = band.still.geometry.getAttribute("color");
+        for (const part of band.still.userData.parts as Part[]) {
+          if (part.by !== k || (part.of !== "head" && part.of !== "body")) continue;
+          for (let i = part.from; i < part.from + part.count; i++) {
+            colour.fromBufferAttribute(stillColour, i);
+            if (part.of === "head") expect([key, from, k, allowed.has(colour.getHexString())]).toEqual([key, from, k, true]);
+            if (colour.getHexString() === hex(p.dress.skin)) skin.push(upright(new THREE.Vector3().fromBufferAttribute(still, i)));
+          }
+        }
+        if (body.geometry) {
+          const at = body.geometry.getAttribute("position"), bodyColour = body.geometry.getAttribute("color");
+          for (let i = 0; i < at.count; i++) if (colour.fromBufferAttribute(bodyColour, i).getHexString() === hex(p.dress.skin)) skin.push(new THREE.Vector3().fromBufferAttribute(at, i).add(pivot));
+        }
+        // The head's ellipsoid: 0.112 m round, 0.88 of it across, 1.12 up and 1 deep (band.js trunk), its middle under its crown,
+        // the highest corner of skin over the neck (within 15 cm of the body's middle line, which takes in no hand); and what of that
+        // skin stands within 5 cm under the middle or over it, which no neck or collar reaches.
+        const [rx, ry, rz] = [0.112 * 0.88, 0.112 * 1.12, 0.112], over = skin.filter((c) => Math.abs(c.x) < 0.15 && Math.abs(c.z - 0.005) < 0.15);
+        const mid = { x: 0, y: Math.max(...over.map((c) => c.y)) - ry, z: 0.005 }, head = over.filter((c) => c.y > mid.y - 0.05);
+        expect([key, from, k, head.length >= 40]).toEqual([key, from, k, true]);
+        for (const c of head) {
+          const off = ((c.x - mid.x) / rx) ** 2 + ((c.y - mid.y) / ry) ** 2 + ((c.z - mid.z) / rz) ** 2;
+          expect([key, from, k, Math.abs(off - 1) < 1e-3]).toEqual([key, from, k, true]);
+        }
+      });
+    }
+  }, 60_000);
+
+  // The band's own light: steady through the music, which the hour alone moves (main.js hands `light` the look's `dark`).
+  const shaderOf = (material: { onBeforeCompile(shader: unknown): void }) => {
+    const shader = { uniforms: {} as Record<string, { value: unknown }>, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader };
+    material.onBeforeCompile(shader);
+    return shader;
+  };
+  const STOCK = THREE.ShaderLib.lambert.fragmentShader as string;
+
+  it("lights the band with its own light alone: three's lights' lines are taken out of the Lambert shader, and the band's put in their place, reading its own five uniforms, the face's normal, the way to the eye and the view, and writing only the light the face sends out", () => {
+    const { band } = stand(), shader = shaderOf(band.material);
+    expect(shader.vertexShader).toBe(THREE.ShaderLib.lambert.vertexShader);
+    const UNIFORMS = "\nuniform vec3 uKey, uFill, uRim, uKeyTo, uPanel;";
+    expect(shader.fragmentShader.split(UNIFORMS)).toHaveLength(2);
+    expect(shader.fragmentShader.split(LIGHT)).toHaveLength(2);
+    for (const chunk of ["lights_fragment_begin", "lights_fragment_maps", "lights_fragment_end"]) expect(shader.fragmentShader).not.toContain(`#include <${chunk}>`);
+    expect(shader.fragmentShader.replace(UNIFORMS, "").replace(LIGHT, "")).toBe(STOCK.replace(/#include <lights_fragment_(begin|maps|end)>/g, ""));
+    expect(shader.fragmentShader.indexOf(LIGHT)).toBe(STOCK.indexOf("#include <lights_fragment_begin>") + UNIFORMS.length);
+    expect(Object.keys(shader.uniforms).sort()).toEqual(["uFill", "uKey", "uKeyTo", "uPanel", "uRim"]);
+    const own = new Set([...LIGHT.matchAll(/\b(?:float|vec3)\s+([^;]+);/g)].flatMap((m) => m[1].split(/,(?![^(]*\))/).map((d) => d.trim().split(/\s|=/)[0])));
+    const language = ["clamp", "dot", "float", "max", "normalize", "pow", "vec3", "vec4", "rgb", "xyz"];
+    const read = [...new Set([...LIGHT.matchAll(/(?<![.\w])[A-Za-z_]\w*/g)].map((m) => m[0]))].filter((name) => !own.has(name) && !language.includes(name) && name !== "reflectedLight");
+    expect(read.sort()).toEqual(["diffuseColor", "normal", "uFill", "uKey", "uKeyTo", "uPanel", "uRim", "vViewPosition", "viewMatrix"]);
+    const writes = [...LIGHT.matchAll(/(?:^|[;{}]\s*)([A-Za-z_][\w.]*)\s*[-+*/]?=(?!=)/gm)].map((m) => m[1]).filter((name) => !own.has(name));
+    expect(writes).toEqual(["reflectedLight.directDiffuse"]);
+  });
+
+  it("sets its light for the night's darkness alone: the fill from FILL_DUSK where the night is not dark to FILL_NIGHT in the deep of it, the key and the back light steady, from the stage's front and the panel's middle", () => {
+    const { band, stage } = stand(), u = band.uniforms;
+    const key = { ...u.uKey.value }, rim = { ...u.uRim.value }, keyTo = u.uKeyTo.value.clone(), panel = u.uPanel.value.clone();
+    const fillAt = (dark: number) => { band.light(dark); return u.uFill.value.clone(); };
+    for (const [dark, strength] of [[0, FILL_DUSK], [1, FILL_NIGHT], [0.5, (FILL_DUSK + FILL_NIGHT) / 2], [-1, FILL_DUSK], [2, FILL_NIGHT]]) {
+      const fill = fillAt(dark);
+      FILL_TINT.forEach((tint: number, c: number) => expect([fill.r, fill.g, fill.b][c]).toBeCloseTo(tint * strength, 12));
+      expect([u.uKey.value, u.uRim.value]).toEqual([key, rim]);
+      expect([u.uKeyTo.value.equals(keyTo), u.uPanel.value.equals(panel)]).toEqual([true, true]);
+    }
+    KEY_TINT.forEach((tint: number, c: number) => expect([key.r, key.g, key.b][c]).toBeCloseTo(tint * KEY, 12));
+    RIM_TINT.forEach((tint: number, c: number) => expect([rim.r, rim.g, rim.b][c]).toBeCloseTo(tint * RIM, 12));
+    // In the stage's frame, here the world's: the key's way and the panel's middle (stage.js PANEL).
+    const to = new THREE.Vector3(...KEY_TO).normalize();
+    expect(keyTo.distanceTo(to)).toBeLessThan(1e-9);
+    expect(RIM_FROM).toEqual([0, PANEL.y, PANEL.z]);
+    expect(panel.distanceTo(new THREE.Vector3(...RIM_FROM))).toBeLessThan(1e-9);
+    expect(stage.children.length).toBeGreaterThan(0);
+    // Through the night's looks (night.js): the fill is as bright as the night is light, dimmest in the deep of it.
+    const at = (hour: number) => { const f = fillAt(lookAt(hour, newLook()).dark); return f.r + f.g + f.b; };
+    expect(at(DEEP)).toBeLessThan(at(0));
+    expect(at(DEEP)).toBeLessThan(at(DAYBREAK));
+    expect(at(DEEP)).toBeCloseTo((FILL_TINT[0] + FILL_TINT[1] + FILL_TINT[2]) * FILL_NIGHT, 2);
+  });
+
+  // LIGHT's lines of plain numbers, run here, given the four dot products the line before them takes: the fill's, the key's and the
+  // back light's weights.
+  const weights = LIGHT.split("\n").filter((line: string) => /^float (sky|key|edge) =/.test(line)).join("\n");
+  const weigh = new Function("clamp", "max", "pow", `return function (facing, keyward, skyward, panelward) {${weights.replace(/\bfloat\s+/g, "let ")}\nreturn [sky, key, edge];\n};`)(
+    (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x)), Math.max, Math.pow) as (facing: number, keyward: number, skyward: number, panelward: number) => number[];
+
+  it("gives a body a lit side and a side in shadow, and a warm edge on its panel side alone: a face turned to the key takes all of it and one turned away none; the back light is none on a face turned to the eye or away from the panel, and whole on one edge-on to the eye and turned to the panel", () => {
+    expect(weights.split("\n")).toHaveLength(3);
+    expect(weigh(1, 1, 0, 0)).toEqual([FILL_BELOW + (1 - FILL_BELOW) * 0.5, 1, 0]);
+    expect(weigh(1, -1, 0, 0)[1]).toBe(0);
+    expect(weigh(0.5, 0.3, 0, 0)[1]).toBeCloseTo(0.3, 12);
+    // The fill: whole from straight above, FILL_BELOW of it from straight below.
+    expect(weigh(1, 0, 1, 0)[0]).toBeCloseTo(1, 12);
+    expect(weigh(1, 0, -1, 0)[0]).toBeCloseTo(FILL_BELOW, 12);
+    // The back light.
+    expect(weigh(1, 0, 0, 1)[2]).toBe(0);
+    expect(weigh(0, 0, 0, -1)[2]).toBe(0);
+    expect(weigh(0, 0, 0, 1)[2]).toBeCloseTo(1, 12);
+    expect(weigh(0.5, 0, 0, 1)[2]).toBeCloseTo(0.5 ** RIM_EDGE, 12);
   });
 });
 

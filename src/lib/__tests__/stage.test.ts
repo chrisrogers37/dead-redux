@@ -26,7 +26,8 @@ function stageFor(date?: string) {
   const built = buildStage(scene, null, false, new THREE.MeshBasicMaterial(), { uC0: { value: null }, uC1: { value: null } }, date);
   scene.updateMatrixWorld(true);
   const stills: Obj[] = [];
-  built.group.traverse((o: Obj) => { if (o.isMesh && o.material?.vertexColors) stills.push(o); });
+  // The stage's still mesh is the one in its corners' colours that is not the band's (band.js draws in its own).
+  built.group.traverse((o: Obj) => { if (o.isMesh && o.material?.vertexColors && o.material !== built.band.material) stills.push(o); });
   return { built, scene, stills, still: stills[0] };
 }
 // The still mesh's geometry as a digest: each corner's place, normal and colour, to five places.

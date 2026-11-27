@@ -60,7 +60,7 @@ describe("the outlines' film", () => {
     const found = { specks: [] as string[], counts: [] as string[], apart: new Set<string>(), alone: new Set<string>(), joined: new Set<string>(), touched: new Set<string>() }, got = { counts: [] as string[] };
     for (let f = 0; f <= seconds * 60; f++) {
       played.to(f);
-      const tris = Array.from({ length: played.n }, (_, t) => ({ at: [0, 1, 2].map((c) => new THREE.Vector3(...played.world.slice(t * 9 + c * 3, t * 9 + c * 3 + 3))), owner: played.owner[t], trunk: played.trunk[t] === 1, crash: ["", "cymbal", "pole"][played.crash[t]], bone: "" }));
+      const tris = Array.from({ length: played.n }, (_, t) => ({ at: [0, 1, 2].map((c) => new THREE.Vector3(...played.world.slice(t * 9 + c * 3, t * 9 + c * 3 + 3))), owner: played.owner[t], trunk: played.trunk[t] === 1, crash: ["", "cymbal", "pole"][played.crash[t]], bone: "", colour: [0, 0, 0] }));
       const at = `${(f / 60).toFixed(3)} s`;
       for (const cam of cams) for (const [dx, dy] of places) {
         const phone = cam.name.startsWith("phone"), rung = cam.name.includes(" at rung ");

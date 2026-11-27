@@ -635,6 +635,8 @@ function start(gl) {
     panelMat.uniforms.uGain.value[0] = layer2.panel;
     /* The night's share of the stage's light is steady: the music moves that light by as much as it does at dusk, on top. */
     stage.light.intensity = lightBase.stage * (layer2.stage + look.stageLift);
+    /* The band has a light of its own, which takes the hour alone and nothing of the music, so it never swings on the beat (band.js). */
+    stage.lightBand(look.dark);
     /* The lit bands glow a third as bright in the deep of the night, where their own glow at dusk would outshine the stage. */
     if (bands) bands.glow.value = BAND_GLOW * (1 - 0.68 * look.dark);
     /* Whether a song plays: the crowd dances and the rig lights for one. */

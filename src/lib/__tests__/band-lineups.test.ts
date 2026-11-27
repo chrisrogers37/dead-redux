@@ -187,7 +187,7 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
     expect(ahead.sort()).toEqual(roles.includes("voice") ? ["bass", "voice"] : ["bass"]);
   });
 
-  it("draws everything with one material, flat black and unlit, at three's default order, in a draw for each player whose body moves, one for the limbs and one for the still parts: eight at the most, as the six are drawn", () => {
+  it("draws everything with one material, the band's own lit one in its corners' colours, at three's default order, in a draw for each player whose body moves, one for the limbs and one for the still parts: eight at the most, as the six are drawn", () => {
     const meshes: { material: unknown; renderOrder: number; isInstancedMesh?: boolean }[] = [];
     stage.traverse((part: { isMesh?: boolean; material: unknown; renderOrder: number }) => {
       if (part.isMesh) meshes.push(part);
@@ -195,8 +195,8 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
     expect(meshes).toHaveLength(players.filter((p) => !p.still).length + 2);
     expect(meshes.length).toBeLessThanOrEqual(stand(SIX).band.players.length + 2);
     expect(meshes.filter((m) => m.isInstancedMesh)).toHaveLength(1);
-    expect(meshes.filter((m) => m.material !== band.black || m.renderOrder !== 0)).toEqual([]);
-    expect([band.black.isMeshBasicMaterial, band.black.color.getHex(), band.black.transparent]).toEqual([true, 0x0b0b0d, false]);
+    expect(meshes.filter((m) => m.material !== band.material || m.renderOrder !== 0)).toEqual([]);
+    expect([band.material.isMeshLambertMaterial, band.material.vertexColors, band.material.transparent]).toEqual([true, true, false]);
     // Only a keyboard's player holds still, among the still parts.
     expect(players.filter((p) => p.still).map((p) => p.role)).toEqual(players.filter((p) => ["organ", "piano"].includes(p.role)).map((p) => p.role));
   });
