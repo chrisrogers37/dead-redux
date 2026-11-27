@@ -5,10 +5,10 @@ import * as THREE from "three";
 import {
   backOf, BEAR_LEGS, BEAR_TAIL, buildCrowd, CLOTHS, COLOURS, CREST, crestOf, CUP_ARM, CUT, CYCLE, DROP, DYE, DYED, DYED_PROPS, FEET, figureGeometry, FOLD, FOOT, FORMS, formOfMark, formsOf,
   FRIEND_HAND, groundUnder, HAND, HANG, HOLD_UP, inView, KNEES, LEG, LOW, lyingOf, MOST, MOVES, only, OUTLINE, outlineOf, OVERHEAD, PART, partingOptions, people, PLAIN_LEAVES_OUT, plainly, poseOf,
-  PROP_EVERY, PROPS, QUIET, dressOn, HAIRS, SKIN, DRESS, PATTERN, PATTERNS, SEEDS, seedOf, CLOTHES, RIM, RIM_LEAST, RIM_SIDE, RIM_TINT, RIM_TO, LIT, HOUSE, HOUSE_LOW, HOUSE_TINT, LAMP_HALF, LAMP_TINT, LAMP_TO, COVER, APART, legsFor, lightOf, topLight, TINT, RIG, DRESS_FINE, SEAT, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, stances, TALL, TINTS, tone, TOP, wearing, without,
+  PROP_EVERY, PROPS, QUIET, dressOn, HAIRS, SKIN, DRESS, PATTERN, PATTERNS, SEEDS, seedOf, CLOTHES, RIM, RIM_LEAST, RIM_SIDE, RIM_TINT, RIM_TO, LIT, HOUSE, HOUSE_LOW, HOUSE_TINT, LAMP_HALF, LAMP_TINT, LAMP_TO, COVER, APART, legsFor, thingFor, overLight, lightOf, topLight, TINT, RIG, DRESS_FINE, DRESS_EDGE, SEAT, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, stances, TALL, TINTS, tone, TOP, wearing, without,
 } from "../../../public/world/crowd.js";
 import { MOVE as STEP, SLOW, STRUM, swing } from "../../../public/world/band.js";
-import { FLOOR } from "../../../public/world/stage.js";
+import { buildStage, FLOOR } from "../../../public/world/stage.js";
 import { buildBear, stride } from "../../../public/world/bears.js";
 import { DAYBREAK, DEEP, FIRST_LIGHT, lookAt, newLook } from "../../../public/world/night.js";
 import { swingAt } from "../../../public/world/avatar.js";
@@ -191,6 +191,21 @@ const runRim = new Function(...Object.keys(GLSL), "pow", `return function (uRim,
 const lampWeight = lampLines.split("\n").find((line) => line.startsWith("float lampLit")) ?? "";
 const runLamp = new Function(...Object.keys(GLSL), `return function (uLit, uHouse, lampFacing, lampFar, houseUp) {${lampWeight.replace(/\bfloat\s+/g, "let ")}\nreturn [lampLit, houseLit];\n};`)(
   ...Object.values(GLSL)) as (uLit: number, uHouse: number, lampFacing: number, lampFar: number, houseUp: number) => [number, number];
+// And the line that adds them to the light the face sends out, a channel at a time (0 red, 1 green, 2 blue): given the face's
+// colour in that channel and the two weights, what it adds there.
+const lampSum = lampLines.split("\n").find((line) => line.startsWith("outgoingLight += diffuseColor.rgb")) ?? "";
+const lampAdds = [0, 1, 2].map((j) => new Function(`return function (colour, lampLit, houseLit) { return ${lampSum.replace(/^outgoingLight \+= /, "").replace(/;\s*$/, "")
+  .replace("diffuseColor.rgb", "colour").replace(/vec3\(([^)]*)\)/g, (_: string, args: string) => args.split(",")[j].trim())}; };`)()) as ((colour: number, lampLit: number, houseLit: number) => number)[];
+// The stage light, where stage.js hangs it, as bright and as far as it reaches: the crowd's own light from the stage comes from there.
+const hung = buildStage(new THREE.Scene(), null, false, new THREE.MeshBasicMaterial(), { uC0: { value: null }, uC1: { value: null } }, FIXED).light;
+const hungAt: number[] = hung.getWorldPosition(new THREE.Vector3()).toArray();
+// And so is a top's pattern, but for its first line, which takes where on the figure the face lies and how far a pixel spans there
+// along each way (the shader's one derivative), and its last, which mixes the top's two colours: given those, the pattern and the
+// seed (vDress.w, vSecond.w), it runs to how much of the second colour the face shows, and how fine its bands are there.
+const dressRun = dressLines.split("\n").filter((line) => !line.trim().startsWith("vec3 ")).join("\n")
+  .replace(/diffuseColor\.rgb = mix\(vColor\.rgb, vSecond\.rgb, (.*)\);/, "return [$1, fine];");
+const runDress = new Function(...Object.keys(GLSL), `return function (vDress, vSecond, at, pixel) {${dressRun.replace(/\bfloat\s+/g, "let ")}\n};`)(
+  ...Object.values(GLSL)) as (vDress: { w: number }, vSecond: { w: number }, at: Xyz, pixel: Xyz) => [number, number] | undefined;
 // The rim a face takes, its normal `n`, with the eye and the stage each a unit way `toEye` and `toStage` from it, as the shader weighs
 // it in the view's space: the three dot products are the same in any frame.
 const dot3 = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -623,7 +638,7 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect(compiled.fragmentShader).not.toContain("NUM_POINT_LIGHTS");
     // What the crowd's own lines read and write. Names a line declares are its own; the rest are read from outside.
     const ownNames = (lines: string) => new Set([...lines.matchAll(/\b(?:float|vec[234])\s+([^;]+);/g)].flatMap((m) => m[1].split(/,(?![^(]*\))/).map((d) => d.trim().split(/\s|=/)[0])));
-    const language = ["abs", "atan", "clamp", "dot", "else", "float", "floor", "fract", "fwidth", "if", "length", "mat3", "max", "mix", "normalize", "pow", "sin", "smoothstep", "vec2", "vec3", "vec4"];
+    const language = ["abs", "atan", "clamp", "dot", "else", "float", "floor", "fract", "fwidth", "if", "length", "mat3", "max", "mix", "normalize", "pow", "sin", "smoothstep", "sqrt", "vec2", "vec3", "vec4"];
     const reads = (lines: string) => { const own = ownNames(lines); return [...new Set([...lines.replace(/\.[xyzwrgb]+\b/g, "").matchAll(/(?<![.\w])[A-Za-z_]\w*/g)].map((m) => m[0]))].filter((name) => !own.has(name) && !language.includes(name)).sort(); };
     const writes = (lines: string) => { const own = ownNames(lines); return [...new Set([...lines.matchAll(/(?:^|[;{}]\s*|\)\s+)([A-Za-z_]\w*)(?:\.[xyzwrgb]+)?\s*[-+*/]?=(?!=)/gm)].map((m) => m[1]).filter((name) => !own.has(name)))].sort(); };
     // The rim reads of the crowd's uniforms only its own two: no beat, no dance, no rise and no sit; of three's, the face's normal, the
@@ -648,6 +663,14 @@ describe("the crowd, as buildCrowd builds it", () => {
     expect(runLamp(LIT, HOUSE, 0.5, 1, 0)[1]).toBeCloseTo(HOUSE * (HOUSE_LOW + 0.5 * (1 - HOUSE_LOW)), 12);
     expect(writes(lampLines)).toEqual(["outgoingLight"]);
     expect(lampLines).toContain("outgoingLight += diffuseColor.rgb * (");
+    // The line that adds them, run a channel at a time: a face takes the stage's light in LAMP_TINT and the house lights in
+    // HOUSE_TINT, each as strong as its weight, and as much of each as its colour sends back. The tests below light figures by it.
+    expect(lampSum).not.toBe("");
+    for (const [colour, lampLit, houseLit] of [[1, 1, 0], [1, 0, 1], [0.5, 0.3, 0.05], [0.2, 0, 0], [0, 0.4, 0.07], [0.8, LIT, HOUSE]]) for (const j of [0, 1, 2]) {
+      expect([colour, lampLit, houseLit, j, lampAdds[j](colour, lampLit, houseLit)]).toEqual([colour, lampLit, houseLit, j, expect.closeTo(colour * (lampLit * LAMP_TINT[j] + houseLit * HOUSE_TINT[j]), 12)]);
+    }
+    // And the stage's light comes from where stage.js hangs the stage light.
+    for (let j = 0; j < 3; j++) expect(LAMP_TO[j]).toBeCloseTo(hungAt[j], 9);
     // A top's pattern reads what the vertex shader handed it and writes the face's colour, and nothing else: it lights nothing.
     expect(reads(dressLines)).toEqual(["diffuseColor", "vColor", "vDress", "vSecond"]);
     expect(writes(dressLines)).toEqual(["diffuseColor"]);
@@ -780,6 +803,9 @@ describe("the crowd, as buildCrowd builds it", () => {
     crowd.light(1, 1.08);
     expect(compiled.uniforms.uSky.value * 1.08).toBeCloseTo(1, 15);
     expect(lights().slice(0, 3)).toEqual([RIM, LIT, HOUSE]);
+    // audio.js gives it 0.9 to 1.1; were it ever to come to nothing, the crowd would take the sky's light at most twice, and not
+    // without end.
+    for (const music of [0.5, 0.2, 0, -1]) { crowd.light(1, music); expect([music, compiled.uniforms.uSky.value]).toEqual([music, 2]); }
     // As dark as the night gets, the whole rim; where it is not dark at all, RIM_LEAST of it; and in between, as the night is. The
     // stage's light and the house lights go as the night does, from none to the whole.
     const rimAt = (dark: number) => { crowd.light(dark); return compiled.uniforms.uRim.value as number; };
@@ -1555,7 +1581,7 @@ describe("the crowd's shader", () => {
     for (const [key, share] of Object.entries(least)) expect([key, share > BAR[key.split(",")[0]]]).toEqual([key, true]);
   }, 60000);
 
-  it("stands every figure apart from what is seen past it, the land or the sky: a tenth of it a third lighter or darker, at every hour of the show, from the hill and from the stage, whatever the music does to the stage light", () => {
+  it("stands every figure apart from what is seen past it, the land or the sky: a tenth of it a third lighter or darker, in every era's clothes, at every hour of the show, from the hill and from the stage, whatever the music does to the stage light", () => {
     // The crowd's light (crowd.js STAGE_LIGHT, RIM_LIGHT, and three's Lambert but for the point lights), on each face of a figure
     // standing at rest: its colour times the sky's light (the hemisphere's sky and ground colours by the hour, mixed by how far the
     // face turns up) and the key light's, over pi; and its own lights as the night gives them, the stage's (LAMP_TO) by how squarely
@@ -1569,15 +1595,14 @@ describe("the crowd's shader", () => {
     // and a phone.
     // A figure stands apart when its lightest tenth is SEPARATE times as bright as what is past it at its brightest, worn or not and
     // the stage light at its highest, or its darkest tenth as much darker than it at its darkest: a Weber contrast of 0.3, the share by
-    // which it differs, many times what the eye can just tell at a screen's levels (a few per cent). It rests on each outfit's trousers
-    // standing APART from its top (legsFor): on the colours people() deals alone, without that, some figure's every part sits within
-    // the ground's own range.
+    // which it differs, many times what the eye can just tell at a screen's levels (a few per cent). It rests on each figure's two
+    // largest parts standing APART (legsFor, thingFor): on the colours people() deals alone, without that, some figure's every part
+    // sits within the ground's own range, and where its trousers stood APART from its top alone, a poncho's, which hides the top.
     const SEPARATE = 1.3, SHARE = 0.1;
     const unit = (a: number[]) => { const l = Math.hypot(...a); return a.map((q) => q / l); };
     const cross3 = (a: number[], b: number[]) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
     const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4), lin = (rgb: ArrayLike<number>) => [linear(rgb[0]), linear(rgb[1]), linear(rgb[2])];
     const Y = (rgb: number[]) => 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
-    const hex = (h: number) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
     const [hx, hz] = [TEST_POSES.crowd.x, TEST_POSES.crowd.z], hill = [hx, height(hx, hz) + 3.2, hz], stage = [STAGE[0], SHELF_Y + FLOOR + 1.7, STAGE[1]];
     const lightAt = (look: ReturnType<typeof newLook>) => ({
       sky: lin(look.ambient), ground: lin(look.ground), key: lin(look.key), hemi: 1.1 * Math.PI * look.ambientGain, keyGain: 0.5 * Math.PI * look.keyGain, to: Array.from(look.keyTo) as number[],
@@ -1590,15 +1615,15 @@ describe("the crowd's shader", () => {
       const up = 0.5 + 0.5 * n[1], key = Math.max(dot3(n, L.to), 0), toLamp = LAMP_TO.map((q: number, j: number) => q - at[j]);
       const [lamp, house] = runLamp(L.lit, L.house, dot3(n, unit(toLamp)), Math.hypot(...toLamp) / LAMP_HALF, n[1]);
       const rim = rimOf(n, unit(eye.map((q, j) => q - at[j])), unit(RIM_TO.map((q: number, j: number) => q - at[j])), L.rim);
-      return Y(c.map((q, j) => q * (((L.ground[j] + (L.sky[j] - L.ground[j]) * up) * L.hemi + L.key[j] * L.keyGain * key) / Math.PI + lamp * LAMP_TINT[j] + house * HOUSE_TINT[j]) + rim * RIM_TINT[j]));
+      return Y(c.map((q, j) => q * (((L.ground[j] + (L.sky[j] - L.ground[j]) * up) * L.hemi + L.key[j] * L.keyGain * key) / Math.PI) + lampAdds[j](q, lamp, house) + rim * RIM_TINT[j]));
     };
     // The luminance land of colour `g` at `at` sends out, its unit normal `n`, the stage light at `share` of its own.
-    const stageLight = hex(0xe8b04b), poolFrom = [STAGE[0], SHELF_Y + POOL_UP, STAGE[1]], lampFrom = [STAGE[0], SHELF_Y + 7, STAGE[1]];
+    const stageLight = [hung.color.r, hung.color.g, hung.color.b], poolFrom = [STAGE[0], SHELF_Y + POOL_UP, STAGE[1]], lampFrom = hungAt;
     const onLand = (L: Light, g: number[], n: number[], at: number[], share: number) => {
       const toPool = poolFrom.map((q, j) => q - at[j]), poolFar = Math.hypot(...toPool) / POOL_HALF;
       const pool = (Math.max(dot3(n, unit(toPool)), 0) * (1 - THREE.MathUtils.smoothstep(poolFar, (0.6 * POOL_END) / POOL_HALF, POOL_END / POOL_HALF))) / (1 + poolFar * poolFar);
-      const toStage = lampFrom.map((q, j) => q - at[j]), d = Math.hypot(...toStage), falls = (d < 40 ? (1 - (d / 40) ** 4) ** 2 : 0) / (d * d);
-      const stageOn = 60 * (share + L.lift) * falls * Math.max(dot3(n, unit(toStage)), 0), up = 0.5 + 0.5 * n[1];
+      const toStage = lampFrom.map((q, j) => q - at[j]), d = Math.hypot(...toStage), falls = (d < hung.distance ? (1 - (d / hung.distance) ** 4) ** 2 : 0) / (d * d);
+      const stageOn = hung.intensity * (share + L.lift) * falls * Math.max(dot3(n, unit(toStage)), 0), up = 0.5 + 0.5 * n[1];
       return Y(g.map((q, j) => q * (((L.ground[j] + (L.sky[j] - L.ground[j]) * up) * L.hemi + L.key[j] * L.keyGain * Math.max(dot3(n, L.to), 0) + stageLight[j] * stageOn) / Math.PI + L.pool[j] * pool)));
     };
     // What the eye sees past a figure, from `eye` through `through`: the land, fresh and worn, where the line first meets it, or none.
@@ -1615,8 +1640,11 @@ describe("the crowd's shader", () => {
     };
     const N = 40, hours = [0, 0.25, 0.5, 0.75, DEEP, 1.25, 1.4, FIRST_LIGHT, 1.85, DAYBREAK], lights = hours.map((hour) => lightAt(lookAt(hour, newLook())));
     const least: Record<string, { by: number; at: string }> = {};
-    const { desktop, phone: small } = SHOWS[0];
-    for (const [tier, c] of [["desktop", desktop], ["phone", small]] as const) {
+    // A show of every era of the crowd's clothes (DRESS): the three shows' crowds above, of the eighties, the sixties and the
+    // nineties, and a seventies show's.
+    const SEVENTIES = "1977-02-27", shows = [...SHOWS, { date: SEVENTIES, desktop: crowdOf(SEVENTIES), phone: crowdOf(SEVENTIES, true) }];
+    expect(shows.map(({ date }) => DRESS.findIndex(([, , d]) => d === dressOn(date))).sort()).toEqual([0, 1, 2, 3]);
+    for (const { date, desktop, phone: small } of shows) for (const [tier, c] of [["desktop", desktop], ["phone", small]] as const) {
       const position = c.figure.getAttribute("position"), mark = c.figure.getAttribute("aMark"), corners: Vertex[] = [];
       for (let k = 0; k < position.count; k++) corners.push({ x: position.getX(k), y: position.getY(k), z: position.getZ(k), mark: vec(mark, k) });
       for (const [view, eye] of [["hill", hill], ["stage", stage]] as const) for (const f of figuresOf(c)) {
@@ -1653,17 +1681,18 @@ describe("the crowd's shader", () => {
             if (d < depth[y * N + x]) { depth[y * N + x] = d; which[y * N + x] = m; }
           }
         });
-        const seen = [...which].filter((m) => m >= 0), behind = past(eye, middle);
+        const seen = [...which].filter((m) => m >= 0), shown = [...new Set(seen)], behind = past(eye, middle);
         lights.forEach((L, h) => {
-          const lums = seen.map((m) => onFace(L, faces[m].colour, faces[m].n, middle, eye)).sort((a, b) => a - b);
+          const lumOf = new Map(shown.map((m) => [m, onFace(L, faces[m].colour, faces[m].n, middle, eye)]));
+          const lums = seen.map((m) => lumOf.get(m)!).sort((a, b) => a - b);
           const darkest = lums[Math.floor(SHARE * lums.length)], lightest = lums[Math.floor((1 - SHARE) * lums.length)];
           const back = behind ? behind.colours.flatMap((g) => [0.4, 2].map((share) => onLand(L, g, behind.n, behind.at, share))) : [L.horizon];
-          const by = Math.max(lightest / Math.max(...back), Math.min(...back) / darkest), key = `${tier} ${view} ${hours[h]}`;
+          const by = Math.max(lightest / Math.max(...back), Math.min(...back) / darkest), key = `${date} ${tier} ${view} ${hours[h]}`;
           if (!least[key] || by < least[key].by) least[key] = { by, at: `figure ${f.i}, ${seen.length} pixels: its tenths ${darkest.toFixed(4)} and ${lightest.toFixed(4)} against ${behind ? "the land" : "the sky"} at ${Math.min(...back).toFixed(4)} to ${Math.max(...back).toFixed(4)}` };
         });
       }
     }
-    expect(Object.keys(least).length).toBe(2 * 2 * hours.length);
+    expect(Object.keys(least).length).toBe(shows.length * 2 * 2 * hours.length);
     for (const [key, { by, at }] of Object.entries(least)) expect([key, at, by >= SEPARATE]).toEqual([key, at, true]);
   }, 120000);
 
@@ -1725,16 +1754,16 @@ describe("the crowd's shader", () => {
   it("gives each body a lit side and a shadow side at night: the side turned to the stage takes LIT_SIDE times the light of the side turned away, at every figure's distance", () => {
     // An upright face of a figure at the deep of the night, turned to the stage or away from it: the sky's light on it (half its sky
     // colour and half its ground's, the hemisphere's 1.1 pi at the hour's gain, over pi), the house lights, half turned up, and the
-    // stage's light as the shader's own line weighs it, for every figure of the fixed day's crowd, at its middle's distance from the
-    // stage's light. Every figure's stage side is lit at least LIT_SIDE times as brightly as its far side, so the stage, not the sky,
-    // models each body; the nearest, by more.
+    // stage's light as the shader's own lines weigh it and add it, for every figure of the fixed day's crowd, at its middle's
+    // distance from the stage's light. Every figure's stage side is lit at least LIT_SIDE times as brightly as its far side, so the
+    // stage, not the sky, models each body; the nearest, by more.
     const LIT_SIDE = 1.5, deep = lookAt(DEEP, newLook()), srgb = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
     const sky = 0.5 * (light({ r: srgb(deep.ambient[0]), g: srgb(deep.ambient[1]), b: srgb(deep.ambient[2]) }) + light({ r: srgb(deep.ground[0]), g: srgb(deep.ground[1]), b: srgb(deep.ground[2]) })) * 1.1 * deep.ambientGain;
-    const tint = light({ r: LAMP_TINT[0], g: LAMP_TINT[1], b: LAMP_TINT[2] }), houseTint = light({ r: HOUSE_TINT[0], g: HOUSE_TINT[1], b: HOUSE_TINT[2] });
+    const adds = (lampLit: number, houseLit: number) => light({ r: lampAdds[0](1, lampLit, houseLit), g: lampAdds[1](1, lampLit, houseLit), b: lampAdds[2](1, lampLit, houseLit) });
     const ratios = figuresOf(SHOWS[0].desktop).map((f) => {
       const far = Math.hypot(f.place!.x - LAMP_TO[0], f.place!.y + 0.5 * TALL * f.size!.y - LAMP_TO[1], f.place!.z - LAMP_TO[2]) / LAMP_HALF;
       const [lit, house] = runLamp(LIT * deep.dark, HOUSE * deep.dark, 1, far, 0), [unlit] = runLamp(LIT * deep.dark, HOUSE * deep.dark, -1, far, 0);
-      return (sky + lit * tint + house * houseTint) / (sky + unlit * tint + house * houseTint);
+      return (sky + adds(lit, house)) / (sky + adds(unlit, house));
     });
     expect(deep.dark).toBe(1);
     expect(Math.min(...ratios)).toBeGreaterThanOrEqual(LIT_SIDE);
@@ -2566,9 +2595,10 @@ describe("the crowd's shader", () => {
         runTones(null, out, { x: RIG.ARM_L, y: 0, z: TINT.TOP, w: 0 }, f.fig, null, 1, f.body, f.wear, f.cut, f.tone, 0, 0, 0, 0, f.place, f.size, dress, second);
         expect([f.i, near(out, shirt), dress.w]).toEqual([f.i, true, pattern === PATTERN.VEST ? 0 : pattern]);
         vests += pattern === PATTERN.VEST ? 1 : 0;
-        // Its trousers are the era's, the ones it was dealt or the next that stand APART from its top (legsFor).
-        const legs = legsFor(palette, p.colour.top, p.colour.legs);
-        expect([f.i, near(at(1), palette.legs[legs]), near(at(4), palette.thing[p.colour.thing])]).toEqual([f.i, true, true]);
+        // Its trousers are the era's, the ones it was dealt or the next that stand APART from its top or its poncho (legsFor); and its
+        // things the era's, the ones it was dealt or, for a poncho over shorts, the next that stand APART from its skin (thingFor).
+        const legs = legsFor(palette, p);
+        expect([f.i, near(at(1), palette.legs[legs]), near(at(4), palette.thing[thingFor(palette, p)])]).toEqual([f.i, true, true]);
         moved += legs === p.colour.legs ? 0 : 1;
         expect([f.i, near(at(3), SKIN[p.colour.self]), near(at(2), HAIRS[p.colour.hair])]).toEqual([f.i, true, true]);
         skins.add(p.colour.self); hairs.add(p.colour.hair);
@@ -2595,18 +2625,24 @@ describe("the crowd's shader", () => {
     expect(Math.max(...HAIRS.map(lum))).toBeGreaterThan(0.25);
   });
 
-  it("dresses every figure in trousers APART times lighter or darker than its top, the next of its era's that are where those it was dealt are not", () => {
-    // So that on any ground one of the two stands off it: a ground as light as the one is APART from the other, and from the ground,
-    // seen between them, each is at least the square root of APART off (the test above that stands every figure apart).
+  it("dresses every figure in trousers APART times lighter or darker than its top or its poncho, and a poncho over shorts APART from the skin they bare, the next of its era's that are where those it was dealt are not", () => {
+    // So that on any ground one of a figure's two largest parts stands off it: a ground as light as the one is APART from the other,
+    // and from the ground, seen between them, each is at least the square root of APART off (the test above that stands every figure
+    // apart).
     type Palette = { top: number[][]; legs: number[]; thing: number[] };
     const ratio = (a: number, b: number) => Math.max(a / b, b / a);
     expect(APART).toBeGreaterThanOrEqual(3);
-    // Every top of every era has trousers of its era that far from it, so the rule holds for every figure; and a top's light is its
-    // colour's, or on the whole its pattern's two (COVER), as the tone draws them.
-    for (const [, , d] of DRESS) for (const top of (d as Palette).top) {
-      expect(Math.max(...(d as Palette).legs.map((hex) => ratio(lightOf(hex), topLight(top))))).toBeGreaterThanOrEqual(APART);
-      const [shirt, pattern, second] = top;
-      expect(topLight(top)).toBeCloseTo(second === undefined ? lightOf(shirt) : (1 - COVER[pattern as keyof typeof COVER]) * lightOf(shirt) + COVER[pattern as keyof typeof COVER] * lightOf(second), 9);
+    // Every top and every thing, a poncho's colour, of every era has trousers of its era that far from it, and every skin things of
+    // every era that far from it, so the rule holds for every figure; and a top's light is its colour's, or on the whole its
+    // pattern's two (COVER), as the tone draws them.
+    for (const [, , d] of DRESS) {
+      for (const top of (d as Palette).top) {
+        expect(Math.max(...(d as Palette).legs.map((hex) => ratio(lightOf(hex), topLight(top))))).toBeGreaterThanOrEqual(APART);
+        const [shirt, pattern, second] = top;
+        expect(topLight(top)).toBeCloseTo(second === undefined ? lightOf(shirt) : (1 - COVER[pattern as keyof typeof COVER]) * lightOf(shirt) + COVER[pattern as keyof typeof COVER] * lightOf(second), 9);
+      }
+      for (const thing of (d as Palette).thing) expect(Math.max(...(d as Palette).legs.map((hex) => ratio(lightOf(hex), lightOf(thing))))).toBeGreaterThanOrEqual(APART);
+      for (const skin of SKIN) expect(Math.max(...(d as Palette).thing.map((hex) => ratio(lightOf(hex), lightOf(skin))))).toBeGreaterThanOrEqual(APART);
     }
     const out: Rgb = { r: 0, g: 0, b: 0 };
     for (const hex of [...CLOTHES, ...SKIN, ...HAIRS] as number[]) {
@@ -2618,31 +2654,117 @@ describe("the crowd's shader", () => {
     for (const pattern of [PATTERN.TIE, PATTERN.VEST, PATTERN.PRINT]) expect(dressLines).toContain(`cover = ${COVER[pattern as keyof typeof COVER].toFixed(4)}`);
     expect([PATTERN.TIE, PATTERN.STRIPE, PATTERN.CHECK].map((pattern) => COVER[pattern as keyof typeof COVER])).toEqual([0.5, 0.5, 0.5]);
     expect(dressLines.match(/cover = /g)?.length).toBe(3);
-    // And far off, as its bands come nearer than DRESS_FINE of a pixel, a pattern turns to that colour on the whole: the fragment
-    // shader's own words, which its vectors keep these tests from running.
-    expect(dressLines).toContain(`diffuseColor.rgb = mix(dressed, mix(vColor.rgb, second, cover), smoothstep(${DRESS_FINE[0].toFixed(4)}, ${DRESS_FINE[1].toFixed(4)}, fine));`);
-    // The trousers it was dealt where they stand APART, and else the next in the era's list that do, round to its start.
+    // And far off, as its bands come nearer than DRESS_FINE of a pixel, a pattern turns to that colour on the whole (the test after
+    // this one runs it).
+    expect(dressLines).toContain(`diffuseColor.rgb = mix(vColor.rgb, vSecond.rgb, mix(share, cover, smoothstep(${DRESS_FINE[0].toFixed(4)}, ${DRESS_FINE[1].toFixed(4)}, fine)));`);
+    // The trousers it was dealt where they stand APART from what it wears over its body, its top or its poncho, and else the next in
+    // the era's list that do, round to its start; and the things it was dealt, but for a poncho over shorts, the same of the things
+    // from its skin.
     const palette = dressOn(FIXED) as Palette;
-    for (let top = 0; top < palette.top.length; top++) for (let dealt = 0; dealt < palette.legs.length; dealt++) {
-      let k = dealt;
-      while (ratio(lightOf(palette.legs[k]), topLight(palette.top[top])) < APART) k = (k + 1) % palette.legs.length;
-      expect([top, dealt, legsFor(palette, top, dealt)]).toEqual([top, dealt, k]);
+    const next = (colours: number[], y: number, dealt: number) => { let k = dealt; while (ratio(lightOf(colours[k]), y) < APART) k = (k + 1) % colours.length; return k; };
+    const person = (top: string, legs: string, colour: Record<string, number>) => ({ top, legs, colour: { top: 0, legs: 0, thing: 0, self: 0, ...colour } });
+    for (let dealt = 0; dealt < palette.legs.length; dealt++) {
+      for (let top = 0; top < palette.top.length; top++) for (const [over, legs] of [["shirt", "jeans"], ["tee", "shorts"], ["shawl", "maxi"]]) {
+        const p = person(over, legs, { top, legs: dealt, thing: 3 });
+        expect([top, dealt, over, overLight(palette, p), legsFor(palette, p), thingFor(palette, p)]).toEqual([top, dealt, over, topLight(palette.top[top]), next(palette.legs, topLight(palette.top[top]), dealt), 3]);
+      }
+      for (let thing = 0; thing < palette.thing.length; thing++) {
+        const p = person("poncho", "jeans", { top: 5, legs: dealt, thing });
+        expect([thing, dealt, overLight(palette, p), legsFor(palette, p), thingFor(palette, p)]).toEqual([thing, dealt, lightOf(palette.thing[thing]), next(palette.legs, lightOf(palette.thing[thing]), dealt), thing]);
+        for (let self = 0; self < SKIN.length; self++) {
+          const bare = person("poncho", "shorts", { top: 5, legs: dealt, thing, self }), worn = next(palette.thing, lightOf(SKIN[self]), thing);
+          expect([thing, self, thingFor(palette, bare), legsFor(palette, bare)]).toEqual([thing, self, worn, next(palette.legs, lightOf(palette.thing[worn]), dealt)]);
+        }
+      }
     }
-    // And as the shader colours them, on three shows' crowds: each plain top and its trousers, as far apart as the rule says but for
-    // the tones' rounding.
-    let plain = 0;
+    // And as the shader colours them, on three shows' crowds: each plain top and its trousers, each poncho and its trousers, and each
+    // poncho over shorts and its skin, as far apart as the rule says but for the tones' rounding.
+    let plain = 0, ponchos = 0, bare = 0;
+    const whoIn = new Map(SHOWS.flatMap(({ desktop, phone: small }) => [desktop, small]).map((c) => [c, peopleOf(c)]));
     for (const { desktop, phone: small } of SHOWS) for (const c of [desktop, small]) for (const f of figuresOf(c)) {
-      if (f.top.b % PATTERNS !== PATTERN.PLAIN) continue;
+      const p = whoIn.get(c)![f.i] as { top: string; legs: string };
       const at = (tint: number) => {
         out.r = f.top.r; out.g = f.top.g; out.b = f.top.b;
         runTones(null, out, { x: 0, y: 0, z: tint, w: 0 }, f.fig, null, 1, f.body, f.wear, f.cut, f.tone, 0, 0, 0, 0, f.place, f.size);
         return light(out);
       };
-      expect([f.i, ratio(at(TINT.LEGS), at(TINT.TOP)) >= 0.97 * APART]).toEqual([f.i, true]);
-      plain += 1;
+      if (p.top === "poncho") {
+        expect([f.i, ratio(at(TINT.LEGS), at(TINT.THING)) >= 0.97 * APART]).toEqual([f.i, true]);
+        ponchos += 1;
+        if (p.legs !== "shorts") continue;
+        expect([f.i, ratio(at(TINT.SELF), at(TINT.THING)) >= 0.97 * APART]).toEqual([f.i, true]);
+        bare += 1;
+      } else if (f.top.b % PATTERNS === PATTERN.PLAIN) {
+        expect([f.i, ratio(at(TINT.LEGS), at(TINT.TOP)) >= 0.97 * APART]).toEqual([f.i, true]);
+        plain += 1;
+      }
     }
-    expect(plain).toBeGreaterThan(400);
+    expect([plain, ponchos, bare].map((n) => n > 0)).toEqual([true, true, true]);
+    expect(plain).toBeGreaterThan(300);
   });
+
+  it("turns a top's pattern to its colour on the whole wherever a pixel spans two of its bands, along every way they change, and softens a band's edge by a width that never comes to nothing", () => {
+    // The fragment shader's one derivative is how far a pixel spans on the figure along each way. Every width it softens an edge by
+    // comes from that in the lines the tests run, and is half a width each side of the edge, never less than DRESS_EDGE, so that
+    // smoothstep's two ends stay apart, as GLSL needs, on a face the bands do not cross; every other edge is two numbers apart.
+    expect(dressLines.match(/fwidth|dFdx|dFdy/g)).toEqual(["fwidth"]);
+    expect(dressLines).toContain("vec3 at = vDress.xyz, pixel = fwidth(vDress.xyz);");
+    expect(DRESS_EDGE).toBeGreaterThan(0);
+    const floored = new Set([...dressLines.matchAll(/(\w+) = max\([^;]*?, (\d+\.\d+)\)/g)].filter((m) => Number(m[2]) === DRESS_EDGE).map((m) => m[1]));
+    const edges = [...dressLines.matchAll(/smoothstep\(([^,]+), ([^,]+),/g)].map((m) => [m[1], m[2]]);
+    let softened = 0;
+    for (const [low, high] of edges) {
+      const [, middle, width] = low.match(/^(\d+\.\d+) - (\w+)$/) ?? [];
+      if (width === undefined) { expect([low, high].map(Number).every(Number.isFinite)).toBe(true); expect(Number(low)).toBeLessThan(Number(high)); continue; }
+      expect([low, high, floored.has(width)]).toEqual([low, `${middle} + ${width}`, true]);
+      softened += 1;
+    }
+    expect([edges.length, softened]).toEqual([6, 3]);
+    // Run, the patterns, on figures of four seeds (a tie-dye of two arms, three and four, turning either way), at places across a top
+    // from the waist to the shoulders, front, side and back, and close round the tie-dye's centre, where its arms meet; and pixels
+    // from a near one's span to many bands', along each way alone.
+    // Along a pixel's span the pattern as a point shows it flips between the top's colour and the second so many times; where it
+    // flips four times or more, the pixel holds two of its bands, and the face shows none of them, but the top's colour on the whole.
+    // A stripe's, a check's and a vest's opening are straight, so where one flips twice the pixel holds a band whole, and the face
+    // has begun to turn to that colour; a tie-dye's and a print's bands curve, so a pixel may just graze one.
+    const shown = (at: Xyz, pattern: number, seed: number, pixel: Xyz = { x: 0, y: 0, z: 0 }) => runDress({ w: pattern }, { w: seed }, at, pixel)!;
+    const point = (at: Xyz, pattern: number, seed: number, pixel?: Xyz) => shown(at, pattern, seed, pixel)[0];
+    const places: Xyz[] = [];
+    for (const x of [-0.21, -0.13, -0.05, 0.02, 0.09, 0.17]) for (const y of [0.98, 1.1, 1.19, 1.31, 1.43]) for (const z of [-0.12, 0.03, 0.11]) places.push({ x, y, z });
+    for (const r of [0, 0.0002, 0.001, 0.004, 0.015]) for (const turn of [0.3, 2.1, 4]) places.push({ x: r * Math.cos(turn), y: 1.24 + r * Math.sin(turn), z: 0.11 });
+    const SPANS = [0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.04, 0.08, 0.16, 0.32], STEPS = 200, ways = ["x", "y", "z"] as const;
+    const patterns = [PATTERN.TIE, PATTERN.STRIPE, PATTERN.CHECK, PATTERN.VEST, PATTERN.PRINT] as number[];
+    const coverOf = (pattern: number) => COVER[pattern as keyof typeof COVER];
+    const wrong: unknown[] = [], spanned = new Set<string>(), flipping = new Set<string>();
+    let held = 0, whole = 0;
+    for (const pattern of patterns) for (const seed of [0.2, 0.45, 0.7, 0.95]) for (const at of places) for (const way of ways) for (const span of SPANS) {
+      const along = (k: number) => ({ ...at, [way]: at[way] + span * (k / STEPS - 0.5) });
+      let flips = 0, was = Math.round(point(along(0), pattern, seed));
+      for (let k = 1; k <= STEPS; k++) { const now = Math.round(point(along(k), pattern, seed)); flips += now === was ? 0 : 1; was = now; }
+      const [drawn, fine] = shown(at, pattern, seed, { x: 0, y: 0, z: 0, [way]: span });
+      if (flips > 0) flipping.add(`${pattern} ${way}`);
+      if (flips >= 2 && [PATTERN.STRIPE, PATTERN.CHECK, PATTERN.VEST].includes(pattern) && !(fine > DRESS_FINE[0])) wrong.push({ pattern, seed, at, way, span, flips, fine });
+      whole += flips >= 2 && pattern === PATTERN.VEST ? 1 : 0;
+      if (flips < 4) continue;
+      spanned.add(`${pattern} ${way}`);
+      held += 1;
+      if (!(Math.abs(drawn - coverOf(pattern)) < 1e-12)) wrong.push({ pattern, seed, at, way, span, flips, drawn });
+    }
+    expect(wrong.slice(0, 5)).toEqual([]);
+    expect([held > 1000, whole > 100]).toEqual([true, true]);
+    // Which reaches every way each pattern's bands change: the tie-dye's two across its chest, the stripes' one round the body, the
+    // checks' and the print's all three. A vest has the one band, its opening, across the chest, which a pixel holds once at most.
+    const T = PATTERN.TIE, S = PATTERN.STRIPE, C = PATTERN.CHECK, P = PATTERN.PRINT;
+    expect([...spanned].sort()).toEqual([`${T} x`, `${T} y`, `${S} y`, `${C} x`, `${C} y`, `${C} z`, `${P} x`, `${P} y`, `${P} z`].sort());
+    // And a pixel's span along a way a pattern never changes in fades none of it: stripes seen round, not across, keep their bands.
+    for (const pattern of patterns) for (const way of ways) {
+      if (flipping.has(`${pattern} ${way}`)) continue;
+      for (const seed of [0, 0.7]) for (const at of places) expect(point(at, pattern, seed, { x: 0, y: 0, z: 0, [way]: 0.32 })).toBe(point(at, pattern, seed));
+    }
+    expect(patterns.flatMap((pattern) => ways.filter((way) => !flipping.has(`${pattern} ${way}`)).map((way) => `${pattern} ${way}`)).sort()).toEqual([`${T} z`, `${S} x`, `${S} z`].sort());
+    // A plain top draws no pattern at all.
+    expect(runDress({ w: PATTERN.PLAIN }, { w: 0.5 }, { x: 0.02, y: 1.31, z: 0.11 }, { x: 0, y: 0, z: 0 })).toBeUndefined();
+  }, 30000);
 
   it("packs every number a corner carries into what a float holds exactly: each tone in 21 bits, a dye over the things' tone and a seed over the pattern under 2 to the 24th", () => {
     // A float holds every whole number up to 2^24 exactly, and no further: one over it rounds, and its unpacking reads another colour,
@@ -2899,7 +3021,7 @@ describe("the crowd's people", () => {
     // And where nothing fits at all, one in a full poncho kneels and anyone else has its knees up (stances).
     const placed = placedOf.get(crowd)!, anyone = peopleOf(crowd).map((p, i) => (i % 2 ? { ...p, top: "poncho" } : p));
     (stances(placed, anyone, () => false) as { sit: string }[]).forEach(({ sit }, i) => expect([i, sit]).toEqual([i, anyone[i].top === "poncho" ? "kneel" : "knees"]));
-  });
+  }, 30000);
 
   it("holds a friend: two friends stand side by side, each one's hand rests on the other's back, dancing or not, and they dance as one, on six more days", () => {
     // Each pair on the hills and the shows' own, and on three more days' gatherings as a desktop draws them, and two days' with every
@@ -2981,7 +3103,7 @@ describe("the crowd's people", () => {
     // The friend's back, as backOf has it, is the body's own: half its depth behind the spine, at the hips, the middle and under the
     // shoulders, for the standard figure.
     expect([backOf(0.93, 1), backOf(1.01, 1), backOf(1.4, 1)].map((v) => Math.round(v * 1000))).toEqual([124, 107, 160]);
-  });
+  }, 30000);
 
   it("dance as far as each will: a third only a little, a quarter to a half as far as the rest, and the rest from 0.62 of the way to all of it", () => {
     // How far a figure dances is its aWear.w (DANCE), drawn with its person (QUIET).

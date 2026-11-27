@@ -553,10 +553,9 @@ export function partingOptions(scale) {
    flannel and dark tees. A top is [colour, pattern, second colour] (PATTERN): plain, tie-dyed, striped, checked, a vest over a
    shirt, or printed, the pattern drawn on it by the shader (DRESS_LOOK). Trousers, skirts and shoes are plain, and plainer than
    tops. No channel of any colour is brighter than MOST of full light, which is also all a tone can hold (tone), so no shirt is
-   white under the stage's light. A figure's trousers stand APART times lighter or darker than its top (legsFor), so every figure
-   stands apart from the ground and the sky (crowd.test.ts). Each palette holds as
-   many of each as COLOURS says, so a person is the same person in every era (people deals each an index into each list), and only
-   what they wear changes. */
+   white under the stage's light. A figure's trousers stand APART times lighter or darker than its top, or its poncho (legsFor), so
+   every figure stands apart from the ground and the sky (crowd.test.ts). Each palette holds as many of each as COLOURS says, so a
+   person is the same person in every era (people deals each an index into each list), and only what they wear changes. */
 export const MOST = 0.8;
 export const PATTERN = { PLAIN: 0, TIE: 1, STRIPE: 2, CHECK: 3, VEST: 4, PRINT: 5 }, PATTERNS = 8, SEEDS = 256;
 const { PLAIN, TIE, STRIPE, CHECK, VEST, PRINT } = PATTERN;
@@ -626,19 +625,26 @@ export const lightOf = (hex, most = MOST) => {
   return most * (0.2126 * red * red + 0.7152 * green * green + 0.0722 * blue * blue);
 };
 export const topLight = (/** @type {number[]} */ [shirt, pattern, second]) => (second === undefined ? lightOf(shirt) : (1 - COVER[pattern]) * lightOf(shirt) + COVER[pattern] * lightOf(second));
-/* A figure's trousers stand APART times lighter or darker than its top, so that on any ground one of the two stands off it: the
-   legs it is dealt, or the next of its era's that do. */
+/* A person's two largest parts as the eye sees them stand APART times lighter or darker than each other, so that on any ground
+   one of the two stands off it: what it wears over its body, and its trousers, or, in shorts under a poncho, its bare shins. Over
+   its body it wears its top, or a poncho, which hangs over the top from the neck to its hem, so that the top hardly shows, in the
+   colour of the things it wears (overLight). Its trousers are the ones it was dealt, or the next of its era's that stand APART from
+   that (legsFor); and a poncho over shorts, which leave more of its shins bare than they cover, is in its things' colour, the one it
+   was dealt, or the next of its era's that stands APART from its skin (thingFor). `dress` is an era's palette (DRESS). */
 export const APART = 3;
-export function legsFor(dress, top, dealt) {
-  const y = topLight(dress.top[top]), ratio = (k) => { const l = lightOf(dress.legs[k]); return Math.max(l / y, y / l); };
+function nextApart(colours, y, dealt) {
+  const ratio = (k) => { const l = lightOf(colours[k]); return Math.max(l / y, y / l); };
   let best = dealt;
-  for (let step = 0; step < dress.legs.length; step++) {
-    const k = (dealt + step) % dress.legs.length;
+  for (let step = 0; step < colours.length; step++) {
+    const k = (dealt + step) % colours.length;
     if (ratio(k) >= APART) return k;
     if (ratio(k) > ratio(best)) best = k;
   }
   return best;
 }
+export const thingFor = (dress, person) => (person.top === "poncho" && person.legs === "shorts" ? nextApart(dress.thing, lightOf(SKIN[person.colour.self]), person.colour.thing) : person.colour.thing);
+export const overLight = (dress, person) => (person.top === "poncho" ? lightOf(dress.thing[thingFor(dress, person)]) : topLight(dress.top[person.colour.top]));
+export const legsFor = (dress, person) => nextApart(dress.legs, overLight(dress, person), person.colour.legs);
 
 /* A figure's own seed for its top's pattern, 0 to SEEDS - 1, from its place in the seats' order: the turn of a tie-dye's spiral. */
 export const seedOf = (i) => Math.imul(i + 1, 0x9e3779b1) >>> 24;
@@ -1551,42 +1557,51 @@ function unlitByPoints() {
 }
 
 /* After color_fragment, where the face's colour is its tone: a top's pattern (PATTERN), drawn where on the figure the face lies
-   (vDress.xyz), in the top's colour and its second (vSecond). Tie-dye is a spiral of the two from the chest, front and back alike,
-   its arms and its turn the figure's own seed's; stripes go round the body; checks are bands both ways, the top's colour where
-   neither crosses, the second where both do; a vest is the second colour, open down the front over the shirt; a print is blots of the
-   second. Each pattern grows finer than a pixel far off, so as its bands come nearer than DRESS_FINE of a pixel it turns to the
-   colour it is on the whole, and a far figure is a steady colour and not a flicker of bands as it moves. */
-export const DRESS_FINE = [0.35, 0.8];
+   (vDress.xyz), in the top's colour and its second (vSecond), as how much of the second it shows (`share`). Tie-dye is a spiral of the
+   two from the chest, front and back alike, its arms (`spokes`) and its turn the figure's own seed's; stripes go round the body; checks
+   are bands both ways, the top's colour where neither crosses, the second where both do; a vest is the second colour, open down the
+   front over the shirt; a print is blots of the second. Each pattern grows finer than a pixel far off, so as its bands come nearer
+   than DRESS_FINE of a pixel (`fine`) it turns to the colour it is on the whole, and a far figure is a steady colour and not a flicker
+   of bands as it moves. How far a pixel spans on the figure along each of its three ways (`pixel`) is the shader's one derivative;
+   the rest is plain numbers, so that the unit tests run it, and each pattern's `fine` takes the span along every way its bands change
+   in: the tie-dye's along both ways of the chest, with its arms, which crowd together towards the spiral's centre, so that the centre
+   turns to the colour on the whole and does not flicker even near; a check's along all three; a print's along all three; a vest's
+   across its opening, its one band (down it and round the body, the opening has an edge and no band). A stripe's or a check's edge
+   is softened over the pixel it crosses, and never by less than DRESS_EDGE of a band, so smoothstep's two ends stay apart, as GLSL
+   needs, on a face its bands do not cross: a thousandth of a band is finer than a pixel ever spans where they do, which even at the
+   camera's near plane (main.js), half a metre off, on a 4K screen, is about two thousandths of the coarser band, the check's. */
+export const DRESS_FINE = [0.35, 0.8], DRESS_EDGE = 0.001;
 const DRESS_LOOK = `
 if (vDress.w > 0.5) {
-  vec3 at = vDress.xyz, second = vSecond.rgb, dressed = vColor.rgb;
-  float seed = vSecond.w, cover = ${f(COVER[PATTERN.TIE])}, fine = 0.0;
+  vec3 at = vDress.xyz, pixel = fwidth(vDress.xyz);
+  float seed = vSecond.w, share = 0.0, cover = ${f(COVER[PATTERN.TIE])}, fine = 0.0;
   if (vDress.w < ${n(PATTERN.TIE + 0.5)}) {
-    vec2 chest = vec2(at.x, at.y - 1.24);
-    float ring = length(chest) * 11.0, band = (2.0 + floor(seed * 2.99)) * atan(chest.y, chest.x) / 6.2832 + (seed > 0.5 ? ring : -ring) + 7.0 * seed;
-    dressed = mix(vColor.rgb, second, smoothstep(0.25, 0.75, 0.5 + 0.5 * sin(6.2832 * band)));
-    fine = fwidth(ring);
+    float aside = at.x, above = at.y - 1.24, reach = max(sqrt(aside * aside + above * above), 0.0001), spokes = 2.0 + floor(seed * 2.99), ring = reach * 11.0;
+    float band = spokes * atan(above, aside) / 6.2832 + (seed > 0.5 ? ring : -ring) + 7.0 * seed;
+    share = smoothstep(0.25, 0.75, 0.5 + 0.5 * sin(6.2832 * band));
+    fine = max(pixel.x, pixel.y) * (11.0 + spokes / 6.2832 / reach);
   } else if (vDress.w < ${n(PATTERN.STRIPE + 0.5)}) {
     float band = at.y * 13.0;
-    fine = fwidth(band);
-    dressed = mix(vColor.rgb, second, smoothstep(0.5 - fine, 0.5 + fine, abs(fract(band) - 0.5) * 2.0));
+    fine = pixel.y * 13.0;
+    float soft = max(fine, ${f(DRESS_EDGE)});
+    share = smoothstep(0.5 - soft, 0.5 + soft, abs(fract(band) - 0.5) * 2.0);
   } else if (vDress.w < ${n(PATTERN.CHECK + 0.5)}) {
-    float down = at.y * 7.0, across = (at.x + at.z) * 7.0;
-    fine = max(fwidth(down), fwidth(across));
-    float one = smoothstep(0.5 - fine, 0.5 + fine, abs(fract(down) - 0.5) * 2.0), other = smoothstep(0.5 - fine, 0.5 + fine, abs(fract(across) - 0.5) * 2.0);
-    dressed = mix(vColor.rgb, second, 0.5 * (one + other));
+    float down = at.y * 7.0, across = (at.x + at.z) * 7.0, downFine = pixel.y * 7.0, acrossFine = (pixel.x + pixel.z) * 7.0;
+    float downSoft = max(downFine, ${f(DRESS_EDGE)}), acrossSoft = max(acrossFine, ${f(DRESS_EDGE)});
+    share = 0.5 * (smoothstep(0.5 - downSoft, 0.5 + downSoft, abs(fract(down) - 0.5) * 2.0) + smoothstep(0.5 - acrossSoft, 0.5 + acrossSoft, abs(fract(across) - 0.5) * 2.0));
+    fine = max(downFine, acrossFine);
   } else if (vDress.w < ${n(PATTERN.VEST + 0.5)}) {
     float open = 0.035 + 0.1 * clamp((at.y - 1.15) / 0.35, 0.0, 1.0);
-    fine = fwidth(at.x) * 8.0;
+    share = at.z > 0.0 && abs(at.x) < open ? 0.0 : 1.0;
+    fine = pixel.x * 8.0;
     cover = ${f(COVER[PATTERN.VEST])};
-    dressed = at.z > 0.0 && abs(at.x) < open ? vColor.rgb : second;
   } else {
     float blot = sin(at.x * 47.0 + 20.0 * seed) * sin(at.y * 41.0 + 9.0 * seed) * sin(at.z * 53.0);
-    fine = fwidth(at.y * 41.0) * 0.5;
+    share = smoothstep(0.18, 0.32, blot);
+    fine = 0.5 * max(max(pixel.x * 47.0, pixel.y * 41.0), pixel.z * 53.0);
     cover = ${f(COVER[PATTERN.PRINT])};
-    dressed = mix(vColor.rgb, second, smoothstep(0.18, 0.32, blot));
   }
-  diffuseColor.rgb = mix(dressed, mix(vColor.rgb, second, cover), smoothstep(${f(DRESS_FINE[0])}, ${f(DRESS_FINE[1])}, fine));
+  diffuseColor.rgb = mix(vColor.rgb, vSecond.rgb, mix(share, cover, smoothstep(${f(DRESS_FINE[0])}, ${f(DRESS_FINE[1])}, fine)));
 }
 `;
 
@@ -1721,8 +1736,8 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     each.aWear.set([worn.parts, worn.style, one.stoop, one.size], 4 * i);
     each.aCut.set([one.hairLength, one.hem, one.crown, one.brim], 4 * i);
     each.forms[i] = formsOf(one);
-    each.aTone.set([tone(palette.legs[legsFor(palette, one.colour.top, one.colour.legs)]), tone(HAIRS[one.colour.hair]), tone(SKIN[one.colour.self]),
-      tone(palette.thing[one.colour.thing]) + DYE * (one.colour.cloth ?? 0)], 4 * i);
+    each.aTone.set([tone(palette.legs[legsFor(palette, one)]), tone(HAIRS[one.colour.hair]), tone(SKIN[one.colour.self]),
+      tone(palette.thing[thingFor(palette, one)]) + DYE * (one.colour.cloth ?? 0)], 4 * i);
     /* The same place as the shader takes it: where it stands and how the ground rises across it; and its breadth, its height, its turn,
        and how much higher it stands the other way, standing or seated, in its own units. */
     each.aPlace.set([dummy.position.x, dummy.position.y, dummy.position.z, rises], 4 * i);
@@ -1820,12 +1835,14 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
   /* Lights the figures for a frame by how dark the night is, `dark` 0-1 (night.js lookAt), and by nothing else: their rims, RIM_LEAST
      of RIM where it is not dark at all and the whole of it in the deep of the night; the stage's light and the house lights, LIT and
      HOUSE at the deep of the night and none where it is not dark. `music` is the music's factor on the sky's light this frame (audio.js
-     mappings, `hemi`), which the crowd takes back out of it, so it takes the sky's light as the hour gives it. */
+     mappings, `hemi`), which the crowd takes back out of it, so it takes the sky's light as the hour gives it. For a loudness of
+     0-1 audio.js gives it between 0.9 and 1.1; it is taken as no less than half all the same, so a factor that came to nothing could
+     not light the crowd without end. */
   function light(dark, music = 1) {
     uniforms.uRim.value = RIM * (RIM_LEAST + (1 - RIM_LEAST) * dark);
     uniforms.uLit.value = LIT * dark;
     uniforms.uHouse.value = HOUSE * dark;
-    uniforms.uSky.value = 1 / music;
+    uniforms.uSky.value = 1 / Math.max(music, 0.5);
   }
 
   /* Moves the figures round the visitor for a frame `dt` s long, the visitor's bear standing with its feet and head at `feet` and `head`
