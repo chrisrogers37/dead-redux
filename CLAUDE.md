@@ -26,7 +26,7 @@ One file: `npx vitest run src/lib/__tests__/quality.test.ts`. The dev server sen
 - `scripts/`: the catalog refresh and the Maps workflow's scripts.
 - `scripts/flash/`: the flash counter (`README.md` there).
 - `src/lib/__tests__/` (the world's tests too) and `scripts/__tests__/`: vitest.
-- `.github/workflows/`: `ci.yml`, `screenshots.yml`, `maps.yml`. `.github/screenshots/`: the shoot, with its own `package.json`.
+- `.github/workflows/`: `ci.yml`, `preview.yml`, `screenshots.yml`, `maps.yml`. `.github/screenshots/`: the shoot, with its own `package.json`.
 
 ## How a change lands
 
