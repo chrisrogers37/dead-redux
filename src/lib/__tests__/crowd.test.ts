@@ -2337,7 +2337,7 @@ describe("the crowd's shader", () => {
   }, 60000);
 
   it("swings no arm out and back more than once in four counts but a clap's, before its chest, in two; bends no figure's knees more than once in four; and keeps a clap inside the figure's own outline", () => {
-    // The flash bar counts a block's swings in brightness, and a thin limb that passes over lit ground or the stage swings each block
+    // The old flash bar counted a block's swings in brightness, and a thin limb that passes over lit ground or the stage swings each block
     // on its way twice as it goes and twice as it comes back. Main's arms did that on every beat: 9 and 10 swings a second at one
     // block from the stage's pose in Drums, by render; and a bob's knees on every beat carried a raised arm across one block 7 and 8
     // times a second at a peak. So every arm and every figure's knees here keep to a cycle of SLOW counts, held between (band.js), and
