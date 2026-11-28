@@ -6,7 +6,7 @@ import { FLOOR } from "../../../public/world/stage.js";
 
 // The players' bodies as people (band.js `trunk`, `armParts`, `fist`, `leg`): each player one piece, joint to joint, at rest and as the
 // band plays; each hand where its role puts it, measured where it is drawn; each singer's head at its microphone; each stand beside
-// its player; each knee inside a skirt; and the feet on the floor.
+// its player; the legs under a skirt or a coat inside it; and the feet on the floor.
 
 type Vec = InstanceType<typeof THREE.Vector3>;
 type Band = ReturnType<typeof buildBand>;
@@ -327,34 +327,81 @@ describe("the band's bodies", () => {
     expect(off).toEqual([]);
   });
 
-  // A skirt hides the legs, which move under it (band.js `trunk`): through a whole SOLO counts, at every count, each knee of a player in
-  // a skirt, where the thigh meets the shin, stays inside it, the skirt round it on every side (eight ways across, each meeting the
-  // body). A coat's skirts are no skirt: they part at the front over what is under, and the lead's knee comes out past them there.
-  it("keeps each knee inside a skirt through a whole solo", () => {
-    const off: string[] = [];
-    for (const key of LINEUPS) {
-      const { band, to, players, bones } = build(key), { ends } = measures(band), hit = new THREE.Vector3();
-      for (const seconds of COUNTS) {
+  // A skirt, or a coat's skirts, hangs over the legs under it (band.js `stand`, `hangFrom`), and nothing of them comes through it. So,
+  // through a whole SOLO counts at every quarter of a count (CYCLE), in every line-up, each in an era of its own, round the eras, so
+  // that each role that wears one is held to it in every era's clothes: every corner of each leg of a player in a skirt or a coat, the
+  // hip's, the knee's and the shin's down to the top of its cuff or boot, is inside the torso or the skirt as drawn; and so is each
+  // corner of the top of a cuff or a boot, which reaches up under the hem. A corner is inside a closed surface where a level line
+  // from it crosses the surface an odd number of times; of three lines, two must. Nothing else hangs over a limb that moves: a
+  // sleeve is part of its arm, its own bar or a still part with it (band.js `armParts`, `sleeveOf`), never a garment of its own.
+  it("keeps the legs under a skirt or a coat inside it, and the tops of the cuffs and boots under its hem, through a whole solo in every era", () => {
+    const off = new Map<string, { count: number; first: string }>();
+    const ways = [0.3, 2.4, 4.5].map((a) => [Math.cos(a), Math.sin(a)]);
+    // How many times a level line from (x, y, z), along (dx, 0, dz), crosses the triangles in `t`, nine numbers a triangle.
+    const crossings = (t: Float64Array, x: number, y: number, z: number, dx: number, dz: number) => {
+      let n = 0;
+      for (let i = 0; i < t.length; i += 9) {
+        const ay = t[i + 1], by = t[i + 4], cy = t[i + 7];
+        if ((ay > y && by > y && cy > y) || (ay < y && by < y && cy < y)) continue;
+        const e1x = t[i + 3] - t[i], e1y = by - ay, e1z = t[i + 5] - t[i + 2], e2x = t[i + 6] - t[i], e2y = cy - ay, e2z = t[i + 8] - t[i + 2];
+        const px = -dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y, det = e1x * px + e1y * py + e1z * pz;
+        if (Math.abs(det) < 1e-12) continue;
+        const sx = x - t[i], sy = y - ay, sz = z - t[i + 2], u = (sx * px + sy * py + sz * pz) / det;
+        if (u < 0 || u > 1) continue;
+        const qx = sy * e1z - sz * e1y, qy = sz * e1x - sx * e1z, qz = sx * e1y - sy * e1x, v = (dx * qx + dz * qz) / det;
+        if (v >= 0 && u + v <= 1 && (e2x * qx + e2y * qy + e2z * qz) / det > 0) n++;
+      }
+      return n;
+    };
+    LINEUPS.forEach((key, l) => {
+      const date = ERAS[l % ERAS.length], { band, to, players, bones } = build(key, date), limb = band.limbs.geometry.getAttribute("position");
+      const m = new THREE.Matrix4(), v = new THREE.Vector3(), still = band.still.geometry.getAttribute("position");
+      const under = players.map((p) => p.look.skirt > 0 && Boolean(p.body.geometry));
+      expect(under.filter(Boolean).length).toBeGreaterThanOrEqual(3);
+      // Each cuff's and boot's top, in its player's frame: still parts, so taken once.
+      const tops = players.map((p, k) => {
+        if (!under[k]) return [];
+        const back = p.g.matrixWorld.clone().invert(), out: Vec[] = [];
+        for (const part of band.still.userData.parts as Part[]) {
+          if (part.by !== k || !/cuff$/.test(part.of)) continue;
+          let top = -Infinity;
+          for (let i = part.from; i < part.from + part.count; i++) top = Math.max(top, still.getY(i));
+          for (let i = part.from; i < part.from + part.count; i++) if (still.getY(i) > top - 1e-6) out.push(new THREE.Vector3().fromBufferAttribute(still, i).applyMatrix4(back));
+        }
+        return out;
+      });
+      for (const seconds of CYCLE) {
         to(seconds);
         players.forEach((p, k) => {
-          if (!(p.look.skirt > 0) || p.dress.coat || !p.body.geometry) return;
-          const corner = p.body.geometry.getAttribute("position"), at = (i: number) => new THREE.Vector3(corner.getX(i), corner.getY(i), corner.getZ(i)).applyMatrix4(p.body.matrix);
+          if (!under[k]) return;
+          const back = p.g.matrixWorld.clone().invert(), body = new THREE.Matrix4().multiplyMatrices(back, p.body.matrixWorld), corner = p.body.geometry!.getAttribute("position");
+          const shells = p.drawn.filter((run) => run.name === "torso" || run.name === "skirt").map(({ from, count }) => {
+            const t = new Float64Array(count * 3);
+            for (let i = 0; i < count; i++) { v.set(corner.getX(from + i), corner.getY(from + i), corner.getZ(from + i)).applyMatrix4(body); t.set([v.x, v.y, v.z], i * 3); }
+            return t;
+          });
+          expect(shells.length).toBe(2);
+          const inside = (c: Vec) => shells.some((t) => ways.filter(([dx, dz]) => crossings(t, c.x, c.y, c.z, dx, dz) % 2).length >= 2);
+          const note = (what: string, c: Vec) => {
+            const at = `${key}, ${date}: ${p.role}'s ${what}`, seen = off.get(at);
+            if (seen) seen.count += 1;
+            else off.set(at, { count: 1, first: `${seconds.toFixed(3)} s in, (${c.x.toFixed(3)}, ${c.y.toFixed(3)}, ${c.z.toFixed(3)})` });
+          };
+          for (const c of tops[k]) if (!inside(c)) note("cuff's top", c);
           bones.forEach((bone, j) => {
-            if (bone.of !== k || !/thigh$/.test(bone.name)) return;
-            const knee = ends(j)[1], near: Vec[][] = [];
-            for (let i = 0; i < corner.count; i += 3) {
-              const t = [at(i), at(i + 1), at(i + 2)];
-              if (Math.min(...t.map((c) => c.y)) < knee.y + 0.01 && Math.max(...t.map((c) => c.y)) > knee.y - 0.01) near.push(t);
+            if (bone.of !== k || !/(thigh|shin)$/.test(bone.name)) return;
+            band.limbs.getMatrixAt(j, m);
+            m.premultiply(back);
+            for (let i = 0; i < limb.count; i++) {
+              const c = new THREE.Vector3().fromBufferAttribute(limb, i).applyMatrix4(m);
+              if (!inside(c)) note(bone.name, c);
             }
-            const open = Array.from({ length: 8 }, (_, w) => new THREE.Ray(knee, new THREE.Vector3(Math.cos((w * Math.PI) / 4), 0, Math.sin((w * Math.PI) / 4))))
-              .filter((ray) => !near.some(([a, b, c]) => ray.intersectTriangle(a, b, c, false, hit))).length;
-            if (open) off.push(`${key}, ${seconds.toFixed(3)} s in: ${p.role}'s ${bone.name.replace(" thigh", " knee")} out of the skirt, ${open} ways of 8 open`);
           });
         });
       }
-    }
-    expect(off).toEqual([]);
-  }, 60_000);
+    });
+    expect([...off].map(([at, { count, first }]) => `${at}: ${count} corners out of the torso and the skirt, the first ${first}`)).toEqual([]);
+  }, 120_000);
 
   // The feet on the stage's floor, the player's own 0: each shoe that stays down stands on it, its lowest corner within 2 mm of it, and
   // a tapping foot, which hinges at its heel, rests on it at rest and never goes under it through a whole SOLO counts.

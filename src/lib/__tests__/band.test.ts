@@ -1248,7 +1248,9 @@ describe("the band's outlines, from the front, through four counts of playing", 
     // in play from the front of the crowd. With each microphone's stand beside its player, not before them, the band's own parts
     // count 35 and 3, and 48 and 4, and the stands with them 56 and 5, and 78 and 5: the light between a stand, its boom and the
     // arm or the head beside it. A stand is lit steel, which may cross another's outline (band-outline.ts), and the gaps beside it
-    // are left out for the same reason.
+    // are left out for the same reason. With each skirt hanging over the legs under it (band.js `hangFrom`), 34 and 3, and 47 and 4;
+    // with the first guitarist's ankles each 2 cm nearer its middle, 37 to 39 and 3 from the hill: the light between its boots
+    // thinned. Its boots taper instead, to stay under its coat (band.js BOOT_TOP).
     expect(most.far.thin).toBeGreaterThan(10);
     expect([most.far.thin <= 36, most.far.pockets <= 3, most.near.thin <= 50, most.near.pockets <= 4]).toEqual([true, true, true, true]);
   });

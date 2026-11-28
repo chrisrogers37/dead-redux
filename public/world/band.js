@@ -264,8 +264,12 @@ const ring = (y, w, d, z, sides, shape = () => 1, drop = () => 0) => Array.from(
   const a = (2 * Math.PI * k) / sides, s = shape(a);
   return V(w * s * Math.sin(a), y - drop(a), z + d * s * Math.cos(a));
 });
-/* A trouser cuff round an ankle, `hem` in radius at its foot and `tall`, in colour `c`. */
-const cuff = (c, ankle, hem = 0.084, tall = 0.14, top = 0.062) => paint(new THREE.CylinderGeometry(top, hem, tall, 10).translate(ankle.x, 0.055 + tall / 2, ankle.z), c);
+/* A trouser cuff round an ankle, `hem` in radius at its foot and `tall` from CUFF's `foot`, in colour `c`. A boot is one, taller
+   (`stand`), tapering to BOOT_TOP in radius at its top, which reaches up under a coat's skirts: a lead guitar's, 0.074 at its top,
+   stood out of the side of its coat (band-bodies.test.ts), and its ankles each 2 cm nearer its middle thinned the light between its
+   boots from the hill (band.test.ts, "leaves few gaps"). */
+const CUFF = { foot: 0.055, tall: 0.14 }, BOOT_TOP = 0.054;
+const cuff = (c, ankle, hem = 0.084, tall = CUFF.tall, top = 0.062) => paint(new THREE.CylinderGeometry(top, hem, tall, 10).translate(ankle.x, CUFF.foot + tall / 2, ankle.z), c);
 /* A shoe from its heel to its toe, in colour `c`: flat on the floor, its upper rising over the instep behind the ankle, widest at the
    ball of the foot, and rounding down to the toe; each ring across it a half-ellipse over a flat sole. */
 /* A standing player's foot, FOOT from heel to toe, its toe turned out by their `toes` (DEAL). Turned out twice as far and 2 cm longer,
@@ -318,6 +322,24 @@ function elbowOf(elbow, from, to, upper, fore, pole) {
 
 /* A posture: how high the hips are, and how far over them the waist is, about which the body turns. */
 const STANDING = { hips: 0.92, waist: 0.01 }, SEATED = { hips: 0.6, waist: 0.02 };
+/* A leg under a skirt or a coat (`stand`), never seen, is as wide as this at the thigh and the shin: as wide as a leg in trousers,
+   0.2 and 0.148, a thigh stood out of the side of the bass's and the rhythm guitarist's skirts, and the lead guitar's thigh and
+   shin out of its coat (band-bodies.test.ts). */
+const HIDDEN_LEG = { thigh: 0.12, shin: 0.1 };
+/* How far a skirt's corners go from where its body has them, at most, as it hangs (buildBand's `hang`): a body's bounds take that
+   much more, so it is never culled while a skirt shows. */
+const HANG_SLACK = 0.2;
+const bound = (geo) => {
+  geo.computeBoundingSphere();
+  geo.boundingSphere.radius += geo.userData.slack ?? 0;
+};
+/* Sends `count` corners of a body's attribute `a` from `from` to the GPU on the next draw, and no more of it than the ranges sent so,
+   which three clears once they are sent: a skirt's each frame (buildBand's `hang`), and a neck's tip as the canvas changes (`fit`). */
+function send(a, from, count) {
+  for (let i = 0; i < a.updateRanges.length; i++) if (a.updateRanges[i].start === from * 3) { a.needsUpdate = true; return; }
+  a.addUpdateRange(from * 3, count * 3);
+  a.needsUpdate = true;
+}
 /* The torso, from under the hips to the neck's foot, as rings over the hips, each [up, half its width, half its depth, how far forward
    its middle stands], in a player's own metres, the width times their build (`broad`): the hips; the waist, narrower; the chest,
    deepest and forward; the shoulders' line, widest; and the slope up to the neck. A ring stands at each line where the clothes'
@@ -351,6 +373,7 @@ function trunk({ hips: h, waist }, broad, hair, skirt = 0, dress) {
     if (cut === "vest" && !dress.coat && u > 0.75 && Math.abs(Math.abs(turn) - Math.PI / 2) < 0.4) return dress.second;
     return pattern(turn, u);
   });
+  torso.name = "torso";
   const parts = [torso, ...[1, -1].map((s) => paint(ball(V(s * 0.188 * broad, h + 0.45, 0), 0.064, 1.05, 1.1, 1, 1), shoulders))];
   /* A coat's lapels: a flap each side of its open front, from under the collar halfway down the chest, turned back over it. */
   if (dress.coat) for (const s of [1, -1]) {
@@ -383,16 +406,18 @@ function trunk({ hips: h, waist }, broad, hair, skirt = 0, dress) {
   if (hair === "beanie") top.push(...[new THREE.CylinderGeometry(0.106, 0.12, 0.13, 8).translate(head.x, head.y + 0.05, head.z - 0.01), ball(lift(0, 0.115, -0.01), 0.106, 1, 0.55, 1, 1)].map((part) => paint(part, dress.hat)));
   /* Two bunches of hair, one each side of the crown, behind the ears and over the jaw's line: from the front, a bump to either side. */
   if (hair === "bunches") top.push(...tops(crown(), ...[1, -1].map((s) => ball(lift(s * 0.112, 0.035, -0.05), 0.052, 1, 1.15, 1, 1))));
-  /* A skirt or a coat's skirts, `skirt` long from the hips, flaring to its hem, which closes the gap between the legs. A skirt hides
-     the legs, which move under it (band-bodies.test.ts). A skirt's hem falls in folds; a coat's skirts hang longer behind, and part
-     at the front over what is under, where a knee that bends and sways under them shows through,
-     and are 0.93 as wide: as wide as a skirt, from among the crowd on a desktop the first guitar's coat met the bass in the sevens
-     (band-outline-1990.test.ts). */
+  /* A skirt or a coat's skirts, `skirt` long from the hips, flaring to its hem, which closes the gap between the legs. A skirt's hem
+     falls in folds; a coat's skirts hang longer behind, part at the front over what is under, and are 0.93 as wide: as wide as a
+     skirt, from among the crowd on a desktop the first guitar's coat met the bass in the sevens (band-outline-1990.test.ts). Either
+     hangs from the hips over the legs, which stay under it as they move (buildBand's `hang`; band-bodies.test.ts). The torso and the
+     skirt are named, as the parts a skirt's legs stay inside. */
   if (skirt) {
     const rows = [0, 0.25, 0.5, 0.75, 1].map((t) => [h + 0.03 - (skirt + 0.01) * t, 0.178 + 0.153 * skirt * t ** 1.3]);
     const folds = (a) => 1 + (dress.coat ? 0 : 0.035) * Math.cos(7 * a), tail = (a) => (dress.coat ? 0.035 * (1 - Math.cos(a)) : 0);
     const geo = tube(rows.map(([y, r], k) => ring(y, r * broad * (dress.coat ? 0.93 : 1), r * 0.8, 0, 20, k ? folds : () => 1, k === 4 ? tail : () => 0)));
-    parts.push(dress.coat ? paintBy(geo, (at) => (Math.abs(Math.atan2(at.x / broad, at.z)) < 0.1 ? dress.lower : dress.coat)) : paint(geo, dress.skirt));
+    const skirts = bare(dress.coat ? paintBy(geo, (at) => (Math.abs(Math.atan2(at.x / broad, at.z)) < 0.1 ? dress.lower : dress.coat)) : paint(geo, dress.skirt));
+    skirts.name = "skirt";
+    parts.push(skirts);
   }
   return { parts, head: top, pivot: V(0, h + waist, 0), hip: (side) => V(side * 0.09 * broad, h - 0.02, 0), shoulder: (side) => V(side * 0.205 * broad, h + 0.455, 0), mouth: V(0, h + 0.685, 0.105) };
 }
@@ -580,7 +605,7 @@ const PIANO_LIFT = { left: [0.14, 1.27, 0.3], right: [0.14, 1.27, 0.3], fingers:
    (band.test.ts). */
 const DEAL = {
   lead: { size: 1.035, broad: 0.93, hair: "cap", skirt: 0.58, coat: true, stance: 0.16, boots: 0.32, toes: 0.15, fret: 0.8, sway: 0.03, strum: 0.15, tap: 0.1, lag: 1,
-    lean: 0.09, knee: 0.08, solo: 0.07,
+    lean: 0.09, knee: 0.03, solo: 0.07,
     hold: { ...TWO_HORNS, at: V(-0.13, 0.99, 0.18), rise: 0.78, yaw: 0.2, big: 1.1 } },
   bass: { size: 0.93, broad: 1.0, hair: "knot", skirt: 0.8, stance: 0.16, toes: 0.11, fret: 0.96, sway: -0.035, strum: 0.05, tap: 0.13, lag: 0,
     knee: 0.05,
@@ -904,7 +929,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
   const staging = STAGING[roles.join(" ")];
   if (!staging) throw new Error(`band.js: no staging for the line-up ${roles.join(", ")}`);
   const { material, uniforms, light } = bandLight(stage);
-  const players = [], bones = [], arms = [], legs = [], hinges = [], joints = [], fixed = [], stands = [], fitted = [], necks = [];
+  const players = [], bones = [], arms = [], legs = [], hinges = [], joints = [], fixed = [], stands = [], fitted = [], necks = [], hangs = [];
 
   /* A player's frame: where they stand on the floor, the way they face, and their size; and what they wear (dressOf). */
   function player(role, plays, [x, z], facing, size, dress) {
@@ -932,8 +957,9 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     } else {
       const all = [...parts, ...tip].map(bare), geo = mergeGeometries(all).translate(-pivot.x, -pivot.y, -pivot.z);
       p.body = new THREE.Mesh(geo, material);
-      /* Each part of the body with a name, a closed hand's palm (`fist`) or the singer's tambourine, as the run of the body's corners
-         it is, in the order the parts list them: so the tests (band-bodies.test.ts) measure a hand where it is drawn. */
+      /* Each part of the body with a name, a closed hand's palm (`fist`), the singer's tambourine, the torso or a skirt (`trunk`), as
+         the run of the body's corners it is, in the order the parts list them: so the tests (band-bodies.test.ts) measure a hand where
+         it is drawn, and a skirt hangs (`hang`). */
       for (let k = 0, from = 0; k < parts.length; from += all[k].attributes.position.count, k++) if (all[k].name) p.drawn.push({ name: all[k].name, from, count: all[k].attributes.position.count });
       if (tip.length) {
         const from = all.slice(0, parts.length).reduce((n, g) => n + g.attributes.position.count, 0), corner = geo.getAttribute("position");
@@ -977,10 +1003,11 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
      halfway between them and `bend` forward at rest, and further forward as the hip comes down toward the ankle, KNEE_GIVE times as
      far; so the leg bends at the knee as the weight comes onto it, follows the hips as they sway, and the foot never slides. (A knee that kept the thigh's and the shin's lengths
      exactly moved several times as fast as the hip near a leg's full stretch, and shivered as a standing body breathed: band.test.ts,
-     "moves every part smoothly".) */
+     "moves every part smoothly".) A leg under a skirt or a coat (`hidden`, `stand`) is never seen, and is HIDDEN_LEG across. */
   const KNEE_GIVE = 2;
-  function leg(p, name, hip, ankle, bend = 0.06) {
-    const thigh = bone(p, `${name} thigh`, 0.2, 0.2, [0.01, 0.03]), shin = bone(p, `${name} shin`, 0.148, 0.148, [0.03, 0]);
+  function leg(p, name, hip, ankle, bend = 0.06, hidden = false) {
+    const [upper, lower] = hidden ? [HIDDEN_LEG.thigh, HIDDEN_LEG.shin] : [0.2, 0.148];
+    const thigh = bone(p, `${name} thigh`, upper, upper, [0.01, 0.03]), shin = bone(p, `${name} shin`, lower, lower, [0.03, 0]);
     legs.push({ p, thigh, shin, hip: ofBody(p, hip), ankle: ankle.clone(), bend, reach: hip.distanceTo(ankle) });
     joints.push({ bone: thigh.at, end: 0, of: p.at, on: true, at: ofBody(p, hip) }, { bone: shin.at, end: 0, of: p.at, to: thigh.at },
       { bone: shin.at, end: 1, of: p.at, on: false, at: ankle.clone() });
@@ -995,20 +1022,43 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
   }
   /* The legs, the cuffs and the shoes of a player who stands with their ankles `stance` to either side: a shoe that stays down is a
      still part, and one that `taps` hinges at its heel, where a turn lifts its toe. With `boots`, each cuff is a boot that tall,
-     which reaches up into a coat: below a coat's hem a shin is too thin to join a cuff to it, from the back of the crowd on a phone. */
+     which reaches up into a coat: below a coat's hem a shin is too thin to join a cuff to it, from the back of the crowd on a phone.
+     Under a skirt or a coat, whose hem comes down past the cuffs' tops, a leg is never seen: it runs from the hip to the top of its
+     cuff or boot (`hidden`), slimmer than a leg in trousers, and the skirt hangs over it (`hangFrom`). */
   function stand(p, t, stance, toes, back, taps, boots = null, knee = undefined) {
     let tap = null;
+    const hidden = p.look.skirt > 0, tall = boots ?? CUFF.tall;
     for (const s of [1, -1]) {
       const ankle = V(s * stance, 0.1, back), heel = V(s * stance, 0.04, back - 0.075), toe = V(heel.x + s * FOOT * Math.sin(toes), 0.04, heel.z + FOOT * Math.cos(toes));
-      leg(p, s > 0 ? "left" : "right", t.hip(s), ankle, knee);
-      keep(p, `${p.plays} cuff`, [boots ? cuff(p.dress.shoes, ankle, 0.086, boots, 0.074) : cuff(p.dress.lower, ankle)]);
+      leg(p, s > 0 ? "left" : "right", t.hip(s), hidden ? V(ankle.x, CUFF.foot + tall, ankle.z) : ankle, knee, hidden);
+      keep(p, `${p.plays} cuff`, [boots ? cuff(p.dress.shoes, ankle, 0.086, boots, BOOT_TOP) : cuff(p.dress.lower, ankle)]);
       if (taps && s > 0) {
         tap = hinge(p, false, heel, BACK, [toe.clone().sub(heel)], [bone(p, "tapping foot", 0.105, 0.085)]);
         fitted.push({ bone: tap.held[0], wide: 0.105, thick: 0.085 });
       }
       else keep(p, `${p.plays} shoe`, [shoe(p.dress.shoes, heel, toe)]);
     }
+    if (hidden) hangFrom(p, t.hip(1).y, CUFF.foot + tall);
     return tap;
+  }
+  /* A skirt, or a coat's skirts, hangs from the hips over the legs under it, which run from the hips to the cuffs' or the boots' tops
+     (`stand`): each height of it goes with the hips as far as those legs do there, all the way from the hips up, not at all at the
+     cuffs' tops and below, and in proportion between; and it hangs straight down, as from a body upright at rest, never turning as
+     the body sways and leans. So the legs stay under it through every move, a lead guitar's solo included (band-bodies.test.ts). A
+     skirt that turned with the body, as all of the body did, swung its hem out over the planted feet as far again as the hips went,
+     and more: a bass's 2.15 times as far. In the solo a lead guitar's coat left a boot's top 16 cm out past its side; and one that
+     hung leaned, as its body leans at rest, stood back off its boots, which came out of its side. `hang` lays its corners each frame,
+     and its normals. */
+  function hangFrom(p, hips, foot) {
+    const run = p.drawn.find(({ name }) => name === "skirt");
+    if (!run || !p.body.geometry) return;
+    const geo = p.body.geometry, at = geo.getAttribute("position"), normal = geo.getAttribute("normal"), weight = new Float32Array(run.count);
+    for (let i = 0; i < run.count; i++) weight[i] = Math.max(0, Math.min(1, (at.getY(run.from + i) + p.pivot.y - foot) / (hips - foot)));
+    const rest = new THREE.Matrix4().makeTranslation(p.pivot.x, p.pivot.y, p.pivot.z);
+    hangs.push({ p, geo, from: run.from, count: run.count, weight, rest, hips: V(0, hips, 0).sub(p.pivot), still: V(0, hips, 0).sub(p.pivot).applyMatrix4(rest),
+      base: at.array.slice(run.from * 3, (run.from + run.count) * 3), normals: normal.array.slice(run.from * 3, (run.from + run.count) * 3) });
+    geo.userData.slack = HANG_SLACK;
+    bound(geo);
   }
   /* The legs, the cuffs and the shoes of one who sits, all still: each thigh from its hip to a knee `knee` in front, and each shin down
      to an ankle `ankle` in front, its foot on the floor. */
@@ -1398,8 +1448,8 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
         at.array[(from + i) * 3 + 1] = base[i * 3 + 1] + k * across[i] * way.y;
         at.array[(from + i) * 3 + 2] = base[i * 3 + 2] + k * across[i] * way.z;
       }
-      at.needsUpdate = true;
-      geo.computeBoundingSphere();
+      send(at, from, count);
+      bound(geo);
     }
     for (const { bone, wide, thick, most = STOUT_MOST * 3 } of fitted) {
       const least = Math.min(most, seen / (LIMB_FLATS * players[bone.of].g.scale.x));
@@ -1460,14 +1510,37 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     limbs.instanceMatrix.needsUpdate = true;
   }
 
+  /* Lays each skirt where it hangs (`hangFrom`), in its body's own frame: where it hangs from a body upright at rest, moved by its
+     share of how far the hips have gone. Only its corners and normals go to the GPU. */
+  const posed = new THREE.Matrix4(), toRest = new THREE.Matrix4(), turned = new THREE.Matrix3(), unturn = new THREE.Quaternion(), gone = V();
+  function hang() {
+    for (const { p, geo, from, count, weight, rest, hips, still, base, normals } of hangs) {
+      posed.compose(p.body.position, p.body.quaternion, p.body.scale);
+      toRest.copy(posed).invert().multiply(rest);
+      turned.setFromMatrix4(toRest);
+      gone.copy(hips).applyMatrix4(posed).sub(still).applyQuaternion(unturn.copy(p.body.quaternion).invert());
+      const e = toRest.elements, r = turned.elements, at = geo.getAttribute("position"), normal = geo.getAttribute("normal");
+      for (let i = 0; i < count; i++) {
+        const w = weight[i], x = base[i * 3], y = base[i * 3 + 1], z = base[i * 3 + 2], nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2], k = (from + i) * 3;
+        at.array[k] = e[0] * x + e[4] * y + e[8] * z + e[12] + w * gone.x;
+        at.array[k + 1] = e[1] * x + e[5] * y + e[9] * z + e[13] + w * gone.y;
+        at.array[k + 2] = e[2] * x + e[6] * y + e[10] * z + e[14] + w * gone.z;
+        normal.array[k] = r[0] * nx + r[3] * ny + r[6] * nz;
+        normal.array[k + 1] = r[1] * nx + r[4] * ny + r[7] * nz;
+        normal.array[k + 2] = r[2] * nx + r[5] * ny + r[8] * nz;
+      }
+      send(at, from, count);
+      send(normal, from, count);
+    }
+  }
   /* The band's count: the figures' beat, or half of it while that is fast (HALF_OVER), eased onto the beat again over RETUNE seconds
      after a change, so no one jumps. `rate` is the beat's own speed, in beats a second, smoothed over RATE_SMOOTH. */
   let level = 0, count = 0, last = null, rate = 0, half = false;
   /* Plays the band for a frame `dt` s long: `beats` is the figures' phase in beats, which the caller keeps (beat.js), and `time` the
      world's time in seconds. While the show plays they play, on their count; otherwise they stand, breathing on a 4-s cycle and
      shifting their weight. Each change eases over EASE seconds. Under reduced motion nothing calls this, so they stand as they were
-     built: at rest, their hands on their instruments. Nothing here makes anything: a frame's work is arithmetic on what the build
-     made. */
+     built: at rest, their hands on their instruments. Nothing here makes anything but the ranges of a body's corners it sends to the
+     GPU (`send`): a frame's work is arithmetic on what the build made. */
   function move(dt, time, beats, playing) {
     level = Math.max(0, Math.min(1, level + (playing ? dt : -dt) / EASE));
     const step = last === null ? 0 : Math.max(0, Math.min(1, beats - last));
@@ -1485,10 +1558,12 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     count = was + Math.max(0, Math.min(HALF_OVER * dt, count - was));
     for (let k = 0; k < players.length; k++) players[k].pose(count, level, time);
     place();
+    hang();
     return count;
   }
   for (let k = 0; k < players.length; k++) players[k].pose(0, 0, 0);
   place();
+  hang();
 
   return { players, limbs, bones, joints, still, material, uniforms, move, fit, light };
 }
