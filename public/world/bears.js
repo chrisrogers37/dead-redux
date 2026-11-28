@@ -346,7 +346,7 @@ const legReach = (angle) => {
 };
 /* As the legs swing the body rocks to the side of the leg that swings forward, ROCK rad for each radian of swing, about the line from
    the back of its tail to the tip of its nose (ROCK_AXIS), which stay where they are: so the furthest of the bear ahead (SNOUT) and
-   behind (crowd.js BEAR_TAIL) stand where they did. Its head and shoulders go one way and its hips a little the other. The arms rock
+   behind (TAIL_BACK) stand where they did. Its head and shoulders go one way and its hips a little the other. The arms rock
    with it, in their shoulders; the legs swing from the hips alone. */
 export const ROCK = 0.08, TAIL_BACK = new THREE.Vector3(TAIL.at[0], TAIL.at[1], TAIL.at[2] - TAIL.r * TAIL.flat[2]);
 export const ROCK_AXIS = new THREE.Vector3(0, NOSE.up, SNOUT).sub(TAIL_BACK).normalize();

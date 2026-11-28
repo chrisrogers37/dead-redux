@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error -- three ships no types; here it loads from the three devDependency, as the world's modules load it
 import * as THREE from "three";
-import { buildBear, buildBears, drawLegs, EAR_TOP, FUR, furMaterial, HAUNCH, LIMBS, LOCKS, NOSE, OVER, ROCK, RUFF, SNOUT, stride, TAIL_BACK, tuftAt } from "../../../public/world/bears.js";
+import { buildBear, buildBears, drawLegs, EAR_TOP, FUR, furMaterial, HAUNCH, LIMBS, lobe, LOCKS, NOSE, OVER, ROCK, RUFF, SNOUT, stride, TAIL_BACK, tuftAt } from "../../../public/world/bears.js";
 import { BODY_REACH } from "../../../public/world/collide.js";
 import { readFileSync } from "fs";
 import { buildAvatar, HEAD, SLACK, TOP } from "../../../public/world/avatar.js";
@@ -281,6 +281,14 @@ describe("buildBear", () => {
       expect(tone(back)).toBeGreaterThan(0.99);
       expect(tone(base)).toBeLessThan(0.9);
       expect(within(torso.tris, TAIL_BACK.x, TAIL_BACK.y, TAIL_BACK.z + 0.1)).toBe(false);
+      // How much deeper the tail is by how far back a ring of its corners lies, to a thousandth: none at its back, 1.108 m behind
+      // the centre, easing to 16 % at 0.97 m behind it and ahead of that.
+      const TAIL_TONE: [number, number][] = [[-1.108, 1], [-1.074, 0.984], [-1.043, 0.934], [-1.018, 0.889], [-0.999, 0.861], [-0.94, 0.84], [-0.772, 0.84]];
+      for (const [z, want] of TAIL_TONE) {
+        const ring = tail.corners.filter((c) => Math.abs(c.at[2] - z) < 0.001);
+        expect(ring.length, `the tail's corners ${-z} m back`).toBeGreaterThan(0);
+        for (const c of ring) expect(Math.abs(tone(c) - want), `the tail ${-z} m back`).toBeLessThan(0.001);
+      }
     }
   });
 
@@ -331,8 +339,8 @@ describe("buildBear", () => {
 
   it("has its tail and its ears where they belong: the tail on its middle line at the back, between its haunches, and an ear to each side on top of its head, its cup to the front and its back behind", () => {
     const bear = buildBear(new THREE.Scene(), 0xd4607a), { torso, ears, tail } = partsOf(bear), fur = bear.color;
-    // The tail: about the middle line, its back the bear's furthest back under its hips (TAIL_BACK, crowd.js's BEAR_TAIL is reckoned
-    // from it), 1.2 to 1.7 m up.
+    // The tail: about the middle line, its back the bear's furthest back (TAIL_BACK, one end of the line the bear rocks about), 1.2
+    // to 1.7 m up.
     const xs = tail.corners.map((c) => c.at[0]), ys = tail.corners.map((c) => c.at[1]);
     expect(Math.min(...xs) + Math.max(...xs)).toBeCloseTo(0, 6);
     expect(Math.min(...tail.corners.map((c) => c.at[2]))).toBeCloseTo(TAIL_BACK.z, 6);
@@ -557,6 +565,9 @@ describe("buildBear", () => {
     for (const [name, want] of Object.entries(OUTLINE)) {
       want.forEach((pair, k) => pair.forEach((at, end) => expect(Math.abs(got[name][k][end] - at), `${name}'s ${["least", "most"][end]} ${"xyz"[k]}`).toBeLessThan(SLACK)));
     }
+    // The tail to a millimetre, as its size is what makes it a tuft flattened against the rump and not a ball: 0.552 m across,
+    // 0.48 m up and down, and 0.336 m fore and aft.
+    OUTLINE.tail.forEach((pair, k) => pair.forEach((at, end) => expect(Math.abs(got.tail[k][end] - at), `the tail's ${["least", "most"][end]} ${"xyz"[k]}`).toBeLessThan(0.0005)));
     // The body's surface: how far it stands out from its middle line at nine heights, every 15° round from straight back (0°) to
     // straight ahead (180°), the same to either side, in m. Its groove down the back, its shoulders, its haunches and its nape.
     const ROUND: [number, number[]][] = [
@@ -614,6 +625,18 @@ describe("buildBear", () => {
     const over = torso.corners.filter((c) => c.at[1] > topAt(turnOf(c.at)));
     expect(over.length).toBeGreaterThan(50);
     for (const c of over) expect(within(head.tris, ...(c.at as [number, number, number])), `${c.at.map((v) => v.toFixed(2))}`).toBe(true);
+    // From 3.85 m up, the body lies 3 cm and more inside the head, along the level way out from its middle line; and where it would
+    // have stood further out, 3 cm inside, to a tenth of a millimetre. The head is a ball, as its own corners have it.
+    const [[left, right], [low, high], [back, front]] = extent(head.corners.map((c) => c.at));
+    const r = (right - left) / 2, up = (low + high) / 2, ahead = (back + front) / 2;
+    expect(head.corners.every(({ at: [x, y, z] }) => Math.abs(Math.hypot(x, y - up, z - ahead) - r) < 1e-5)).toBe(true);
+    const inside = torso.corners.filter(({ at: [x, y, z] }) => y >= 3.85 && Math.hypot(x, z) > 1e-6).map(({ at: [x, y, z] }) => {
+      const level = Math.hypot(x, z), b = (z / level) * ahead;
+      return b + Math.sqrt(b * b - ahead * ahead - (y - up) ** 2 + r * r) - level;
+    });
+    expect(inside.length).toBeGreaterThan(100);
+    expect(Math.min(...inside)).toBeGreaterThan(0.03 - 1e-4);
+    expect(inside.filter((d) => d < 0.03 + 1e-4).length).toBeGreaterThanOrEqual(20);
   });
 
   it("ends its ruff in short, round locks that overlap out of step, and not in a row of points: shallow notches, broad ends, no two gaps between them alike", () => {
@@ -650,6 +673,14 @@ describe("buildBear", () => {
     expect(LOCKS).toHaveLength(RUFF.tufts);
     expect(OVER).toHaveLength(RUFF.over);
     for (const list of [LOCKS, OVER]) list.forEach((l: number, k: number) => expect(Math.abs(l - list[(k + 1) % list.length])).toBeGreaterThan(0.05));
+    // As its sheets show them: each layer's lengths; a lock's end (lobe), whole at its middle and none at the notch, down by a
+    // sixteenth a third of the way out and by a quarter half way; and the edge's drop at a few turns round the neck, from straight
+    // back (0) round by the bear's left, to a hundredth of a millimetre.
+    expect(LOCKS).toEqual([1, 0.78, 0.92, 0.72, 0.97, 0.8, 0.88, 0.7, 0.9, 0.76, 1, 0.82, 0.74, 0.94]);
+    expect(OVER).toEqual([0.7, 0.55, 0.8, 0.6, 0.75, 0.5, 0.78, 0.62, 0.52]);
+    for (const [phase, share] of [[0, 1], [Math.PI / 3, 0.9375], [Math.PI / 2, 0.75], [(2 * Math.PI) / 3, 0.4375], [Math.PI, 0]]) expect(lobe(phase)).toBeCloseTo(share, 9);
+    const EDGE = [[0, 0.154769], [0.3, 0.07054], [0.9, 0.108278], [1.4, 0.096137], [-0.7, 0.057152], [-1.2, 0.048148], [2.5, 0.041268]];
+    for (const [turn, drop] of EDGE) expect(tuftAt(turn), `${turn}`).toBeCloseTo(drop, 5);
   });
 
   it("is one mesh to draw and four hidden limbs: two arms, then two legs, an arm swinging with the leg across from it", () => {
@@ -766,6 +797,13 @@ describe("furMaterial", () => {
     expect(lo).toBeGreaterThanOrEqual(0);
     expect(hi).toBeLessThanOrEqual(1);
     expect(hi - lo).toBeGreaterThan(0.8);
+    // And its own values, as the shader's text has them now: at a cell's corner, that corner's hash; between, the hashes of the
+    // cell's eight corners, eased (f * f * (3 - 2f)) and mixed along x, then y, then z. A changed hash, easing or mix moves them.
+    const NOISE: [number[], number][] = [
+      [[1, 2, 3], 0.178830833], [[-4, 0, 7], 0.184429675], [[0.3, 1.7, -2.45], 0.61291899],
+      [[5.15, -3.62, 0.81], 0.323139576], [[-12.7, 8.35, 3.9], 0.864789757], [[0.62, 0.21, 0.37], 0.345848254],
+    ];
+    for (const [at, value] of NOISE) expect((fur.furNoise as Fn)(at) as number, `${at}`).toBeCloseTo(value, 8);
     // The fade: whole where a cell is four pixels across and more (a quarter of a cell a pixel or less), none where it is two or less.
     for (const [pixel, seen] of [[0, 1], [0.25, 1], [0.375, 0.5], [0.5, 0], [2, 0]]) {
       w = pixel;
