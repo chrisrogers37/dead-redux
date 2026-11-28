@@ -68,28 +68,32 @@ export const POSES: Record<string, { x: number; z: number; heading: number; pitc
 // as the players for the monitors, which are no one's), whether it is of a player's trunk (the body and the head, and an organ's or
 // a piano's player's body, which stands still among the still parts), whether it is of a drummer's cymbal or pole ("cymbal" or
 // "pole", else ""), and the name of the bone it is of ("" for none).
-// And its colour: the mean of its corners' (linear), times its bone's where it is a limb's.
-type Tri = { at: Vec[]; owner: number; trunk: boolean; crash: string; bone: string; colour: number[] };
+// And its colour: the mean of its corners' (linear), times its bone's where it is a limb's; and whether it is of a microphone on its
+// stand (`stand`: the stand, its base, its boom and the microphone), which the outlines' rules let touch another player (filmOf).
+type Tri = { at: Vec[]; owner: number; trunk: boolean; crash: string; bone: string; colour: number[]; stand?: boolean };
+// The still parts that are a microphone on its stand (band.js `voice` and the singer's).
+export const STAND_PART = "microphone";
 type Player = { plays: string; role: string; body: { geometry?: { getAttribute(name: string): { count: number } }; matrixWorld: unknown } };
 type Colours = { getX(i: number): number; getY(i: number): number; getZ(i: number): number };
-function band(roles: string[], seconds: number, perPx = 0, date: string | null = null) {
+function band(roles: string[], seconds: number, perPx = 0, date: string | null = null, alter: ((built: Built) => void) | null = null) {
   const stage = new THREE.Group();
   stage.position.set(STAGE[0], SHELF_Y, STAGE[1]);
   stage.rotation.y = FACING;
   const built = buildBand(stage, FLOOR, roles, date), monitors = built.players.length;
   built.fit(perPx);
+  alter?.(built);
   let beats = 0;
   for (let frame = 1; frame <= Math.round(seconds * 60); frame++) built.move(1 / 60, frame / 60, (beats += 96 / 3600), true);
   stage.updateMatrixWorld(true);
   const tris: Tri[] = [];
-  const push = (geometry: { getAttribute(name: string): { count: number } }, m: unknown, owner: number, trunk: boolean, crash = "", bone = "", from = 0, count = geometry.getAttribute("position").count, tint = [1, 1, 1]) => {
+  const push = (geometry: { getAttribute(name: string): { count: number } }, m: unknown, owner: number, trunk: boolean, crash = "", bone = "", from = 0, count = geometry.getAttribute("position").count, tint = [1, 1, 1], stand = false) => {
     const corner = geometry.getAttribute("position"), colour = geometry.getAttribute("color") as unknown as Colours;
     for (let i = from; i < from + count; i += 3) {
       const mean = [0, 1, 2].map((a) => ([0, 1, 2].reduce((sum, k) => sum + [colour.getX, colour.getY, colour.getZ][a].call(colour, i + k), 0) / 3) * tint[a]);
-      tris.push({ at: [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(corner, i + k).applyMatrix4(m)), owner, trunk, crash, bone, colour: mean });
+      tris.push({ at: [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(corner, i + k).applyMatrix4(m)), owner, trunk, crash, bone, colour: mean, stand });
     }
   };
-  for (const part of built.still.userData.parts) push(built.still.geometry, built.still.matrixWorld, part.by ?? monitors, part.of === "head" || part.of === "body", part.of === "kit" && ["cymbal", "pole"].includes(part.as) ? part.as : "", "", part.from, part.count);
+  for (const part of built.still.userData.parts) push(built.still.geometry, built.still.matrixWorld, part.by ?? monitors, part.of === "head" || part.of === "body", part.of === "kit" && ["cymbal", "pole"].includes(part.as) ? part.as : "", "", part.from, part.count, undefined, part.of === STAND_PART);
   built.players.forEach((p: Player, k: number) => { if (p.body.geometry) push(p.body.geometry, p.body.matrixWorld, k, true); });
   const m = new THREE.Matrix4(), c = new THREE.Color();
   built.bones.forEach((bone: { of: number; name: string }, k: number) => {
@@ -101,13 +105,14 @@ function band(roles: string[], seconds: number, perPx = 0, date: string | null =
 }
 
 // The canvas's pixels the band covers, from a camera, with the grid shifted `dx`, `dy` of a pixel: for each, the players whose parts
-// cover it and the players whose trunks do, one bit a player and the next the monitors'; and whether a cymbal (1) or a pole (2) of a
-// kit covers it.
+// cover it and the players whose trunks do, one bit a player and the next the monitors'; whether a cymbal (1) or a pole (2) of a
+// kit covers it; and the players whose stands cover it (`stands`) and whose other parts do (`solid`).
 export function draw(tris: Tri[], cam: Camera, dx = 0, dy = 0) {
   const W = cam.cols, H = cam.rows, camera = lens(cam);
   const mask = new Uint16Array(W * H), trunks = new Uint16Array(W * H), crashes = new Uint8Array(W * H), q = new THREE.Vector3();
+  const solid = new Uint16Array(W * H), stands = new Uint16Array(W * H);
   const box = { x0: W, y0: H, x1: -1, y1: -1 };
-  for (const { at, owner, trunk, crash } of tris) {
+  for (const { at, owner, trunk, crash, stand } of tris) {
     const p = at.map((v) => { q.copy(v).project(camera); return [((q.x + 1) / 2) * W + dx, ((1 - q.y) / 2) * H + dy]; });
     const area = (p[1][0] - p[0][0]) * (p[2][1] - p[0][1]) - (p[1][1] - p[0][1]) * (p[2][0] - p[0][0]);
     if (area === 0) continue;
@@ -119,12 +124,14 @@ export function draw(tris: Tri[], cam: Camera, dx = 0, dy = 0) {
       if (((p[2][0] - p[1][0]) * (qy - p[1][1]) - (p[2][1] - p[1][1]) * (qx - p[1][0])) / area < 0) continue;
       if (((p[0][0] - p[2][0]) * (qy - p[2][1]) - (p[0][1] - p[2][1]) * (qx - p[2][0])) / area < 0) continue;
       mask[y * W + x] |= 1 << owner;
+      if (stand) stands[y * W + x] |= 1 << owner;
+      else solid[y * W + x] |= 1 << owner;
       if (trunk) trunks[y * W + x] |= 1 << owner;
       if (crash) crashes[y * W + x] |= crash === "cymbal" ? 1 : 2;
       box.x0 = Math.min(box.x0, x); box.x1 = Math.max(box.x1, x); box.y0 = Math.min(box.y0, y); box.y1 = Math.max(box.y1, y);
     }
   }
-  return { W, H, mask, trunks, crashes, box };
+  return { W, H, mask, trunks, crashes, box, solid, stands };
 }
 
 // The 8-connected pieces of the pixels `on` marks in a W-by-H grid, each as the list of its pixels.
@@ -209,31 +216,46 @@ export function specks(tris: Tri[], cam: Camera, dx: number, dy: number, tone: S
 //     is a piece of the band's own black of 12 px or less;
 //   - `counts` and `own`: the specks from the back of the crowd on a phone, at night and at dusk, a count for each frame and place;
 //     and each frame in which one shows at the shoot's own place of the grid (0, 0);
-//   - `alone`: the pieces of black that hold no player's trunk at the shoot's own place, from every camera but a rung;
-//   - `apart`: the pieces of black with no trunk from every phone's camera and rung at every place, but a monitor and a crash on its
-//     pole;
+//   - `alone`: the pieces of black that hold no player's trunk at the shoot's own place, from every camera but a rung, but a stand
+//     that stands whole;
+//   - `apart`: the pieces of black with no trunk from every phone's camera and rung at every place, but a monitor, a crash on its
+//     pole and a stand that stands whole;
+//   - `standing`: the players whose stand stands whole and apart, from each camera, at the shoot's own place: a piece of nothing but
+//     the stands' own pixels, which holds every pixel of each stand it holds, so that it stands on its base and none of it is
+//     apart from the rest;
 //   - `joined` and `touched`: the pieces of black that hold two players' trunks or more at the shoot's own place: from every camera
-//     but a rung, each with its frame; and at a rung, the players each holds, two at a time in turn from the crowd's left.
-type Film = { specks: string[]; counts: Map<string, number[]>; own: Map<string, string[]>; alone: Set<string>; apart: Set<string>; joined: string[]; touched: Set<string> };
+//     but a rung, each with its frame; and at a rung, the players each holds, two at a time in turn from the crowd's left. A stand
+//     joins no one: these are the pieces of everything but the stands (`standsJoin` counts them in too, as the rules did before).
+// The rules were set for the old flash bar, at which two black silhouettes that met read as one mass that flashed (CLAUDE.md, "Motion
+// and flashes"), and a later PR may loosen one with frames to show it. Lit and in colour, a steel stand that crosses a neighbour's
+// outline is a stand in front of them, and no flash: so a stand, its base and its boom may touch or cross another player, but no
+// two players' own parts, their bodies, instruments and kits, ever meet; and a stand is never a speck, joined to its own player
+// (or another) or standing whole on its base. What shows of a keyboard player's lift is counted with the stands left out for the
+// same reason (`shown`).
+type Film = { specks: string[]; counts: Map<string, number[]>; own: Map<string, string[]>; alone: Set<string>; apart: Set<string>; standing: Set<string>; joined: string[]; touched: Set<string> };
 const SCREENS = ["phone band", "phone crowd", "phone-360 crowd"];
 const RATE = (cam: Camera) => (CAMERAS.includes(cam) && SCREENS.includes(cam.name) ? 240 : 60);
 type Box = { x0: number; y0: number; x1: number; y1: number };
 
 // The band played from rest at 96 a minute in `steps` frames a second, or at `tempo(frame)` a minute in each frame, fitted to a canvas
 // whose pixel is `perPx` rad, as `band` plays it at 60: its triangles' corners in the world (`world`, nine numbers a triangle, in `band`'s order), the still parts' from
-// the first, and `to(frame)`, which plays it on to that frame and lays the corners of what moves, from triangle `still` on.
-export function playing(roles: string[], perPx: number, steps = 60, tempo: (frame: number) => number = () => 96) {
+// the first, and `to(frame)`, which plays it on to that frame and lays the corners of what moves, from triangle `still` on. `alter`,
+// for the tests of the rules themselves, changes the band as built and fitted before it plays (its still parts: what moves is laid
+// again each frame).
+export type Built = ReturnType<typeof buildBand>;
+export function playing(roles: string[], perPx: number, steps = 60, tempo: (frame: number) => number = () => 96, alter: ((built: Built) => void) | null = null) {
   const stage = new THREE.Group();
   stage.position.set(STAGE[0], SHELF_Y, STAGE[1]);
   stage.rotation.y = FACING;
   const built = buildBand(stage, FLOOR, roles), monitors = built.players.length;
   built.fit(perPx);
+  alter?.(built);
   stage.updateMatrixWorld(true);
   const corners = built.still.geometry.getAttribute("position"), limb = built.limbs.geometry.getAttribute("position");
   const bodies = (built.players as Player[]).flatMap((p, k) => (p.body.geometry ? [{ p, k, corner: p.body.geometry.getAttribute("position") as unknown as { count: number; array: Float32Array } }] : []));
   const parts = built.still.userData.parts as { of: string; as: string; by: number | null; from: number; count: number }[];
   const n = (parts.reduce((sum, part) => sum + part.count, 0) + bodies.reduce((sum, b) => sum + b.corner.count, 0) + built.bones.length * limb.count) / 3;
-  const owner = new Uint8Array(n), trunk = new Uint8Array(n), crash = new Uint8Array(n), world = new Float64Array(n * 9);
+  const owner = new Uint8Array(n), trunk = new Uint8Array(n), crash = new Uint8Array(n), stand = new Uint8Array(n), world = new Float64Array(n * 9);
   // Each corner as Vector3.applyMatrix4 puts it.
   const lay = (array: ArrayLike<number>, from: number, count: number, e: number[], at: number) => {
     for (let i = 0; i < count; i++) {
@@ -250,6 +272,7 @@ export function playing(roles: string[], perPx: number, steps = 60, tempo: (fram
       owner[t] = part.by ?? monitors;
       trunk[t] = part.of === "head" || part.of === "body" ? 1 : 0;
       crash[t] = part.of === "kit" && part.as === "cymbal" ? 1 : part.of === "kit" && part.as === "pole" ? 2 : 0;
+      stand[t] = part.of === STAND_PART ? 1 : 0;
     }
     at += part.count;
   }
@@ -283,7 +306,7 @@ export function playing(roles: string[], perPx: number, steps = 60, tempo: (fram
       i += limb.count;
     }
   };
-  return { n, still, groups, world, owner, trunk, crash, to, moved };
+  return { n, still, groups, world, owner, trunk, crash, stand, to, moved };
 }
 
 // Where each group of what moves reaches in the world, as a box (six numbers a group: the least x, y and z, then the most), played
@@ -291,10 +314,10 @@ export function playing(roles: string[], perPx: number, steps = 60, tempo: (fram
 // whole rad), which holds every part as any canvas fits it: a fitted bone is a bar about its own axis, a neck's tip widens across
 // its strings and a stand about its upright, each the more the coarser the pixel. Made once a line-up and a rate.
 const REACHES = new Map<string, Float64Array>();
-function reachOf(roles: string[], steps: number, frames: number) {
-  const key = `${roles.join(" ")} ${steps} ${frames}`, made = REACHES.get(key);
+function reachOf(roles: string[], steps: number, frames: number, alter: ((built: Built) => void) | null = null) {
+  const key = `${roles.join(" ")} ${steps} ${frames}`, made = alter ? null : REACHES.get(key);
   if (made) return made;
-  const played = playing(roles, 1, steps), groups = played.groups, many = groups.length - 1, reach = new Float64Array(many * 6).fill(Infinity);
+  const played = playing(roles, 1, steps, undefined, alter), groups = played.groups, many = groups.length - 1, reach = new Float64Array(many * 6).fill(Infinity);
   for (let g = 0; g < many; g++) reach.fill(-Infinity, g * 6 + 3, g * 6 + 6);
   for (let f = 0; f < frames; f++) {
     played.to(f);
@@ -307,7 +330,7 @@ function reachOf(roles: string[], steps: number, frames: number) {
       }
     }
   }
-  REACHES.set(key, reach);
+  if (!alter) REACHES.set(key, reach);
   return reach;
 }
 
@@ -327,14 +350,15 @@ function projector(cam: Camera) {
 
 // Triangles `from` to `to` of a camera's corners (`xy`) drawn as `draw` draws them, the grid shifted `dx`, `dy`, into a window of the
 // canvas (x0, y0, w by h, which holds every pixel they can cover), within `clip`: the players' bits, the trunks' and a kit's, as
-// `draw` has them. A pixel's middle is inside where each edge's value, by its sign over the area's, is not below 0, as `draw` finds
+// `draw` has them, and with `split` the stands' and the other parts' apart. A pixel's middle is inside where each edge's value, by its sign over the area's, is not below 0, as `draw` finds
 // it, with no division. Along each row, a pixel whose middle is further than NEAR px from where every edge crosses the row, as
 // worked out, is inside or out as that says, and only those nearer are tried as `draw` tries them: the edge's value there is at
 // least NEAR times its slope, so long as the slope is over STEEP, many times what rounding can move it; along a row that an edge
 // crosses less steeply than that, every pixel is tried.
 const NEAR = 1e-4, STEEP = 1e-3;
-function drawInto(xy: Float64Array, kinds: { owner: Uint8Array; trunk: Uint8Array; crash: Uint8Array }, from: number, to: number, dx: number, dy: number, cam: Camera,
-  win: { x0: number; y0: number; w: number; h: number }, mask: Uint16Array, trunks: Uint16Array, crashes: Uint8Array | null, clip: Box = { x0: 0, y0: 0, x1: cam.cols - 1, y1: cam.rows - 1 }) {
+function drawInto(xy: Float64Array, kinds: { owner: Uint8Array; trunk: Uint8Array; crash: Uint8Array; stand: Uint8Array }, from: number, to: number, dx: number, dy: number, cam: Camera,
+  win: { x0: number; y0: number; w: number; h: number }, mask: Uint16Array, trunks: Uint16Array, crashes: Uint8Array | null, clip: Box = { x0: 0, y0: 0, x1: cam.cols - 1, y1: cam.rows - 1 },
+  split: { solid: Uint16Array; stands: Uint16Array } | null = null) {
   for (let t = from; t < to; t++) {
     const o = t * 6, ax = xy[o] + dx, ay = xy[o + 1] + dy, bx = xy[o + 2] + dx, by = xy[o + 3] + dy, cx = xy[o + 4] + dx, cy = xy[o + 5] + dy;
     const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
@@ -342,7 +366,7 @@ function drawInto(xy: Float64Array, kinds: { owner: Uint8Array; trunk: Uint8Arra
     const minx = Math.max(clip.x0, Math.ceil(Math.min(ax, bx, cx) - 0.5)), maxx = Math.min(clip.x1, Math.floor(Math.max(ax, bx, cx) - 0.5));
     const miny = Math.max(clip.y0, Math.ceil(Math.min(ay, by, cy) - 0.5)), maxy = Math.min(clip.y1, Math.floor(Math.max(ay, by, cy) - 0.5));
     if (minx > maxx || miny > maxy) continue;
-    const bit = 1 << kinds.owner[t], isTrunk = kinds.trunk[t], kit = crashes ? kinds.crash[t] : 0, sign = area > 0 ? 1 : -1;
+    const bit = 1 << kinds.owner[t], isTrunk = kinds.trunk[t], kit = crashes ? kinds.crash[t] : 0, sign = area > 0 ? 1 : -1, apart = split ? (kinds.stand[t] ? split.stands : split.solid) : null;
     const abx = bx - ax, aby = by - ay, bcx = cx - bx, bcy = cy - by, cax = ax - cx, cay = ay - cy;
     // Each edge, row by row: where it crosses the row, less half a pixel, and which way its inside lies (1 toward lower x, -1 higher,
     // 0 for an edge along the row, NaN for one shallower than STEEP, along which every pixel is tried).
@@ -367,6 +391,7 @@ function drawInto(xy: Float64Array, kinds: { owner: Uint8Array; trunk: Uint8Arra
         mask[i] |= bit;
         if (isTrunk) trunks[i] |= bit;
         if (kit) crashes![i] |= kit;
+        if (apart) apart[i] |= bit;
       }
     }
   }
@@ -439,18 +464,20 @@ function heldTogether(w: number, h: number, on: Uint8Array, seeds: ArrayLike<num
 
 // The film, for the line-up `roles`, from each of `cams`; `label` names a piece by the players and monitors it is of. The cameras
 // whose canvases have one pixel and that play at one rate (`rate`) are played as one band, which is fitted to it (`fit`, as main.js
-// fits it unless the test says).
-export function filmOf(roles: string[], label: (bits: number) => string, cams: Camera[], { rate = RATE, seconds = 5.8, fit = pixelOf, places = (_: Camera) => PHASES } = {}): Film {
+// fits it unless the test says). `alter` changes the band before it plays (`playing`), and `standsJoin` lets a stand join two
+// players, as the rules had it before.
+type FilmOptions = { rate?: (cam: Camera) => number; seconds?: number; fit?: (cam: Camera) => number; places?: (cam: Camera) => number[][]; alter?: ((built: Built) => void) | null; standsJoin?: boolean };
+export function filmOf(roles: string[], label: (bits: number) => string, cams: Camera[], { rate = RATE, seconds = 5.8, fit = pixelOf, places = (_: Camera) => PHASES, alter = null, standsJoin = false }: FilmOptions = {}): Film {
   const monitor = 1 << roles.length, players = roles.map((_, k) => k);
-  const film: Film = { specks: [], counts: new Map(), own: new Map(), alone: new Set(), apart: new Set(), joined: [], touched: new Set() };
+  const film: Film = { specks: [], counts: new Map(), own: new Map(), alone: new Set(), apart: new Set(), standing: new Set(), joined: [], touched: new Set() };
   const fitted = new Map<string, Camera[]>();
   for (const cam of cams) fitted.set(`${fit(cam)} ${rate(cam)}`, [...(fitted.get(`${fit(cam)} ${rate(cam)}`) ?? []), cam]);
   for (const group of fitted.values()) {
     const perPx = fit(group[0]), steps = rate(group[0]), frames = Math.round(seconds * steps) + 1;
     const at = (f: number) => `${(f / steps).toFixed(3)} s`;
-    const played = playing(roles, perPx, steps), groups = played.groups, many = groups.length - 1, moved = played.moved;
+    const played = playing(roles, perPx, steps, undefined, alter), groups = played.groups, many = groups.length - 1, moved = played.moved;
     // Where each group of what moves reaches in the world over the film (reachOf).
-    const reach = reachOf(roles, steps, frames);
+    const reach = reachOf(roles, steps, frames, alter);
     const views = group.map((cam) => {
       const step = / at rung (\d)$/.exec(cam.name)?.[1], rung = !!step, phone = cam.name.startsWith("phone"), shot = CAMERAS.includes(cam);
       const band = shot && cam.name === "phone band", crowd = shot && phone && cam.name.endsWith("crowd"), screen = band || crowd, k = cam.screen, project = projector(cam);
@@ -479,10 +506,13 @@ export function filmOf(roles: string[], label: (bits: number) => string, cams: C
       const marks = marksFor(size), smarks = marksFor(sW * sH);
       const whole = { x0: win.x0, y0: win.y0, x1: win.x0 + win.w - 1, y1: win.y0 + win.h - 1 };
       const tracks = places(cam).map(([dx, dy]) => {
-        const still = { mask: new Uint16Array(size), trunks: new Uint16Array(size), crashes: new Uint8Array(size) }, lit = new Uint8Array(screen ? size : 0);
-        drawInto(xy, played, 0, played.still, dx, dy, cam, win, still.mask, still.trunks, still.crashes);
+        const still = { mask: new Uint16Array(size), trunks: new Uint16Array(size), crashes: new Uint8Array(size), solid: new Uint16Array(size), stands: new Uint16Array(size) }, lit = new Uint8Array(screen ? size : 0);
+        drawInto(xy, played, 0, played.still, dx, dy, cam, win, still.mask, still.trunks, still.crashes, undefined, still);
+        // Each player's stand's pixels, all told: what stands still covers the same pixels in every frame.
+        const standing = new Int32Array(16);
+        for (let i = 0; i < size; i++) for (let k = 0, b = still.stands[i]; b; k++, b >>= 1) if (b & 1) standing[k]++;
         if (screen) { const panel = panelOn(cam, dx, dy); for (let j = 0; j < win.h; j++) for (let i = 0; i < win.w; i++) lit[j * W + i] = panel(win.x0 + i + 0.5, win.y0 + j + 0.5) ? 1 : 0; }
-        return { dx, dy, home: dx === 0 && dy === 0, still, lit, on: new Uint8Array(size), masks: [new Uint16Array(size), new Uint16Array(size)], trunks: [new Uint16Array(size), new Uint16Array(size)], now: 0,
+        return { dx, dy, home: dx === 0 && dy === 0, still, lit, standing, on: new Uint8Array(size), solid: new Uint8Array(size), masks: [new Uint16Array(size), new Uint16Array(size)], trunks: [new Uint16Array(size), new Uint16Array(size)], now: 0,
           rects: [whole] as Box[], dark: screen ? [new Uint8Array(sW * sH), new Uint8Array(sW * sH)] : [], specks: [0, 0] };
       });
       const all = Int32Array.from({ length: size }, (_, i) => i);
@@ -563,21 +593,30 @@ export function filmOf(roles: string[], label: (bits: number) => string, cams: C
             // On a desktop the specks, counted on as they come and go: those that reached a changed pixel or one beside it before, and
             // those that do now.
             const gone = !phone && f > 0 ? piecesNear(W, win.h, on, changed, marks) : 0;
-            for (let n = 0; n < changed.length; n++) { const i = changed[n]; on[i] = (still.mask[i] | mask[i]) !== 0 ? 1 : 0; }
+            for (let n = 0; n < changed.length; n++) { const i = changed[n]; on[i] = (still.mask[i] | mask[i]) !== 0 ? 1 : 0; track.solid[i] = (still.solid[i] | mask[i]) !== 0 ? 1 : 0; }
             const near = f > 0;
             if (!phone) track.specks[0] += piecesNear(W, win.h, on, changed, marks, null, undefined, near) - gone;
             // The pieces with no trunk, on a phone and at the shoot's own place of the grid.
             if (phone || home) {
               piecesNear(W, win.h, on, changed, marks, [still.trunks, trunks], (stack, count) => {
-                let owners = 0, kit = 0, crash = true;
-                for (let n = 0; n < count; n++) { const o = stack[n]; owners |= still.mask[o] | mask[o]; kit |= still.crashes[o]; if (!still.crashes[o]) crash = false; }
+                let owners = 0, kit = 0, crash = true, stood = true;
+                const held = new Int32Array(16);
+                for (let n = 0; n < count; n++) {
+                  const o = stack[n];
+                  owners |= still.mask[o] | mask[o]; kit |= still.crashes[o];
+                  if (!still.crashes[o]) crash = false;
+                  if (!still.stands[o] || still.solid[o] || mask[o]) stood = false;
+                  else for (let k = 0, b = still.stands[o]; b; k++, b >>= 1) if (b & 1) held[k]++;
+                }
+                // A stand that stands whole: nothing but stands, and every pixel of each.
+                if (stood && held.every((got, k) => got === 0 || got === track.standing[k])) { if (home) film.standing.add(`${cam.name}: ${label(owners)}`); return; }
                 if (home && !rung) film.alone.add(`${label(owners)}${crash ? " crash" : ""}`);
                 if (phone && owners !== monitor && !(kit === 3 && crash)) film.apart.add(`${cam.name} at ${at(f)}, ${dx},${dy}: ${label(owners)}${kit ? ` (${["", "cymbal", "pole", "cymbal and pole"][kit]})` : ""}`);
               }, near);
             }
             // The pieces that hold two players' trunks or more, at the shoot's own place of the grid: what the changed pixels are of
             // now, for a piece can only come to hold another's trunk where it gains a pixel or a trunk's pixel.
-            if (home) heldTogether(W, win.h, on, changed, marks, [still.trunks, trunks], (bits) => {
+            if (home) heldTogether(W, win.h, standsJoin ? on : track.solid, changed, marks, [still.trunks, trunks], (bits) => {
               const whose = players.filter((k) => bits & (1 << k));
               if (step) for (let a = 0; a + 1 < whose.length; a++) film.touched.add(`rung ${step}: ${whose[a]} and ${whose[a + 1]}`);
               else film.joined.push(`${cam.name} at ${at(f)}: ${whose.join(" and ")}`);
@@ -1072,18 +1111,25 @@ function liftTops(roles: string[], at: number) {
   });
 }
 // How much of keyboard player `at` shows at the top of each of its lifts, from the front of the crowd and the stage pose, on a desktop
-// and on a phone (`shown`), fitted to each camera's canvas, on the stage of a show on `day`.
-export function liftShown(roles: string[], at: number, day?: string) {
+// and on a phone (`shown`), fitted to each camera's canvas, on the stage of a show on `day`; `alter` changes the band before it
+// plays, as `playing`'s does.
+export function liftShown(roles: string[], at: number, day?: string, alter: ((built: Built) => void) | null = null) {
   return liftTops(roles, at).map(({ side, seconds }) => ({
     side,
-    at: [...CAMERAS.filter((c) => c.pose.startsWith("band") || c.pose === "stage"), ...FLASH_CAMERAS].map((cam) => ({ cam: cam.name, ...shown(band(roles, seconds, pixelOf(cam)).tris, cam, at, side, day) })),
+    at: [...CAMERAS.filter((c) => c.pose.startsWith("band") || c.pose === "stage"), ...FLASH_CAMERAS].map((cam) => ({ cam: cam.name, ...shown(band(roles, seconds, pixelOf(cam), null, alter).tris, cam, at, side, day) })),
   }));
 }
 
 // How much of player `at` shows at a moment from a camera, in the canvas's pixels: `arm`, the `side` forearm and hand where, without
-// that arm, the panel shows; and `body`, the trunk where it shows below the shoulders' line, which is the upper arms' tops.
-function shown(tris: Tri[], cam: Camera, at: number, side: string, day?: string) {
-  const reach = new RegExp(`^${side} (upper arm|forearm|hand)$`);
+// that arm, the panel shows; and `body`, the trunk where it shows below the shoulders' line, which is the upper arms' tops. The
+// stands are left out, as the outlines' rules let a stand cross a player (filmOf). A keyboard player's own stand stands beside them
+// toward the stage's middle (band.js MIC), and from the front its boom stands behind the hand at the top of its lift; and another's
+// may too. In the seven of 1968-70, from the front of the crowd on a desktop, the organ player's lifted left arm showed 126 against
+// the panel, and 157 with no stand; and the keys player's right 86, with the rhythm guitarist's stand, beside them toward the keys
+// player, behind it as well as their own, 130 without the rhythm guitarist's, and 162 with no stand. On a phone the organ's showed
+// 42, and 63 with no stand.
+function shown(all: Tri[], cam: Camera, at: number, side: string, day?: string) {
+  const tris = all.filter((x) => !x.stand), reach = new RegExp(`^${side} (upper arm|forearm|hand)$`);
   const full = drawWithStage(tris, cam, day), bare = drawWithStage(tris.filter((x) => !(x.owner === at && reach.test(x.bone))), cam, day);
   let arm = 0;
   for (let o = 0; o < full.W * full.H; o++) {
