@@ -1068,7 +1068,7 @@ describe("the trees' shapes", () => {
 
   it("are a few hundred triangles on a desktop and under a third as many on a phone, with a place, a normal and a colour to every corner, and FORMS forms that move them", () => {
     const triangles = (phone: boolean) => Object.fromEntries(shapes.map(([kind]) => [kind, geometryOf(kind, phone).getAttribute("position").count / 3]));
-    expect(triangles(false)).toEqual({ pine: 546, broad: 494 });
+    expect(triangles(false)).toEqual({ pine: 530, broad: 494 });
     expect(triangles(true)).toEqual({ pine: 76, broad: 122 });
     for (const [kind] of shapes) expect(triangles(true)[kind] * 3, kind).toBeLessThan(triangles(false)[kind]);
     for (const [kind] of shapes) for (const phone of [false, true]) {
@@ -1247,7 +1247,7 @@ describe("the trees' shapes", () => {
       // A pine's needles are in clumps, one to a bough, and its leader, and a phone's in its four tiers; a broad-crowned tree's
       // leaves are BROAD_MASSES' masses.
       const leaves = partsOf(geo, NONE).filter((p) => p.leaf).length;
-      expect(leaves, name).toBe(kind === "pine" ? (phone ? 4 : 17) : BROAD_MASSES[phone ? "phone" : "desktop"].length);
+      expect(leaves, name).toBe(kind === "pine" ? (phone ? 4 : 51) : BROAD_MASSES[phone ? "phone" : "desktop"].length);
     }
   });
 
@@ -1288,18 +1288,25 @@ describe("the trees' shapes", () => {
     }
   });
 
-  it("run a pine's trunk up through its crown to a leader at its top, and fork a broad-crowned tree's trunk into limbs that reach out on every side into its crown", () => {
+  it("run a pine's trunk up through its crown to a leader at its top, its bark all trunk, and fork a broad-crowned tree's trunk into limbs that reach out on every side into its crown, at every corner of the box of forms", { timeout: 60000 }, () => {
     for (const phone of [false, true]) {
-      const pine = read(geometryOf("pine", phone)), name = phone ? "phone" : "desktop";
-      // The pine's trunk is the bark that rises from under its crown's base (a bough's limb starts in the crown): of those parts, the
-      // one that reaches highest. It runs on near its middle line to within a metre of its top; and its leader's point is its top.
+      const name = phone ? "phone" : "desktop";
+      // The pine's trunk is the bark that rises from under its crown's base (a bough's limb would start in the crown): of those
+      // parts, the one that reaches highest. At every corner of the box it runs on to within a metre of the top; and above the
+      // crown's base no bark of the pine, the trunk's or any other, stands further from the middle line than 0.13 of a crown radius,
+      // where the trunk's bend carries it at the most (0.126): no bough's bark shows out of its clump. Since a corner moves in a
+      // straight line as a form changes, and its distance from the middle line can only bow down between two forms, that holds in
+      // every form. The leader's point is the top, in needles.
       const high = (part: { tris: number[] }) => Math.max(...part.tris.filter((_, i) => i % 3 === 1));
-      const trunk = partsOf(geometryOf("pine", phone), NONE).filter((p) => !p.leaf && p.low < BASE_FRAC).sort((p, q) => high(q) - high(p))[0];
-      expect(REF_TALL - high(trunk), name).toBeLessThan(1);
-      for (let i = 0; i < trunk.tris.length; i += 3) if (trunk.tris[i + 1] > BASE_FRAC * REF_TALL) expect(Math.hypot(trunk.tris[i], trunk.tris[i + 2]) / REF_WIDE, name).toBeLessThan(0.1);
-      const top = pine.find((c) => c.y === Math.max(...pine.map((p) => p.y)))!;
-      expect(top.leaf).toBe(true);
-      expect(out(top)).toBeLessThan(0.05);
+      for (const form of BOX) {
+        const pine = read(geometryOf("pine", phone), form);
+        const trunk = partsOf(geometryOf("pine", phone), form).filter((p) => !p.leaf && p.low < BASE_FRAC).sort((p, q) => high(q) - high(p))[0];
+        expect(REF_TALL - high(trunk), `${name}, ${form}`).toBeLessThan(1);
+        for (const c of pine) if (!c.leaf && c.y > BASE_FRAC) expect(out(c), `${name}, ${form}`).toBeLessThan(0.13);
+        const top = pine.find((c) => c.y === Math.max(...pine.map((p) => p.y)))!;
+        expect(top.leaf).toBe(true);
+        expect(out(top)).toBeLessThan(0.05);
+      }
       // The broad tree's bark leaves its middle line under its crown and reaches out into it, a quarter of its radius and more, on
       // every side and in every form: round the trunk, no gap between its limbs wider than 0.4 of a half turn on a desktop, or a
       // third of a turn on a phone, which has three limbs.
@@ -1309,6 +1316,66 @@ describe("the trees' shapes", () => {
         expect(limbs.length, name).toBeGreaterThan(phone ? 4 : 12);
         const gap = Math.max(...limbs.map((a, k) => (limbs[(k + 1) % limbs.length] - a + 2 * Math.PI) % (2 * Math.PI) || 2 * Math.PI));
         expect(gap, `${name}, ${form}`).toBeLessThan(phone ? (2 * Math.PI) / 3 : 0.4 * Math.PI);
+      }
+    }
+  });
+
+  // A desktop pine's crown, in a form: how far out its needles reach in each of BANDS bands of height from its crown's base to its
+  // top, by points over each face; and each clump of needles but the leader, with how far its tip stands under its own top, as a
+  // share of its length: its tip is its corner furthest across from its corner nearest the middle line, where it leaves the trunk.
+  function outline(form: number[], BANDS = 6) {
+    const base = BASE_FRAC * REF_TALL, reach = new Array<number>(BANDS).fill(0), clumps: { hang: number; high: number }[] = [];
+    const parts = partsOf(geometryOf("pine", false), form).filter((p) => p.leaf), top = Math.max(...parts.flatMap((p) => p.tris.filter((_, i) => i % 3 === 1)));
+    for (const part of parts) {
+      const t = part.tris;
+      for (let o = 0; o < t.length; o += 9) for (let i = 0; i <= 8; i++) for (let j = 0; j <= 8 - i; j++) {
+        const w = [1 - (i + j) / 8, i / 8, j / 8], [x, y, z] = [0, 1, 2].map((a) => w[0] * t[o + a] + w[1] * t[o + 3 + a] + w[2] * t[o + 6 + a]);
+        if (y < base) continue;
+        const band = Math.min(BANDS - 1, Math.floor(((y - base) / (REF_TALL - base)) * BANDS));
+        reach[band] = Math.max(reach[band], Math.hypot(x, z));
+      }
+      const corners = Array.from({ length: t.length / 3 }, (_, k) => t.slice(3 * k, 3 * k + 3)), high = Math.max(...corners.map((c) => c[1]));
+      if (high === top) continue;
+      const near = corners.reduce((p, c) => (Math.hypot(c[0], c[2]) < Math.hypot(p[0], p[2]) ? c : p)), across = (c: number[]) => Math.hypot(c[0] - near[0], c[2] - near[2]);
+      const tip = corners.reduce((p, c) => (across(c) > across(p) ? c : p));
+      clumps.push({ hang: (high - tip[1]) / across(tip), high });
+    }
+    return { reach, clumps };
+  }
+
+  it("keep a desktop pine's outline a cone that narrows to its leader, at every corner of the box of forms: cut into six bands of height from its crown's base to its top, no band's needles reach further out than the band's under it by 5 cm, the widest band is in the lower half, and no clump hangs: its boughs are level to their tips, and none's tip stands under its top by more than 0.4 of its length, or 0.3 in the crown's upper half", { timeout: 60000 }, () => {
+    const half = ((1 + BASE_FRAC) / 2) * REF_TALL;
+    for (const form of BOX) {
+      const { reach, clumps } = outline(form);
+      for (let b = 1; b < reach.length; b++) expect(reach[b] - reach[b - 1], `${form}: band ${b}, ${reach.map((r) => r.toFixed(2))}`).toBeLessThan(0.05);
+      expect(reach.indexOf(Math.max(...reach)), `${form}`).toBeLessThan(reach.length / 2);
+      expect(clumps.length).toBe(50);
+      for (const { hang, high } of clumps) expect(hang, `${form}: a clump to ${high.toFixed(2)} m`).toBeLessThan(high > half ? 0.3 : 0.4);
+    }
+  });
+
+  it("show sky through a desktop pine's crown from under it, between its boughs, with no clump a lid: of the lines straight up through the ring from half its needles' reach to the whole, two fifths and more meet no part of the tree, and no clump of needles covers more than an eighth of the crown's footprint, in the form of every number 0, of every number 1, and those of the fixed day's first three pines", { timeout: 60000 }, () => {
+    const geo = geometryOf("pine", false), up = new THREE.Vector3(0, 1, 0), ray = new THREE.Ray(), hit = new THREE.Vector3();
+    for (const form of [NONE, NONE.map(() => 1), ...byKind(fixed.trees)[0].slice(0, 3).map((t) => formOf(t) as number[])]) {
+      const all = read(geo, form), faces: THREE.Vector3[][] = [];
+      for (let f = 0; f < all.length; f += 3) faces.push(all.slice(f, f + 3).map((c) => new THREE.Vector3(c.x * REF_WIDE, c.y * REF_TALL, c.z * REF_WIDE)));
+      const reach = Math.max(...all.filter((c) => c.leaf).map((c) => out(c))) * REF_WIDE;
+      let sky = 0;
+      // Lines evenly over the ring, by area.
+      const N = 2000;
+      for (let k = 0; k < N; k++) {
+        const r = reach * Math.sqrt(0.25 + 0.75 * ((k * 0.6180339887) % 1)), a = (2 * Math.PI * k * 37) / N;
+        ray.set(new THREE.Vector3(r * Math.cos(a), 0, r * Math.sin(a)), up);
+        if (!faces.some((t) => ray.intersectTriangle(t[0], t[1], t[2], false, hit) !== null)) sky += 1;
+      }
+      expect(sky / N, `${form.map((w) => w.toFixed(2))}`).toBeGreaterThan(0.4);
+      // A clump's footprint, seen from straight under it: its skin is closed, so half the area its faces cover, seen so. The leader,
+      // over the trunk, is not a clump.
+      const clumps = partsOf(geo, form).filter((p) => p.leaf), top = Math.max(...clumps.flatMap((p) => p.tris.filter((_, i) => i % 3 === 1)));
+      for (const { tris: t } of clumps.filter((p) => !p.tris.some((v, i) => i % 3 === 1 && v === top))) {
+        let under = 0;
+        for (let o = 0; o < t.length; o += 9) under += Math.abs((t[o + 3] - t[o]) * (t[o + 8] - t[o + 2]) - (t[o + 5] - t[o + 2]) * (t[o + 6] - t[o])) / 4;
+        expect(under / (Math.PI * reach * reach), `${form.map((w) => w.toFixed(2))}`).toBeLessThan(1 / 8);
       }
     }
   });
@@ -1416,17 +1483,22 @@ describe("the trees' shapes", () => {
     return up / seen;
   }
 
-  it("show a walker a pine's needles' lit side from under its crown: from 15, 20 and 30 m off, two fifths and more of the needles seen face the sky, on a desktop and a phone, in the form of every number 0, of every number 1, and those of the fixed day's first three pines", { timeout: 60000 }, () => {
+  it("show a walker a pine's needles' lit side from under its crown, the more the further off: from 15, 20 and 30 m off, on a phone two fifths and more of the needles seen face the sky, and on a desktop, whose boughs are level to their bending tips, a sixth and more from 30 m; in the form of every number 0, of every number 1, and those of the fixed day's first three pines", { timeout: 60000 }, () => {
     for (const phone of [false, true]) {
       const geo = geometryOf("pine", phone), name = nameOf("pine", phone), own = byKind(phone ? fixedPhone.trees : fixed.trees)[0];
       for (const form of [NONE, NONE.map(() => 1), ...own.slice(0, 3).map((t) => formOf(t) as number[])]) {
-        const shares = [15, 20, 30].map((far) => fromWalk(read(geo, form), far));
-        expect(mean(shares), `${name}, ${form.map((w) => w.toFixed(2))}`).toBeGreaterThan(0.4);
+        const shares = [15, 20, 30].map((far) => fromWalk(read(geo, form), far)), at = `${name}, ${form.map((w) => w.toFixed(2))}`;
+        // A desktop's bar is lower, a sixth at 30 m where it was two fifths on average: its boughs are level, and bend down only at
+        // their tips, so a walker under them sees mostly their shaded undersides. Boughs that drooped enough to show their tops
+        // made the crown a palm from afar (e102f8b), which the outline test now forbids.
+        if (phone) expect(mean(shares), at).toBeGreaterThan(0.4);
+        else expect(shares[2], at).toBeGreaterThan(1 / 6);
         // And more of them the further off: the further, the more the eye sees of the crown's tops.
         expect(shares[2], name).toBeGreaterThan(shares[0]);
       }
     }
   });
+
 });
 
 describe("the trees as they are built", () => {

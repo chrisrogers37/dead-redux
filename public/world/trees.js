@@ -528,35 +528,39 @@ function lobe(out, at, rad, sides, rings, salt, { rough, heart, span, round, und
 }
 
 /* A pine's bark: dark at its foot, warming up the trunk to the orange of an old pine's upper bark; and, with its form's last number,
-   greyer and paler. Its needles: paler on each clump's top near its bough, mid toward its rim, dark underneath. */
+   greyer and paler. Its needles: paler on each clump's top near its bough, mid toward its rim, and underneath a dark green, not
+   black, so that from under the crown a bough reads as needles in their own shade. */
 const PINE = { bark: [[0, rgb(0x33271f)], [FOOT_TOP * REF_TALL, rgb(0x3d2f25)], [3.2, rgb(0x5f4535)], [7, rgb(0x7a5840)], [12, rgb(0x9a6743)]], grey: rgb(0x8a8076) };
-const NEEDLES = { rough: 0.16, heart: [0, 13.6, 0], span: [3.0, 3.0, 3.0], round: 0.3, under: rgb(0x1c2e22), flank: rgb(0x44664a), over: rgb(0x6d8c55), low: 11, high: 16.6 };
-/* A pine's whorls, each [its height in metres, its boughs, how far its boughs reach]: the lowest over the crown's base by as far as
-   its clumps droop, and each shorter than the one under it, so the crown narrows to its leader. */
-const PINE_WHORLS = [[13.0, 3, 2.9], [13.55, 3, 2.45], [14.1, 3, 2.0], [14.6, 3, 1.55], [15.05, 2, 1.1], [15.5, 2, 0.7]];
+const NEEDLES = { rough: 0.16, heart: [0, 13.6, 0], span: [3.0, 3.0, 3.0], round: 0.3, under: rgb(0x2b4231), flank: rgb(0x44664a), over: rgb(0x6d8c55), low: 11, high: 16.6 };
+/* A pine's whorls, each [its height in metres, its boughs, how far its boughs reach], from just over the crown's base to under its
+   leader, and each shorter than the one under it by about as much, so the crown is a cone that narrows to its leader. */
+const PINE_WHORLS = [[11.6, 12, 3.0], [12.4, 11, 2.5], [13.2, 9, 2.02], [13.95, 8, 1.58], [14.7, 6, 1.15], [15.35, 4, 0.72]];
 /* Two ways a pine's whorls stand at heights of their own, each in metres a whorl, at its form's second and third numbers. */
 const PINE_WHORL_A = [0, 0.38, -0.25, 0.3, -0.22, 0.1], PINE_WHORL_B = [0, -0.22, 0.36, 0.22, -0.3, 0];
-/* How steeply each whorl's clumps droop, in radians from level, on average from their boughs to their rims. */
-const DROOP = [1.0, 0.95, 0.9, 0.85, 0.8, 0.75];
-/* A clump's corners across it, where along it its middle ones stand, and how it bows: down the more the further out (its height
-   falls as the FAN_BOW-th power of the way out), down at its sides by FAN_SAG of its drop, and its rim drawn in at its sides. */
-const FAN = 5, FAN_MID = 0.55, FAN_BOW = 1.3, FAN_SAG = 0.4, FAN_ROUND = 0.15;
+/* How each whorl's clumps bend, as shares of their length: how far a clump's top rises by FAN_MID of the way out, and how far its
+   tip bends down under where it leaves the trunk; the higher the whorl, the less. */
+const FAN_RISE = 0.04, FAN_DROP = [0.24, 0.21, 0.18, 0.14, 0.1, 0.08];
+/* A clump's corners across its widest, how far out along it that is, how much of the way round its whorl it covers there, and how
+   it bows: down at its sides by FAN_SAG of its tip's drop, and its sides drawn back toward the trunk by FAN_ROUND. */
+const FAN = 3, FAN_MID = 0.7, FAN_COVER = 1.45, FAN_SAG = 0.3, FAN_ROUND = 0.1;
 
-/* A clump of needles at a bough's end, as a fan: from `x0` m out along `way` from `from` to a rim `x1` m out, widening to `wide` m
-   either side, and drooping `drop` m by its rim. Its top is the needles' lit side and slopes out and down, so a walker under the
-   crown sees it; its rim is ragged. Under it, from its edge up and in to a belly `thick` m under its top, it is in its own shade
-   and faces down and in toward the trunk. None of it stands further from the tree's middle line than its reach or lower than its
-   crown's base. Each face turns the way its corners' normals do, out of it. It gives back a point inside it, where its bough
-   runs in. */
-function fan(out, from, way, { x0, x1, wide, drop, thick }, salt) {
-  const side = [-way[2], 0, way[0]];
+/* A clump of needles on a bough, as a pointed spray: from the trunk's middle at `from`, out along `way`, widest at FAN_MID of the
+   way out, up to `wide` m either side, and narrowing to a ragged point `long` m out. Its top is level or rises a little, by `rise` m
+   at FAN_MID, and bends down at its tip to `drop` m under where it leaves the trunk, as a pine's bough does. Under it, from its
+   edge up and in to a belly `thick` m under its top, it is in its own shade and faces down and in toward the trunk. It covers its
+   bough from the trunk out, so no bark of its shows. None of it stands further from the tree's middle line than its reach or lower
+   than its crown's base. Each face turns the way its corners' normals do, out of it. */
+function fan(out, from, way, { long, wide, rise, drop, thick }, salt) {
+  const side = [-way[2], 0, way[0]], x0 = 0.05;
+  /* The top's height along it: through `rise` at FAN_MID and `drop` under at its tip, level where it leaves the trunk's middle. */
+  const m = FAN_MID, c1 = (rise + drop * m ** 3) / (m - m ** 3), c3 = -drop - c1, h = (f) => c1 * f + c3 * f ** 3;
   const surface = (f, s) => {
-    const x = x0 + (x1 - x0) * f * (1 - FAN_ROUND * s * s), y = 0.5 * thick - drop * f ** FAN_BOW - FAN_SAG * drop * f * s * s;
-    return add(from, add(times(way, x), add(times(side, s * wide * (0.3 + 0.7 * f)), [0, y, 0])));
+    const x = x0 + (long - x0) * f * (1 - FAN_ROUND * s * s), y = 0.5 * thick + h(f) - FAN_SAG * drop * f * s * s;
+    return add(from, add(times(way, x), add(times(side, s * wide * (0.25 + 0.75 * f)), [0, y, 0])));
   };
   const normalAt = (f, s) => unit(cross(sub(surface(f, s + 0.02), surface(f, s - 0.02)), sub(surface(Math.min(1, f + 0.02), s), surface(Math.max(0, f - 0.02), s))));
   const corner = (f, i, ragged) => {
-    const s = -1 + (2 * i) / (FAN - 1), g = ragged ? f * (0.93 + 0.14 * chance(salt, i, 61)) : f, p = surface(g, s);
+    const s = -1 + (2 * i) / (FAN - 1), g = ragged ? f * (0.95 + 0.1 * chance(salt, i, 61)) : f, p = surface(g, s);
     if (ragged) p[1] -= 0.14 * drop * (chance(salt, i, 62) - 0.5);
     const far = Math.hypot(p[0], p[2]);
     if (far > REACH_M) { p[0] *= REACH_M / far; p[2] *= REACH_M / far; }
@@ -564,26 +568,24 @@ function fan(out, from, way, { x0, x1, wide, drop, thick }, salt) {
     const tone = mix(NEEDLES.over, NEEDLES.flank, clamp01((g - 0.35) * 1.5)), deep = 0.8 + 0.2 * clamp01((p[1] - NEEDLES.low) / (NEEDLES.high - NEEDLES.low));
     return { p, n: normalAt(Math.min(1, g), s), c: times(tone, deep * (0.86 + 0.28 * chance(salt, i, 63))) };
   };
-  const apex = corner(0, (FAN - 1) / 2, false), mid = [], rim = [];
-  for (let i = 0; i < FAN; i++) { mid.push(corner(FAN_MID, i, false)); rim.push(corner(1, i, true)); }
+  const apex = corner(0, (FAN - 1) / 2, false), tip = corner(1, (FAN - 1) / 2, true), mid = [];
+  for (let i = 0; i < FAN; i++) mid.push(corner(FAN_MID, i, false));
   const inward = unit(add(times(way, -0.5), [0, -1, 0])), belly = { p: add(surface(0.6, 0), [0, -thick, 0]), c: NEEDLES.under, n: inward };
   belly.p[1] = Math.max(BASE_M, belly.p[1]);
-  const edge = [apex, mid[0], ...rim, mid[FAN - 1]].map(({ p, n }) => ({ p, c: times(NEEDLES.under, 1.35), n: unit(add(times(n, 0.3), times(inward, 0.7))) }));
+  const edge = [apex, mid[0], tip, mid[FAN - 1]].map(({ p, n }) => ({ p, c: times(NEEDLES.under, 1.35), n: unit(add(times(n, 0.3), times(inward, 0.7))) }));
   let face = 0;
   const tri = (a, b, c) => out.tri(a, b, c, 0.95 + 0.1 * chance(face++, salt, 41), true);
-  for (let i = 0; i < FAN - 1; i++) { tri(apex, mid[i], mid[i + 1]); tri(mid[i], rim[i], rim[i + 1]); tri(mid[i], rim[i + 1], mid[i + 1]); }
+  for (let i = 0; i < FAN - 1; i++) { tri(apex, mid[i], mid[i + 1]); tri(mid[i], tip, mid[i + 1]); }
   edge.forEach((e, i) => out.tri(belly, edge[(i + 1) % edge.length], e, 1, true));
-  return times(add(surface(0.3, 0), times(add(apex.p, belly.p), 0.5)), 0.5);
 }
 
-/* A bough of a pine: a limb from the trunk's middle at `from`, out the way `turn` and into a clump of needles that starts some three
-   tenths of its `long` m out, reaches a little past its end, widens as it goes, and droops by `droop`, its size `size` of a full one's. */
-function bough(out, { from, turn, long, size, droop }, salt, bark) {
-  const way = [Math.cos(turn), 0, Math.sin(turn)], x0 = 0.3 * long, x1 = 1.04 * long + 0.3, thick = 0.1 * long + 0.42;
-  /* The drop, as far as the crown's base lets it. */
-  const drop = Math.min(Math.tan(droop) * (x1 - x0), from[1] + 0.5 * thick - BASE_M - 0.05);
-  const into = fan(out, from, way, { x0, x1, wide: (0.6 * long + 0.34) * size, drop, thick }, salt);
-  tube(out, [{ at: from, r: 0.1, c: bark }, { at: into, r: 0.05, c: bark }], 3, { across: [-way[2], 0, way[0]] });
+/* A bough of a pine, the way `turn` from the trunk's middle at `from`: its clump of needles, `long` m (no shorter than 0.65 m, nor
+   past the crown's reach), of its whorl `k`, one of `count`, as wide as its share of the way round the whorl by `size`, and deep
+   enough under its top that the smallest still holds some needles. */
+function bough(out, { from, turn, long, size, k, count }, salt) {
+  const way = [Math.cos(turn), 0, Math.sin(turn)], reach = Math.max(0.65, Math.min(long, REACH_M - 0.05)), thick = Math.max(0.4, 0.1 * reach + 0.28);
+  const wide = Math.max(0.5, ((FAN_COVER * Math.PI * reach) / count) * size);
+  fan(out, from, way, { long: reach, wide, rise: FAN_RISE * reach, drop: FAN_DROP[k] * reach, thick }, salt);
 }
 
 /* A phone's pine's crown: PINE_TIERS tiers of needles, each a cone from the trunk out and down to a rim of PINE_TIER_SIDES corners,
@@ -619,11 +621,13 @@ function tiers(out, trunk, [reach, whorlA, whorlB, tuftA, tuftB]) {
   });
 }
 
-/* A pine: a trunk on a fluted foot that runs on up to its top through whorls of boughs at uneven heights, each whorl's boughs turned
-   their own ways and reaching their own lengths, each ending in a drooping clump of needles, with sky between the whorls and between
-   the clumps; and a leader at the top. Its form's numbers, at 1: its boughs reach further on one side and less on the other; its
-   whorls stand at heights of their own, two ways; a third of its boughs, and another third, are small tufts near the trunk; its
-   trunk bends; and its bark is greyer. A phone's trunk has fewer sides and carries tiers in place of boughs. */
+/* A pine: a trunk on a fluted foot that runs on up to its top through whorls of boughs at uneven heights, from just over its crown's
+   base to under its leader, each whorl shorter than the one under it, so its outline is a cone that narrows to its leader. A whorl's
+   boughs are long and short in turn, so it is a star of points, with sky between them and between the whorls; each is a clump of
+   needles from the trunk out, level or rising to where its tip bends down, the less the higher it is, so it neither hangs from the
+   trunk nor shows a bough's bark. Its form's numbers, at 1: its boughs reach further on one side and less on the other; its whorls
+   stand at heights of their own, two ways; half its short boughs, and the other half, are shorter, narrower tufts; its trunk bends;
+   and its bark is greyer. A phone's trunk has fewer sides and carries tiers in place of boughs. */
 function drawPine(phone, form) {
   const out = shape(), [reach, whorlA, whorlB, tuftA, tuftB, bend, grey] = form;
   const bark = (y) => mix(barkAt(PINE.bark, y), PINE.grey, 0.55 * grey);
@@ -640,14 +644,15 @@ function drawPine(phone, form) {
     return out;
   }
   /* The boughs, whorl by whorl, each whorl turned its own way round. A form moves a whorl up or down but never round: a morph moves
-     each corner in a straight line, so a turn added to a tuft's shrinking would shear a fan, and turn some of its faces over. */
+     each corner in a straight line, so a turn added to a tuft's shrinking would shear a fan, and turn some of its faces over. The
+     long boughs set the outline, the same share of their whorl's length the same way round on every whorl, so no form makes a whorl
+     reach further than the one under it; the short ones stand a little higher, clear of the long ones' tops, and only they are tufts. */
   PINE_WHORLS.forEach(([y0, count, long0], k) => {
     const y = y0 + whorlA * PINE_WHORL_A[k] + whorlB * PINE_WHORL_B[k], spin = 2.4 * k;
     for (let j = 0; j < count; j++) {
       const turn = spin + (2 * Math.PI * (j + 0.35 * (chance(j, k, 52) - 0.5))) / count;
-      const tuft = (j + k) % 3 === 0 ? tuftA : (j + k) % 3 === 1 ? tuftB : 0;
-      const long = long0 * (0.9 + 0.2 * chance(j, k, 53)) * (1 + 0.2 * reach * Math.cos(turn)) * (1 - 0.45 * tuft);
-      bough(out, { from: middleAt(trunk, y), turn, long, size: 1 - 0.3 * tuft, droop: DROOP[k] }, 10 * k + j, bark(y));
+      const short = j % 2 === 1, tuft = !short ? 0 : (j + 2 * k) % 4 === 1 ? tuftA : tuftB, long = long0 * (short ? 0.72 : 1) * (1 + 0.04 * Math.sin(2 * turn + 0.7)) * (1 + 0.15 * reach * Math.cos(turn)) * (1 - 0.22 * tuft);
+      bough(out, { from: middleAt(trunk, y + (short ? 0.1 : 0)), turn, long, size: 1 - 0.3 * tuft, k, count }, 10 * k + j);
     }
   });
   /* The leader: the trunk's last metre in needles, to the tree's top. */
