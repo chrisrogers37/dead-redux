@@ -6,7 +6,8 @@ import { FLOOR } from "../../../public/world/stage.js";
 
 // The players' bodies as people (band.js `trunk`, `armParts`, `fist`, `leg`): each player one piece, joint to joint, at rest and as the
 // band plays; each hand where its role puts it, measured where it is drawn; each singer's head at its microphone; each stand beside
-// its player; the legs under a skirt or a coat inside it; and the feet on the floor.
+// its player, and its boom widened about its own line; the legs under a skirt or a coat inside it, ending at the tops of their cuffs
+// or boots; a skirt, as it hangs, inside its body's bounds and sent to the GPU each frame; and the feet on the floor.
 
 type Vec = InstanceType<typeof THREE.Vector3>;
 type Band = ReturnType<typeof buildBand>;
@@ -14,6 +15,15 @@ type Part = { of: string; as: string; by: number | null; from: number; count: nu
 type Bone = { of: number; name: string };
 type Run = { name: string; from: number; count: number };
 type Attr = { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number };
+// A body's attribute as three sends it to the GPU: its numbers, its version, which setting `needsUpdate` moves on, and the runs of
+// its numbers to send, which the renderer clears once it has sent them.
+type Sent = Attr & { array: Float32Array; version: number; updateRanges: { start: number; count: number }[]; clearUpdateRanges(): void };
+type Body = { boundingSphere: { center: Vec; radius: number; clone(): { center: Vec; radius: number } }; getAttribute(name: string): Sent };
+// The players in a skirt or a coat, each with its body and the run of its body's corners the skirt is.
+const skirted = (players: Player[]) => players.flatMap((p) => {
+  const run = p.look.skirt > 0 && p.body.geometry ? p.drawn.find(({ name }) => name === "skirt") : undefined;
+  return run ? [{ p, run, body: p.body.geometry as unknown as Body }] : [];
+});
 type Player = {
   role: string;
   plays: string;
@@ -327,6 +337,42 @@ describe("the band's bodies", () => {
     expect(off).toEqual([]);
   });
 
+  // A microphone's boom, from the top of its stand across to the microphone (band.js `voice`, `microphone`'s third part), is widened by
+  // `fit` square to its own line as the canvas's pixel grows (`across`), so its ends stay where they are. Each of its corners moves
+  // square to the line `fit` widens it about, which is so the line square to every way they move; and that line runs along the boom as
+  // drawn, from the top to its end, within a degree. The boom's own line is the longest way its corners spread, which a bar's
+  // rings, each turned about it, leave exactly along it. At a pixel of a whole rad, where it is widened most, in every line-up: every
+  // boom, one for each who stands at a stand of their own. The singer's stand, which they hold, has none.
+  it("widens each microphone's boom square to its own line, as drawn from the stand's top to the microphone", () => {
+    const off: string[] = [];
+    for (const key of LINEUPS) {
+      const { band, players } = build(key), parts = band.still.userData.parts as Part[], still = band.still.geometry.getAttribute("position") as Sent;
+      const booms = players.flatMap((p, k) => {
+        const mic = parts.filter((part) => part.of === "microphone" && part.by === k);
+        if (mic.length && p.plays !== "voice") expect(`${p.role}: ${mic.length} parts`).toBe(`${p.role}: 4 parts`);
+        return mic.length && p.plays !== "voice" ? [{ p, part: mic[2] }] : [];
+      });
+      expect(booms.length).toBeGreaterThanOrEqual(3);
+      const read = () => booms.map(({ part }) => Array.from({ length: part.count }, (_, i) => new THREE.Vector3().fromBufferAttribute(still, part.from + i) as Vec));
+      const built = read();
+      band.fit(1);
+      const most = read();
+      booms.forEach(({ p }, j) => {
+        // The boom as drawn: the way its corners spread most about their middle.
+        const middle = built[j].reduce((s, c) => s.add(c), new THREE.Vector3()).divideScalar(built[j].length), spread = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+        for (const c of built[j]) { const d = [c.x - middle.x, c.y - middle.y, c.z - middle.z]; for (let r = 0; r < 3; r++) for (let s = 0; s < 3; s++) spread[r * 3 + s] += d[r] * d[s]; }
+        const drawn = new THREE.Vector3(1, 1, 1);
+        for (let n = 0; n < 100; n++) drawn.set(spread[0] * drawn.x + spread[1] * drawn.y + spread[2] * drawn.z, spread[3] * drawn.x + spread[4] * drawn.y + spread[5] * drawn.z, spread[6] * drawn.x + spread[7] * drawn.y + spread[8] * drawn.z).normalize();
+        // The line `fit` widened it about: square to the way the corner that moved most moved, and to the way most across from that.
+        const moved = most[j].map((c, i) => c.clone().sub(built[j][i])), first = moved.reduce((a, b) => (b.length() > a.length() ? b : a));
+        const about = moved.map((d) => new THREE.Vector3().crossVectors(first, d)).reduce((a, b) => (b.length() > a.length() ? b : a)).normalize();
+        const degrees = (Math.acos(Math.min(1, Math.abs(about.dot(drawn)))) * 180) / Math.PI;
+        if (!(first.length() > 0.05 && degrees < 1)) off.push(`${key}: ${p.role}'s boom widened about a line ${degrees.toFixed(2)}° off its own, ${first.length().toFixed(3)} m at the most`);
+      });
+    }
+    expect(off).toEqual([]);
+  });
+
   // A skirt, or a coat's skirts, hangs over the legs under it (band.js `stand`, `hangFrom`), and nothing of them comes through it. So,
   // through a whole SOLO counts at every quarter of a count (CYCLE), in every line-up, each in an era of its own, round the eras, so
   // that each role that wears one is held to it in every era's clothes: every corner of each leg of a player in a skirt or a coat, the
@@ -402,6 +448,111 @@ describe("the band's bodies", () => {
     });
     expect([...off].map(([at, { count, first }]) => `${at}: ${count} corners out of the torso and the skirt, the first ${first}`)).toEqual([]);
   }, 120_000);
+
+  // A leg under a skirt or a coat (band.js `stand`, HIDDEN_LEG), which is never seen, ends at the top of its cuff or boot: its shin's
+  // end, which stays planted, within a centimetre of the middle of that top, neither short of it, where light would show between
+  // them under a hem that hangs out over them, nor down inside it. And it is 12 cm across at the thigh and 10 at the shin, both
+  // ways, in its player's metres: a leg as wide as one in trousers stood out of the side of its skirt, and the test above holds it
+  // no wider; this holds it no thinner either. At rest in every line-up in every era, and in each line-up through a whole SOLO
+  // counts at each count, each line-up in an era of its own as above.
+  it("ends each leg under a skirt or a coat at the top of its cuff or boot, 12 cm across at the thigh and 10 at the shin", () => {
+    const off: string[] = [], m = new THREE.Matrix4(), column = new THREE.Vector3(), across: Record<string, number> = { thigh: 0.12, shin: 0.1 };
+    const look = (band: Band, as: string) => {
+      const { players, bones, ends, cornersOf } = measures(band), parts = band.still.userData.parts as Part[];
+      players.forEach((p, k) => {
+        if (!(p.look.skirt > 0 && p.body.geometry)) return;
+        // Each cuff's or boot's top, the middle of its highest corners, by side: the left's on the player's +x.
+        const tops = new Map<string, Vec>();
+        for (const part of parts) {
+          if (part.by !== k || !/ cuff$/.test(part.of)) continue;
+          const corners = cornersOf(k, (q) => q === part), high = Math.max(...corners.map((c) => c.y)), ring = corners.filter((c) => c.y > high - 1e-5);
+          const middle = ring.reduce((s, c) => s.add(c), new THREE.Vector3()).divideScalar(ring.length);
+          tops.set(middle.x > 0 ? "left" : "right", middle);
+        }
+        let legs = 0;
+        bones.forEach((bone, j) => {
+          const [side, of] = bone.name.split(" ");
+          if (bone.of !== k || (of !== "thigh" && of !== "shin")) return;
+          legs += 1;
+          band.limbs.getMatrixAt(j, m);
+          const wide = [0, 2].map((n) => column.setFromMatrixColumn(m, n).length() / p.g.scale.x);
+          if (wide.some((w) => Math.abs(w - across[of]) > 1e-4)) off.push(`${as}: ${p.role}'s ${bone.name} ${wide.map((w) => w.toFixed(4)).join(" by ")} m across`);
+          if (of !== "shin") return;
+          const top = tops.get(side), end = ends(j)[1];
+          if (!top || end.distanceTo(top) > 0.01) off.push(`${as}: ${p.role}'s ${bone.name} ends ${top ? `${end.distanceTo(top).toFixed(3)} m from its cuff's top, ${(end.y - top.y).toFixed(3)} m over it` : "with no cuff"}`);
+        });
+        if (legs !== 4 || tops.size !== 2) off.push(`${as}: ${p.role} has ${legs} thighs and shins and ${tops.size} cuffs`);
+      });
+    };
+    LINEUPS.forEach((key, l) => {
+      for (const date of ERAS) look(build(key, date).band, `${key}, ${date}, at rest`);
+      const date = ERAS[l % ERAS.length], { band, to } = build(key, date);
+      for (const seconds of COUNTS) { to(seconds); look(band, `${key}, ${date}, ${seconds.toFixed(3)} s in`); }
+    });
+    expect(off).toEqual([]);
+  }, 60_000);
+
+  // A body is culled by its bounds, which take a hanging skirt's slack over its corners as they stand when the bounds are taken
+  // (band.js `bound`, HANG_SLACK): as built, and as `fit` takes them again whenever the canvas changes, which may be as the band
+  // plays. So every corner of a skirt as it hangs stays inside each of those: the sphere its body was built with, and each one `fit`
+  // makes, here at every count, through a whole SOLO counts at every quarter of a count, in every line-up in every era. The least
+  // margin is 18.5 cm of the 20; with no slack, the bass's skirt stood 7 mm out of the sphere its body was built with, and 1.5 cm
+  // out of one `fit` made, where three would cull a body whose skirt still shows.
+  it("keeps every corner of a hanging skirt inside its body's bounds, as built and as fitted at every count, through a whole solo in every line-up and era", () => {
+    const off: string[] = [], DESKTOP = (2 * Math.tan(Math.PI / 6)) / 900;
+    for (const key of LINEUPS) for (const date of ERAS) {
+      const { band, to, players } = build(key, date), skirts = skirted(players);
+      expect(skirts.length).toBeGreaterThanOrEqual(3);
+      const spheres = skirts.map(({ body }) => [body.boundingSphere.clone()]), poses: Float32Array[][] = [];
+      CYCLE.forEach((seconds, i) => {
+        to(seconds);
+        if (i % 4 === 0) {
+          band.fit(DESKTOP);
+          skirts.forEach(({ body }, k) => spheres[k].push(body.boundingSphere.clone()));
+        }
+        poses.push(skirts.map(({ run, body }) => body.getAttribute("position").array.slice(run.from * 3, (run.from + run.count) * 3)));
+      });
+      skirts.forEach(({ p }, k) => {
+        let least = Infinity;
+        for (const { center, radius } of spheres[k]) {
+          for (const pose of poses) {
+            const at = pose[k];
+            for (let i = 0; i < at.length; i += 3) least = Math.min(least, radius - Math.hypot(at[i] - center.x, at[i + 1] - center.y, at[i + 2] - center.z));
+          }
+        }
+        if (least < 0) off.push(`${key}, ${date}: ${p.role}'s skirt ${(-least).toFixed(4)} m out of its body's bounds`);
+      });
+    }
+    expect(off).toEqual([]);
+  }, 120_000);
+
+  // What a frame sends to the GPU of a skirt as it hangs (band.js `hang`, `send`): after each move, its corners and their normals, as
+  // the run of each of its body's attributes the skirt is, each attribute's version on, so that three sends it. The renderer clears
+  // the runs it has sent, so each frame here starts with none: after the move each attribute has that run, and nothing more. In
+  // every line-up, each frame of the first two seconds, as the band takes up playing.
+  it("sends a hanging skirt's corners and normals to the GPU after every move, as the skirt's run of each and no more", () => {
+    const off = new Set<string>();
+    for (const key of LINEUPS) {
+      const { band, players } = build(key), skirts = skirted(players);
+      expect(skirts.length).toBeGreaterThanOrEqual(3);
+      let time = 0, beats = 0;
+      for (let frame = 0; frame < 120; frame++) {
+        const before = skirts.map(({ body }) => ["position", "normal"].map((name) => {
+          const attribute = body.getAttribute(name);
+          attribute.clearUpdateRanges();
+          return attribute.version;
+        }));
+        time += 1 / 60;
+        beats += 96 / 3600;
+        band.move(1 / 60, time, beats, true);
+        skirts.forEach(({ p, run, body }, k) => ["position", "normal"].forEach((name, n) => {
+          const attribute = body.getAttribute(name), ranges = attribute.updateRanges.map(({ start, count }) => `${start}+${count}`).join(", ");
+          if (!(attribute.version > before[k][n]) || ranges !== `${run.from * 3}+${run.count * 3}`) off.add(`${key}: ${p.role}'s ${name}s sent as [${ranges}], version ${before[k][n]} to ${attribute.version}, not the skirt's ${run.from * 3}+${run.count * 3}`);
+        }));
+      }
+    }
+    expect([...off]).toEqual([]);
+  });
 
   // The feet on the stage's floor, the player's own 0: each shoe that stays down stands on it, its lowest corner within 2 mm of it, and
   // a tapping foot, which hinges at its heel, rests on it at rest and never goes under it through a whole SOLO counts.
