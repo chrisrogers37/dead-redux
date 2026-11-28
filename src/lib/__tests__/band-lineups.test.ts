@@ -112,8 +112,8 @@ function stillOf(band: Band, of: (name: string) => boolean, k: number) {
 }
 const middleOf = (points: Vec[]) => points.reduce((sum, c) => sum.add(c), new THREE.Vector3()).divideScalar(points.length);
 // A player's microphone (band.test.ts `microphoneOf`): the middle of its stand's foot, and the middle of the end of its capsule away
-// from the boom, which holds it at its other end (the singer's has no boom: the end away from the foot); and its parts, each as its
-// corners.
+// from the boom, which holds it at its other end; and its parts (band.js `microphone`: the stand, the capsule, the boom and the
+// base), each as its corners.
 function microphoneOf(band: Band, k: number) {
   const still = band.still.geometry.getAttribute("position"), at = new THREE.Vector3();
   const bars = (band.still.userData.parts as Part[]).filter((part) => part.of === "microphone" && part.by === k).map((part) => {
@@ -123,7 +123,7 @@ function microphoneOf(band: Band, k: number) {
   });
   if (!bars.length) return null;
   const all = bars.flat(), low = Math.min(...all.map((c) => c.y)), foot = middleOf(all.filter((c) => c.y < low + 0.001));
-  const capsule = bars[1], from = (c: Vec) => (bars.length > 2 ? Math.min(...bars[2].map((b) => gap(b, c))) : gap(c, foot)), middle = from(middleOf(capsule));
+  const capsule = bars[1], from = (c: Vec) => Math.min(...bars[2].map((b) => gap(b, c))), middle = from(middleOf(capsule));
   return { foot, head: middleOf(capsule.filter((c) => from(c) > middle)), bars };
 }
 // A point of the stage in a player's own frame and their own metres, where +x is their left and +z the way they face.
@@ -203,7 +203,7 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
   });
 
   // The six are 20,500 at the most (band.test.ts), and so is any line-up of six or five; a seven, a player more, 23,500: shaped as
-  // people, the fives and sixes count 16,394 to 19,754 and the sevens 19,556 to 23,060.
+  // people, the fives and sixes count 16,394 to 19,754 and the sevens 19,526 to 23,030.
   it("is at most 20,500 triangles, or a seven 23,500", () => {
     let triangles = 0;
     stage.traverse((part: { isMesh?: boolean; isInstancedMesh?: boolean; count: number; geometry: { getAttribute(name: string): { count: number } } }) => {
@@ -213,6 +213,8 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
   });
 
   // A line-up that stands close (band.js CLOSE), the sevens', stands a twentieth smaller.
+  // The side the singer's microphone stands on, and the hand that holds it: their left (+x), but where the line-up's staging says.
+  const singerSide = ((STAGING as Record<string, { players: unknown[][] }>)[roles.join(" ")].players.find(([role]) => role === "voice")?.[4] as { side?: number } | undefined)?.side ?? 1;
   const tall = PERSON * ((STAGING as Record<string, { close?: boolean }>)[roles.join(" ")].close ? 0.95 : 1);
   it("stands the players as tall as the crowd, or a line-up that stands close a twentieth under it: a standing head within 0.2 m of that height, a seated one 0.35 to 0.65 m under it; and no two who stand of one height", () => {
     const tops = new Map<number, number>();
@@ -277,7 +279,7 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
     expect(Array.from(band.limbs.instanceMatrix.array as Float32Array)).toEqual(before);
   });
 
-  it("stands each microphone at its singer's mouth: its head 5 to 9 cm before the face's front at its height, on a boom from a stand beside the player, on the side a guitarist strums on or on a keyboard player's side toward the stage's middle, the singer's before them and out to their left", () => {
+  it("stands each microphone at its singer's mouth: its head 5 to 7 cm before the face's front at its height, on a boom from a stand beside the player, on the side a guitarist strums on, the singer's left, or on a keyboard player's side toward the stage's middle", () => {
     stage.updateMatrixWorld(true);
     const singing = players.flatMap((p, k) => {
       const found = microphoneOf(band, k);
@@ -291,26 +293,24 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
         const c = own(band, k, at);
         if (Math.abs(c.y - mic.y) < 0.04 && Math.abs(c.x - mic.x) < 0.06) face = Math.max(face, c.z);
       });
-      const { foot, head, bars } = found, out = own(band, k, foot).sub(mic), s = p.g.scale.x;
+      const { foot, head, bars } = found, s = p.g.scale.x;
       const boom = bars.filter((c) => Math.min(...c.map((q) => Math.hypot(q.x - foot.x, q.z - foot.z))) < 0.05 * s && Math.min(...c.map((q) => gap(q, head))) < 0.15 * s).length;
       // The side toward the stage's middle, in the player's frame: a keyboard stands at an end of the stage, turned in.
       const inward = -Math.sign(p.g.position.x);
-      return [{ role: p.role, before: mic.z - face, foot: own(band, k, foot), inward, boom, out }];
+      return [{ role: p.role, before: mic.z - face, foot: own(band, k, foot), inward, boom }];
     });
     // Every one who stands sings but the pianist, who is seated side-on; no drummer does.
     expect(singing.map(({ role }) => role)).toEqual(players.filter((p) => !["drums", "piano"].includes(p.role)).map((p) => p.role));
-    // In the player's own metres, whichever way they turn (band.js MIC): the microphone's head 6 cm before the face, the singer's 8,
-    // which keeps it off the face (band.test.ts, the faceless test). The stand's foot lies, each within a centimetre: with a guitar or
-    // the bass to their right (-x), the side they strum on, 18 cm further out than the shoulder's joint and 4 cm behind their middle
-    // (-z); at a keyboard 52 cm out to the side toward the stage's middle and 10 cm behind. And one part, the boom, reaches from
-    // within 5 cm of the stand's line to within 15 cm of the head (band.test.ts). The singer's lies before them and out to their
-    // left, 30 to 50 cm, past the legs, which stand 13 cm out: so from the crowd it rises clear of them.
-    for (const { role, before, foot, inward, boom, out } of singing) {
-      if (role === "voice") expect([role, before > 0.05 && before < 0.09, out.z > 0.2, out.x > 0.3 && out.x < 0.5]).toEqual([role, true, true, true]);
-      else {
-        const p = players.find((q) => q.role === role)!, [side, beside, back] = role === "keys" || role === "organ" ? [inward, 0.52, -0.1] : [-1, 0.205 * p.look.broad + 0.18, -0.04];
-        expect([role, before > 0.05 && before < 0.07, Math.abs(foot.x - side * beside) < 0.01, Math.abs(foot.z - back) < 0.01, boom]).toEqual([role, true, true, true, 1]);
-      }
+    // In the player's own metres, whichever way they turn (band.js MIC): the microphone's head 6 cm before the face, which keeps it
+    // off the face (band.test.ts, the faceless test). The stand's foot lies, each within a centimetre: with a guitar or the bass to
+    // their right (-x), the side they strum on, 18 cm further out than the shoulder's joint and 4 cm behind their middle (-z); the
+    // singer's as far out on the side of the hand that holds the boom, their left (+x) but for early 1972's, and 8 cm before their
+    // middle, clear of the arm that reaches forward to it (band.js SINGING); at a keyboard 52 cm out to the side toward the stage's
+    // middle and 10 cm behind. And one part, the boom, reaches from within 5 cm of the stand's line to within 15 cm of the
+    // head (band.test.ts). The singer's stand leaned in to the mouth from 42 cm before them, a pole down their front from the crowd.
+    for (const { role, before, foot, inward, boom } of singing) {
+      const p = players.find((q) => q.role === role)!, [side, beside, back] = role === "keys" || role === "organ" ? [inward, 0.52, -0.1] : role === "voice" ? [singerSide, 0.205 * p.look.broad + 0.18, 0.08] : [-1, 0.205 * p.look.broad + 0.18, -0.04];
+      expect([role, before > 0.05 && before < 0.07, Math.abs(foot.x - side * beside) < 0.01, Math.abs(foot.z - back) < 0.01, boom]).toEqual([role, true, true, true, 1]);
     }
   });
 
@@ -325,9 +325,9 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
     }
   });
 
-  // The singer's arms are the body's, and the tambourine with them (band.js `singer`): the hand at the microphone holds the stand
-  // under its head, and the other hangs to the thigh, the tambourine's disc before it.
-  it("gives the singer no instrument but a tambourine: a hand at the microphone, under its head, the tambourine before the other thigh, and no neck, strumming arm, stick or keyboard", () => {
+  // The singer's arms are the body's, and the tambourine with them (band.js `singer`): the hand on the microphone's side, their left
+  // but for early 1972's, holds its boom behind the microphone, and the other hangs to the thigh, the tambourine's disc before it.
+  it("gives the singer no instrument but a tambourine: a hand on the microphone's boom, behind the microphone, the tambourine before the other thigh, and no neck, strumming arm, stick or keyboard", () => {
     stage.updateMatrixWorld(true);
     players.forEach((p, k) => {
       if (p.role !== "voice") return;
@@ -335,17 +335,25 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
       expect(p.plays).toBe("voice");
       expect(names.filter((name: string) => /strum|fret|stick|hand|forearm/.test(name))).toEqual([]);
       expect(stillOf(band, (name) => name === "keyboard" || name === "kit", k)).toEqual([]);
-      // In the singer's own frame and metres: the microphone's head, out to their left (+x) of the middle, and the body's corners.
-      const mic = own(band, k, microphoneOf(band, k)!.head), body: Vec[] = [];
+      // In the singer's own frame and metres: the microphone's head, the boom from the stand's top to its end at the microphone, and
+      // the body's corners.
+      const { head, bars } = microphoneOf(band, k)!, mic = own(band, k, head), body: Vec[] = [];
+      const upright = bars[0].map((c) => own(band, k, c)), boom = bars[2].map((c) => own(band, k, c)), high = Math.max(...upright.map((c) => c.y));
+      const top = middleOf(upright.filter((c) => c.y > high - 0.001)), far = Math.max(...boom.map((c) => gap(c, top))), end = middleOf(boom.filter((c) => gap(c, top) > far - 0.01));
       corners(built, (at, of, by) => { if (by === k && of === "body") body.push(own(band, k, at)); });
-      // A hand round the stand: the body within 9 cm of the microphone's head, and none of it over the head's middle. The hand holds
-      // the stand 11 cm under the head (band.js `singer`), and its nearest corner comes 8.3 cm from it.
-      const near = Math.min(...body.map((c) => gap(c, mic)));
-      expect([near < 0.09, Math.max(...body.map((c) => c.y)) < mic.y]).toEqual([true, true]);
-      // The tambourine, before the right thigh and out past it: the body 25 cm and more to the right of the middle under the hips,
-      // and before the thigh, and nothing of the body as far out under the hips on the left.
-      const hips = 0.92, low = body.filter((c) => c.y < hips + 0.05 && c.z > 0.1);
-      expect([Math.min(...low.map((c) => c.x)) < -0.25, Math.max(...low.map((c) => c.x)) < 0.25]).toEqual([true, true]);
+      // A hand round the boom: where the body comes within 2 cm of the boom's line in its last 25 cm, it is 5 to 20 cm from its end
+      // along it, and none of the body is over the microphone's head. The hand closes on it 12 cm behind its end (band.js `singer`,
+      // DEAL.voice's `grip`), and its corners come within 2 cm of the line from 5.5 cm to 17 cm. (Further back the boom passes in
+      // front of the left shoulder, as a guitarist's does in front of the strumming shoulder.)
+      const along = new THREE.Vector3().subVectors(end, top), length = along.length();
+      along.normalize();
+      const on = body.map((c) => { const t = Math.min(length, Math.max(0, new THREE.Vector3().subVectors(c, top).dot(along))); return { off: gap(c, top.clone().addScaledVector(along, t)), back: length - t }; });
+      const held = on.filter((c) => c.off < 0.02 && c.back < 0.25).map((c) => c.back);
+      expect([held.length > 0, Math.min(...held) > 0.05 && Math.max(...held) < 0.2, Math.max(...body.map((c) => c.y)) < mic.y]).toEqual([true, true, true]);
+      // The tambourine, before the other thigh and out past it: the body 25 cm and more to that side of the middle under the hips,
+      // and before the thigh, and nothing of the body as far out under the hips on the microphone's side.
+      const hips = 0.92, low = body.filter((c) => c.y < hips + 0.05 && c.z > 0.1).map((c) => c.x * singerSide);
+      expect([Math.min(...low) < -0.25, Math.max(...low) < 0.25]).toEqual([true, true]);
     });
   });
 
@@ -388,38 +396,28 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
     });
   });
 
-  // The stands `fit` widens that are new here (band.js): the singer's, which leans, widened across at each height about its own line
-  // so that its foot stays on the floor; the microphone's head at its top, widened every way about its middle; and each of the
-  // organ's legs, upright. At a pixel of a whole rad each is at its most in radius in its player's metres: the stand and a leg,
-  // 0.036 as built, STOUT_MOST (0.12); the head, 0.04 as built, MIC_HEAD_MOST (0.05), for as stout as a stand it stood before the
-  // singer's face over the mouth on a phone (band-outline.ts `standsBefore`).
-  const stood = roles.includes("voice") || roles.includes("organ");
-  if (stood) it("fits the singer's leaning stand about its own line, the microphone's head every way and each of the organ's legs to the canvas's pixel, each foot staying on the floor", () => {
-    const fresh: Band = stand(roles).band, still = fresh.still.geometry.getAttribute("position"), players = fresh.players as Player[];
-    const picked = (fresh.still.userData.parts as Part[]).filter((part) => part.by !== null && ((players[part.by].role === "voice" && part.of === "microphone") || (players[part.by].role === "organ" && part.as === "leg")));
+  // The stands `fit` widens (band.js): each microphone's stand, the singer's with the rest, and each of the organ's legs, upright,
+  // widened across at each height about its own line so that its foot stays on the floor. At a pixel of a whole rad each is at its
+  // most in radius in its player's metres: 0.036 as built, STOUT_MOST (0.12). The singer's stand leaned in to the mouth from the
+  // floor before them, and was widened about its own leaning line, its ball of a microphone's head every way to 0.05: a pole down
+  // their front wider than a guitar's neck on a phone (#224).
+  it("fits each microphone's stand, the singer's too, and each of the organ's legs upright to the canvas's pixel, each foot staying on the floor", () => {
+    const fresh: Band = stand(roles).band, still = fresh.still.geometry.getAttribute("position"), players = fresh.players as Player[], parts = fresh.still.userData.parts as Part[];
+    const picked = parts.filter((part) => part.by !== null && ((part.of === "microphone" && parts.find((q) => q.of === "microphone" && q.by === part.by) === part) || (players[part.by].role === "organ" && part.as === "leg")));
     const read = () => picked.map((part) => Array.from({ length: part.count }, (_, i) => own(fresh, part.by!, new THREE.Vector3().fromBufferAttribute(still, part.from + i))));
     const built = read();
     fresh.fit(1);
     const most = read();
-    expect(picked.map((part) => `${players[part.by!].role} ${part.as}`).sort()).toEqual([
-      ...(roles.includes("organ") ? ["organ leg", "organ leg", "organ leg", "organ leg"] : []), ...(roles.includes("voice") ? ["voice microphone", "voice microphone"] : [])].sort());
+    const singing = players.filter((p, k) => parts.some((part) => part.of === "microphone" && part.by === k));
+    expect(picked.map((part) => `${players[part.by!].role} ${part.as}`).sort()).toEqual([...(roles.includes("organ") ? ["organ leg", "organ leg", "organ leg", "organ leg"] : []), ...singing.map((p) => `${p.role} microphone`)].sort());
+    if (roles.includes("voice")) expect(singing.some((p) => p.role === "voice")).toBe(true);
     picked.forEach((part, j) => {
       const name = `${players[part.by!].role} ${j}`, a = built[j], b = most[j], middle = (c: Vec[]) => middleOf(c.map((v) => new THREE.Vector3(v.x, v.y, v.z)));
-      // Its middle stands where it stood, and its foot, if it has one (all but the head, a ball of 240 corners), on the floor.
-      const head = part.as === "microphone" && a.length > 100;
-      expect([name, gap(middle(a), middle(b)) < 1e-4, head || Math.abs(Math.min(...a.map((c) => c.y)) - Math.min(...b.map((c) => c.y))) < 1e-5]).toEqual([name, true, true]);
-      if (head) {
-        // The head: every corner a quarter as far again from the middle (0.05 over 0.04).
-        const ratio = b.map((c, i) => gap(c, middle(b)) / Math.max(1e-9, gap(a[i], middle(a)))).filter((r) => Number.isFinite(r));
-        expect([name, Math.min(...ratio).toFixed(3), Math.max(...ratio).toFixed(3)]).toEqual([name, "1.250", "1.250"]);
-        return;
-      }
-      // A stand or a leg: each corner moves only across, at its own height, 0.12 / 0.036 times as far from the line through its middle
-      // and its foot's (the leaning stand's) or upright (a leg's) as built.
-      const floor = Math.min(...a.map((c) => c.y)), foot = middle(a.filter((c) => c.y < floor + 1e-5)), centre = middle(a);
-      const along = part.as === "leg" ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3().subVectors(centre, foot).normalize();
-      const off = (c: Vec) => { const t = (c.y - centre.y) / along.y; return new THREE.Vector3(c.x - centre.x - along.x * t, 0, c.z - centre.z - along.z * t); };
-      const ratios = a.flatMap((c, i) => (off(c).length() > 0.01 ? [off(b[i]).length() / off(c).length()] : []));
+      // Its middle stands where it stood, and its foot on the floor; and each corner moves only across, at its own height, 0.12 / 0.036
+      // times as far from the upright line through its middle as built.
+      const floor = Math.min(...a.map((c) => c.y)), centre = middle(a);
+      expect([name, gap(centre, middle(b)) < 1e-4, Math.abs(floor - Math.min(...b.map((c) => c.y))) < 1e-5]).toEqual([name, true, true]);
+      const off = (c: Vec) => Math.hypot(c.x - centre.x, c.z - centre.z), ratios = a.flatMap((c, i) => (off(c) > 0.01 ? [off(b[i]) / off(c)] : []));
       expect([name, a.every((c, i) => Math.abs(c.y - b[i].y) < 1e-6), Math.min(...ratios).toFixed(2), Math.max(...ratios).toFixed(2)]).toEqual([name, true, (0.12 / 0.036).toFixed(2), (0.12 / 0.036).toFixed(2)]);
     });
   });

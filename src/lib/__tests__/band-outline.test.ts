@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { SIX } from "../../../public/world/band.js";
+import { SIX, STAGING } from "../../../public/world/band.js";
 import { FACING, FIRST_EYE, height, SHELF_Y, STAGE } from "../../../public/world/ground.js";
 import { lineupOn } from "../../../public/world/lineup.js";
 import { budgetFor } from "../../../public/world/quality.js";
@@ -342,6 +342,22 @@ describe("what a microphone stands before", () => {
   }, 60_000);
   it("finds a microphone's head lifted 10 cm before the face over its player's mouth", () => {
     expect(finds("desktop band", lift(1, 0.1))).toEqual(["1's microphone's head before its own head above the mouth"]);
+  }, 60_000);
+  // The head rule alone (standsBefore: no thin part before a head above the mouth): the rhythm's stand's top lifted over their head,
+  // 1.9, so the boom comes down to the microphone across the face over the mouth from beside it. It stands before no instrument and
+  // nothing of anyone else's, so only that rule finds it: a boom before its own player's body is let be. (The bass's, so lifted,
+  // stood before the lead's guitar too.)
+  it("finds a boom that comes down across its own player's face over the mouth, by the head rule alone", () => {
+    expect(finds("desktop band", restand(4, [-0.397, -0.04], 1.9))).toEqual(["4's boom before its own head above the mouth"]);
+  }, 60_000);
+  // A stand before its own player's torso from the front of the crowd (standsBefore's `torso`), with the six of 1972–74: the singer's
+  // stand and base moved before them, 30 cm out from their middle at the mouth's side; and the lead's moved before their torso, 20
+  // cm before their middle. The gate lets a stand stand before its own player's body, so only `torso` finds them.
+  it("finds a stand before its own player's torso from the front of the crowd, the singer's or another's", () => {
+    const roles = lineupOn("1973-03-30").roles as string[], order = STAGING[roles.join(" ") as keyof typeof STAGING].players.map(([role]) => String(role));
+    const [singer, lead] = [order.indexOf("voice"), order.indexOf("lead")];
+    const torso = (alter: ((built: Built) => void) | null) => [...new Set(standsBefore(roles, CAMERAS.filter((c) => c.name === "desktop band"), { date: "1973-03-30", alter, torso: true }).map((line) => line.slice(line.indexOf(": ") + 2, line.lastIndexOf(": "))))].sort();
+    expect([torso(null), torso(restand(singer, [0, 0.3], 1.2)), torso(restand(lead, [0, 0.2], 1.2))]).toEqual([[], [`${singer}'s stand before its own torso`], [`${lead}'s stand before its own torso`]]);
   }, 60_000);
   // The outlines' film looks again, frame by frame, wherever what moved changed what is solid there, under a stand too (filmOf). The
   // seven of 1968–70's rhythm guitarist and keys player, 5 and 6 as STAGING numbers them, meet at a phone's second and third rungs

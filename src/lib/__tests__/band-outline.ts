@@ -72,7 +72,7 @@ export const POSES: Record<string, { x: number; z: number; heading: number; pitc
 // stand (`stand`: the stand, its base, its boom and the microphone), which the outlines' rules let touch another player (filmOf);
 // and of those, whether it is the boom or the microphone of a stand that stands beside its player (`reach`), which reach to the mouth.
 type Tri = { at: Vec[]; owner: number; trunk: boolean; crash: string; bone: string; colour: number[]; stand?: boolean; reach?: boolean };
-// The still parts that are a microphone on its stand (band.js `voice` and the singer's).
+// The still parts that are a microphone on its stand (band.js `voice`), the singer's with the rest.
 export const STAND_PART = "microphone";
 type Player = { plays: string; role: string; body: { geometry?: { getAttribute(name: string): { count: number } }; matrixWorld: unknown } };
 type Colours = { getX(i: number): number; getY(i: number): number; getZ(i: number): number };
@@ -270,13 +270,13 @@ export function playing(roles: string[], perPx: number, steps = 60, tempo: (fram
       world[(at + i) * 3 + 2] = (e[2] * x + e[6] * y + e[10] * z + e[14]) * w;
     }
   };
-  // A microphone's parts are a stand's (`stand` 1), but a microphone's boom and its head on a stand that stands beside its player
-  // (band.js `voice`: its stand, its head, its boom and its base), which reach to the mouth (2).
+  // A microphone's parts are a stand's (`stand` 1), but its boom and its head (band.js `voice`: its stand, its head, its boom and its
+  // base), which reach to the mouth (2).
   let at = 0;
   const mics = new Map<number, number>();
   for (const part of parts) {
     lay(corners.array, part.from, part.count, built.still.matrixWorld.elements, at);
-    const nth = part.of === STAND_PART ? (mics.get(part.by!) ?? 0) : 0, reach = part.of === STAND_PART && (built.players as Player[])[part.by!].plays !== "voice" && (nth === 1 || nth === 2);
+    const nth = part.of === STAND_PART ? (mics.get(part.by!) ?? 0) : 0, reach = part.of === STAND_PART && (nth === 1 || nth === 2);
     if (part.of === STAND_PART) mics.set(part.by!, nth + 1);
     for (let t = at / 3; t < (at + part.count) / 3; t++) {
       owner[t] = part.by ?? monitors;
@@ -961,7 +961,7 @@ const STAGE_NAMES: Record<string, string> = { roof: "the roof's stage", wall: "t
 const STAGE_BLACKS: Record<string, string> = { roof: "the roof, the back wall or a PA stack", wall: "the Wall's cabinets or the rig's bridge over its front", arena: "the roof, the back wall, the flown PA, a side-fill or an amplifier's frame" };
 
 /* What a thin part of the band stands before, from the shoot's cameras: a microphone's stand, its base, its boom and its head (band.js
-   `voice`, the singer's), and a crash's pole (`drummer`'s "pole"). The outlines' film draws the band flat, and lets a stand touch or
+   `voice`), and a kit's pole (`drummer`'s "pole": the crash's, and the hi-hat's in its kit). The outlines' film draws the band flat, and lets a stand touch or
    cross another player's outline (filmOf); this draws it with depth, as a GPU does, and finds where a thin part stands nearer the
    camera than what shows there, at a pixel's middle. Each part of a player is a head above the mouth (band.js `mouth`, in their own
    frame, by each triangle's middle), the rest of a head, an instrument (a guitar or a bass with its neck's tip, the singer's
@@ -976,14 +976,19 @@ const STAGE_BLACKS: Record<string, string> = { roof: "the roof, the back wall or
    - else another player's body, as the outlines' rules let a stand cross their outline.
    Each camera fits the band to its own canvas (band.js `fit`, `pixelOf`), so what `fit` widens is drawn as wide as it is there. The
    band is drawn at rest and every two counts through a whole solo (band.js SOLO), so each move's two ends are seen: the hips' sway
-   and the lead's solo, where the neck rises. Returns what it finds, each as "camera, moment: whose what before whose what: pixels". */
+   and the lead's solo, where the neck rises. Returns what it finds, each as "camera, moment: whose what before whose what: pixels".
+   With `torso`, it finds instead only where a stand, a base or a pole stands before its own player's torso, the singer's included:
+   the body (band.js `embody`, not a limb's bone) from the hips to the shoulders' joints, 0.685 and 0.23 under the mouth (`trunk`),
+   within 0.205 of the player's breadth and 6 cm more of the middle across (the shoulders' joints and an upper arm against them),
+   that middle leaning with the trunk to the mouth. From the front of the crowd that is a stand down a player's front: the singer's
+   leaned in to the mouth from the floor before them, a pole across the left leg and up the chest (#224). */
 export const MEET = 0.05;
-const THIN = { stand: 1, base: 2, boom: 3, head: 4, pole: 5 } as const, SHOWN = { body: 1, low: 2, head: 3, instrument: 4 } as const;
-const THIN_NAMES = ["", "stand", "base", "boom", "microphone's head", "crash's pole"], SHOWN_NAMES = ["", "body", "head under the mouth", "head above the mouth", "instrument"];
+const THIN = { stand: 1, base: 2, boom: 3, head: 4, pole: 5 } as const, SHOWN = { body: 1, low: 2, head: 3, instrument: 4, torso: 5 } as const;
+const THIN_NAMES = ["", "stand", "base", "boom", "microphone's head", "kit's pole"], SHOWN_NAMES = ["", "body", "head under the mouth", "head above the mouth", "instrument", "torso"];
 export const BEFORE_AT = [0, ...Array.from({ length: 16 }, (_, k) => 1 + (2 * k * 60) / 96)];
 type Kind = (mid: Vec) => [number, number, number];
-type Posed = { plays: string; g: { matrixWorld: { clone(): { invert(): unknown } } }; body: { geometry?: { getAttribute(name: string): { count: number } }; matrixWorld: unknown }; drawn: { name: string; from: number; count: number }[]; mouth: Vec };
-export function standsBefore(roles: string[], cams: Camera[], { date = null as string | null, at = BEFORE_AT, alter = null as ((built: Built) => void) | null } = {}) {
+type Posed = { plays: string; g: { matrixWorld: { clone(): { invert(): unknown } } }; body: { geometry?: { getAttribute(name: string): { count: number } }; matrixWorld: unknown }; drawn: { name: string; from: number; count: number }[]; mouth: Vec; look: { broad: number } };
+export function standsBefore(roles: string[], cams: Camera[], { date = null as string | null, at = BEFORE_AT, alter = null as ((built: Built) => void) | null, torso = false } = {}) {
   const found: string[] = [], fits = new Map<number, Camera[]>();
   for (const cam of cams) fits.set(pixelOf(cam), [...(fits.get(pixelOf(cam)) ?? []), cam]);
   for (const [perPx, group] of fits) {
@@ -1014,6 +1019,11 @@ export function standsBefore(roles: string[], cams: Camera[], { date = null as s
     };
     const body: Kind = () => [0, SHOWN.body, 0], instrument: Kind = () => [0, SHOWN.instrument, 0];
     const headOf = (by: number): Kind => (at) => (at.y > players[by].mouth.y ? [0, SHOWN.head, at.y - players[by].mouth.y] : [0, SHOWN.low, 0]);
+    const trunkOf = (by: number): Kind => {
+      if (!torso) return body;
+      const { mouth, look } = players[by], hips = mouth.y - 0.685, shoulders = mouth.y - 0.23, wide = 0.205 * look.broad + 0.06;
+      return (at) => (at.y > hips && at.y < shoulders && Math.abs(at.x - (mouth.x * (at.y - hips)) / 0.685) < wide ? [0, SHOWN.torso, 0] : [0, SHOWN.body, 0]);
+    };
     const gather = () => {
       xyz.length = owner.length = thin.length = shown.length = over.length = 0;
       const mics = new Map<number, number>();
@@ -1021,7 +1031,7 @@ export function standsBefore(roles: string[], cams: Camera[], { date = null as s
         const by = part.by ?? NO_ONE;
         let kind = body;
         if (part.of === STAND_PART) {
-          const k = mics.get(by) ?? 0, order = players[by].plays === "voice" ? [THIN.stand, THIN.head] : [THIN.stand, THIN.head, THIN.boom, THIN.base];
+          const k = mics.get(by) ?? 0, order = [THIN.stand, THIN.head, THIN.boom, THIN.base];
           mics.set(by, k + 1);
           kind = () => [order[k], 0, 0];
         } else if (part.of === "head") kind = headOf(by);
@@ -1034,8 +1044,8 @@ export function standsBefore(roles: string[], cams: Camera[], { date = null as s
         const count = p.body.geometry.getAttribute("position").count;
         let from = 0;
         for (const run of [...[...p.drawn].sort((a, b) => a.from - b.from), { name: "", from: count, count: 0 }]) {
-          if (run.from > from) push(p.body.geometry, p.body.matrixWorld, k, from, run.from - from, body);
-          if (run.count) push(p.body.geometry, p.body.matrixWorld, k, run.from, run.count, run.name === "head" ? headOf(k) : run.name === "instrument" || run.name === "tambourine" ? instrument : body);
+          if (run.from > from) push(p.body.geometry, p.body.matrixWorld, k, from, run.from - from, trunkOf(k));
+          if (run.count) push(p.body.geometry, p.body.matrixWorld, k, run.from, run.count, run.name === "head" ? headOf(k) : run.name === "instrument" || run.name === "tambourine" ? instrument : trunkOf(k));
           from = Math.max(from, run.from + run.count);
         }
       });
@@ -1085,11 +1095,15 @@ export function standsBefore(roles: string[], cams: Camera[], { date = null as s
             const u = top[pixel];
             if (u < 0 || z >= depth[pixel] || owner[u] === NO_ONE) return;
             const mine = owner[u] === owner[t], kind = shown[u];
+            if (torso) {
+              if (mine && kind === SHOWN.torso && (thin[t] === THIN.stand || thin[t] === THIN.base || thin[t] === THIN.pole)) note(`${owner[t]}'s ${THIN_NAMES[thin[t]]} before its own torso`);
+              return;
+            }
             const fine = kind === SHOWN.head ? thin[t] === THIN.head && mine && over[u] <= MEET : kind === SHOWN.instrument ? thin[t] === THIN.pole && mine : mine || thin[t] !== THIN.boom;
             if (!fine) note(`${owner[t]}'s ${THIN_NAMES[thin[t]]} before ${mine ? "its own" : `${owner[u]}'s`} ${SHOWN_NAMES[kind]}`);
           });
         }
-        for (const [pixel, bits] of booms) for (let k = 0; k < 16; k++) {
+        if (!torso) for (const [pixel, bits] of booms) for (let k = 0; k < 16; k++) {
           if (!(bits & (1 << k))) continue;
           for (let j = 0, others = mics.get(pixel)! & ~(1 << k); others >> j; j++) if (others & (1 << j)) note(`${k}'s boom on ${j}'s boom or microphone`);
           for (let j = 0, under = played.get(pixel) ?? 0; under >> j; j++) if (under & (1 << j)) note(`${k}'s boom across ${j === k ? "its own" : `${j}'s`} instrument`);
@@ -1169,6 +1183,13 @@ export function outlineChecks(name: string, day: string, bars: Bars = {}) {
     // (band-outline.test.ts).
     it("stands no microphone before a face over the mouth or before an instrument, from any camera or rung, at rest or through a solo: a stand or a base may stand before another player's body, a boom before nothing of anyone else's and across no instrument, and a microphone's head meets only its own player's mouth", () => {
       expect(standsBefore(roles, [...CAMERAS, ...FLASH_CAMERAS, ...RUNGS], { date: day })).toEqual([]);
+    }, 120_000);
+
+    // And from the front of the crowd, on a desktop and on a phone, where the shoot's band stills stand, no stand, base or kit's pole
+    // stands before its own player's torso (standsBefore's `torso`): each stands beside its player, the singer's with the rest. The
+    // singer's stand leaned in to the mouth from the floor before them, a pole across the left leg and up the chest (#224).
+    it("stands no stand, base or kit's pole before its own player's torso from the front of the crowd, on a desktop or a phone, at rest or through a solo, the singer's included", () => {
+      expect(standsBefore(roles, CAMERAS.filter((c) => c.pose.startsWith("band")), { date: day, torso: true })).toEqual([]);
     }, 120_000);
 
     // Measured with the six as they stand, on the roof's stage: four pixels at the closest, from among the crowd on a desktop (the first
