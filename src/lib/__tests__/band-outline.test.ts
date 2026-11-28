@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { SIX } from "../../../public/world/band.js";
 import { FACING, FIRST_EYE, height, SHELF_Y, STAGE } from "../../../public/world/ground.js";
+import { lineupOn } from "../../../public/world/lineup.js";
 import { budgetFor } from "../../../public/world/quality.js";
 import { PANEL } from "../../../public/world/stage.js";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
-import { type Built, type Camera, CAMERAS, DUSK, draw, filmOf, FLASH_CAMERAS, flickerOf, lens, liftShown, NIGHT, outlineChecks, PHASES, pieces, pixelOf, playing, POSES, RUNGS, specks, STAND_PART } from "./band-outline";
+import { type Built, type Camera, CAMERAS, DUSK, draw, filmOf, FLASH_CAMERAS, flickerOf, lens, liftShown, NIGHT, outlineChecks, PHASES, pieces, pixelOf, playing, POSES, RUNGS, specks, STAND_PART, standsBefore } from "./band-outline";
 
 // The band's outlines as the shoot's devices draw them (band-outline.ts): the cameras the checks draw from, held to the shoot's poses,
 // and the six of 1979 to 1990 and of 1992 to 1995 (lineup.js), as the shoot's fixed day shows them, held to the checks every line-up
@@ -60,7 +61,7 @@ describe("the outlines' film", () => {
     const found = { specks: [] as string[], counts: [] as string[], apart: new Set<string>(), alone: new Set<string>(), standing: new Set<string>(), joined: new Set<string>(), touched: new Set<string>() }, got = { counts: [] as string[] };
     for (let f = 0; f <= seconds * 60; f++) {
       played.to(f);
-      const tris = Array.from({ length: played.n }, (_, t) => ({ at: [0, 1, 2].map((c) => new THREE.Vector3(...played.world.slice(t * 9 + c * 3, t * 9 + c * 3 + 3))), owner: played.owner[t], trunk: played.trunk[t] === 1, crash: ["", "cymbal", "pole"][played.crash[t]], bone: "", colour: [0, 0, 0], stand: played.stand[t] === 1 }));
+      const tris = Array.from({ length: played.n }, (_, t) => ({ at: [0, 1, 2].map((c) => new THREE.Vector3(...played.world.slice(t * 9 + c * 3, t * 9 + c * 3 + 3))), owner: played.owner[t], trunk: played.trunk[t] === 1, crash: ["", "cymbal", "pole"][played.crash[t]], bone: "", colour: [0, 0, 0], stand: played.stand[t] > 0, reach: played.stand[t] === 2 }));
       const at = `${(f / 60).toFixed(3)} s`;
       for (const cam of cams) for (const [dx, dy] of places) {
         const phone = cam.name.startsWith("phone"), rung = cam.name.includes(" at rung ");
@@ -73,7 +74,7 @@ describe("the outlines' film", () => {
             got.counts.push(`${at} ${dx},${dy} ${tone.panel}: ${film.counts.get(`${cam.name} ${tone.panel}`)![f * PHASES.length + place]}`);
           }
         }
-        const { W, H, mask, trunks, crashes, solid, stands } = draw(tris, cam, dx, dy);
+        const { W, H, mask, trunks, crashes, solid, stands, standing: still } = draw(tris, cam, dx, dy);
         // Two players meet in a piece of everything but the stands.
         for (const piece of pieces(W, H, (o) => solid[o] !== 0)) {
           let trunk = 0;
@@ -82,13 +83,13 @@ describe("the outlines' film", () => {
           if (dx === 0 && dy === 0 && whose.length > 1 && rung) for (let a = 0; a + 1 < whose.length; a++) found.touched.add(`rung ${cam.name.slice(-1)}: ${whose[a]} and ${whose[a + 1]}`);
           else if (dx === 0 && dy === 0 && whose.length > 1) found.joined.add(`${cam.name} at ${at}: ${whose.join(" and ")}`);
         }
-        const standing = roles.map((_, k) => stands.reduce((sum, b) => sum + ((b >> k) & 1), 0));
+        const standing = roles.map((_, k) => still.reduce((sum, b) => sum + ((b >> k) & 1), 0));
         for (const piece of pieces(W, H, (o) => mask[o] !== 0)) {
           let trunk = 0, owners = 0, kit = 0;
           for (const o of piece) { trunk |= trunks[o]; owners |= mask[o]; kit |= crashes[o]; }
           if (trunk) continue;
-          const held = roles.map((_, k) => piece.filter((o) => (stands[o] >> k) & 1).length);
-          if (piece.every((o) => stands[o] && !solid[o]) && held.every((got, k) => got === 0 || got === standing[k])) {
+          const held = roles.map((_, k) => piece.filter((o) => (still[o] >> k) & 1).length);
+          if (piece.every((o) => stands[o] && !solid[o]) && held.some((got) => got > 0) && held.every((got, k) => got === 0 || got === standing[k])) {
             if (dx === 0 && dy === 0) found.standing.add(`${cam.name}: ${label(owners)}`);
             continue;
           }
@@ -250,9 +251,11 @@ describe("the outlines' rules for a stand", () => {
     expect(joined.some((line) => line.endsWith(": 4 and 5"))).toBe(true);
   }, 60_000);
 
-  // The keys' microphone, stand and all, set out along the stage's line from them till its nearest corner stands a metre past the
-  // furthest of the rest of their still parts, their keyboard: it stands whole on its base, apart, and is let be; with its stand a
-  // twentieth as stout, unfitted, it comes apart into pieces of a stand, and is not.
+  // The keys' microphone's stand and base set out along the stage's line from them till their nearest corner stands a metre past the
+  // furthest of the rest of their still parts, their keyboard, and its boom and head drawn away under the floor: the film asks of a
+  // stand that stands apart that its stand and base stand whole, and lets its boom and head be, which reach to its player's mouth
+  // and may meet the head apart from it (filmOf). It stands whole on its base, apart, and is let be; with its stand a twentieth as
+  // stout, unfitted, it comes apart into pieces of a stand, and is not.
   const away = (thin: number) => (built: Built) => {
     const { at, out } = cornersOf(built, 5, STAND_PART), parts = built.still.userData.parts as Part[], pole = parts.find((part) => part.by === 5 && part.of === STAND_PART)!;
     let x = 0, z = 0;
@@ -262,6 +265,8 @@ describe("the outlines' rules for a stand", () => {
     for (const part of parts) if (part.by === 5 && part.of !== STAND_PART) for (let i = part.from; i < part.from + part.count; i++) edge = Math.max(edge, at.getX(i));
     for (const i of out) near = Math.min(near, at.getX(i));
     for (const i of out) at.setX(i, at.getX(i) + edge + 1 - near);
+    // Its head and its boom (band.js `microphone`: the stand, the head, the boom and the base).
+    parts.filter((part) => part.by === 5 && part.of === STAND_PART).slice(1, 3).forEach((part) => { for (let i = part.from; i < part.from + part.count; i++) at.setXYZ(i, 0, -100, 0); });
   };
   it("never leaves a stand as a speck: one that stands whole on its base apart from its player is let be, and one that comes apart is not", () => {
     const whole = film(away(1));
@@ -279,6 +284,74 @@ describe("the outlines' rules for a stand", () => {
       for (const part of built.still.userData.parts as Part[]) if (part.of === STAND_PART) for (let i = part.from; i < part.from + part.count; i++) at.setXYZ(i, 0, -100, 0);
     };
     expect(liftShown(roles, 5)).toEqual(liftShown(roles, 5, undefined, gone));
+  }, 60_000);
+});
+
+// What a microphone stands before (band-outline.ts `standsBefore`), with the six's microphones moved where they stood or might: each
+// part of a microphone moved in its player's own frame, the stand and its base to the foot given, the stand's top to the height
+// given, and the boom from there to the microphone where it is; or the microphone's head lifted. Each is found from where it shows
+// most: the front of the crowd on a desktop, or among the crowd. The six, as SIX numbers them: the lead 0, the bass 1, the
+// drummers 2 and 3, the rhythm 4 and the keys 5.
+describe("what a microphone stands before", () => {
+  type Part = { of: string; by: number | null; from: number; count: number };
+  type Vec = { x: number; y: number; z: number };
+  const restand = (k: number, foot: [number, number], high: number) => (built: Built) => {
+    const at = built.still.geometry.getAttribute("position"), g = built.players[k].g.matrix, back = g.clone().invert();
+    const [stand, , boom, base] = (built.still.userData.parts as Part[]).filter((part) => part.by === k && part.of === STAND_PART);
+    const corners = (run: Part) => Array.from({ length: run.count }, (_, i) => new THREE.Vector3().fromBufferAttribute(at, run.from + i).applyMatrix4(back));
+    const pole = corners(stand), arm = corners(boom), low = corners(base), mean = (vs: Vec[], axis: "x" | "z") => vs.reduce((sum, v) => sum + v[axis], 0) / vs.length;
+    const top = new THREE.Vector3(mean(pole, "x"), Math.max(...pole.map((v) => v.y)), mean(pole, "z"));
+    const to = new THREE.Vector3(foot[0], high, foot[1]), shift = new THREE.Vector3(foot[0] - top.x, 0, foot[1] - top.z);
+    // The boom's far end: the ring of its corners furthest from the stand's top. Each corner of it moves with the top as far as it
+    // stands from that end, so the end stays at the microphone.
+    const far = Math.max(...arm.map((v) => v.distanceTo(top))), ring = arm.filter((v) => v.distanceTo(top) > far - 0.03);
+    const end = ring.reduce((sum, v) => sum.add(v), new THREE.Vector3()).divideScalar(ring.length), along = end.clone().sub(top);
+    const put = (run: Part, vs: Vec[]) => vs.forEach((v, i) => { const w = new THREE.Vector3(v.x, v.y, v.z).applyMatrix4(g); at.setXYZ(run.from + i, w.x, w.y, w.z); });
+    put(stand, pole.map((v) => new THREE.Vector3(v.x + shift.x, (v.y * high) / top.y, v.z + shift.z)));
+    put(base, low.map((v) => v.clone().add(shift)));
+    put(boom, arm.map((v) => v.clone().addScaledVector(to.clone().sub(top), 1 - Math.min(1, Math.max(0, v.clone().sub(top).dot(along) / along.lengthSq())))));
+  };
+  const lift = (k: number, by: number) => (built: Built) => {
+    const at = built.still.geometry.getAttribute("position"), g = built.players[k].g.matrix, back = g.clone().invert();
+    const head = (built.still.userData.parts as Part[]).filter((part) => part.by === k && part.of === STAND_PART)[1];
+    for (let i = head.from; i < head.from + head.count; i++) { const v = new THREE.Vector3().fromBufferAttribute(at, i).applyMatrix4(back); v.y += by; v.applyMatrix4(g); at.setXYZ(i, v.x, v.y, v.z); }
+  };
+  const all = (...alters: ((built: Built) => void)[]) => (built: Built) => alters.forEach((alter) => alter(built));
+  // What is found, each kind once, from one camera.
+  const finds = (camera: string, alter: ((built: Built) => void) | null) =>
+    [...new Set(standsBefore(SIX, CAMERAS.filter((c) => c.name === camera), { alter }).map((line) => line.slice(line.indexOf(": ") + 2, line.lastIndexOf(": "))))].sort();
+  it("finds nothing of the six as they stand, and the same with a microphone moved to where it stands", () => {
+    expect([finds("desktop band", null), finds("desktop band", restand(1, [-0.385, -0.04], 1.2))]).toEqual([[], []]);
+  }, 60_000);
+  // Where the guitarists' and the bass's microphones stood before: their stands 52 cm out on the side they fret on and 10 cm back,
+  // the tops at the mouth's height, 1.6, as the keys' was. Each boom was a level bar over the face from the front of the crowd: its
+  // player's neck crossed it, the rhythm's stand stood before the keys, and the keys' boom lay across the rhythm's guitar. (On the
+  // side they strum on, a level boom at 1.6 stands before no head above the mouth, and lies across no instrument: band.test.ts holds
+  // each boom to its rise.)
+  it("finds the booms where they stood, level with the face: across each guitar's neck, and the rhythm's stand and the keys' boom before each other's instruments", () => {
+    const keys = (built: Built) => restand(5, [(built.players[5].g.position.x > 0 ? -1 : 1) * 0.52, -0.1], 1.6)(built);
+    expect(finds("desktop band", all(restand(0, [0.52, -0.1], 1.6), restand(1, [0.52, -0.1], 1.6), restand(4, [0.52, -0.1], 1.6), keys))).toEqual(
+      ["0's boom across its own instrument", "1's boom across its own instrument", "4's boom across its own instrument", "4's stand before 5's instrument", "5's boom across 4's instrument"]);
+  }, 60_000);
+  it("finds a boom that rises to the mouth on the side a guitarist frets on: across the neck, which rises there", () => {
+    expect(finds("desktop band", all(restand(0, [0.371, -0.04], 1.2), restand(1, [0.385, -0.04], 1.2), restand(4, [0.397, -0.04], 1.2)))).toEqual(
+      ["0's boom across its own instrument", "1's boom across its own instrument", "4's boom across its own instrument", "4's stand before 5's instrument"]);
+  }, 60_000);
+  it("finds a microphone that reaches into its neighbour: the keys' boom across the rhythm's guitar, and the rhythm's stand before the second drummer's kit", () => {
+    expect([finds("desktop band", restand(5, [-1, -0.1], 1.3)), finds("desktop among", restand(4, [-0.8, -0.04], 1.2))]).toEqual([["5's boom across 4's instrument"], ["4's stand before 3's instrument"]]);
+  }, 60_000);
+  it("finds a microphone's head lifted 10 cm before the face over its player's mouth", () => {
+    expect(finds("desktop band", lift(1, 0.1))).toEqual(["1's microphone's head before its own head above the mouth"]);
+  }, 60_000);
+  // The outlines' film looks again, frame by frame, wherever what moved changed what is solid there, under a stand too (filmOf). The
+  // seven of 1968–70's rhythm guitarist and keys player, 5 and 6 as STAGING numbers them, meet at a phone's second and third rungs
+  // (band-outline-1968.test.ts). With the keys' stand as it stood before, its top at the mouth's height, it stood over where they
+  // meet, and a film that looked again only where what moved changed what was drawn, a stand's pixels and all, did not see it.
+  it("finds two players who meet under a stand: the seven of 1968–70's rhythm and keys, with the keys' stand where it stood, its top at the mouth", () => {
+    const roles = lineupOn("1969-04-17").roles as string[], n = roles.length;
+    const label = (bits: number) => [...roles.map((_, k) => k).filter((k) => bits & (1 << k)).map(String), ...(bits & (1 << n) ? ["monitor"] : [])].join(" and ");
+    const film = filmOf(roles, label, RUNGS, { places: () => [[0, 0]], alter: restand(6, [-0.52, -0.1], 1.6) });
+    expect([...film.touched].filter((line) => line.endsWith(": 5 and 6")).sort()).toEqual(["rung 2: 5 and 6", "rung 3: 5 and 6"]);
   }, 60_000);
 });
 

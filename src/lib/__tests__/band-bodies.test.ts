@@ -341,8 +341,9 @@ describe("the band's bodies", () => {
   // `fit` square to its own line as the canvas's pixel grows (`across`), so its ends stay where they are. Each of its corners moves
   // square to the line `fit` widens it about, which is so the line square to every way they move; and that line runs along the boom as
   // drawn, from the top to its end, within a degree. The boom's own line is the longest way its corners spread, which a bar's
-  // rings, each turned about it, leave exactly along it. At a pixel of a whole rad, where it is widened most, in every line-up: every
-  // boom, one for each who stands at a stand of their own. The singer's stand, which they hold, has none.
+  // rings, each turned about it, leave exactly along it. At a pixel of a whole rad, where it is widened most, as far as band.js
+  // BOOM_MOST lets it, its corners moving 2 cm and more, in every line-up: every boom, one for each who stands at a stand of their
+  // own. The singer's stand, which they hold, has none.
   it("widens each microphone's boom square to its own line, as drawn from the stand's top to the microphone", () => {
     const off: string[] = [];
     for (const key of LINEUPS) {
@@ -367,10 +368,36 @@ describe("the band's bodies", () => {
         const moved = most[j].map((c, i) => c.clone().sub(built[j][i])), first = moved.reduce((a, b) => (b.length() > a.length() ? b : a));
         const about = moved.map((d) => new THREE.Vector3().crossVectors(first, d)).reduce((a, b) => (b.length() > a.length() ? b : a)).normalize();
         const degrees = (Math.acos(Math.min(1, Math.abs(about.dot(drawn)))) * 180) / Math.PI;
-        if (!(first.length() > 0.05 && degrees < 1)) off.push(`${key}: ${p.role}'s boom widened about a line ${degrees.toFixed(2)}° off its own, ${first.length().toFixed(3)} m at the most`);
+        if (!(first.length() > 0.02 && degrees < 1)) off.push(`${key}: ${p.role}'s boom widened about a line ${degrees.toFixed(2)}° off its own, ${first.length().toFixed(3)} m at the most`);
       });
     }
     expect(off).toEqual([]);
+  });
+
+  // However far `fit` widens a boom to hold it together from the back of the crowd, it is no wider than the narrowest guitar neck,
+  // 5.7 cm across in the player's own metres (band.js TWO_HORNS and ONE_CUT, 0.052 at their `big` of 1.1; BOOM_MOST): from every
+  // camera of the outline tests it is widened as far as BOOM_MOST lets it. Widened as far as a stand, a boom was drawn 7 to 8.5 cm
+  // across on a desktop and 12 to 14 on a phone, a bar over the face thicker than the neck it crossed.
+  it("draws no microphone's boom wider than a guitar's neck, however far `fit` widens it", () => {
+    const NECK = 0.052 * 1.1, wide: string[] = [];
+    for (const key of LINEUPS) {
+      const { band, players } = build(key), parts = band.still.userData.parts as Part[], still = band.still.geometry.getAttribute("position") as Sent;
+      band.fit(1);
+      players.forEach((p, k) => {
+        const mic = parts.filter((part) => part.of === "microphone" && part.by === k);
+        if (!mic.length || p.plays === "voice") return;
+        const own = new THREE.Matrix4().copy(p.g.matrixWorld.clone().invert()).multiply(band.still.matrixWorld), boom = mic[2];
+        const corners = Array.from({ length: boom.count }, (_, i) => new THREE.Vector3().fromBufferAttribute(still, boom.from + i).applyMatrix4(own) as Vec);
+        // Its line: through the corners' middle, the way they spread most. Its width: twice the furthest a corner stands off it.
+        const middle = corners.reduce((s, c) => s.add(c), new THREE.Vector3()).divideScalar(corners.length), spread = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+        for (const c of corners) { const d = [c.x - middle.x, c.y - middle.y, c.z - middle.z]; for (let r = 0; r < 3; r++) for (let s = 0; s < 3; s++) spread[r * 3 + s] += d[r] * d[s]; }
+        const line = new THREE.Vector3(1, 1, 1);
+        for (let n = 0; n < 100; n++) line.set(spread[0] * line.x + spread[1] * line.y + spread[2] * line.z, spread[3] * line.x + spread[4] * line.y + spread[5] * line.z, spread[6] * line.x + spread[7] * line.y + spread[8] * line.z).normalize();
+        const across = 2 * Math.max(...corners.map((c) => { const d = c.clone().sub(middle); return d.addScaledVector(line, -d.dot(line)).length(); }));
+        if (!(across <= NECK)) wide.push(`${key}: ${p.role}'s boom ${(across * 100).toFixed(1)} cm across`);
+      });
+    }
+    expect(wide).toEqual([]);
   });
 
   // A skirt, or a coat's skirts, hangs over the legs under it (band.js `stand`, `hangFrom`), and nothing of them comes through it. So,

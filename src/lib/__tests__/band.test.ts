@@ -356,7 +356,7 @@ describe("the band, as it is built", () => {
     });
   });
 
-  it("stands each microphone at its player's mouth: its head 5 to 7 cm before the face's front at its height, as the body rests, upright or leaning, on a boom from a stand beside the player, on the fretting side or on a keyboard player's side toward the stage's middle", () => {
+  it("stands each microphone at its player's mouth: its head 5 to 7 cm before the face's front at its height, as the body rests, upright or leaning, on a boom that rises to it from a stand beside the player, its top at the shoulders, on the side a guitarist strums on or on a keyboard player's side toward the stage's middle", () => {
     stage.updateMatrixWorld(true);
     const at = new THREE.Vector3();
     const gaps = band.players.flatMap((p: { plays: string; body: { matrixWorld: unknown; geometry: { getAttribute(name: string): { count: number } } } }, k: number) => {
@@ -377,19 +377,23 @@ describe("the band, as it is built", () => {
     // In the player's own metres: 6 cm, which keeps the microphone off the face (the faceless test, band.js MIC). One at the face,
     // as it stood before #219, stood 2 cm before it, and one 0.027 across that stood off it as it did then, 0.065.
     for (const { plays, before } of gaps) expect([plays, before > 0.05 && before < 0.07]).toEqual([plays, true]);
-    // Its stand's foot, in the player's own frame and metres, whichever way they turn: 52 cm out to one side of their middle and 10
-    // cm behind it (-z), each within a centimetre: with a guitar or the bass to their left (+x), the side they fret on, and at a
-    // keyboard to the side toward the stage's middle, the side the crowd sees behind their keyboard's inner end. And a boom reaches
-    // from the stand's top to the head: one part comes within 5 cm of the line the stand stands on, across, and within 15 cm of the
-    // head, in their metres.
-    band.players.forEach((p: { plays: string; g: { scale: Vec; position: Vec; rotation: { y: number } } }, k: number) => {
+    // Its stand's foot, in the player's own frame and metres, whichever way they turn, each within a centimetre: with a guitar or the
+    // bass 18 cm further out to their right (-x) than the shoulder's joint, on the side they strum on, and 4 cm behind their middle
+    // (-z); at a keyboard 52 cm out to the side toward the stage's middle, the side the crowd sees behind their keyboard's inner end,
+    // and 10 cm behind. A boom reaches from the stand's top to the head: one part comes within 5 cm of the line the stand stands on,
+    // across, and within 15 cm of the head, in their metres. And it comes in to the mouth from below (band.js MIC): the stand's top
+    // stands 25 cm and more under the mouth (band.js `mouth`), and the boom rises from it 15 cm and more. With the top at the mouth's
+    // height, 1.6, as it stood before, the boom fell 5 to 6 cm to the microphone, level with the face.
+    band.players.forEach((p: { plays: string; mouth: Vec; look: { broad: number }; g: { scale: Vec; position: Vec; rotation: { y: number } } }, k: number) => {
       const found = microphoneOf(band, k);
       if (!found) return;
       const { foot, head, bars } = found, s = p.g.scale.x, at = own(band, k, foot), to = own(band, k, head);
-      const side = p.plays === "keys" ? -Math.sign(p.g.position.x) : 1;
-      expect([p.plays, Math.abs(at.z + 0.1) < 0.01, Math.abs(at.x - side * 0.52) < 0.01, to.z > 0]).toEqual([p.plays, true, true, true]);
+      const [side, beside, back] = p.plays === "keys" ? [-Math.sign(p.g.position.x), 0.52, -0.1] : [-1, 0.205 * p.look.broad + 0.18, -0.04];
+      expect([p.plays, Math.abs(at.z - back) < 0.01, Math.abs(at.x - side * beside) < 0.01, to.z > 0]).toEqual([p.plays, true, true, true]);
       const boom = bars.filter((corners) => Math.min(...corners.map((c) => Math.hypot(c.x - foot.x, c.z - foot.z))) < 0.05 * s && Math.min(...corners.map((c) => gap(c, head))) < 0.15 * s);
       expect([p.plays, boom.length]).toEqual([p.plays, 1]);
+      const top = Math.max(...bars[0].map((c) => own(band, k, c).y)), rises = Math.max(...boom[0].map((c) => own(band, k, c).y)) - top;
+      expect([p.plays, p.mouth.y - top >= 0.25, rises >= 0.15]).toEqual([p.plays, true, true]);
     });
   });
 });

@@ -277,7 +277,7 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
     expect(Array.from(band.limbs.instanceMatrix.array as Float32Array)).toEqual(before);
   });
 
-  it("stands each microphone at its singer's mouth: its head 5 to 9 cm before the face's front at its height, on a boom from a stand beside the player, on the fretting side or on a keyboard player's side toward the stage's middle, the singer's before them and out to their left", () => {
+  it("stands each microphone at its singer's mouth: its head 5 to 9 cm before the face's front at its height, on a boom from a stand beside the player, on the side a guitarist strums on or on a keyboard player's side toward the stage's middle, the singer's before them and out to their left", () => {
     stage.updateMatrixWorld(true);
     const singing = players.flatMap((p, k) => {
       const found = microphoneOf(band, k);
@@ -300,16 +300,16 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
     // Every one who stands sings but the pianist, who is seated side-on; no drummer does.
     expect(singing.map(({ role }) => role)).toEqual(players.filter((p) => !["drums", "piano"].includes(p.role)).map((p) => p.role));
     // In the player's own metres, whichever way they turn (band.js MIC): the microphone's head 6 cm before the face, the singer's 8,
-    // which keeps it off the face (band.test.ts, the faceless test). The stand's foot lies 52 cm out to one side of the player's
-    // middle and 10 cm behind it (-z), each within a centimetre: with a guitar or the bass to their left (+x), the side they fret
-    // on, and at a keyboard to the side toward the stage's middle. And one part, the boom, reaches from within 5 cm of the stand's
-    // line to within 15 cm of the head (band.test.ts). The singer's lies before them and out to their left, 30 to 50 cm, past the
-    // legs, which stand 13 cm out: so from the crowd it rises clear of them.
+    // which keeps it off the face (band.test.ts, the faceless test). The stand's foot lies, each within a centimetre: with a guitar or
+    // the bass to their right (-x), the side they strum on, 18 cm further out than the shoulder's joint and 4 cm behind their middle
+    // (-z); at a keyboard 52 cm out to the side toward the stage's middle and 10 cm behind. And one part, the boom, reaches from
+    // within 5 cm of the stand's line to within 15 cm of the head (band.test.ts). The singer's lies before them and out to their
+    // left, 30 to 50 cm, past the legs, which stand 13 cm out: so from the crowd it rises clear of them.
     for (const { role, before, foot, inward, boom, out } of singing) {
       if (role === "voice") expect([role, before > 0.05 && before < 0.09, out.z > 0.2, out.x > 0.3 && out.x < 0.5]).toEqual([role, true, true, true]);
       else {
-        const side = role === "keys" || role === "organ" ? inward : 1;
-        expect([role, before > 0.05 && before < 0.07, Math.abs(foot.x - side * 0.52) < 0.01, Math.abs(foot.z + 0.1) < 0.01, boom]).toEqual([role, true, true, true, 1]);
+        const p = players.find((q) => q.role === role)!, [side, beside, back] = role === "keys" || role === "organ" ? [inward, 0.52, -0.1] : [-1, 0.205 * p.look.broad + 0.18, -0.04];
+        expect([role, before > 0.05 && before < 0.07, Math.abs(foot.x - side * beside) < 0.01, Math.abs(foot.z - back) < 0.01, boom]).toEqual([role, true, true, true, 1]);
       }
     }
   });
@@ -390,8 +390,9 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
 
   // The stands `fit` widens that are new here (band.js): the singer's, which leans, widened across at each height about its own line
   // so that its foot stays on the floor; the microphone's head at its top, widened every way about its middle; and each of the
-  // organ's legs, upright. At a pixel of a whole rad each is at its most, STOUT_MOST (0.12) in radius in its player's metres: the
-  // stand 0.036 as built, the head 0.04 and a leg 0.036.
+  // organ's legs, upright. At a pixel of a whole rad each is at its most in radius in its player's metres: the stand and a leg,
+  // 0.036 as built, STOUT_MOST (0.12); the head, 0.04 as built, MIC_HEAD_MOST (0.05), for as stout as a stand it stood before the
+  // singer's face over the mouth on a phone (band-outline.ts `standsBefore`).
   const stood = roles.includes("voice") || roles.includes("organ");
   if (stood) it("fits the singer's leaning stand about its own line, the microphone's head every way and each of the organ's legs to the canvas's pixel, each foot staying on the floor", () => {
     const fresh: Band = stand(roles).band, still = fresh.still.geometry.getAttribute("position"), players = fresh.players as Player[];
@@ -408,9 +409,9 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
       const head = part.as === "microphone" && a.length > 100;
       expect([name, gap(middle(a), middle(b)) < 1e-4, head || Math.abs(Math.min(...a.map((c) => c.y)) - Math.min(...b.map((c) => c.y))) < 1e-5]).toEqual([name, true, true]);
       if (head) {
-        // The head: every corner three times as far from the middle (0.12 over 0.04).
+        // The head: every corner a quarter as far again from the middle (0.05 over 0.04).
         const ratio = b.map((c, i) => gap(c, middle(b)) / Math.max(1e-9, gap(a[i], middle(a)))).filter((r) => Number.isFinite(r));
-        expect([name, Math.min(...ratio).toFixed(3), Math.max(...ratio).toFixed(3)]).toEqual([name, "3.000", "3.000"]);
+        expect([name, Math.min(...ratio).toFixed(3), Math.max(...ratio).toFixed(3)]).toEqual([name, "1.250", "1.250"]);
         return;
       }
       // A stand or a leg: each corner moves only across, at its own height, 0.12 / 0.036 times as far from the line through its middle

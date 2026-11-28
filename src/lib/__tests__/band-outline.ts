@@ -69,8 +69,9 @@ export const POSES: Record<string, { x: number; z: number; heading: number; pitc
 // a piano's player's body, which stands still among the still parts), whether it is of a drummer's cymbal or pole ("cymbal" or
 // "pole", else ""), and the name of the bone it is of ("" for none).
 // And its colour: the mean of its corners' (linear), times its bone's where it is a limb's; and whether it is of a microphone on its
-// stand (`stand`: the stand, its base, its boom and the microphone), which the outlines' rules let touch another player (filmOf).
-type Tri = { at: Vec[]; owner: number; trunk: boolean; crash: string; bone: string; colour: number[]; stand?: boolean };
+// stand (`stand`: the stand, its base, its boom and the microphone), which the outlines' rules let touch another player (filmOf);
+// and of those, whether it is the boom or the microphone of a stand that stands beside its player (`reach`), which reach to the mouth.
+type Tri = { at: Vec[]; owner: number; trunk: boolean; crash: string; bone: string; colour: number[]; stand?: boolean; reach?: boolean };
 // The still parts that are a microphone on its stand (band.js `voice` and the singer's).
 export const STAND_PART = "microphone";
 type Player = { plays: string; role: string; body: { geometry?: { getAttribute(name: string): { count: number } }; matrixWorld: unknown } };
@@ -106,13 +107,14 @@ function band(roles: string[], seconds: number, perPx = 0, date: string | null =
 
 // The canvas's pixels the band covers, from a camera, with the grid shifted `dx`, `dy` of a pixel: for each, the players whose parts
 // cover it and the players whose trunks do, one bit a player and the next the monitors'; whether a cymbal (1) or a pole (2) of a
-// kit covers it; and the players whose stands cover it (`stands`) and whose other parts do (`solid`).
+// kit covers it; and the players whose stands cover it (`stands`), of them the stands and bases, a stand's boom and head aside, which
+// reach to the mouth (`standing`: a Tri's `reach`), and whose other parts do (`solid`).
 export function draw(tris: Tri[], cam: Camera, dx = 0, dy = 0) {
   const W = cam.cols, H = cam.rows, camera = lens(cam);
   const mask = new Uint16Array(W * H), trunks = new Uint16Array(W * H), crashes = new Uint8Array(W * H), q = new THREE.Vector3();
-  const solid = new Uint16Array(W * H), stands = new Uint16Array(W * H);
+  const solid = new Uint16Array(W * H), stands = new Uint16Array(W * H), standing = new Uint16Array(W * H);
   const box = { x0: W, y0: H, x1: -1, y1: -1 };
-  for (const { at, owner, trunk, crash, stand } of tris) {
+  for (const { at, owner, trunk, crash, stand, reach } of tris) {
     const p = at.map((v) => { q.copy(v).project(camera); return [((q.x + 1) / 2) * W + dx, ((1 - q.y) / 2) * H + dy]; });
     const area = (p[1][0] - p[0][0]) * (p[2][1] - p[0][1]) - (p[1][1] - p[0][1]) * (p[2][0] - p[0][0]);
     if (area === 0) continue;
@@ -125,13 +127,14 @@ export function draw(tris: Tri[], cam: Camera, dx = 0, dy = 0) {
       if (((p[0][0] - p[2][0]) * (qy - p[2][1]) - (p[0][1] - p[2][1]) * (qx - p[2][0])) / area < 0) continue;
       mask[y * W + x] |= 1 << owner;
       if (stand) stands[y * W + x] |= 1 << owner;
-      else solid[y * W + x] |= 1 << owner;
+      if (stand && !reach) standing[y * W + x] |= 1 << owner;
+      if (!stand) solid[y * W + x] |= 1 << owner;
       if (trunk) trunks[y * W + x] |= 1 << owner;
       if (crash) crashes[y * W + x] |= crash === "cymbal" ? 1 : 2;
       box.x0 = Math.min(box.x0, x); box.x1 = Math.max(box.x1, x); box.y0 = Math.min(box.y0, y); box.y1 = Math.max(box.y1, y);
     }
   }
-  return { W, H, mask, trunks, crashes, box, solid, stands };
+  return { W, H, mask, trunks, crashes, box, solid, stands, standing };
 }
 
 // The 8-connected pieces of the pixels `on` marks in a W-by-H grid, each as the list of its pixels.
@@ -221,8 +224,10 @@ export function specks(tris: Tri[], cam: Camera, dx: number, dy: number, tone: S
 //   - `apart`: the pieces of black with no trunk from every phone's camera and rung at every place, but a monitor, a crash on its
 //     pole and a stand that stands whole;
 //   - `standing`: the players whose stand stands whole and apart, from each camera, at the shoot's own place: a piece of nothing but
-//     the stands' own pixels, which holds every pixel of each stand it holds, so that it stands on its base and none of it is
-//     apart from the rest;
+//     the stands' own pixels, which holds every pixel of each stand and base it holds, so that it stands on its base and none of it
+//     is apart from the rest. A boom and its microphone, which reach to the mouth, may meet the head apart from it: from the back of
+//     the crowd on a phone a boom no wider than a guitar's neck (band.js BOOM_MOST) is under a pixel, and what of it meets the head
+//     at the mouth parts from the stand and base, which stand whole beside the player;
 //   - `joined` and `touched`: the pieces of black that hold two players' trunks or more at the shoot's own place: from every camera
 //     but a rung, each with its frame; and at a rung, the players each holds, two at a time in turn from the crowd's left. A stand
 //     joins no one: these are the pieces of everything but the stands (`standsJoin` counts them in too, as the rules did before).
@@ -265,14 +270,19 @@ export function playing(roles: string[], perPx: number, steps = 60, tempo: (fram
       world[(at + i) * 3 + 2] = (e[2] * x + e[6] * y + e[10] * z + e[14]) * w;
     }
   };
+  // A microphone's parts are a stand's (`stand` 1), but a microphone's boom and its head on a stand that stands beside its player
+  // (band.js `voice`: its stand, its head, its boom and its base), which reach to the mouth (2).
   let at = 0;
+  const mics = new Map<number, number>();
   for (const part of parts) {
     lay(corners.array, part.from, part.count, built.still.matrixWorld.elements, at);
+    const nth = part.of === STAND_PART ? (mics.get(part.by!) ?? 0) : 0, reach = part.of === STAND_PART && (built.players as Player[])[part.by!].plays !== "voice" && (nth === 1 || nth === 2);
+    if (part.of === STAND_PART) mics.set(part.by!, nth + 1);
     for (let t = at / 3; t < (at + part.count) / 3; t++) {
       owner[t] = part.by ?? monitors;
       trunk[t] = part.of === "head" || part.of === "body" ? 1 : 0;
       crash[t] = part.of === "kit" && part.as === "cymbal" ? 1 : part.of === "kit" && part.as === "pole" ? 2 : 0;
-      stand[t] = part.of === STAND_PART ? 1 : 0;
+      stand[t] = part.of === STAND_PART ? (reach ? 2 : 1) : 0;
     }
     at += part.count;
   }
@@ -358,7 +368,7 @@ function projector(cam: Camera) {
 const NEAR = 1e-4, STEEP = 1e-3;
 function drawInto(xy: Float64Array, kinds: { owner: Uint8Array; trunk: Uint8Array; crash: Uint8Array; stand: Uint8Array }, from: number, to: number, dx: number, dy: number, cam: Camera,
   win: { x0: number; y0: number; w: number; h: number }, mask: Uint16Array, trunks: Uint16Array, crashes: Uint8Array | null, clip: Box = { x0: 0, y0: 0, x1: cam.cols - 1, y1: cam.rows - 1 },
-  split: { solid: Uint16Array; stands: Uint16Array } | null = null) {
+  split: { solid: Uint16Array; stands: Uint16Array; standing: Uint16Array } | null = null) {
   for (let t = from; t < to; t++) {
     const o = t * 6, ax = xy[o] + dx, ay = xy[o + 1] + dy, bx = xy[o + 2] + dx, by = xy[o + 3] + dy, cx = xy[o + 4] + dx, cy = xy[o + 5] + dy;
     const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
@@ -392,6 +402,7 @@ function drawInto(xy: Float64Array, kinds: { owner: Uint8Array; trunk: Uint8Arra
         if (isTrunk) trunks[i] |= bit;
         if (kit) crashes![i] |= kit;
         if (apart) apart[i] |= bit;
+        if (split && kinds.stand[t] === 1) split.standing[i] |= bit;
       }
     }
   }
@@ -506,11 +517,12 @@ export function filmOf(roles: string[], label: (bits: number) => string, cams: C
       const marks = marksFor(size), smarks = marksFor(sW * sH);
       const whole = { x0: win.x0, y0: win.y0, x1: win.x0 + win.w - 1, y1: win.y0 + win.h - 1 };
       const tracks = places(cam).map(([dx, dy]) => {
-        const still = { mask: new Uint16Array(size), trunks: new Uint16Array(size), crashes: new Uint8Array(size), solid: new Uint16Array(size), stands: new Uint16Array(size) }, lit = new Uint8Array(screen ? size : 0);
+        const still = { mask: new Uint16Array(size), trunks: new Uint16Array(size), crashes: new Uint8Array(size), solid: new Uint16Array(size), stands: new Uint16Array(size), standing: new Uint16Array(size) }, lit = new Uint8Array(screen ? size : 0);
         drawInto(xy, played, 0, played.still, dx, dy, cam, win, still.mask, still.trunks, still.crashes, undefined, still);
-        // Each player's stand's pixels, all told: what stands still covers the same pixels in every frame.
+        // Each player's pixels of what stands of their microphone, all told, its boom and its head left out: what stands still covers
+        // the same pixels in every frame.
         const standing = new Int32Array(16);
-        for (let i = 0; i < size; i++) for (let k = 0, b = still.stands[i]; b; k++, b >>= 1) if (b & 1) standing[k]++;
+        for (let i = 0; i < size; i++) for (let k = 0, b = still.standing[i]; b; k++, b >>= 1) if (b & 1) standing[k]++;
         if (screen) { const panel = panelOn(cam, dx, dy); for (let j = 0; j < win.h; j++) for (let i = 0; i < win.w; i++) lit[j * W + i] = panel(win.x0 + i + 0.5, win.y0 + j + 0.5) ? 1 : 0; }
         return { dx, dy, home: dx === 0 && dy === 0, still, lit, standing, on: new Uint8Array(size), solid: new Uint8Array(size), masks: [new Uint16Array(size), new Uint16Array(size)], trunks: [new Uint16Array(size), new Uint16Array(size)], now: 0,
           rects: [whole] as Box[], dark: screen ? [new Uint8Array(sW * sH), new Uint8Array(sW * sH)] : [], specks: [0, 0] };
@@ -581,7 +593,9 @@ export function filmOf(roles: string[], label: (bits: number) => string, cams: C
                 drawInto(xy, played, groups[g], groups[g + 1], dx, dy, cam, win, mask, trunks, null, r);
               }
               for (let y = r.y0; y <= r.y1; y++) for (let i = (y - win.y0) * W + r.x0 - win.x0, to = i + r.x1 - r.x0; i <= to; i++) {
-                const s = still.mask[i], t = still.trunks[i];
+                // Changed if what moved changed what is solid there, or a trunk's pixel: a stand stands still, but what moves across it
+                // changes what is solid under it, where two players may meet.
+                const s = still.solid[i], t = still.trunks[i];
                 if ((s | mask[i]) !== (s | old[i]) || (t | trunks[i]) !== (t | oldTrunks[i])) list.push(i);
               }
             }
@@ -606,10 +620,11 @@ export function filmOf(roles: string[], label: (bits: number) => string, cams: C
                   owners |= still.mask[o] | mask[o]; kit |= still.crashes[o];
                   if (!still.crashes[o]) crash = false;
                   if (!still.stands[o] || still.solid[o] || mask[o]) stood = false;
-                  else for (let k = 0, b = still.stands[o]; b; k++, b >>= 1) if (b & 1) held[k]++;
+                  else for (let k = 0, b = still.standing[o]; b; k++, b >>= 1) if (b & 1) held[k]++;
                 }
-                // A stand that stands whole: nothing but stands, and every pixel of each.
-                if (stood && held.every((got, k) => got === 0 || got === track.standing[k])) { if (home) film.standing.add(`${cam.name}: ${label(owners)}`); return; }
+                // A stand that stands whole: nothing but stands, and every pixel of what stands of each, its base and its stand, the boom
+                // and the microphone aside, which may meet their player's head apart from it.
+                if (stood && held.some((got) => got > 0) && held.every((got, k) => got === 0 || got === track.standing[k])) { if (home) film.standing.add(`${cam.name}: ${label(owners)}`); return; }
                 if (home && !rung) film.alone.add(`${label(owners)}${crash ? " crash" : ""}`);
                 if (phone && owners !== monitor && !(kit === 3 && crash)) film.apart.add(`${cam.name} at ${at(f)}, ${dx},${dy}: ${label(owners)}${kit ? ` (${["", "cymbal", "pole", "cymbal and pole"][kit]})` : ""}`);
               }, near);
@@ -945,6 +960,147 @@ export function looksOf(roles: string[]) {
 const STAGE_NAMES: Record<string, string> = { roof: "the roof's stage", wall: "the Wall of Sound", arena: "the arena's stage" };
 const STAGE_BLACKS: Record<string, string> = { roof: "the roof, the back wall or a PA stack", wall: "the Wall's cabinets or the rig's bridge over its front", arena: "the roof, the back wall, the flown PA, a side-fill or an amplifier's frame" };
 
+/* What a thin part of the band stands before, from the shoot's cameras: a microphone's stand, its base, its boom and its head (band.js
+   `voice`, the singer's), and a crash's pole (`drummer`'s "pole"). The outlines' film draws the band flat, and lets a stand touch or
+   cross another player's outline (filmOf); this draws it with depth, as a GPU does, and finds where a thin part stands nearer the
+   camera than what shows there, at a pixel's middle. Each part of a player is a head above the mouth (band.js `mouth`, in their own
+   frame, by each triangle's middle), the rest of a head, an instrument (a guitar or a bass with its neck's tip, the singer's
+   tambourine, a keyboard, a kit's drums, cymbals and blocks), or the rest of them. A thin part may stand before:
+   - no head above the mouth, its player's own or anyone's, but where a microphone's head meets its own player's mouth: before the
+     head no more than MEET over the mouth, by its triangles' middles;
+   - no instrument, but a crash's pole before its own kit, whose cymbal it holds;
+   - if a boom, nothing of anyone else's; and it lies across no instrument, its own player's or anyone's, and on no other player's
+     boom or microphone's head, nearer or not: a boom that crossed a guitar's neck from the front, behind it, read as passing
+     through it. It may lie on another's stand, as a stand may stand before another's stand: from among the crowd the lead's stand
+     stands in line with the stand of the keyboard at the stage's end, where there is one, and its boom leaves its top over it;
+   - else another player's body, as the outlines' rules let a stand cross their outline.
+   Each camera fits the band to its own canvas (band.js `fit`, `pixelOf`), so what `fit` widens is drawn as wide as it is there. The
+   band is drawn at rest and every two counts through a whole solo (band.js SOLO), so each move's two ends are seen: the hips' sway
+   and the lead's solo, where the neck rises. Returns what it finds, each as "camera, moment: whose what before whose what: pixels". */
+export const MEET = 0.05;
+const THIN = { stand: 1, base: 2, boom: 3, head: 4, pole: 5 } as const, SHOWN = { body: 1, low: 2, head: 3, instrument: 4 } as const;
+const THIN_NAMES = ["", "stand", "base", "boom", "microphone's head", "crash's pole"], SHOWN_NAMES = ["", "body", "head under the mouth", "head above the mouth", "instrument"];
+export const BEFORE_AT = [0, ...Array.from({ length: 16 }, (_, k) => 1 + (2 * k * 60) / 96)];
+type Kind = (mid: Vec) => [number, number, number];
+type Posed = { plays: string; g: { matrixWorld: { clone(): { invert(): unknown } } }; body: { geometry?: { getAttribute(name: string): { count: number } }; matrixWorld: unknown }; drawn: { name: string; from: number; count: number }[]; mouth: Vec };
+export function standsBefore(roles: string[], cams: Camera[], { date = null as string | null, at = BEFORE_AT, alter = null as ((built: Built) => void) | null } = {}) {
+  const found: string[] = [], fits = new Map<number, Camera[]>();
+  for (const cam of cams) fits.set(pixelOf(cam), [...(fits.get(pixelOf(cam)) ?? []), cam]);
+  for (const [perPx, group] of fits) {
+    const stage = new THREE.Group();
+    stage.position.set(STAGE[0], SHELF_Y, STAGE[1]);
+    stage.rotation.y = FACING;
+    const built = buildBand(stage, FLOOR, roles, date), players = built.players as Posed[], NO_ONE = 15;
+    built.fit(perPx);
+    alter?.(built);
+    stage.updateMatrixWorld(true);
+    const back = players.map((p) => p.g.matrixWorld.clone().invert()), v = new THREE.Vector3(), mid = new THREE.Vector3(), m = new THREE.Matrix4();
+    // Each triangle's corners in the world; its player (the monitors' are no one's); what thin part it is, if one, or what it shows
+    // as; and how far a head's middle stands over its player's mouth.
+    const xyz: number[] = [], owner: number[] = [], thin: number[] = [], shown: number[] = [], over: number[] = [];
+    const push = (geometry: { getAttribute(name: string): { count: number } }, world: unknown, by: number, from: number, count: number, kind: Kind) => {
+      const corner = geometry.getAttribute("position");
+      for (let i = from; i < from + count; i += 3) {
+        mid.set(0, 0, 0);
+        for (let k = 0; k < 3; k++) { v.fromBufferAttribute(corner, i + k).applyMatrix4(world); xyz.push(v.x, v.y, v.z); mid.add(v); }
+        mid.divideScalar(3);
+        if (by !== NO_ONE) mid.applyMatrix4(back[by]);
+        const [t, s, o] = kind(mid);
+        owner.push(by);
+        thin.push(t);
+        shown.push(s);
+        over.push(o);
+      }
+    };
+    const body: Kind = () => [0, SHOWN.body, 0], instrument: Kind = () => [0, SHOWN.instrument, 0];
+    const headOf = (by: number): Kind => (at) => (at.y > players[by].mouth.y ? [0, SHOWN.head, at.y - players[by].mouth.y] : [0, SHOWN.low, 0]);
+    const gather = () => {
+      xyz.length = owner.length = thin.length = shown.length = over.length = 0;
+      const mics = new Map<number, number>();
+      for (const part of built.still.userData.parts as { of: string; as: string; by: number | null; from: number; count: number }[]) {
+        const by = part.by ?? NO_ONE;
+        let kind = body;
+        if (part.of === STAND_PART) {
+          const k = mics.get(by) ?? 0, order = players[by].plays === "voice" ? [THIN.stand, THIN.head] : [THIN.stand, THIN.head, THIN.boom, THIN.base];
+          mics.set(by, k + 1);
+          kind = () => [order[k], 0, 0];
+        } else if (part.of === "head") kind = headOf(by);
+        else if (part.of === "kit" && part.as === "pole") kind = () => [THIN.pole, 0, 0];
+        else if (part.of === "keyboard" || (part.of === "kit" && part.as !== "stool")) kind = instrument;
+        push(built.still.geometry, built.still.matrixWorld, by, part.from, part.count, kind);
+      }
+      players.forEach((p, k) => {
+        if (!p.body.geometry) return;
+        const count = p.body.geometry.getAttribute("position").count;
+        let from = 0;
+        for (const run of [...[...p.drawn].sort((a, b) => a.from - b.from), { name: "", from: count, count: 0 }]) {
+          if (run.from > from) push(p.body.geometry, p.body.matrixWorld, k, from, run.from - from, body);
+          if (run.count) push(p.body.geometry, p.body.matrixWorld, k, run.from, run.count, run.name === "head" ? headOf(k) : run.name === "instrument" || run.name === "tambourine" ? instrument : body);
+          from = Math.max(from, run.from + run.count);
+        }
+      });
+      (built.bones as { of: number }[]).forEach((bone, k) => {
+        built.limbs.getMatrixAt(k, m);
+        push(built.limbs.geometry, m.clone().premultiply(stage.matrixWorld), bone.of, 0, built.limbs.geometry.getAttribute("position").count, body);
+      });
+    };
+    let beats = 0, frame = 0;
+    for (const seconds of at) {
+      for (; frame < Math.round(seconds * 60); frame++) built.move(1 / 60, (frame + 1) / 60, (beats += 96 / 3600), true);
+      stage.updateMatrixWorld(true);
+      gather();
+      const n = owner.length;
+      for (const cam of group) {
+        const W = cam.cols, H = cam.rows, camera = lens(cam), sx = new Float64Array(n * 3), sy = new Float64Array(n * 3), sz = new Float64Array(n * 3), q = new THREE.Vector3();
+        for (let i = 0; i < n * 3; i++) { q.set(xyz[i * 3], xyz[i * 3 + 1], xyz[i * 3 + 2]).project(camera); sx[i] = ((q.x + 1) / 2) * W; sy[i] = ((1 - q.y) / 2) * H; sz[i] = q.z; }
+        // Each pixel whose middle is inside triangle `t`, and the triangle's depth there.
+        const each = (t: number, put: (pixel: number, z: number) => void) => {
+          const a = t * 3, x0 = sx[a], y0 = sy[a], x1 = sx[a + 1], y1 = sy[a + 1], x2 = sx[a + 2], y2 = sy[a + 2];
+          const area = (x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0);
+          if (area === 0 || Math.abs(sz[a]) > 1 || Math.abs(sz[a + 1]) > 1 || Math.abs(sz[a + 2]) > 1) return;
+          const minx = Math.max(0, Math.ceil(Math.min(x0, x1, x2) - 0.5)), maxx = Math.min(W - 1, Math.floor(Math.max(x0, x1, x2) - 0.5));
+          const miny = Math.max(0, Math.ceil(Math.min(y0, y1, y2) - 0.5)), maxy = Math.min(H - 1, Math.floor(Math.max(y0, y1, y2) - 0.5));
+          for (let y = miny; y <= maxy; y++) for (let x = minx; x <= maxx; x++) {
+            const px = x + 0.5, py = y + 0.5, w0 = ((x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)) / area, w1 = ((x0 - x2) * (py - y2) - (y0 - y2) * (px - x2)) / area, w2 = 1 - w0 - w1;
+            if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+            put(y * W + x, w0 * sz[a] + w1 * sz[a + 1] + w2 * sz[a + 2]);
+          }
+        };
+        // What shows at each pixel, of all but the thin parts: the nearest triangle there.
+        const depth = new Float32Array(W * H).fill(Infinity), top = new Int32Array(W * H).fill(-1), played = new Map<number, number>();
+        for (let t = 0; t < n; t++) {
+          if (thin[t]) continue;
+          each(t, (pixel, z) => {
+            if (z < depth[pixel]) { depth[pixel] = z; top[pixel] = t; }
+            if (shown[t] === SHOWN.instrument) played.set(pixel, (played.get(pixel) ?? 0) | (1 << owner[t]));
+          });
+        }
+        const tally = new Map<string, number>(), booms = new Map<number, number>(), mics = new Map<number, number>();
+        const note = (what: string) => tally.set(what, (tally.get(what) ?? 0) + 1);
+        for (let t = 0; t < n; t++) {
+          if (!thin[t]) continue;
+          each(t, (pixel, z) => {
+            if (thin[t] === THIN.boom || thin[t] === THIN.head) mics.set(pixel, (mics.get(pixel) ?? 0) | (1 << owner[t]));
+            if (thin[t] === THIN.boom) booms.set(pixel, (booms.get(pixel) ?? 0) | (1 << owner[t]));
+            const u = top[pixel];
+            if (u < 0 || z >= depth[pixel] || owner[u] === NO_ONE) return;
+            const mine = owner[u] === owner[t], kind = shown[u];
+            const fine = kind === SHOWN.head ? thin[t] === THIN.head && mine && over[u] <= MEET : kind === SHOWN.instrument ? thin[t] === THIN.pole && mine : mine || thin[t] !== THIN.boom;
+            if (!fine) note(`${owner[t]}'s ${THIN_NAMES[thin[t]]} before ${mine ? "its own" : `${owner[u]}'s`} ${SHOWN_NAMES[kind]}`);
+          });
+        }
+        for (const [pixel, bits] of booms) for (let k = 0; k < 16; k++) {
+          if (!(bits & (1 << k))) continue;
+          for (let j = 0, others = mics.get(pixel)! & ~(1 << k); others >> j; j++) if (others & (1 << j)) note(`${k}'s boom on ${j}'s boom or microphone`);
+          for (let j = 0, under = played.get(pixel) ?? 0; under >> j; j++) if (under & (1 << j)) note(`${k}'s boom across ${j === k ? "its own" : `${j}'s`} instrument`);
+        }
+        for (const [what, px] of tally) found.push(`${cam.name}, ${seconds.toFixed(2)} s: ${what}: ${px} px`);
+      }
+    }
+  }
+  return found;
+}
+
 /* The rules every line-up keeps, as a describe block of its own: `name` is how the tests name it, and `day` (YYYY-MM-DD) a date of its
    row of lineup.js, whose roles it is. What the band is held to against the stage, it is held to on every stage it stood on
    (stagesOf). */
@@ -1005,6 +1161,14 @@ export function outlineChecks(name: string, day: string, bars: Bars = {}) {
       // (`apart`). With the six it is the second drummer's; the first's stands on its kit's floor tom.
       expect((bars.apart ?? []).every((piece) => order[Number(piece.split(" ")[0])] === "drums" && piece.endsWith(" crash"))).toBe(true);
       expect([...film().alone].sort()).toEqual([...(bars.apart ?? []), "monitor"].sort());
+    }, 120_000);
+
+    // What a microphone's thin parts and a crash's pole stand before, drawn with depth as a GPU draws them (standsBefore). With its
+    // stand's top at the mouth's height, 1.6, a microphone's boom ran level over the face from the front of the crowd: each
+    // guitarist's neck crossed theirs, the rhythm's stand stood before the keys and the keys' boom lay across the rhythm's guitar
+    // (band-outline.test.ts).
+    it("stands no microphone before a face over the mouth or before an instrument, from any camera or rung, at rest or through a solo: a stand or a base may stand before another player's body, a boom before nothing of anyone else's and across no instrument, and a microphone's head meets only its own player's mouth", () => {
+      expect(standsBefore(roles, [...CAMERAS, ...FLASH_CAMERAS, ...RUNGS], { date: day })).toEqual([]);
     }, 120_000);
 
     // Measured with the six as they stand, on the roof's stage: four pixels at the closest, from among the crowd on a desktop (the first
@@ -1124,10 +1288,11 @@ export function liftShown(roles: string[], at: number, day?: string, alter: ((bu
 // that arm, the panel shows; and `body`, the trunk where it shows below the shoulders' line, which is the upper arms' tops. The
 // stands are left out, as the outlines' rules let a stand cross a player (filmOf). A keyboard player's own stand stands beside them
 // toward the stage's middle (band.js MIC), and from the front its boom stands behind the hand at the top of its lift; and another's
-// may too. In the seven of 1968-70, from the front of the crowd on a desktop, the organ player's lifted left arm showed 126 against
-// the panel, and 157 with no stand; and the keys player's right 86, with the rhythm guitarist's stand, beside them toward the keys
-// player, behind it as well as their own, 130 without the rhythm guitarist's, and 162 with no stand. On a phone the organ's showed
-// 42, and 63 with no stand.
+// may too. With the stands as they first stood beside the players, a guitarist's on the side they fret on and each top at the mouth,
+// in the seven of 1968-70, from the front of the crowd on a desktop, the organ player's lifted left arm showed 126 against the panel,
+// and 157 with no stand; and the keys player's right 86, with the rhythm guitarist's stand, then beside them toward the keys player,
+// behind it as well as their own, 130 without the rhythm guitarist's, and 162 with no stand. On a phone the organ's showed 42, and 63
+// with no stand.
 function shown(all: Tri[], cam: Camera, at: number, side: string, day?: string) {
   const tris = all.filter((x) => !x.stand), reach = new RegExp(`^${side} (upper arm|forearm|hand)$`);
   const full = drawWithStage(tris, cam, day), bare = drawWithStage(tris.filter((x) => !(x.owner === at && reach.test(x.bone))), cam, day);
