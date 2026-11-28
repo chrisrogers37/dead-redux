@@ -931,20 +931,26 @@ export function drawnOf(kit, figure, looks = DRAWN_VIEWS) {
    it stands APART times lighter than the darkest quarter (apartOf), so that on any ground the one end of it or the other stands off
    it: a quarter, more than twice the tenth the eye's test takes (crowd.test.ts), so that the light, which falls on some faces of a
    colour more than on others, and a side the views fall between leave that tenth inside it. Where the colours it was dealt do that,
-   it wears them; else one of them gives, the first of its legs, its things and its top that can: it takes the next of its era's on
-   from the one it was dealt with which every side does. Where no one can, two give, the first two of those that can, each the
-   nearest on from its own. Where no colours of its era can, as where one colour covers most of it, it wears those that bring its
-   lightest fifth that far apart from its darkest in the same way, and where none can, its lightest tenth, as much as the eye's test
-   takes (ENDS), as for one reclining in a long skirt, seen level from the stage's side over four fifths skirt. Below the quarter a
-   figure is a hard one, and it takes its era's best, not the colours it was dealt nor the first that scrape through: of all that
-   bring that end apart from every side, those that bring the end above it apart from the most sides, and of those the ones that
-   stand farthest apart at its own end from the side they do least from; the first that scraped through stood under the eye's bar
-   from the hill or the stage, where the best stood well over it (crowd.test.ts). And where none do even the tenth, as from steeply
-   over one in a hat and a poncho, which show one colour, those that bring its tenth apart from the most sides, and of those the
-   ones that stand farthest apart from the side they do least from. Its skin, its hair and a shoe's
-   black never give. A top gives to no colour that a figure within CLOSE m wears in the same top (`worn`), so that none is dressed
-   like one that close (people), unless only such a colour can. */
-export const APART = 3, ENDS = [0.25, 0.2, 0.1];
+   it wears them. Else it wears the nearest that do, one or two of its legs, its things and its top moved, as near as AWAY counts
+   it: a step for its legs and one for its things, and more for its top, which shows most of it and its pattern, the more the less
+   of the pattern stays: a step and a half to another of its own pattern, two and a half to another pattern, three and a half from
+   a pattern to plain or from plain to a pattern, and four more to a colour that a figure within CLOSE m wears in the same top
+   (`worn`), so that none is dressed like one that close (people). So a patterned top keeps a pattern where one can. Of the
+   nearest, each giver's colours the nearest on from its own first, it takes the first that no figure dressed before it wears whole
+   (`taken`, as wholeOf counts them), and where every one of those is worn, the first such of those a step further (AWAY.spread),
+   or the nearest where those are all worn too: so that few of a crowd wear the same three colours. Where no colours of its era bring its quarter apart, as where one colour covers most of it, it wears
+   those that bring its lightest fifth that far apart from its darkest in the same way, and where none can, its lightest tenth, as
+   much as the eye's test takes (ENDS), as for one reclining in a long skirt, seen level from the stage's side over four fifths
+   skirt. Below the quarter a figure is a hard one, and its colours keep the margin its era's best keep: of all that bring that end
+   apart from every side, it wears one of those that bring the end above it apart from as many sides as the best does and stand, at
+   its own end from the side they do least from, as far apart as MARGIN of the best. The first that scraped through stood under the
+   eye's bar from the hill or the stage, where the best stood well over it, and so do those within MARGIN of the best (crowd.test.ts).
+   Of those it wears the colours it was dealt where they are among them; else the nearest that no one before it wears whole, a step
+   further where it must, and of those as near the one its own draw picks (`pick`, dressPick): where every hard figure took the best,
+   two of a crowd's often wore the same. And where none do even the tenth, as from steeply over one in a hat and a poncho, which show
+   one colour, it wears those that bring its tenth apart from the most sides, and of those the ones that stand farthest apart from
+   the side they do least from. Its skin, its hair and a shoe's black never give. */
+export const APART = 3, ENDS = [0.25, 0.2, 0.1], MARGIN = 0.8, AWAY = { top: [1.5, 2.5, 3.5], worn: 4, spread: 1 };
 const GIVES = ["legs", "thing", "top"];
 /* How many times lighter the lightest `ends` of a figure is than its darkest, seen as `shares` (a view of drawnOf) shows it, with
    each of SOURCES as light as `lights` has it: the colour at which, from the lightest, that share of it is reached, over the one at
@@ -954,51 +960,114 @@ export function apartOf(shares, lights, ends = ENDS[ENDS.length - 1]) {
   const end = (list) => { let sum = 0; for (const k of list) if ((sum += shares[k]) >= ends - 1e-9) return lights[k]; return lights[list[list.length - 1]]; };
   return end([...order].reverse()) / end(order);
 }
-export function dressFor(dress, person, drawn, worn = new Set()) {
-  const colour = person.colour, dealt = { top: colour.top, legs: colour.legs, thing: colour.thing };
-  const own = { self: lightOf(SKIN[colour.self]), hair: lightOf(HAIRS[colour.hair]), shoe: SHOE };
-  const lightsOf = (chosen) => SOURCES.map((name) => (name in own ? own[name] : name === "top" ? topLight(dress.top[chosen.top]) : lightOf(dress[name][chosen[name]])));
-  /* How many sides a choice stands apart from at `ends`, and how far apart it stands at `least` from the side it does least from. */
-  const score = (chosen, ends, least = ends) => {
-    const lights = lightsOf(chosen);
-    return [drawn.filter((shares) => apartOf(shares, lights, ends) >= APART).length, Math.min(...drawn.map((shares) => apartOf(shares, lights, least)))];
+/* Each palette's lights, the light of each of its tops (topLight), its legs and its things (lightOf), worked out once. */
+const paletteLights = new WeakMap();
+function lightsOfPalette(dress) {
+  let lights = paletteLights.get(dress);
+  if (!lights) paletteLights.set(dress, (lights = { top: dress.top.map((top) => topLight(top)), legs: dress.legs.map((hex) => lightOf(hex)), thing: dress.thing.map((hex) => lightOf(hex)) }));
+  return lights;
+}
+/* apartOf with the order of a choice's colours from the darkest worked out once for every side: `order` is SOURCES' indices sorted
+   by `lights` (a stable sort, as apartOf's is), so that leaving out those a side does not show gives apartOf's order for that side. */
+function apartIn(order, shares, lights, ends) {
+  let sum = 0, last = -1, first = -1;
+  for (let j = order.length - 1; j >= 0; j--) { const k = order[j]; if (shares[k] > 0) { if ((sum += shares[k]) >= ends - 1e-9) { first = k; break; } last = k; } }
+  if (first < 0) first = last;
+  let low = -1;
+  sum = 0; last = -1;
+  for (let j = 0; j < order.length; j++) { const k = order[j]; if (shares[k] > 0) { if ((sum += shares[k]) >= ends - 1e-9) { low = k; break; } last = k; } }
+  if (low < 0) low = last;
+  return lights[first] / lights[low];
+}
+/* The colours a figure wears whole (`one`, its top's, its legs' and its things' indices into palette `dress`), as one number: its top's,
+   then its legs', then its things', each counted in its own list's length, so that no two sets of three give the same. */
+export const wholeOf = (dress, one) => (one.top * dress.legs.length + one.legs) * dress.thing.length + one.thing;
+export function dressFor(dress, person, drawn, worn = new Set(), taken = new Set(), pick = 0) {
+  const colour = person.colour, dealt = { top: colour.top, legs: colour.legs, thing: colour.thing }, palette = lightsOfPalette(dress);
+  const hair = lightOf(HAIRS[colour.hair]), self = lightOf(SKIN[colour.self]);
+  const givers = GIVES.filter((gives) => drawn.some((shares) => shares[SOURCES.indexOf(gives)] > 0));
+  /* A choice: its colours, its lights in SOURCES' order (top, legs, hair, self, thing, shoe) and their order from the darkest. */
+  const choiceOf = (top, legs, thing) => {
+    const lights = [palette.top[top], palette.legs[legs], hair, self, palette.thing[thing], SHOE];
+    return { top, legs, thing, lights, order: [0, 1, 2, 3, 4, 5].sort((p, q) => lights[p] - lights[q]) };
+  };
+  const apart = (one, ends) => drawn.every((shares) => apartIn(one.order, shares, one.lights, ends) >= APART);
+  const score = (one, ends, least = ends) => {
+    let sides = 0, most = Infinity;
+    for (const shares of drawn) {
+      if (apartIn(one.order, shares, one.lights, ends) >= APART) sides += 1;
+      most = Math.min(most, apartIn(one.order, shares, one.lights, least));
+    }
+    return [sides, most];
   };
   const better = (p, q) => p[0] > q[0] || (p[0] === q[0] && p[1] > q[1]);
-  /* Each colour a giver may take, the nearest on from its own first, and for a top those that close by wear last. */
-  const waysOf = (gives) => {
-    const count = dress[gives].length, ways = [...Array(count).keys()].map((step) => (dealt[gives] + step) % count), skip = gives === "top" ? worn : new Set();
-    return [...ways.filter((k) => !skip.has(k)), ...ways.filter((k) => skip.has(k))];
-  };
-  const givers = GIVES.filter((gives) => drawn.some((shares) => shares[SOURCES.indexOf(gives)] > 0));
-  const tries = [[], ...givers.map((gives) => [gives]), ...givers.flatMap((one, k) => givers.slice(k + 1).map((two) => [one, two]))];
-  /* Each choice in turn, until `visit` takes one: at the first of ENDS, the first that stands apart from every side, a side it fails
-     ending its trial; at each after it, the best of those that do; and failing that, the best at the last of them. */
-  const eachChoice = (visit) => {
-    for (const [one, two] of tries) for (const k of one ? waysOf(one) : [null]) for (const q of two ? waysOf(two) : [null]) {
-      if (visit({ ...dealt, ...(one ? { [one]: k } : {}), ...(two ? { [two]: q } : {}) })) return true;
-    }
-    return false;
-  };
-  const apart = (chosen, ends) => { const lights = lightsOf(chosen); return drawn.every((shares) => apartOf(shares, lights, ends) >= APART); };
-  let taken = dealt;
-  if (eachChoice((chosen) => { if (!apart(chosen, ENDS[0])) return false; taken = chosen; return true; })) return taken;
-  for (let k = 1; k < ENDS.length; k++) {
-    let pick = null, most = null;
-    eachChoice((chosen) => {
-      if (!apart(chosen, ENDS[k])) return false;
-      const got = score(chosen, ENDS[k - 1], ENDS[k]);
-      if (!most || better(got, most)) { pick = chosen; most = got; }
-      return false;
-    });
-    if (pick) return pick;
+  /* How far a choice is from what was dealt (AWAY): a step for each of its legs and its things moved, and for its top more, the more
+     so in another pattern than its own and the more again plain for a patterned one or patterned for a plain one, and most in a
+     colour that one close by wears in the same top (`worn`). */
+  const kindOf = (k) => dress.top[k][1], dealtKind = kindOf(dealt.top);
+  const topStep = (k) => (k === dealt.top ? 0 : AWAY.top[kindOf(k) === dealtKind ? 0 : kindOf(k) !== PATTERN.PLAIN && dealtKind !== PATTERN.PLAIN ? 1 : 2] + (worn.has(k) ? AWAY.worn : 0));
+  const rankOf = (top, legs, thing) => (legs !== dealt.legs ? 1 : 0) + (thing !== dealt.thing ? 1 : 0) + topStep(top);
+  const keyOf = (one) => wholeOf(dress, one), result = (one) => ({ top: one.top, legs: one.legs, thing: one.thing });
+  /* The colours it was dealt, where they stand apart from every side at the quarter. */
+  const asDealt = choiceOf(dealt.top, dealt.legs, dealt.thing);
+  if (apart(asDealt, ENDS[0])) return dealt;
+  /* Every choice: as dealt, each giver moved alone and each two, each giver's colours the nearest on from its own first; nearest
+     first, and of those as near, in that order. */
+  const onFrom = (gives) => Array.from({ length: dress[gives].length - 1 }, (_, step) => (dealt[gives] + step + 1) % dress[gives].length);
+  const all = [[dealt.top, dealt.legs, dealt.thing]];
+  for (const gives of givers) for (const k of onFrom(gives)) all.push(gives === "top" ? [k, dealt.legs, dealt.thing] : gives === "legs" ? [dealt.top, k, dealt.thing] : [dealt.top, dealt.legs, k]);
+  for (const [a, b] of givers.flatMap((a, k) => givers.slice(k + 1).map((b) => [a, b]))) for (const k of onFrom(a)) for (const q of onFrom(b)) {
+    const chosen = { ...dealt, [a]: k, [b]: q };
+    all.push([chosen.top, chosen.legs, chosen.thing]);
   }
-  let best = dealt, most = null;
-  eachChoice((chosen) => { const got = score(chosen, ENDS[ENDS.length - 1]); if (!most || better(got, most)) { best = chosen; most = got; } return false; });
+  const ranked = all.map(([top, legs, thing], seq) => ({ top, legs, thing, seq, rank: rankOf(top, legs, thing) })).sort((p, q) => p.rank - q.rank || p.seq - q.seq);
+  const made = new Map([[keyOf(dealt), asDealt]]);
+  const lit = (one) => { const key = keyOf(one); let got = made.get(key); if (!got) made.set(key, (got = choiceOf(one.top, one.legs, one.thing))); return got; };
+  const free = (one) => !taken.has(keyOf(one));
+  /* At the quarter, of the nearest that stand apart from every side, the first that no figure dressed before it wears whole
+     (`taken`), looking a step further where every one of those is; or else the first. */
+  let first = null;
+  for (const one of ranked) {
+    if (first && one.rank > first.rank + AWAY.spread) break;
+    if (!apart(lit(one), ENDS[0])) continue;
+    if (free(one)) return result(one);
+    first ??= one;
+  }
+  if (first) return result(first);
+  /* Below the quarter, of those that bring that end apart from every side, the ones within MARGIN of the best: as many sides apart
+     at the end above as the best brings, and as far apart at its own end, from the side they do least from, as MARGIN of the best's.
+     Of those, the colours it was dealt where they are among them; else the nearest no one before it wears whole, a step further
+     where it must, and of those as near the one its own draw picks (`pick`). */
+  for (let k = 1; k < ENDS.length; k++) {
+    const passing = ranked.filter((one) => apart(lit(one), ENDS[k])).map((one) => ({ one, got: score(lit(one), ENDS[k - 1], ENDS[k]) }));
+    if (!passing.length) continue;
+    const most = passing.reduce((m, { got }) => (!m || better(got, m) ? got : m), null);
+    const near = passing.filter(({ got }) => got[0] >= most[0] && got[1] >= MARGIN * most[1]).map(({ one }) => one);
+    if (near[0].rank === 0) return result(near[0]);
+    const open = near.filter((one) => one.rank <= near[0].rank + AWAY.spread && free(one)), nearest = open.length ? open : near;
+    const from = nearest.filter((one) => one.rank === nearest[0].rank);
+    return result(from[Math.min(from.length - 1, Math.floor(pick * from.length))]);
+  }
+  /* And where none do even the tenth, the best at the tenth, in the order the rule has always gone through them: each giver's
+     colours from its own on, a top's that close by wear last. */
+  const fromOwn = (gives) => {
+    const count = dress[gives].length, ways = Array.from({ length: count }, (_, step) => (dealt[gives] + step) % count);
+    return gives === "top" ? [...ways.filter((k) => !worn.has(k)), ...ways.filter((k) => worn.has(k))] : ways;
+  };
+  let best = null, most = null;
+  for (const [one, two] of [[], ...givers.map((gives) => [gives]), ...givers.flatMap((a, k) => givers.slice(k + 1).map((b) => [a, b]))]) {
+    for (const k of one ? fromOwn(one) : [null]) for (const q of two ? fromOwn(two) : [null]) {
+      const chosen = { ...dealt, ...(one ? { [one]: k } : {}), ...(two ? { [two]: q } : {}) }, got = score(choiceOf(chosen.top, chosen.legs, chosen.thing), ENDS[ENDS.length - 1]);
+      if (!most || better(got, most)) { best = chosen; most = got; }
+    }
+  }
   return best;
 }
 
 /* A figure's own seed for its top's pattern, 0 to SEEDS - 1, from its place in the seats' order: the turn of a tie-dye's spiral. */
 export const seedOf = (i) => Math.imul(i + 1, 0x9e3779b1) >>> 24;
+/* A figure's own draw, 0 to 1, from its place in the seats' order, for which of the colours as near as each other it wears (dressFor). */
+export const dressPick = (i) => stream(0xc2b2ae35 * (i + 1))();
 
 /* What a figure can be, each list a choice made on its own with these weights, so the people there can be are the product of the
    lists and not their sum. */
@@ -1173,7 +1242,8 @@ export const movingAlike = (a, b) => a.move === b.move && a.legs === b.legs && a
    figure was left with such a crest or share, but where four seats before it stand close, on fewer than one gathering in a hundred
    a figure found none that could do both, and is, of those with the fewest such clashes, the one least like its neighbours: stances
    then sits it only in the ways it can, as it sits any figure that cannot do one of them. */
-const TRIES = 20, NEAR = 8, CLOSE = 4;
+const TRIES = 20, NEAR = 8;
+export const CLOSE = 4;
 export const SHARE = [4, 5];
 /* Whether each seat stands beside another of its group as two friends could stand together (stances): both standing, near, facing
    nearly the same way, square to the line between them. A friend holds nothing, so such a seat is left for a friend, and what it
@@ -2123,7 +2193,7 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
   })].map(([bit, form]) => [`${bit} ${form}`, pieces(figure, bit, form)]).filter(([, piece]) => piece.index.length > 0));
   /* Each figure's colours (dressFor), from the colours people dealt it and what of it the eye sees in each (drawnOf), its top's among
      them as it may give: what those within CLOSE m of it in the same top wear by then. */
-  const tops = who.map((one) => one.colour.top);
+  const tops = who.map((one) => one.colour.top), taken = new Set();
   /* The seats come in a random order across the hill, so a figure's place in it picks its turn and its phase, and who it is. */
   placed.forEach((p, i) => {
     /* A friend whose arm is round the other's waist dances as the other does: its way, its phase and how far. */
@@ -2150,8 +2220,9 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     const close = new Set(placed.flatMap((q, j) => (j !== i && who[j].top === one.top && Math.hypot(q.x - p.x, q.z - p.z) < CLOSE ? [tops[j]] : [])));
     const drawn = drawnOf(kit, { parts: worn.parts, forms: each.forms[i], cut: cutOf(one), shape: each.aCut.subarray(4 * i, 4 * i + 4), body: each.aBody.subarray(4 * i, 4 * i + 4),
       seat: sits ? dealt[i].sit : null, stage: stageTurn(p.x, p.z, turn) });
-    const colours = (each.colours[i] = dressFor(palette, one, drawn, close));
+    const colours = (each.colours[i] = dressFor(palette, one, drawn, close, taken, dressPick(i)));
     tops[i] = colours.top;
+    taken.add(wholeOf(palette, colours));
     const [shirt, pattern, second] = palette.top[colours.top];
     each.dress.set([tone(shirt), second === undefined ? 0 : tone(second), pattern + PATTERNS * seedOf(i)], 3 * i);
     each.aTone.set([tone(palette.legs[colours.legs]), tone(HAIRS[one.colour.hair]), tone(SKIN[one.colour.self]),
