@@ -184,15 +184,15 @@ describe("the band's bodies", () => {
   // guitar's or the bass's fretting hand closes round the neck: its palm's middle (band.js `fist`) 4 cm under the neck's line at the
   // fret and 8 mm behind it, in the guitar's own measure (its `big`, 1.08 to 1.1 of the player's), each within 3.5 mm. Its strumming
   // hand's fingers stay at the strings over the body as the arm turns through a strum, within 7 cm of the face's plane and 15 cm of
-  // the point the strum crosses. The singer's hand round the stand keeps its palm's middle within 3 cm of the stand's line, which
-  // runs through it at rest, as the hips sway it to and fro; the other's palm stays on the tambourine's rim, its middle 2 to 4 cm
+  // the point the strum crosses. The singer's hand round the microphone's boom keeps its palm's middle within 3 cm of the boom's
+  // line, which runs through it at rest, as the hips sway it to and fro; the other's palm stays on the tambourine's rim, its middle 2 to 4 cm
   // inside the rim and within the disc's depth. In every stroke, four counts (SLOW), each of a drummer's sticks comes down to rest on
   // its drum, its tip within 3 cm of the head, the left on the snare and the right on a rack tom, and its tip never comes nearer than
   // 1.5 cm, through the head. And a keyboard player's fingers come down on their own keys once in each lift, eight counts (2 SLOW):
   // the keys player's left on the lower keyboard and the right on the upper, the organ's and the piano's both on its one; on the
   // keys is over their white tops and within 5 cm of them; and a hand within 15 cm of its keys, down, coming down or lifting off,
   // stands over them, 10 cm and more inside their ends, and never under their tops.
-  it("puts each hand where its role does, as drawn, through a whole solo: on the neck, at the strings, round the stand and the tambourine's rim, the sticks on the drums and the fingers on their own keys", () => {
+  it("puts each hand where its role does, as drawn, through a whole solo: on the neck, at the strings, round the boom and the tambourine's rim, the sticks on the drums and the fingers on their own keys", () => {
     const off: string[] = [];
     for (const key of LINEUPS) {
       const { band, to, players, bones } = build(key), { ends, cornersOf, drawn, nearest } = measures(band);
@@ -226,12 +226,13 @@ describe("the band's bodies", () => {
       const drum = (k: number, as: string) => triangles(cornersOf(k, (part) => part.of === "kit" && part.as === as));
       const heads = new Map<number, InstanceType<typeof THREE.Triangle>[]>(), strokes = new Map<string, number>(), down = new Map<string, number>();
       bones.forEach((bone, j) => { if (/stick$/.test(bone.name)) heads.set(j, drum(bone.of, bone.name === "left stick" ? "snare" : "rack tom")); });
-      // The singer's stand, from its foot's middle to its top's.
-      const standOf = (k: number) => {
-        const first = parts.find((part) => part.of === "microphone" && part.by === k)!, back = players[k].g.matrixWorld.clone().invert(), at: Vec[] = [];
-        for (let i = first.from; i < first.from + first.count; i++) at.push(new THREE.Vector3().fromBufferAttribute(still, i).applyMatrix4(back));
-        const low = Math.min(...at.map((c) => c.y)), high = Math.max(...at.map((c) => c.y)), middle = (cs: Vec[]) => cs.reduce((s, c) => s.add(c), new THREE.Vector3()).divideScalar(cs.length);
-        return [middle(at.filter((c) => c.y < low + 0.01)), middle(at.filter((c) => c.y > high - 0.01))] as [Vec, Vec];
+      // The singer's microphone's boom (band.js `microphone`'s third part), from the stand's top's middle to its far end's.
+      const boomOf = (k: number) => {
+        const [stand, , boom] = parts.filter((part) => part.of === "microphone" && part.by === k), back = players[k].g.matrixWorld.clone().invert();
+        const read = (part: Part) => Array.from({ length: part.count }, (_, i) => new THREE.Vector3().fromBufferAttribute(still, part.from + i).applyMatrix4(back) as Vec);
+        const upright = read(stand), arm = read(boom), high = Math.max(...upright.map((c) => c.y)), middle = (cs: Vec[]) => cs.reduce((s, c) => s.add(c), new THREE.Vector3()).divideScalar(cs.length);
+        const top = middle(upright.filter((c) => c.y > high - 0.001)), far = Math.max(...arm.map((c) => c.distanceTo(top)));
+        return [top, middle(arm.filter((c) => c.distanceTo(top) > far - 0.01))] as [Vec, Vec];
       };
       CYCLE.forEach((seconds, step) => {
         to(seconds);
@@ -250,9 +251,9 @@ describe("the band's bodies", () => {
             });
           }
           if (p.plays === "voice") {
-            const [onStand, onRim] = drawn(p, "palm"), [disc] = drawn(p, "tambourine"), [foot, top] = standOf(k);
-            const fromStand = nearest(onStand.middle, foot, top).distanceTo(onStand.middle);
-            if (fromStand > 0.03) off.push(`${as}: the singer's palm ${fromStand.toFixed(3)} m off the stand's line`);
+            const [onBoom, onRim] = drawn(p, "palm"), [disc] = drawn(p, "tambourine"), [top, end] = boomOf(k);
+            const fromBoom = nearest(onBoom.middle, top, end).distanceTo(onBoom.middle);
+            if (fromBoom > 0.03) off.push(`${as}: the singer's palm ${fromBoom.toFixed(3)} m off the boom's line`);
             const axis = new THREE.Vector3(0, 0, 1).applyQuaternion(p.body.quaternion), rel = onRim.middle.clone().sub(disc.middle), along = rel.dot(axis);
             const rim = Math.max(...disc.at.map((c) => { const d = c.clone().sub(disc.middle); return d.addScaledVector(axis, -d.dot(axis)).length(); }));
             const inside = rim - rel.addScaledVector(axis, -along).length(), deep = Math.max(...disc.at.map((c) => Math.abs(c.clone().sub(disc.middle).dot(axis))));
@@ -317,15 +318,16 @@ describe("the band's bodies", () => {
   // arms that lie against it, from the hips to the shoulders: the shoulders' joints 0.205 of the player's breadth out from the middle
   // (band.js `trunk`) and an upper arm's 6 cm past them, and 15 cm before and behind the middle. Turned as the player is, it covers a
   // span of the stage from the crowd; each stand (a microphone's first part), across the stage, stands 5 cm and more clear of that
-  // span, in the player's metres, to one side. The singer's is the exception: they hold it, and it leans in to the mouth from
-  // before them.
-  it("stands every microphone's stand beside its player, clear of the torso from the crowd by 5 cm and more", () => {
+  // span, in the player's metres, to one side, the singer's with the rest. The singer's leaned in to the mouth from before them,
+  // across the torso (#224); from the shoot's own front-of-crowd cameras, drawn with depth, band-outline.ts holds every stand, base
+  // and kit's pole to it (`standsBefore`'s `torso`).
+  it("stands every microphone's stand beside its player, the singer's too, clear of the torso from the crowd by 5 cm and more", () => {
     const off: string[] = [];
     for (const key of LINEUPS) {
       const { band, players } = build(key), parts = band.still.userData.parts as Part[], still = band.still.geometry.getAttribute("position");
       players.forEach((p, k) => {
         const first = parts.find((part) => part.of === "microphone" && part.by === k);
-        if (!first || p.plays === "voice") return;
+        if (!first) return;
         const wide = 0.205 * p.look.broad + 0.06, s = p.g.scale.x;
         const torso = [-1, 1].flatMap((x) => [-1, 1].map((z) => new THREE.Vector3(x * wide, 1.1, z * 0.15).applyMatrix4(p.g.matrixWorld).x));
         const stand: number[] = [];
@@ -343,15 +345,15 @@ describe("the band's bodies", () => {
   // drawn, from the top to its end, within a degree. The boom's own line is the longest way its corners spread, which a bar's
   // rings, each turned about it, leave exactly along it. At a pixel of a whole rad, where it is widened most, as far as band.js
   // BOOM_MOST lets it, its corners moving 2 cm and more, in every line-up: every boom, one for each who stands at a stand of their
-  // own. The singer's stand, which they hold, has none.
+  // own, the singer's with the rest.
   it("widens each microphone's boom square to its own line, as drawn from the stand's top to the microphone", () => {
     const off: string[] = [];
     for (const key of LINEUPS) {
       const { band, players } = build(key), parts = band.still.userData.parts as Part[], still = band.still.geometry.getAttribute("position") as Sent;
       const booms = players.flatMap((p, k) => {
         const mic = parts.filter((part) => part.of === "microphone" && part.by === k);
-        if (mic.length && p.plays !== "voice") expect(`${p.role}: ${mic.length} parts`).toBe(`${p.role}: 4 parts`);
-        return mic.length && p.plays !== "voice" ? [{ p, part: mic[2] }] : [];
+        if (mic.length) expect(`${p.role}: ${mic.length} parts`).toBe(`${p.role}: 4 parts`);
+        return mic.length ? [{ p, part: mic[2] }] : [];
       });
       expect(booms.length).toBeGreaterThanOrEqual(3);
       const read = () => booms.map(({ part }) => Array.from({ length: part.count }, (_, i) => new THREE.Vector3().fromBufferAttribute(still, part.from + i) as Vec));
@@ -385,7 +387,7 @@ describe("the band's bodies", () => {
       band.fit(1);
       players.forEach((p, k) => {
         const mic = parts.filter((part) => part.of === "microphone" && part.by === k);
-        if (!mic.length || p.plays === "voice") return;
+        if (!mic.length) return;
         const own = new THREE.Matrix4().copy(p.g.matrixWorld.clone().invert()).multiply(band.still.matrixWorld), boom = mic[2];
         const corners = Array.from({ length: boom.count }, (_, i) => new THREE.Vector3().fromBufferAttribute(still, boom.from + i).applyMatrix4(own) as Vec);
         // Its line: through the corners' middle, the way they spread most. Its width: twice the furthest a corner stands off it.

@@ -69,12 +69,12 @@ export const SCALE = 1.77;
    across comes to the screen grey and broken where its pixels meet corner to corner, and what is wider at the end of it, a
    headstock, a hand, a cuff, a stand's foot, is left as a dark speck alone, which comes and goes as the visitor walks. So
    what stands clear of an outline is short, or is fitted to the canvas: what of a guitar's or the bass's neck runs on past where
-   it is fretted, to its head, is fitted to the canvas (axe, NECK_PX); a crash's pole, a microphone's stand and the singer's
-   microphone, an organ's legs, a keyboard player's lifted forearm and hand, a drummer's forearms, a tapping foot and the singer's
-   legs are each as stout as a pixel of the canvas from the back of the crowd (SEEN, `fit`); a fretting hand lies where the arm's
-   bend is filled; a crash's pole and the singer's stand stand on no foot, and a microphone's stand on a low base that lies flat
-   on the floor; boots reach up into a long coat; the keys stand on a case as wide as the legs behind it; a cymbal tips toward
-   the crowd, so it shows as a disc; and a drummer's stick is thickest at its tip, which is what shows of it. And nothing comes
+   it is fretted, to its head, is fitted to the canvas (axe, NECK_PX); a crash's pole, a microphone's stand and its boom, an
+   organ's legs, a keyboard player's lifted forearm and hand, a drummer's forearms, a tapping foot and the singer's legs are each
+   as stout as a pixel of the canvas from the back of the crowd (SEEN, `fit`); a fretting hand lies where the arm's bend is
+   filled; a crash's pole stands on no foot, and a microphone's stand on a low base that lies flat on the floor; boots reach up
+   into a long coat; the keys stand on a case as wide as the legs behind it; a cymbal tips toward the crowd, so it shows as a
+   disc; and a drummer's stick is thickest at its tip, which is what shows of it. And nothing comes
    within two pixels of the stage's own black, where it would read as part of the wall or a PA stack. `band-outline.ts` draws each
    line-up with the stage as the shoot's devices draw them, counts the specks, and weighs each player's outline against the panel
    by its contrast in luminance. */
@@ -506,10 +506,8 @@ const NECK_PX = 1.25, NECK_MOST = 3;
    stand is a dull steel (STUFF.steel), lit, so against a lit body it is a stand and no black bar, as it was in black; and no
    lighter, for where it stands at the outline against the panel it reads against it as a lit body does: in the kit's chrome the
    six of 1970-71's outline read 44 px of 180 from the back of the crowd on a phone at dusk, under its quarter (band-outline.ts
-   BAND_READS), and in this steel 47. The stand is the part buildBand's `fit` widens (the first). The singer's microphone's head,
-   a ball MIC_HEAD in radius, `fit` widens no further than MIC_HEAD_MOST: as far as a stand, on a phone it stood before the singer's
-   face over the mouth (band-outline.ts `standsBefore`). */
-const STAND = 0.036, MIC_BASE = 0.1, MIC_HEAD = 0.04, MIC_HEAD_MOST = 0.05;
+   BAND_READS), and in this steel 47. The stand is the part buildBand's `fit` widens (the first), and its boom (the third). */
+const STAND = 0.036, MIC_BASE = 0.1;
 /* Where a microphone stands, in the player's own frame and metres (`voice`). Its tip is MIC.off before the middle of the
    player at the mouth's height, 6 cm before the face, which keeps every corner and edge of it 0.42 of the head's radii off the face
    and more, over the 0.3 of band.test.ts's faceless test; it reaches MIC.long from there, out and down, its fall over its run
@@ -532,13 +530,20 @@ const STAND = 0.036, MIC_BASE = 0.1, MIC_HEAD = 0.04, MIC_HEAD_MOST = 0.05;
      2 cm further in, the rhythm's cuff stood over the base (band.test.ts), and 4 cm further in the lead's stood before the guitar
      from the front on a phone (band-outline.ts); 4 cm further back the boom went through the body, and 12 cm further forward the
      stand did; and behind the shoulder the boom went through it and came within 10 cm of the head (band.test.ts).
+   - The singer's stands beside them as a guitarist's does (SINGING), on the side of the hand that holds the boom, their left but
+     for early 1972's (`singer`, STAGING), its top at the chest, so that from the crowd it stands beside the torso and the boom
+     rises to the mouth in front of that shoulder; and SINGING.back before their middle, not behind it, so the boom passes 6.5 cm
+     and more clear of the upper arm, which reaches forward from the shoulder to the elbow. 4 cm behind, as a guitarist's, the
+     boom went through that arm (band.test.ts); and at the middle it came within 2.5 cm of it, less than a boom's radius on a
+     phone (BOOM_MOST). Their stand leaned in to the mouth from the floor in front of them, a pole down their front from the
+     crowd, wider than a guitar's neck on a phone, and the left hand held it under the jaw, as #224's review found.
    Of the other places tried: just before the strumming hand, or before a keyboard's front corner, it stood before the torso from
    the crowd, the keyboard player's for their turn; on a keyboard player's side toward the stage's edge it came within two pixels of
    a PA stack or the back wall (band-outline.ts); a keyboard player's further in, out of line with the lead's stand from among the
    crowd, stood in their lifting arm's way, and behind their shoulder its boom went through it (band.test.ts); and a keyboard
    player's with its top at 2, over the lifted hand, stood over the top third of the light panel (band-lineups.test.ts), its boom
    within 10 cm of the head (band.test.ts), and at 1.1 the lifting hand went through the boom (band.test.ts). */
-const MIC = { off: 0.178, tip: 0.5, long: 0.15, beside: 0.52, back: -0.1, high: 1.3 }, STRUMMING = { out: 0.18, back: -0.04, high: 1.2 };
+const MIC = { off: 0.178, tip: 0.5, long: 0.15, beside: 0.52, back: -0.1, high: 1.3 }, STRUMMING = { out: 0.18, back: -0.04, high: 1.2 }, SINGING = { ...STRUMMING, back: 0.08 };
 /* A boom is BOOM in radius, 1 to 1.1 cm across in the player's metres, and `fit` widens it no further than BOOM_MOST. From every
    camera of the outline tests, desktop and phone, `fit` would widen it further, to hold together from the back of the crowd, so it is drawn
    4.2 to 4.9 cm across, under the width of a guitar's neck, 5.7 (TWO_HORNS and ONE_CUT at their `big`; the bass's is 6.3). At 0.022
@@ -555,18 +560,6 @@ function microphone(tip, back, top, foot) {
     paint(new THREE.CylinderGeometry(0, MIC_BASE, 0.03, 6, 1, true).translate(foot.x, 0.015, foot.z), steel),
   ];
 }
-/* A straight stand that leans, from the floor at `foot` up to `top`, `ra` in radius at the floor and `rb` at the top: its foot cut
-   level with the floor, so the whole of it stands on the floor; and the way it leans (`along`), about which buildBand's `fit`
-   widens it. */
-function leaning(foot, top, ra, rb = ra, sides = 6) {
-  const along = V().subVectors(top, foot).normalize(), geo = bar(foot, top, ra, rb, sides), at = geo.getAttribute("position");
-  for (let i = 0; i < at.count; i++) {
-    if (at.getY(i) > foot.y + 0.05) continue;
-    const s = (at.getY(i) - foot.y) / along.y;
-    at.setXYZ(i, at.getX(i) - along.x * s, foot.y, at.getZ(i) - along.z * s);
-  }
-  return { geo, along };
-}
 
 /* A cymbal, in a drummer's frame: a shallow cone `r` in radius, its middle at `c`, tipped `tip` rad toward the crowd and rolled `roll`
    to the side. A level cymbal is a line from the front of the crowd, a pixel thick, and a line comes and goes; tipped, it shows as
@@ -578,12 +571,11 @@ const cymbal = (c, r, tip, roll = 0) => paint(drum(c, 0.03, r, 0.04, 14, tip, ro
 const POLE = 0.042;
 const pole = (x, z, top) => [paint(bar(V(x, 0, z), V(x, top, z), POLE, POLE, 8), tone(STUFF.chrome))];
 /* What stands clear of an outline a pixel or so across from the back of the crowd is fitted to the canvas as the world draws it
-   (buildBand's `fit`): a crash's pole, a microphone's stand and its boom, the singer's microphone and legs, an organ's legs, a keyboard
+   (buildBand's `fit`): a crash's pole, a microphone's stand and its boom, the singer's legs, an organ's legs, a keyboard
    player's lifted forearm and hand, a drummer's forearms (DRUM_FOREARM), and a tapping foot, whose toe stood a pixel off the floor
    as it lifted from the back of the crowd and came apart from the shin. Each is as stout as a pixel of it SEEN m off, as far as
    the path's pose stands from the band, so that it holds together from the back of the crowd however small the canvas, and no
-   thinner than it was built, nor stouter than STOUT_MOST in radius: a boom than BOOM_MOST, and the singer's microphone's head than
-   MIC_HEAD_MOST, which stand before a face.
+   thinner than it was built, nor stouter than STOUT_MOST in radius, and a boom, which comes in to the mouth, than BOOM_MOST.
    A drawn part is a pixel wide where its middle is a pixel's, so each is 5 % over a pixel across its flats (LIMB_FLATS of a
    limb's width: across the flats of its eight sides where it is narrowest, short of its rounded end, 0.7 across). On a phone at full scale a crash's pole is 21 cm across and at half scale 38 cm, where each
    crash stood alone in the air, its pole under half a pixel; and there a lifted hand stood apart from its arm. */
@@ -649,7 +641,7 @@ const DEAL = {
   keys: { size: 1.02, broad: 0.95, hair: "short", stance: 0.09, sway: 0.03, lean: 0.1, lag: 3, mic: true, glide: 0.025 },
   organ: { size: 0.98, broad: 0.9, hair: "beanie", stance: 0.1, sway: 0, lean: 0.1, lag: 0, still: true, mic: true, glide: 0.04 },
   piano: { size: 0.97, broad: 1.08, hair: "bunches", stance: 0, sway: 0, lean: 0.12, lag: 1, still: true, mic: null },
-  voice: { size: 0.96, broad: 0.98, hair: "short", skirt: 0, stance: 0.13, toes: 0.12, sway: 0.03, tap: 0.1, lag: 3, knee: 0.05, mic: { foot: [0.42, 0.42], head: [0.03, -0.01, 0.19] } },
+  voice: { size: 0.96, broad: 0.98, hair: "short", skirt: 0, stance: 0.13, toes: 0.12, sway: 0.03, tap: 0.1, lag: 3, knee: 0.05, grip: 0.12, side: 1 },
 };
 
 /* What a player changes in a line-up that stands close (STAGING `close`), the sevens, for whom the light panel is narrow: the lead
@@ -686,7 +678,10 @@ const WEDGES = [[-4.5, 3.1, 0.2], [-2.3, 3.4, -0.1], [2.2, 3.3, 0.15]];
    at the shoot's own place of the pixel grid. Two leads stand 3 cm further in since the guitarists' microphones stood beside the
    strumming arm (STRUMMING): December 1971's, whose tapping foot, which the stand had stood beside, came apart from the shin from the
    back of the crowd at a smaller phone's second rung; and 1990-92's, whose stand stood before the end of the keys' keyboard from
-   among the crowd (band-outline.ts `standsBefore`). The six stand as #184 stood them, but the second guitar 5 cm further in, its neck
+   among the crowd (band-outline.ts `standsBefore`). The singer of early 1972 stands at a microphone on their right, the tambourine
+   in their left hand (DEAL.voice's `side`): the drummer sits behind their left, close, and a stand there stood before the kit and
+   its boom before the drummer's lifted sticks from the front of the crowd on a phone (band-outline.ts `standsBefore`); and an elbow
+   out on that side met the drummer's outline. The six stand as #184 stood them, but the second guitar 5 cm further in, its neck
    risen steeper (DEAL), so that the longer neck keeps clear of the second drummer's crash: a guitar a step back, the bass in front,
    the drummers behind, side by side, the second guitar in front and the keys back by the drummers. */
 export const STAGING = {
@@ -706,7 +701,7 @@ export const STAGING = {
     ["bass", -1.87, 1.6, 0.1], ["drums", 0.46, -2.5, 0], ["rhythm", 3.26, 0.9, -0.12], ["piano", 6.75, -2.2, -1.85]],
     monitors: WEDGES },
   "lead rhythm bass drums organ piano voice": { players: [["organ", -6.21, -2.2, 0.38], ["lead", -4.05, -0.6, 0.25],
-    ["bass", -2.11, 1.6, 0.1], ["voice", -0.41, 1.9, 0.05], ["drums", 1.03, -2.5, 0], ["rhythm", 3.63, 0.8, -0.12],
+    ["bass", -2.11, 1.6, 0.1], ["voice", -0.41, 1.9, 0.05, { side: -1 }], ["drums", 1.03, -2.5, 0], ["rhythm", 3.63, 0.8, -0.12],
     ["piano", 6.81, -2.2, -1.85]], monitors: WEDGES, close: true },
   "lead rhythm bass drums piano voice": { players: [["lead", -5.64, -1, 0.25], ["bass", -3.32, 1.5, 0.1], ["voice", -1.31, 1.9, 0.05],
     ["drums", 0.38, -2.5, 0], ["rhythm", 3.2, 0.8, -0.12], ["piano", 6.72, -2.2, -1.85]], monitors: WEDGES },
@@ -1107,13 +1102,19 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
      it: a head that moved with its trunk about the mouth crept a hair's breadth a frame, and a crown that creeps over a pixel's
      middle flips it several times as it passes (a cap's top counted 8 swings in a second on a phone). The collar hides the join. */
   const keepHead = (p, t) => keep(p, "head", t.head.map((part) => (p.lean ? part.translate(-p.pivot.x, -p.pivot.y, -p.pivot.z).rotateX(p.lean).translate(p.pivot.x, p.pivot.y, p.pivot.z) : part)));
-  /* A player's microphone on its stand (MIC), all in the player's own frame, whichever way they turn: the microphone before the
-     mouth where the body has it at rest, leaned with the body for one who leans; the stand `at` beside them (MIC, STRUMMING) on
-     `side`, 1 their left and -1 their right. */
-  function voice(p, t, side, at = MIC) {
+  /* Where a player's microphone on its stand stands (MIC), all in the player's own frame, whichever way they turn: the microphone
+     from its `back` to its `tip` before the mouth where the body has it at rest, leaned with the body for one who leans; the stand
+     `at` beside them (MIC, STRUMMING, SINGING) on `side`, 1 their left and -1 their right, from its `foot` to its `top`; and the
+     boom from there to its `end`, at the microphone's back. */
+  function micOf(p, t, side, at = MIC) {
     const lean = (v) => (p.lean ? leaned(p, v) : v), down = V(0, -MIC.tip, 1).normalize();
     const mouth = V(0, t.mouth.y - 0.005, MIC.off), tip = lean(mouth), back = lean(mouth.clone().addScaledVector(down, MIC.long));
     const foot = V(side * at.beside, 0, at.back), top = V(foot.x, at.high, foot.z), end = back.clone().addScaledVector(V().subVectors(tip, back).normalize(), 0.025);
+    return { tip, back, foot, top, end };
+  }
+  /* A player's microphone on its stand, where micOf puts it (`mic`): its stand and its boom fitted to the canvas (`fit`), the boom
+     no wider than BOOM_MOST. */
+  function voice(p, { tip, back, foot, top, end }) {
     stands.push({ at: fixed.length, by: p, r: STAND, sides: 6 }, { at: fixed.length + 2, by: p, r: BOOM, most: BOOM_MOST, sides: 5, axis: V().subVectors(end, top).transformDirection(p.g.matrix), across: true });
     keep(p, "microphone", microphone(tip, back, top, foot));
   }
@@ -1154,7 +1155,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     p.holds = { neck: [ofBody(p, a.on(hold.joint, 0, 0)), ofBody(p, a.on(hold.nut, 0, 0))], strings: ofBody(p, a.on(hold.strum, 0, 0.0225)), face: face.clone() };
     const foot = stand(p, t, stance, toes, 0, true, boots, knee);
     keepHead(p, t);
-    voice(p, t, -1, { ...STRUMMING, beside: STRUMMING.out - right.x });
+    voice(p, micOf(p, t, -1, { ...STRUMMING, beside: STRUMMING.out - right.x }));
     const { body, pivot } = p;
     p.pose = (count, level, time) => {
       const slow = swing(count - lag, SLOW), across = swing(count - lag, STRUM), beat = swing(count - lag, 1), rising = (level * solo * (1 - swing(count - lag, SOLO))) / 2;
@@ -1253,7 +1254,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     if (seated) sit(p, t, 0.34, 0.42);
     else stand(p, t, stance, 0.09, -0.02, false);
     keepHead(p, t);
-    if (mic) voice(p, t, spot[0] > 0 ? -1 : 1);
+    if (mic) voice(p, micOf(p, t, spot[0] > 0 ? -1 : 1));
     const { body, pivot } = p;
     p.pose = (count, level, time) => {
       const slow = swing(count - lag, 2 * SLOW, LIFT_MOVE), shift = level * sway * slow;
@@ -1273,31 +1274,32 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     return p;
   }
 
-  /* One who sings and plays no instrument but a tambourine: standing at a microphone that they hold. Its stand leans in to the mouth
-     in a straight line from the floor in front of them and out to their left (`mic.foot`), so from the crowd it rises clear of the
-     legs to the face; its head stands before the mouth (`mic.head`), as far off the face as a microphone's tip (MIC), and the left
-     hand holds the stand 11 cm under the head, so the hand is round the stand and off the head, the forearm across from an elbow
-     out to the side and as high as the chin. The right hand holds a tambourine before the right thigh, a disc that
-     faces the crowd and stands out past the thigh. The arms are the body's, the bend of each filled, so no pocket opens between an
-     arm and the trunk. The hips sway once in four counts, as a guitarist's do, under a head that stays at the microphone, and the
-     hand at the microphone with it, two or three centimetres a sway; the tambourine rides the sway; one foot taps the count. The
-     stand and the microphone's head are fitted to the canvas (`fit`): the stand widened across at each height, so its foot stays
-     on the floor, and the head every way. */
+  /* One who sings and plays no instrument but a tambourine: standing at a microphone on a stand beside them, as a guitarist does,
+     on their `side`, the side of the hand that holds it: their left, but early 1972's right (STAGING). The stand stands beside the
+     torso from the crowd, its top at the chest, and its boom rises in front of that shoulder to the microphone before the mouth
+     (micOf, SINGING), so no pole runs down the singer's front. That hand closes on the boom `grip` behind the microphone's back,
+     under the jaw and out beside the chin, the forearm across from an elbow out to the side, a little back and as high as the
+     chin. The other hand holds a tambourine before the other thigh, a disc that faces the crowd and stands out past the thigh.
+     The arms are the body's, the bend of each filled, so no pocket opens between an arm and the trunk. The hips sway once in four
+     counts, as a guitarist's do, under a head that stays at the microphone, and the hand on the boom with them, its palm within
+     3 cm of the boom's line (band-bodies.test.ts); the tambourine rides the sway; one foot taps the count. The stand and its boom
+     are fitted to the canvas as every stand is (`voice`). */
   /* The singer's arms are a little stouter than a guitarist's, SINGER_ARM across at the shoulder: as thin, a hand came apart from its
      forearm on a phone from the back of the crowd at dusk (band-outline-1972-06.test.ts, "comes apart little"). */
   const SINGER_ARM = 0.128;
-  function singer(role, spot, facing, { size, broad, hair, skirt, stance, toes, sway, tap, lag, mic, knee, dress }) {
+  function singer(role, spot, facing, { size, broad, hair, skirt, stance, toes, sway, tap, lag, grip: gripAt, side, knee, dress }) {
     const p = player(role, "voice", spot, facing, size, dress);
     p.lag = lag;
     p.look = { size, broad, hair, skirt: skirt ?? 0 };
     const t = trunk(STANDING, broad, hair, skirt, dress), h = STANDING.hips, { upper, fore, skin, shoulders } = worn(dress);
-    /* The microphone: its head, the stand's foot, and the way the stand leans in to the head; and the side it stands on (1 the
-       singer's left). */
-    const head = V(mic.head[0], t.mouth.y + mic.head[1], mic.head[2]), foot = V(mic.foot[0], 0, mic.foot[1]), lean = head.clone().sub(foot).normalize();
-    const side = Math.sign(foot.x), grip = head.clone().addScaledVector(lean, -0.11);
-    /* The arm at the microphone: the elbow out to the side and as high as the chin, the hand round the stand under the head, and the
-       bend between the arm and the neck filled. Bent down, the elbow fell in front of the chest, inside the outline. */
-    const shoulder = t.shoulder(side), elbow = elbowOf(V(), shoulder, grip, 0.29, 0.26, V(side, -0.2, 0));
+    /* The microphone, its stand on the singer's `side` (1 their left, -1 their right), as far out from the shoulder's joint as a
+       guitarist's; and the boom's line, from the stand's top to the microphone, on which the hand closes. */
+    const shoulder = t.shoulder(side), mic = micOf(p, t, side, { ...SINGING, beside: SINGING.out + side * shoulder.x });
+    const boom = V().subVectors(mic.end, mic.top).normalize(), grip = mic.end.clone().addScaledVector(boom, -gripAt);
+    /* The arm at the microphone: the elbow out to the side, a little back and as high as the chin, the hand round the boom, and the
+       bend between the arm and the neck filled. Bent down, the elbow fell in front of the chest, inside the outline; and bent lower
+       or further forward, the upper arm stood in the boom's way. */
+    const elbow = elbowOf(V(), shoulder, grip, 0.29, 0.26, V(side, -0.1, -0.5));
     /* The other arm, down to the thigh: the hand at the tambourine's rim, the elbow back. The disc lies over the thigh's top and the
        hip, so it holds the leg to the trunk from the back of the crowd at a phone's lower rungs, where the leg came apart from it.
        Out at the hip, it met the drummer behind from the front of the crowd. */
@@ -1306,22 +1308,18 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     /* The tambourine: its rim's wood and its head's white, which faces the crowd. */
     const tambourine = paintBy(drum(ring, 0.11, 0.11, 0.035, 12, Math.PI / 2), (_, n) => (Math.abs(n.z) > 0.9 ? tone(STUFF.drumhead) : tone(STUFF.tambourine)));
     tambourine.name = "tambourine";
-    /* Each hand closed: the one round the stand, the stand through its grip, and the other on the tambourine's rim. */
-    const onStand = fist(skin, grip, grip.clone().sub(elbow), lean, side < 0), onRim = fist(skin, hold, hold.clone().sub(bend), X, side > 0);
-    embody(p, [...t.parts, ...armParts(dress, shoulder, elbow, onStand.wrist, SINGER_ARM), ...onStand.parts, web(upper, shoulder, elbow, onStand.wrist),
+    /* Each hand closed: the one round the boom, the boom through its grip, and the other on the tambourine's rim. */
+    const onBoom = fist(skin, grip, grip.clone().sub(elbow), boom, side < 0), onRim = fist(skin, hold, hold.clone().sub(bend), X, side > 0);
+    embody(p, [...t.parts, ...armParts(dress, shoulder, elbow, onBoom.wrist, SINGER_ARM), ...onBoom.parts, web(upper, shoulder, elbow, onBoom.wrist),
       ...armParts(dress, other, bend, onRim.wrist, SINGER_ARM), ...onRim.parts,
       web(shoulders, other, bend, V(-side * 0.12 * broad, h + 0.2, 0)), web(fore, bend, onRim.wrist, V(-side * 0.13 * broad, h + 0.05, 0)), tambourine], t.pivot);
     p.mouth = leaned(p, t.mouth);
     const tapping = stand(p, t, stance, toes, 0, true, null, knee);
     /* The legs, in trousers, are fitted to the canvas (`fit`): from the back of the crowd at a phone's lower rungs a shin as built
-       is a pixel wide, and came apart at the knee. A stand before the legs held them together; one beside them does not. */
+       is a pixel wide, and came apart at the knee. */
     for (const l of legs) if (l.p === p) fitted.push(...[l.thigh, l.shin].map((b) => ({ bone: b, wide: b.wide, thick: b.thick })));
     keepHead(p, t);
-    /* The stand from its foot up into the head, its foot cut level with the floor; and the head, a ball. Each is fitted to the
-       canvas about the stand's line. */
-    const pole = leaning(foot, head.clone().addScaledVector(lean, -0.03), STAND, STAND - 0.002);
-    stands.push({ at: fixed.length, by: p, r: STAND, sides: 6, axis: pole.along.transformDirection(p.g.matrix) }, { at: fixed.length + 1, by: p, r: MIC_HEAD, most: MIC_HEAD_MOST, sides: 8, round: true });
-    keep(p, "microphone", [paint(pole.geo, tone(STUFF.steel)), paint(ball(head, MIC_HEAD, 1, 1, 1, 1), tone(STUFF.chrome))]);
+    voice(p, mic);
     const { body, pivot } = p;
     p.pose = (count, level, time) => {
       const slow = swing(count - lag, SLOW), beat = swing(count - lag, 1);
@@ -1450,30 +1448,28 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
      across from the back of the crowd: each crash's pole and each microphone's stand, widened about its own upright axis from
      the corners it was built with, and the keyboard players' forearms and hands, the drummers' forearms and each tapping foot
      (`fitted`), each both ways as stout as a pixel of it SEEN m off at the least, and no stouter than STOUT_MOST, a drummer's
-     than DRUM_FOREARM, a boom than BOOM_MOST and the singer's microphone's head than MIC_HEAD_MOST (`most`); and the tip of each guitar's and the bass's neck, its head with it, widened across the strings to NECK_PX
+     than DRUM_FOREARM and a boom than BOOM_MOST (`most`); and the tip of each guitar's and the bass's neck, its head with it, widened across the strings to NECK_PX
      of a pixel SEEN m off, and no more than NECK_MOST times as wide as built; and lays the bones again, for a band that stands
      still. */
   const corners = still.geometry.getAttribute("position");
-  const fits = stands.map(({ at, by, r, most = STOUT_MOST, sides, axis = Y, round = false, across = false }) => {
+  const fits = stands.map(({ at, by, r, most = STOUT_MOST, sides, axis = Y, across = false }) => {
     const { from, count } = parts[at], base = corners.array.slice(from * 3, (from + count) * 3);
     let x = 0, y = 0, z = 0;
     for (let i = 0; i < count; i++) { x += base[i * 3] / count; y += base[i * 3 + 1] / count; z += base[i * 3 + 2] / count; }
-    return { from, count, base, x, y, z, axis, round, across, r, most, flats: 2 * Math.cos(Math.PI / sides), scale: by.g.scale.x };
+    return { from, count, base, x, y, z, axis, across, r, most, flats: 2 * Math.cos(Math.PI / sides), scale: by.g.scale.x };
   });
   function fit(perPx) {
     if (!(perPx > 0)) return;
     const seen = SEEN * perPx * 1.05;
-    /* A stand is widened across at each height about where its line is there (`axis`, upright unless it leans), so a foot on the
-       floor stays on it; a boom, `across`, square to its own line, which runs nearer level than upright; a microphone's head,
-       `round`, every way about its middle. */
-    for (const { from, count, base, x, y, z, axis, round, across, r, most, flats, scale } of fits) {
+    /* A stand is widened across at each height about where its line is there (`axis`, upright), so a foot on the floor stays on
+       it; a boom, `across`, square to its own line, which runs nearer level than upright. */
+    for (const { from, count, base, x, y, z, axis, across, r, most, flats, scale } of fits) {
       const k = Math.min(most, Math.max(r, seen / (flats * scale))) / r;
       for (let i = 0; i < count; i++) {
         const dx = base[i * 3] - x, dy = base[i * 3 + 1] - y, dz = base[i * 3 + 2] - z;
-        const along = round ? 0 : across ? dx * axis.x + dy * axis.y + dz * axis.z : dy / axis.y, ax = x + axis.x * along, az = z + axis.z * along;
+        const along = across ? dx * axis.x + dy * axis.y + dz * axis.z : dy / axis.y, ax = x + axis.x * along, az = z + axis.z * along;
         corners.array[(from + i) * 3] = ax + (base[i * 3] - ax) * k;
-        if (round) corners.array[(from + i) * 3 + 1] = y + (base[i * 3 + 1] - y) * k;
-        else if (across) { const ay = y + axis.y * along; corners.array[(from + i) * 3 + 1] = ay + (base[i * 3 + 1] - ay) * k; }
+        if (across) { const ay = y + axis.y * along; corners.array[(from + i) * 3 + 1] = ay + (base[i * 3 + 1] - ay) * k; }
         corners.array[(from + i) * 3 + 2] = az + (base[i * 3 + 2] - az) * k;
       }
     }
