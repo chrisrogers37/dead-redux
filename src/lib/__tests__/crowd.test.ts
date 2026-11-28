@@ -5,7 +5,7 @@ import * as THREE from "three";
 import {
   backOf, BEAR_LEGS, BEAR_TAIL, buildCrowd, CHOICES, CLOTHS, COLOURS, CREST, crestOf, CUP_ARM, CUT, CYCLE, DROP, DYE, DYED, DYED_PROPS, FEET, figureGeometry, FOLD, FOOT, FORMS, formOfMark, formsOf,
   ARM_RINGS, FRIEND_HAND, groundUnder, HAND, HANG, HIP_X, LEG_RINGS, TORSO, HOLD_UP, inView, KNEES, LEG, LOW, lyingOf, MOST, MOVES, only, OUTLINE, outlineOf, OVERHEAD, PART, partingOptions, people, PLAIN_LEAVES_OUT, plainly, poseOf,
-  PROP_EVERY, PROPS, QUIET, dressOn, HAIRS, SKIN, DRESS, PATTERN, PATTERNS, SEEDS, seedOf, CLOTHES, RIM, RIM_LEAST, RIM_SIDE, RIM_TINT, RIM_TO, LIT, HOUSE, HOUSE_LOW, HOUSE_TINT, LAMP_HALF, LAMP_TINT, LAMP_TO, COVER, APART, stageTurn, standerOf, HOOD_ROPE, apartOf, dressFor, drawnOf, DRAWN_VIEWS, ENDS, UNDRAWN, sourceOf, SOURCES, pieces, lightOf, topLight, TINT, RIG, DRESS_FINE, DRESS_EDGE, SEAT, wardrobe, WARDROBE, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, stances, TALL, TINTS, tone, TOP, wearing, without,
+  PROP_EVERY, PROPS, QUIET, dressOn, HAIRS, SKIN, DRESS, PATTERN, PATTERNS, SEEDS, seedOf, CLOTHES, RIM, RIM_LEAST, RIM_SIDE, RIM_TINT, RIM_TO, LIT, HOUSE, HOUSE_LOW, HOUSE_TINT, LAMP_HALF, LAMP_TINT, LAMP_TO, COVER, APART, stageTurn, standerOf, HOOD_ROPE, apartOf, dressFor, dressPick, drawnOf, DRAWN_VIEWS, ENDS, MARGIN, AWAY, CLOSE, UNDRAWN, sourceOf, SOURCES, pieces, lightOf, topLight, TINT, RIG, DRESS_FINE, DRESS_EDGE, SEAT, wardrobe, WARDROBE, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, stances, TALL, TINTS, tone, TOP, wearing, without,
 } from "../../../public/world/crowd.js";
 import { MOVE as STEP, SLOW, STRUM, swing } from "../../../public/world/band.js";
 import { buildStage, FLOOR } from "../../../public/world/stage.js";
@@ -437,16 +437,70 @@ function redress(c: typeof crowd, i: number, d: Palette, from: Chosen, to: Chose
   c.each.aTone[4 * i] = tone(d.legs[to.legs]);
   c.each.aTone[4 * i + 3] += tone(d.thing[to.thing]) - tone(d.thing[from.thing]);
 }
-// Each figure of crowd `c` of a show on `date` wears the colours dressFor chose (each.colours), as the shader colours them. From every
-// side drawnOf draws it from (DRAWN_VIEWS), from its tier's own figure and its own numbers, its lightest quarter, fifth or tenth (ENDS)
-// stands APART times lighter than its darkest (apartOf), in the tones the shader gives the tints that show them (a patterned top's on the whole,
-// topLight), at the first of ENDS at which one or two of its legs', things' and top's colours of its era bring that about. It wears
-// the colours it was dealt where those do at the quarter; else one moved where one can, the first of its legs, its things and its top
-// that can, and its legs or its things to the nearest of its era's on from its own that does; else two. Below the quarter it wears
-// the best its era's bring apart at the fifth or the tenth. Counts in `counted` how many wear their colours as dealt, how many moved
-// one and how many two at the quarter, how many the best at the fifth and the tenth, and how many no colours of its era bring apart
-// from every side at any: `short` where in the colours it wears it stands apart from every side under STEEP, and `short under` where
-// not; and returns each figure's, by its index.
+// The rule dressFor keeps, written out here on its own, for a figure dealt `colour` that the eye sees as `drawn` shows it (drawnOf's
+// shares from each of DRAWN_VIEWS), on palette `d`; `worn` the tops those close by wear in the same top, `taken` the colours those
+// dressed before it wear whole (each top * 100 + legs * 10 + thing) and `pick` its own draw (dressPick). Every choice is the colours
+// it was dealt with none, one or two of those that show (its legs, its things and its top) moved, each to another of its era's. How
+// far a choice is from what was dealt (AWAY): a step for its legs and one for its things moved, and for its top a step and a half in
+// its own pattern, two and a half in another pattern, three and a half from plain to patterned or back, and four more in a colour
+// one close by wears in that top. At the quarter (ENDS), the colours it was dealt where those stand apart from every side; else,
+// of those that do, nearest first and in the order the rule lists them (as dealt, each giver alone, each two, each the nearest on
+// from its own first), the first that no one before it wears whole of those no more than a step further than the nearest, or else
+// the nearest. Below it, at the fifth and then the tenth, of all that stand apart from every side, those that bring the end above
+// apart from as many sides as the best does and stand as far apart at their own end, from the side they do least from, as MARGIN
+// of the best: of those the colours it was dealt where they are among them; else the nearest of those no more than a step further
+// than the nearest that no one before it wears whole, or the nearest where there are none, and of those the one its draw picks.
+// Returns the choice and the end it stands apart at, or none where no colours of its era bring its tenth apart.
+type Rule = { chosen: Chosen; ends: number; kind: string } | undefined;
+function ruleFor(d: Palette, colour: Record<string, number>, drawn: number[][], worn: Set<number>, taken: Set<number>, pick: number): Rule {
+  const dealt: Chosen = { top: colour.top, legs: colour.legs, thing: colour.thing };
+  const lightsOf = (one: Chosen) => [topLight(d.top[one.top]), lightOf(d.legs[one.legs]), lightOf(HAIRS[colour.hair]), lightOf(SKIN[colour.self]), lightOf(d.thing[one.thing]), 0.02];
+  const everySide = (one: Chosen, ends: number) => drawn.every((shares) => apartOf(shares, lightsOf(one), ends) >= APART);
+  const givers = GIVES.filter((name) => drawn.some((shares) => shares[SOURCES.indexOf(name)] > 0));
+  const others = (name: (typeof GIVES)[number]) => d[name].map((_, step) => (dealt[name] + step) % d[name].length).slice(1);
+  const listed: Chosen[] = [dealt, ...givers.flatMap((name) => others(name).map((k) => ({ ...dealt, [name]: k }))),
+    ...givers.flatMap((a, j) => givers.slice(j + 1).flatMap((b) => others(a).flatMap((k) => others(b).map((q) => ({ ...dealt, [a]: k, [b]: q })))))];
+  const pattern = (k: number) => d.top[k][1] as number, own = pattern(dealt.top);
+  const away = (one: Chosen) => (one.legs !== dealt.legs ? 1 : 0) + (one.thing !== dealt.thing ? 1 : 0)
+    + (one.top === dealt.top ? 0 : (pattern(one.top) === own ? 1.5 : pattern(one.top) !== PATTERN.PLAIN && own !== PATTERN.PLAIN ? 2.5 : 3.5) + (worn.has(one.top) ? 4 : 0));
+  const order = listed.map((one, seq) => ({ one, seq, far: away(one) })).sort((p, q) => p.far - q.far || p.seq - q.seq).map(({ one }) => one);
+  const whole = (one: Chosen) => one.top * 100 + one.legs * 10 + one.thing;
+  const nearestOf = (list: Chosen[]) => list.filter((one) => away(one) === away(list[0]));
+  const moved = (one: Chosen) => GIVES.filter((name) => one[name] !== dealt[name]).length;
+  const quarter = order.filter((one) => everySide(one, ENDS[0])), free = (one: Chosen) => !taken.has(whole(one));
+  if (quarter.length) {
+    const chosen = quarter[0] === dealt ? dealt : quarter.filter((one) => away(one) <= away(quarter[0]) + 1).find(free) ?? quarter[0];
+    return { chosen, ends: ENDS[0], kind: ["dealt", "one", "two"][moved(chosen)] };
+  }
+  for (let k = 1; k < ENDS.length; k++) {
+    const passing = order.filter((one) => everySide(one, ENDS[k])).map((one) => {
+      const lights = lightsOf(one);
+      return { one, sides: drawn.filter((shares) => apartOf(shares, lights, ENDS[k - 1]) >= APART).length, least: Math.min(...drawn.map((shares) => apartOf(shares, lights, ENDS[k]))) };
+    });
+    if (!passing.length) continue;
+    const sides = Math.max(...passing.map((p) => p.sides)), least = Math.max(...passing.filter((p) => p.sides === sides).map((p) => p.least));
+    const near = passing.filter((p) => p.sides >= sides && p.least >= MARGIN * least).map(({ one }) => one);
+    const open = near.filter((one) => away(one) <= away(near[0]) + 1 && free(one)), from = near[0] === dealt ? [dealt] : nearestOf(open.length ? open : near);
+    return { chosen: from[Math.min(from.length - 1, Math.floor(pick * from.length))], ends: ENDS[k], kind: "near" };
+  }
+  return undefined;
+}
+// What a figure of a crowd went by when it was dressed: the tops those within CLOSE m of it in the same top wore by then, those
+// dressed before it as they were dressed and those after as they were dealt (`worn`), and the colours those before it wore whole.
+function dressedBy(c: typeof crowd, who: Person[], i: number) {
+  const placed = placedOf.get(c)!, p = placed[i], mine = who[i] as { top: string };
+  const worn = new Set(placed.flatMap((q, j) => (j !== i && (who[j] as { top: string }).top === mine.top && Math.hypot(q.x - p.x, q.z - p.z) < CLOSE
+    ? [j < i ? (c.each.colours[j] as Chosen).top : (who[j] as { colour: Record<string, number> }).colour.top] : [])));
+  const taken = new Set(Array.from({ length: i }, (_, j) => { const one = c.each.colours[j] as Chosen; return one.top * 100 + one.legs * 10 + one.thing; }));
+  return { worn, taken };
+}
+// Each figure of crowd `c` of a show on `date` wears the colours dressFor chose (each.colours), as the shader colours them, and those
+// are the colours the rule (ruleFor) gives it, from what drawnOf draws of it from every side (DRAWN_VIEWS), from its tier's own
+// figure and its own numbers, in the tones the shader gives the tints that show them (a patterned top's on the whole, topLight).
+// Counts in `counted` how many wear their colours as dealt, how many moved one and how many two at the quarter, how many the nearest
+// within MARGIN of the best at the fifth and the tenth, and how many no colours of its era bring apart from every side at any:
+// `short` where in the colours it wears it stands apart from every side under STEEP, and `short under` where not; and returns each
+// figure's, by its index.
 type Chosen = { top: number; legs: number; thing: number };
 type Palette = { top: number[][]; legs: number[]; thing: number[] };
 const GIVES = ["legs", "thing", "top"] as const;
@@ -459,50 +513,21 @@ function dressedApart(c: typeof crowd, date: string, counted: Record<string, num
   const whose: Record<string, number> = { legs: TINT.LEGS, hair: TINT.HAIR, self: TINT.SELF, thing: TINT.THING };
   for (const f of figuresOf(c)) {
     const p = who[f.i] as { colour: Record<string, number> }, chosen = c.each.colours[f.i] as Chosen, drawn = drawnOf(kit, figureNumbers(f)) as number[][];
-    const dealt: Chosen = { top: p.colour.top, legs: p.colour.legs, thing: p.colour.thing };
     const shader = (name: string) => {
       out.r = f.top.r; out.g = f.top.g; out.b = f.top.b;
       runTones(null, out, { x: 0, y: 0, z: whose[name], w: 0 }, f.fig, null, 1, f.body, f.wear, f.cut, f.tone, 0, 0, 0, 0, f.place, f.size);
       return light(out);
     };
-    // Each colour as the shader shows it on the figure; and each its era's palette holds, as the figure would wear it.
+    // Each colour as the shader shows it on the figure: its legs' and its things' are those the palette holds.
     const shown = [topLight(d.top[chosen.top]), shader("legs"), shader("hair"), shader("self"), shader("thing"), 0.02];
     expect([date, f.i, shown[1], shown[4]].map((q) => (typeof q === "number" ? +q.toFixed(6) : q))).toEqual([date, f.i, +lightOf(d.legs[chosen.legs]).toFixed(6), +lightOf(d.thing[chosen.thing]).toFixed(6)]);
-    const lightsOf = (one: Chosen) => [topLight(d.top[one.top]), lightOf(d.legs[one.legs]), shown[2], shown[3], lightOf(d.thing[one.thing]), 0.02];
-    const everySide = (lights: number[], ends: number) => drawn.every((shares) => apartOf(shares, lights, ends) >= APART * (1 - 1e-9));
-    const givers = GIVES.filter((name) => drawn.some((shares) => shares[SOURCES.indexOf(name)] > 0)), moved = GIVES.filter((name) => chosen[name] !== dealt[name]);
-    // The first of ENDS at which colours of its era bring it apart from every side. At the quarter, the first of them, as few of them
-    // moved as do, each to the nearest; below it, the best of all that one or two moved bring apart from every side (dressFor): those
-    // that bring the end above apart from the most sides, and of those the farthest apart at its own from the side they do least from.
-    const scoreOf = (lights: number[], k: number) => [drawn.filter((shares) => apartOf(shares, lights, ENDS[k - 1]) >= APART).length, Math.min(...drawn.map((shares) => apartOf(shares, lights, ENDS[k])))];
-    const choices: Chosen[] = [dealt, ...givers.flatMap((a) => d[a].map((_, k) => ({ ...dealt, [a]: k }))),
-      ...givers.flatMap((a, j) => givers.slice(j + 1).flatMap((b) => d[a].flatMap((_, k) => d[b].map((_, q) => ({ ...dealt, [a]: k, [b]: q })))))];
-    let found: { ends: number; kind: string; moved: string[]; at?: number; most?: number[] } | undefined;
-    for (const [k, ends] of ENDS.entries()) {
-      if (k > 0) {
-        const most = choices.filter((one) => everySide(lightsOf(one), ends)).map((one) => scoreOf(lightsOf(one), k))
-          .reduce<number[] | undefined>((m, got) => (!m || got[0] > m[0] || (got[0] === m[0] && got[1] > m[1]) ? got : m), undefined);
-        found = most && { ends, kind: "best", moved, most };
-        if (found) break;
-        continue;
-      }
-      const nearest = (name: (typeof GIVES)[number], from: Chosen = dealt) => d[name].map((_, step) => (dealt[name] + step) % d[name].length).find((k) => everySide(lightsOf({ ...from, [name]: k }), ends));
-      const one = givers.find((name) => nearest(name) !== undefined);
-      const two = givers.flatMap((a, k) => givers.slice(k + 1).map((b) => [a, b] as const)).find(([a, b]) => d[a].some((_, k) => nearest(b, { ...dealt, [a]: k }) !== undefined));
-      found = everySide(lightsOf(dealt), ends) ? { ends, kind: "dealt", moved: [] } : one ? { ends, kind: "one", moved: [one], at: one === "top" ? undefined : nearest(one) } : two ? { ends, kind: "two", moved: [...two] } : undefined;
-      if (found) break;
-    }
+    const { worn, taken } = dressedBy(c, who, f.i), rule = ruleFor(d, p.colour, drawn, worn, taken, dressPick(f.i));
     const under = () => drawn.every((shares, k) => !underSteep(k) || apartOf(shares, shown, ENDS[ENDS.length - 1]) >= APART * (1 - 1e-9));
-    const kind = found ? `${found.kind} ${found.ends}` : under() ? "short" : "short under";
+    const kind = rule ? `${rule.kind} ${rule.ends}` : under() ? "short" : "short under";
     counted[kind] = (counted[kind] ?? 0) + 1;
     kinds[f.i] = kind;
-    if (!found) continue;
-    expect([date, f.i, kind, everySide(shown, found.ends), moved]).toEqual([date, f.i, kind, true, found.moved]);
-    if (found.most) {
-      const got = scoreOf(lightsOf(chosen), ENDS.indexOf(found.ends));
-      expect([date, f.i, got[0], +(got[1] / found.most[1]).toFixed(9)]).toEqual([date, f.i, found.most[0], 1]);
-    }
-    if (found.at !== undefined) expect([date, f.i, chosen[found.moved[0] as keyof Chosen]]).toEqual([date, f.i, found.at]);
+    if (!rule) continue;
+    expect([date, f.i, kind, chosen, drawn.every((shares) => apartOf(shares, shown, rule.ends) >= APART * (1 - 1e-9))]).toEqual([date, f.i, kind, rule.chosen, true]);
   }
   return kinds;
 }
@@ -1862,15 +1887,23 @@ describe("the crowd's shader", () => {
     // (661, a reclining figure in a long skirt, from the stage, and 104, a kneeling one in a poncho, from the hill, on a television).
     // Each in each era's clothes, as a desktop draws it, lit and seen as the test above lights and sees the fixed day's; and each
     // figure dressed as the rule says (dressedApart).
+    // And how one of a kind the crowd is (the variety's counts below): how many wear the colours they were dealt, how many of those
+    // dealt a patterned top wear one still, and in each crowd how many wear the same three colours as another, and how many of those
+    // below the quarter do as another such.
     const least: Record<string, Seen> = {}, counted: Record<string, number> = {};
-    let keeps = 0;
+    let keeps = 0, patterned = 0, patternKept = 0, twins = 0, hard = 0, hardTwins = 0;
     for (const seed of SEEDED) for (const date of ERA_SHOWS) {
-      const c = crowdOf(date, false, 350, seed), who = peopleOf(c);
-      dressedApart(c, date, counted);
+      const c = crowdOf(date, false, 350, seed), who = peopleOf(c), d = dressOn(date) as Palette, kinds = dressedApart(c, date, counted);
+      const wears = new Map<number, number>(), hardWears = new Map<number, number>();
       for (let i = 0; i < c.count; i++) {
-        const dealt = (who[i] as { colour: Record<string, number> }).colour, got = c.each.colours[i] as Chosen;
+        const dealt = (who[i] as { colour: Record<string, number> }).colour, got = c.each.colours[i] as Chosen, whole = got.top * 100 + got.legs * 10 + got.thing;
         if (GIVES.every((name) => got[name] === dealt[name])) keeps += 1;
+        if (d.top[dealt.top][1] !== PATTERN.PLAIN) { patterned += 1; patternKept += d.top[got.top][1] !== PATTERN.PLAIN ? 1 : 0; }
+        wears.set(whole, (wears.get(whole) ?? 0) + 1);
+        if (!kinds[i].endsWith(` ${ENDS[0]}`)) { hard += 1; hardWears.set(whole, (hardWears.get(whole) ?? 0) + 1); }
       }
+      const alike = (counts: Map<number, number>) => [...counts.values()].filter((n) => n > 1).reduce((sum, n) => sum + n, 0);
+      twins += alike(wears); hardTwins += alike(hardWears);
       for (const [key, one] of Object.entries(seenApart(c, ["hill", "stage"], HOURS).least)) least[`${seed} ${date} ${key}`] = one;
       // A desktop's crowd holds some 26 MB of corners: none is kept.
       placedOf.delete(c);
@@ -1881,7 +1914,14 @@ describe("the crowd's shader", () => {
     // the rest take others of their era, most of them one moved to the nearest, and those below the quarter the best.
     const all = Object.values(counted).reduce((sum, n) => sum + n, 0), short = counted.short ?? 0, under = counted["short under"] ?? 0;
     const tenth = Object.entries(counted).filter(([kind]) => kind.endsWith(" 0.1")).reduce((sum, [, n]) => sum + n, 0);
-    expect([all > 15000, tenth > 0.01 * all, (short + under) / all < 0.005, under / all < 0.001, keeps / all > 0.2]).toEqual([true, true, true, true, true]);
+    expect([all > 15000, tenth > 0.01 * all, (short + under) / all < 0.005, under / all < 0.001]).toEqual([true, true, true, true]);
+    // And they are many of a kind: 25.3 % wear the colours they were dealt, 95.6 % of those dealt a patterned top wear one still,
+    // and 17.8 % of them wear the same three colours as another of their crowd, and 17.8 % of those below the quarter (7.6 %) the
+    // same as another such. Where each took the first that stood apart, whoever wore it, it was 45.5 % of them; where those below
+    // the quarter took their era's best, 25.2 % of those; and where a patterned top gave to plain as soon as to another pattern,
+    // 89.5 % kept one.
+    expect({ keeps: keeps / all > 0.25, patterns: patternKept / patterned > 0.95, twins: twins / all < 0.2, hard: hard / all < 0.08, hardTwins: hardTwins / hard < 0.2 })
+      .toEqual({ keeps: true, patterns: true, twins: true, hard: true, hardTwins: true });
     expect(Object.keys(least).length).toBe(SEEDED.length * ERA_SHOWS.length * 2 * HOURS.length);
     for (const [key, { by, i }] of Object.entries(least)) expect([key, i, by >= SEPARATE]).toEqual([key, i, true]);
   }, 240000);
@@ -1916,7 +1956,7 @@ describe("the crowd's shader", () => {
         const lights = [topLight(d.top[dealt.top]), lightOf(d.legs[dealt.legs]), lightOf(HAIRS[p.colour.hair]), lightOf(SKIN[p.colour.self]), lightOf(d.thing[dealt.thing]), 0.02];
         const sides = [...(drawnOf(kit, numbers) as number[][]), ...(drawnOf(kit, numbers, [viewFrom(f, EYES.hill)]) as number[][])];
         expect([numbers.seat, sides.every((shares) => apartOf(shares, lights, ENDS[1]) >= APART), dressedApart(c, show, {})[i], GIVES.some((name) => chosen[name] !== dealt[name])])
-          .toEqual(["kneel", true, "best 0.2", true]);
+          .toEqual(["kneel", true, "near 0.2", true]);
         redress(c, i, d, chosen, dealt);
         expect(seenApart(c, [eye], HOURS, undefined, { only: [i] }).each[0].by).toBeLessThan(SEPARATE);
         redress(c, i, d, dealt, chosen);
@@ -3233,44 +3273,31 @@ describe("the crowd's shader", () => {
     // this one runs it).
     expect(dressLines).toContain(`diffuseColor.rgb = mix(vColor.rgb, vSecond.rgb, mix(share, cover, smoothstep(${DRESS_FINE[0].toFixed(4)}, ${DRESS_FINE[1].toFixed(4)}, fine)));`);
     // The rule, for figures that show their colours in many ways (the fixed day's crowd's first 40, each from every side drawnOf
-    // draws it from), each dealt every colour of each list in turn and every skin and hair, on the fixed day's palette: it wears the
-    // colours it was dealt where from every side those stand apart; else the first of its legs, its things and its top that can gives,
-    // to the nearest on from its own that does, a top passing by those a figure close by wears in the same top (`worn`) but where only
-    // such a one does; else the first two that can, each the nearest on from its own; and below the quarter, of all those, the best.
-    const palette = dressOn(FIXED) as Palette, kit = kitOf(crowd), own = (name: string, k: number) => (name === "top" ? topLight(palette.top[k]) : lightOf(palette[name as "legs" | "thing"][k]));
+    // draws it from), each dealt every colour of each list in turn and every skin and hair, on the fixed day's palette, with a top
+    // close by (`worn`), three colours others wear whole (`taken`) and a draw of its own (`pick`): dressFor gives what ruleFor (above)
+    // says. It wears the colours it was dealt where from every side those stand apart; else the nearest that do (AWAY), passing by
+    // those others wear whole where it can; and below the quarter, of those within MARGIN of the best, the nearest, as its draw picks.
+    expect([MARGIN, AWAY]).toEqual([0.8, { top: [1.5, 2.5, 3.5], worn: 4, spread: 1 }]);
+    const palette = dressOn(FIXED) as Palette, kit = kitOf(crowd), whole = (one: Chosen) => one.top * 100 + one.legs * 10 + one.thing;
     let tried = 0;
     const kinds: Record<string, number> = {};
     for (const f of figures.slice(0, 40)) {
-      const drawn = drawnOf(kit, figureNumbers(f)) as number[][], givers = GIVES.filter((name) => drawn.some((shares) => shares[SOURCES.indexOf(name)] > 0));
+      const drawn = drawnOf(kit, figureNumbers(f)) as number[][];
       for (let dealt = 0; dealt < 14; dealt++) for (let self = 0; self < SKIN.length; self++) for (let hair = 0; hair < HAIRS.length; hair += 2) {
         const colour = { top: dealt % palette.top.length, legs: (dealt + 3) % palette.legs.length, thing: (dealt + 5) % palette.thing.length, self, hair };
-        const worn = new Set([(dealt + 1) % palette.top.length]), start: Chosen = { top: colour.top, legs: colour.legs, thing: colour.thing };
-        const lightsOf = (one: Chosen) => SOURCES.map((name: string) => (name === "self" ? lightOf(SKIN[self]) : name === "hair" ? lightOf(HAIRS[hair]) : name === "shoe" ? 0.02 : own(name, one[name as keyof Chosen])));
-        const ways = (name: (typeof GIVES)[number]) => {
-          const all = palette[name].map((_, step) => (start[name] + step) % palette[name].length);
-          return name === "top" ? [...all.filter((k) => !worn.has(k)), ...all.filter((k) => worn.has(k))] : all;
-        };
-        // Every choice in the rule's order: as dealt, then each giver alone, then each two, each the nearest on from its own first.
-        const all = [start, ...givers.flatMap((name) => ways(name).map((k) => ({ ...start, [name]: k }))),
-          ...givers.flatMap((a, k) => givers.slice(k + 1).map((b) => [a, b] as const)).flatMap(([a, b]) => ways(a).flatMap((k) => ways(b).map((q) => ({ ...start, [a]: k, [b]: q }))))];
-        let want: Chosen | undefined, at = 0;
-        for (const [k, ends] of ENDS.entries()) {
-          const passes = (one: Chosen) => drawn.every((shares) => apartOf(shares, lightsOf(one), ends) >= APART);
-          if (k === 0) want = all.find(passes);
-          // Below the quarter, the best of those that pass: from the most sides at the end above, then the farthest apart at its own.
-          else for (let most: number[] | undefined, j = 0; j < all.length; j++) {
-            if (!passes(all[j])) continue;
-            const lights = lightsOf(all[j]), got = [drawn.filter((shares) => apartOf(shares, lights, ENDS[k - 1]) >= APART).length, Math.min(...drawn.map((shares) => apartOf(shares, lights, ends)))];
-            if (!most || got[0] > most[0] || (got[0] === most[0] && got[1] > most[1])) { want = all[j]; most = got; }
-          }
-          if (want) { at = ends; break; }
-        }
-        const kind = want === start ? "dealt" : want === undefined ? "short" : GIVES.filter((name) => want![name] !== start[name]).join(" ");
-        kinds[kind] = (kinds[kind] ?? 0) + 1;
-        if (want && at !== ENDS[0]) kinds.fifth = (kinds.fifth ?? 0) + 1;
-        const got = dressFor(palette, { colour }, drawn, worn);
-        if (want) expect([f.i, dealt, self, hair, got]).toEqual([f.i, dealt, self, hair, want]);
-        else {
+        const start: Chosen = { top: colour.top, legs: colour.legs, thing: colour.thing }, worn = new Set([(dealt + 1) % palette.top.length]);
+        const taken = new Set([{ ...start, legs: (start.legs + 1) % 8 }, { ...start, legs: (start.legs + 2) % 8 }, { ...start, thing: (start.thing + 1) % 10 }].map(whole));
+        const pick = ((7 * dealt + 3 * self + hair) % 10) / 10 + 0.05, want = ruleFor(palette, colour, drawn, worn, taken, pick);
+        const lightsOf = (one: Chosen) => [topLight(palette.top[one.top]), lightOf(palette.legs[one.legs]), lightOf(HAIRS[hair]), lightOf(SKIN[self]), lightOf(palette.thing[one.thing]), 0.02];
+        const got = dressFor(palette, { colour }, drawn, worn, taken, pick) as Chosen;
+        if (want) {
+          expect([f.i, dealt, self, hair, got]).toEqual([f.i, dealt, self, hair, want.chosen]);
+          const moved = GIVES.filter((name) => got[name] !== start[name]).join(" ") || "dealt";
+          kinds[moved] = (kinds[moved] ?? 0) + 1;
+          if (want.ends !== ENDS[0]) kinds.fifth = (kinds.fifth ?? 0) + 1;
+          if (taken.has(whole(got))) kinds.taken = (kinds.taken ?? 0) + 1;
+        } else {
+          kinds.short = (kinds.short ?? 0) + 1;
           expect(drawn.filter((shares) => apartOf(shares, lightsOf(got)) >= APART).length).toBeLessThan(drawn.length);
           if (drawn.some((shares, k) => underSteep(k) && apartOf(shares, lightsOf(got)) < APART)) kinds.under = (kinds.under ?? 0) + 1;
         }
@@ -3280,12 +3307,14 @@ describe("the crowd's shader", () => {
     expect(tried).toBe(40 * 14 * SKIN.length * Math.ceil(HAIRS.length / 2));
     // Each way of giving comes up, and a tenth of these stand apart from every side only at the fifth or the tenth. A figure no
     // colours of its era bring apart from every side even at the tenth is one that from over STEEP shows little but one colour, a hat
-    // and a poncho, which four of the 40 are in; and at the tenth none of these is.
+    // and a poncho, which four of the 40 are in; and at the tenth none of these is. Few wear what others wear whole: only those the
+    // nearest that stand apart are all taken from.
     for (const kind of ["dealt", "legs", "thing", "top"]) expect([kind, (kinds[kind] ?? 0) > 20]).toEqual([kind, true]);
     expect(Object.keys(kinds).filter((kind) => kind.includes(" ")).reduce((sum, kind) => sum + kinds[kind], 0)).toBeGreaterThan(0);
     expect((kinds.fifth ?? 0) / tried).toBeGreaterThan(0.05);
     expect((kinds.short ?? 0) / tried).toBeLessThan(0.005);
     expect((kinds.under ?? 0) / tried).toBeLessThan(0.005);
+    expect((kinds.taken ?? 0) / tried).toBeLessThan(0.1);
     // And as the shader colours them, on the three shows' crowds, desktop and phone (dressedApart, above; the test of other days'
     // gatherings also runs it on theirs): most figures wear the colours they were dealt or move one, a few move two, and all but a
     // few in hats and ponchos stand apart from every side, and those from every side under STEEP.
@@ -3293,7 +3322,7 @@ describe("the crowd's shader", () => {
     for (const { date, desktop, phone: small } of SHOWS) for (const c of [desktop, small]) dressedApart(c, date, counted);
     const total = Object.values(counted).reduce((sum, n) => sum + n, 0), at = (kind: string) => counted[kind] ?? 0;
     expect(total).toBeGreaterThan(1000);
-    expect(at("dealt 0.25") + at("one 0.25")).toBeGreaterThan(0.8 * total);
+    expect(at("dealt 0.25") + at("one 0.25")).toBeGreaterThan(0.75 * total);
     expect(at("two 0.25")).toBeGreaterThan(0);
     expect(at("short")).toBeLessThan(0.04 * total);
     expect(at("short under")).toBe(0);
