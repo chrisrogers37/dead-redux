@@ -3334,8 +3334,10 @@ describe("the crowd's shader", () => {
   }, 120000);
 
   it("leaves out of drawnOf the pole a figure holds a flag, a pennant, a star or a parasol up on, and a taper's stand: from the stage and the hill, each holder's shares are the shader's for it without them within a few per cent, for the eye's test, which draws a figure 40 pixels across, catches a pole from some sides and misses it on others", () => {
-    // The thin black parts a figure holds up or stands by.
-    expect(UNDRAWN).toBe((PART.POLE as number) | (PART.STAND as number));
+    // The thin black parts a figure holds up or stands by, named here so that the shader's figure below leaves out these two and
+    // only these, whatever drawnOf leaves out.
+    const thin = (PART.POLE as number) | (PART.STAND as number);
+    expect(UNDRAWN).toBe(thin);
     // Each figure that holds a pole or stands by a stand in the three shows' crowds, desktop and phone, and in the gatherings of two
     // days a television drew, where one leaned on the pole's black and fell under the bar from the stage (705 and 806; the test of
     // the days that fell under it, above): drawnOf from where the stage and the hill see it (viewFrom) and the shader's figure
@@ -3343,8 +3345,8 @@ describe("the crowd's shader", () => {
     const crowds = [...SHOWS.flatMap(({ desktop, phone: small }) => [desktop, small]), crowdOf("1990-12-09", true, 250, 705), crowdOf(SEVENTIES, true, 250, 806)];
     const gaps: number[] = [], worst: number[] = [];
     for (const c of crowds) {
-      const kit = kitOf(c), holders = figuresOf(c).filter((f) => (f.wear.x & UNDRAWN) !== 0);
-      const { each } = seenApart(c, ["stage", "hill"], [], undefined, { without: UNDRAWN, only: holders.map((f) => f.i) });
+      const kit = kitOf(c), holders = figuresOf(c).filter((f) => (f.wear.x & thin) !== 0);
+      const { each } = seenApart(c, ["stage", "hill"], [], undefined, { without: thin, only: holders.map((f) => f.i) });
       for (const f of holders) {
         const drawn = drawnOf(kit, figureNumbers(f), [viewFrom(f, EYES.stage), viewFrom(f, EYES.hill)]) as number[][];
         (["stage", "hill"] as const).forEach((view, k) => {
