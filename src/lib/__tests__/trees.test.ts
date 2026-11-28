@@ -1062,8 +1062,8 @@ describe("the trees' shapes", () => {
 
   it("are a few hundred triangles on a desktop and under a third as many on a phone, with a place, a normal and a colour to every corner, and FORMS forms that move them", () => {
     const triangles = (phone: boolean) => Object.fromEntries(shapes.map(([kind]) => [kind, geometryOf(kind, phone).getAttribute("position").count / 3]));
-    expect(triangles(false)).toEqual({ pine: 552, broad: 494 });
-    expect(triangles(true)).toEqual({ pine: 86, broad: 122 });
+    expect(triangles(false)).toEqual({ pine: 546, broad: 494 });
+    expect(triangles(true)).toEqual({ pine: 76, broad: 122 });
     for (const [kind] of shapes) expect(triangles(true)[kind] * 3, kind).toBeLessThan(triangles(false)[kind]);
     for (const [kind] of shapes) for (const phone of [false, true]) {
       const geo = geometryOf(kind, phone), count = geo.getAttribute("position").count, name = nameOf(kind, phone);
@@ -1238,9 +1238,10 @@ describe("the trees' shapes", () => {
         }
         expect(reached.size, name).toBe(parts.length);
       }
-      // A pine's needles are in clumps, one to a bough, and its leader; a broad-crowned tree's leaves are BROAD_MASSES' masses.
+      // A pine's needles are in clumps, one to a bough, and its leader, and a phone's in its four tiers; a broad-crowned tree's
+      // leaves are BROAD_MASSES' masses.
       const leaves = partsOf(geo, NONE).filter((p) => p.leaf).length;
-      expect(leaves, name).toBe(kind === "pine" ? (phone ? 7 : 17) : BROAD_MASSES[phone ? "phone" : "desktop"].length);
+      expect(leaves, name).toBe(kind === "pine" ? (phone ? 4 : 17) : BROAD_MASSES[phone ? "phone" : "desktop"].length);
     }
   });
 
@@ -1331,6 +1332,48 @@ describe("the trees' shapes", () => {
       const under = crown.filter((c) => c.up < -0.5), lit = crown.filter((c) => (kind === "pine" ? c.up > 0.5 : c.up > -0.1 && c.up < 0.5));
       expect(under.length, kind).toBeGreaterThan(30);
       expect(mean(lit.map((c) => c.light)), kind).toBeGreaterThan(2 * mean(under.map((c) => c.light)));
+    }
+  });
+
+  // A crown as a walker sees it, the eye FIRST_EYE m over the ground and `far` m from the trunk on eight sides, on a tree of the
+  // middle size whose foot is sunk SUNK m: of the faces of leaves or needles the eye sees (each face's middle turned to the eye, with
+  // no part of the tree between them), the share, by how large each looks, whose face looks to the sky, so shows its lit side.
+  function fromWalk(all: Corner[], far: number) {
+    const faces: { leaf: boolean; at: THREE.Vector3[] }[] = [];
+    for (let f = 0; f < all.length; f += 3) faces.push({ leaf: all[f + 1].leaf, at: all.slice(f, f + 3).map((c) => new THREE.Vector3(c.x * REF_WIDE, c.y * REF_TALL, c.z * REF_WIDE)) });
+    const ray = new THREE.Ray(), hit = new THREE.Vector3(), n = new THREE.Vector3(), e = new THREE.Vector3(), mid = new THREE.Vector3(), to = new THREE.Vector3();
+    let up = 0, seen = 0;
+    for (let side = 0; side < 8; side++) {
+      const eye = new THREE.Vector3(far * Math.cos((side * Math.PI) / 4), SUNK + FIRST_EYE, far * Math.sin((side * Math.PI) / 4));
+      for (const face of faces) {
+        if (!face.leaf) continue;
+        const [a, b, c] = face.at;
+        n.subVectors(b, a).cross(e.subVectors(c, a));
+        const area = n.length() / 2;
+        if (area === 0) continue;
+        n.normalize();
+        mid.copy(a).add(b).add(c).divideScalar(3);
+        to.subVectors(eye, mid);
+        const dist = to.length(), facing = n.dot(to.divideScalar(dist));
+        if (facing <= 0) continue;
+        ray.set(mid.clone().addScaledVector(to, 1e-3), to);
+        if (faces.some((g) => g !== face && ray.intersectTriangle(g.at[0], g.at[1], g.at[2], false, hit) !== null && hit.distanceTo(mid) < dist)) continue;
+        seen += (area * facing) / dist ** 2;
+        if (n.y > 0) up += (area * facing) / dist ** 2;
+      }
+    }
+    return up / seen;
+  }
+
+  it("show a walker a pine's needles' lit side from under its crown: from 15, 20 and 30 m off, two fifths and more of the needles seen face the sky, on a desktop and a phone, in the form of every number 0, of every number 1, and those of the fixed day's first three pines", { timeout: 60000 }, () => {
+    for (const phone of [false, true]) {
+      const geo = geometryOf("pine", phone), name = nameOf("pine", phone), own = byKind(phone ? fixedPhone.trees : fixed.trees)[0];
+      for (const form of [NONE, NONE.map(() => 1), ...own.slice(0, 3).map((t) => formOf(t) as number[])]) {
+        const shares = [15, 20, 30].map((far) => fromWalk(read(geo, form), far));
+        expect(mean(shares), `${name}, ${form.map((w) => w.toFixed(2))}`).toBeGreaterThan(0.4);
+        // And more of them the further off: the further, the more the eye sees of the crown's tops.
+        expect(shares[2], name).toBeGreaterThan(shares[0]);
+      }
     }
   });
 });

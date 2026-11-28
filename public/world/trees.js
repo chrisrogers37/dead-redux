@@ -528,43 +528,100 @@ function lobe(out, at, rad, sides, rings, salt, { rough, heart, span, round, und
 }
 
 /* A pine's bark: dark at its foot, warming up the trunk to the orange of an old pine's upper bark; and, with its form's last number,
-   greyer and paler. Its needles: dark under each clump, mid along its flanks, paler on top. */
+   greyer and paler. Its needles: paler on each clump's top near its bough, mid toward its rim, dark underneath. */
 const PINE = { bark: [[0, rgb(0x33271f)], [FOOT_TOP * REF_TALL, rgb(0x3d2f25)], [3.2, rgb(0x5f4535)], [7, rgb(0x7a5840)], [12, rgb(0x9a6743)]], grey: rgb(0x8a8076) };
-const NEEDLES = { rough: 0.16, heart: [0, 13.6, 0], span: [3.0, 3.0, 3.0], round: 0.3, under: rgb(0x16261b), flank: rgb(0x3f6146), over: rgb(0x6a8a52), low: 11, high: 16.6 };
-/* A pine's whorls, each [its height in metres, its boughs, how far its boughs reach]: the lowest at the crown's base, each shorter than
-   the one under it. A phone's has three. */
-const PINE_WHORLS = {
-  desktop: [[11.45, 3, 2.45], [12.35, 3, 2.25], [13.2, 3, 1.95], [14.0, 3, 1.6], [14.75, 2, 1.25], [15.4, 2, 0.9]],
-  phone: [[11.6, 3, 2.6], [13.2, 2, 2.05], [14.55, 1, 1.4]],
-};
+const NEEDLES = { rough: 0.16, heart: [0, 13.6, 0], span: [3.0, 3.0, 3.0], round: 0.3, under: rgb(0x1c2e22), flank: rgb(0x44664a), over: rgb(0x6d8c55), low: 11, high: 16.6 };
+/* A pine's whorls, each [its height in metres, its boughs, how far its boughs reach]: the lowest over the crown's base by as far as
+   its clumps droop, and each shorter than the one under it, so the crown narrows to its leader. */
+const PINE_WHORLS = [[13.0, 3, 2.9], [13.55, 3, 2.45], [14.1, 3, 2.0], [14.6, 3, 1.55], [15.05, 2, 1.1], [15.5, 2, 0.7]];
 /* Two ways a pine's whorls stand at heights of their own, each in metres a whorl, at its form's second and third numbers. */
 const PINE_WHORL_A = [0, 0.38, -0.25, 0.3, -0.22, 0.1], PINE_WHORL_B = [0, -0.22, 0.36, 0.22, -0.3, 0];
+/* How steeply each whorl's clumps droop, in radians from level, on average from their boughs to their rims. */
+const DROOP = [1.0, 0.95, 0.9, 0.85, 0.8, 0.75];
+/* A clump's corners across it, where along it its middle ones stand, and how it bows: down the more the further out (its height
+   falls as the FAN_BOW-th power of the way out), down at its sides by FAN_SAG of its drop, and its rim drawn in at its sides. */
+const FAN = 5, FAN_MID = 0.55, FAN_BOW = 1.3, FAN_SAG = 0.4, FAN_ROUND = 0.15;
 
-/* A bough of a pine: a limb from the trunk's middle at `from`, out the way `turn`, to a clump of needles some three fifths of its
-   `long` m out, flattened, wider along the bough than across it; the lowest whorl's clumps hang under where their boughs leave the
-   trunk, as an old pine's lowest boughs droop, and the others' stand over it. Its size is `size` of a full one's. A phone's clump
-   has fewer sides and one ring, and no limb, and is deeper and wider, as it has fewer to fill the crown. */
-function bough(out, { from, turn, long, k, size, limbed }, salt, phone, bark) {
-  const way = [Math.cos(turn), 0, Math.sin(turn)], lift = (k === 0 ? -0.1 : k === 1 ? 0 : 0.1) * long;
-  const deep = phone ? 1.6 : 1, wide = phone ? 1.3 : 1;
-  const rad = [(0.42 * long + 0.3) * size, (0.11 * long + 0.3) * (0.6 + 0.4 * size) * deep, (0.3 * long + 0.3) * size * wide];
-  /* A clump with no limb to hold it reaches as far, but from half a metre past the trunk, so the trunk runs up through it. */
-  let out0 = 0.6 * long;
-  if (phone || !limbed) {
-    const far = out0 + Math.sin(TUCK) * rad[0];
-    out0 = (far - 0.5) / 2;
-    rad[0] = (far + 0.5) / 2 / Math.sin(TUCK);
-  }
-  const at = add(from, add(times(way, out0), [0, lift, 0]));
-  if (limbed && !phone) tube(out, [{ at: from, r: 0.13, c: bark }, { at, r: 0.06, c: bark }], 3, { across: [-way[2], 0, way[0]] });
-  lobe(out, at, rad, phone ? 5 : k >= 4 ? 5 : 6, phone ? 1 : 2, salt, NEEDLES, null, turn);
+/* A clump of needles at a bough's end, as a fan: from `x0` m out along `way` from `from` to a rim `x1` m out, widening to `wide` m
+   either side, and drooping `drop` m by its rim. Its top is the needles' lit side and slopes out and down, so a walker under the
+   crown sees it; its rim is ragged. Under it, from its edge up and in to a belly `thick` m under its top, it is in its own shade
+   and faces down and in toward the trunk. None of it stands further from the tree's middle line than its reach or lower than its
+   crown's base. Each face turns the way its corners' normals do, out of it. It gives back a point inside it, where its bough
+   runs in. */
+function fan(out, from, way, { x0, x1, wide, drop, thick }, salt) {
+  const side = [-way[2], 0, way[0]];
+  const surface = (f, s) => {
+    const x = x0 + (x1 - x0) * f * (1 - FAN_ROUND * s * s), y = 0.5 * thick - drop * f ** FAN_BOW - FAN_SAG * drop * f * s * s;
+    return add(from, add(times(way, x), add(times(side, s * wide * (0.3 + 0.7 * f)), [0, y, 0])));
+  };
+  const normalAt = (f, s) => unit(cross(sub(surface(f, s + 0.02), surface(f, s - 0.02)), sub(surface(Math.min(1, f + 0.02), s), surface(Math.max(0, f - 0.02), s))));
+  const corner = (f, i, ragged) => {
+    const s = -1 + (2 * i) / (FAN - 1), g = ragged ? f * (0.93 + 0.14 * chance(salt, i, 61)) : f, p = surface(g, s);
+    if (ragged) p[1] -= 0.14 * drop * (chance(salt, i, 62) - 0.5);
+    const far = Math.hypot(p[0], p[2]);
+    if (far > REACH_M) { p[0] *= REACH_M / far; p[2] *= REACH_M / far; }
+    p[1] = Math.max(p[1], BASE_M);
+    const tone = mix(NEEDLES.over, NEEDLES.flank, clamp01((g - 0.35) * 1.5)), deep = 0.8 + 0.2 * clamp01((p[1] - NEEDLES.low) / (NEEDLES.high - NEEDLES.low));
+    return { p, n: normalAt(Math.min(1, g), s), c: times(tone, deep * (0.86 + 0.28 * chance(salt, i, 63))) };
+  };
+  const apex = corner(0, (FAN - 1) / 2, false), mid = [], rim = [];
+  for (let i = 0; i < FAN; i++) { mid.push(corner(FAN_MID, i, false)); rim.push(corner(1, i, true)); }
+  const inward = unit(add(times(way, -0.5), [0, -1, 0])), belly = { p: add(surface(0.6, 0), [0, -thick, 0]), c: NEEDLES.under, n: inward };
+  belly.p[1] = Math.max(BASE_M, belly.p[1]);
+  const edge = [apex, mid[0], ...rim, mid[FAN - 1]].map(({ p, n }) => ({ p, c: times(NEEDLES.under, 1.35), n: unit(add(times(n, 0.3), times(inward, 0.7))) }));
+  let face = 0;
+  const tri = (a, b, c) => out.tri(a, b, c, 0.95 + 0.1 * chance(face++, salt, 41), true);
+  for (let i = 0; i < FAN - 1; i++) { tri(apex, mid[i], mid[i + 1]); tri(mid[i], rim[i], rim[i + 1]); tri(mid[i], rim[i + 1], mid[i + 1]); }
+  edge.forEach((e, i) => out.tri(belly, edge[(i + 1) % edge.length], e, 1, true));
+  return times(add(surface(0.3, 0), times(add(apex.p, belly.p), 0.5)), 0.5);
+}
+
+/* A bough of a pine: a limb from the trunk's middle at `from`, out the way `turn` and into a clump of needles that starts some three
+   tenths of its `long` m out, reaches a little past its end, widens as it goes, and droops by `droop`, its size `size` of a full one's. */
+function bough(out, { from, turn, long, size, droop }, salt, bark) {
+  const way = [Math.cos(turn), 0, Math.sin(turn)], x0 = 0.3 * long, x1 = 1.04 * long + 0.3, thick = 0.1 * long + 0.42;
+  /* The drop, as far as the crown's base lets it. */
+  const drop = Math.min(Math.tan(droop) * (x1 - x0), from[1] + 0.5 * thick - BASE_M - 0.05);
+  const into = fan(out, from, way, { x0, x1, wide: (0.6 * long + 0.34) * size, drop, thick }, salt);
+  tube(out, [{ at: from, r: 0.1, c: bark }, { at: into, r: 0.05, c: bark }], 3, { across: [-way[2], 0, way[0]] });
+}
+
+/* A phone's pine's crown: PINE_TIERS tiers of needles, each a cone from the trunk out and down to a rim of PINE_TIER_SIDES corners,
+   the top one the leader. A tier's top is the needles' lit side and slopes out and down, as a bough's clump does; under it, the tier
+   rises back in to the trunk, to three fifths of its drop under its top, so from beside it shows no flat lid. Its form's numbers, at
+   1: the rims reach further on one side; the tiers stand at heights of their own, two ways; two sets of the rims' corners draw in,
+   so each rim is notched its own way; and the trunk bends. Each corner of a rim reaches and droops by its own measure. */
+const PINE_TIERS = [[13.6, 2.6, 2.7], [14.8, 2.2, 2.1], [15.8, 1.8, 1.55], [REF_TALL, 1.4, 1.0]], PINE_TIER_SIDES = 7;
+function tiers(out, trunk, [reach, whorlA, whorlB, tuftA, tuftB]) {
+  PINE_TIERS.forEach(([y0, drop, far], k) => {
+    const y = k === PINE_TIERS.length - 1 ? y0 : y0 + 0.6 * (whorlA * PINE_WHORL_A[k + 1] + whorlB * PINE_WHORL_B[k + 1]);
+    const top = middleAt(trunk, y), spin = 2.4 * k + 0.35 * whorlA - 0.3 * whorlB;
+    const rim = Array.from({ length: PINE_TIER_SIDES }, (_, i) => {
+      const turn = spin + (2 * Math.PI * (i + 0.3 * (chance(i, k, 54) - 0.5))) / PINE_TIER_SIDES, way = [Math.cos(turn), 0, Math.sin(turn)];
+      const notch = (i + k) % 3 === 0 ? tuftA : (i + k) % 3 === 1 ? tuftB : 0;
+      const r = far * (0.85 + 0.3 * chance(i, k, 55)) * (1 + 0.15 * reach * Math.cos(turn)) * (1 - 0.35 * notch), d = drop * (0.85 + 0.3 * chance(i, k, 56));
+      const p = add(top, [way[0] * r, -d * (1 - 0.3 * notch), way[2] * r]);
+      p[1] = Math.max(p[1], BASE_M);
+      return { p, way, r, d, c: times(NEEDLES.flank, 0.9 + 0.2 * chance(i, k, 57)) };
+    });
+    const under = add(top, [0, -0.6 * drop, 0]), apex = { p: top, n: [0, 1, 0], c: NEEDLES.over };
+    const inner = { p: under, n: [0, -1, 0], c: times(NEEDLES.flank, 0.55) }, lit = (q) => unit(add(times(q.way, q.d), [0, q.r, 0])), down = (q) => unit(add(times(q.way, 0.6 * drop - q.d), [0, -q.r, 0]));
+    for (let i = 0; i < PINE_TIER_SIDES; i++) {
+      const a = rim[i], b = rim[(i + 1) % PINE_TIER_SIDES];
+      /* Each face turned out from a point inside the tier between its two corners: midway between its top and its underside, a
+         third of the way out to them. */
+      const half = times(add(a.p, b.p), 0.5), within = times(add(add(top, times(sub(half, top), 1 / 3)), add(under, times(sub(half, under), 1 / 3))), 0.5);
+      out.tri(apex, { p: a.p, n: lit(a), c: a.c }, { p: b.p, n: lit(b), c: b.c }, 1, true, within);
+      out.tri(inner, { p: a.p, n: down(a), c: times(a.c, 0.6) }, { p: b.p, n: down(b), c: times(b.c, 0.6) }, 1, true, within);
+    }
+  });
 }
 
 /* A pine: a trunk on a fluted foot that runs on up to its top through whorls of boughs at uneven heights, each whorl's boughs turned
-   their own ways and reaching their own lengths, each ending in a flat clump of needles, with sky between the whorls and between the
-   clumps; and a leader at the top. Its form's numbers, at 1: its boughs reach further on one side and less on the other; its whorls
-   stand at heights of their own, two ways; a third of its boughs, and another third, are small tufts near the trunk; its trunk
-   bends; and its bark is greyer. A phone's has fewer whorls, boughs and sides. */
+   their own ways and reaching their own lengths, each ending in a drooping clump of needles, with sky between the whorls and between
+   the clumps; and a leader at the top. Its form's numbers, at 1: its boughs reach further on one side and less on the other; its
+   whorls stand at heights of their own, two ways; a third of its boughs, and another third, are small tufts near the trunk; its
+   trunk bends; and its bark is greyer. A phone's trunk has fewer sides and carries tiers in place of boughs. */
 function drawPine(phone, form) {
   const out = shape(), [reach, whorlA, whorlB, tuftA, tuftB, bend, grey] = form;
   const bark = (y) => mix(barkAt(PINE.bark, y), PINE.grey, 0.55 * grey);
@@ -576,19 +633,22 @@ function drawPine(phone, form) {
     : [[1.0, 0.36], [2.4, 0.45], [6.0, 0.36], [10.5, 0.27], [13.8, 0.16], [16.0, 0.035]].map(([y, r], s) => ({ at: s === 0 ? [0, y, 0] : at(y), r, c: bark(y) }));
   if (!phone) tube(out, rings, sides, { level: true });
   tube(out, trunk, phone ? sides : 6, { level: true });
+  if (phone) {
+    tiers(out, trunk, form);
+    return out;
+  }
   /* The boughs, whorl by whorl. */
-  const whorls = PINE_WHORLS[phone ? "phone" : "desktop"];
-  whorls.forEach(([y0, count, long0], k) => {
+  PINE_WHORLS.forEach(([y0, count, long0], k) => {
     const y = y0 + whorlA * PINE_WHORL_A[k] + whorlB * PINE_WHORL_B[k], spin = 2.4 * k + 0.35 * whorlA - 0.3 * whorlB;
     for (let j = 0; j < count; j++) {
       const turn = spin + (2 * Math.PI * (j + 0.35 * (chance(j, k, 52) - 0.5))) / count;
       const tuft = (j + k) % 3 === 0 ? tuftA : (j + k) % 3 === 1 ? tuftB : 0;
       const long = long0 * (0.9 + 0.2 * chance(j, k, 53)) * (1 + 0.2 * reach * Math.cos(turn)) * (1 - 0.45 * tuft);
-      bough(out, { from: middleAt(trunk, y), turn, long, k, size: 1 - 0.3 * tuft, limbed: k < 3 }, 10 * k + j, phone, bark(y));
+      bough(out, { from: middleAt(trunk, y), turn, long, size: 1 - 0.3 * tuft, droop: DROOP[k] }, 10 * k + j, bark(y));
     }
   });
   /* The leader: the trunk's last metre in needles, to the tree's top. */
-  cone(out, { at: middleAt(trunk, 15.55), r: 0.5, c: NEEDLES.flank }, { p: middleAt(trunk, REF_TALL), c: NEEDLES.over }, phone ? 3 : 5, true);
+  cone(out, { at: middleAt(trunk, 15.55), r: 0.5, c: NEEDLES.flank }, { p: middleAt(trunk, REF_TALL), c: NEEDLES.over }, 5, true);
   return out;
 }
 
