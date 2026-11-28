@@ -110,8 +110,9 @@ function microphoneOf(band: Band, k: number) {
   });
   if (!bars.length) return null;
   const all = bars.flat(), low = Math.min(...all.map((c) => c.y)), foot = middleOf(all.filter((c) => c.y < low + 0.001));
-  const capsule = bars[1], middle = middleOf(capsule);
-  return { foot, head: middleOf(capsule.filter((c) => gap(c, foot) > gap(middle, foot))), bars };
+  // The microphone's head is the end of it away from the boom, which holds it at its other end.
+  const capsule = bars[1], fromBoom = (c: Vec) => Math.min(...bars[2].map((b) => gap(b, c))), middle = fromBoom(middleOf(capsule));
+  return { foot, head: middleOf(capsule.filter((c) => fromBoom(c) > middle)), bars };
 }
 // The corners of a singer's head, which stands still among the still parts (band.js keepHead), on the stage; none for a drummer.
 function headOf(band: Band, k: number) {
@@ -174,7 +175,9 @@ describe("the band, as it is built", () => {
     expect(orders.filter((order) => order !== 0)).toEqual([]);
   });
 
-  it("is at most 10,500 triangles, on every tier: the build takes no tier", () => {
+  // Main's six were 10,336 triangles before the bodies (#219); shaped as people, with lofted torsos, heads of 180 faces, closed
+  // hands and eight-sided limbs, 19,754, of a desktop frame's 325,000 at the band's still.
+  it("is at most 20,500 triangles, on every tier: the build takes no tier", () => {
     let triangles = 0;
     stage.traverse((part: { isMesh?: boolean; isInstancedMesh?: boolean; count: number; geometry: { index: unknown; getAttribute(name: string): { count: number } } }) => {
       if (!part.isMesh) return;
@@ -183,7 +186,7 @@ describe("the band, as it is built", () => {
     });
     expect(buildBand.length).toBe(2);
     expect(triangles).toBeGreaterThan(5000);
-    expect(triangles).toBeLessThanOrEqual(10_500);
+    expect(triangles).toBeLessThanOrEqual(20_500);
     expect(band.limbs.count).toBe(band.bones.length);
   });
 
@@ -353,7 +356,7 @@ describe("the band, as it is built", () => {
     });
   });
 
-  it("stands each microphone at its player's mouth: its head 5 to 7 cm before the face's front at its height, as the body rests, upright or leaning, on a boom from a stand at the player's right, before the strumming hand, or before their keyboard", () => {
+  it("stands each microphone at its player's mouth: its head 5 to 7 cm before the face's front at its height, as the body rests, upright or leaning, on a boom that rises to it from a stand beside the player, its top at the shoulders, on the side a guitarist strums on or on a keyboard player's side toward the stage's middle", () => {
     stage.updateMatrixWorld(true);
     const at = new THREE.Vector3();
     const gaps = band.players.flatMap((p: { plays: string; body: { matrixWorld: unknown; geometry: { getAttribute(name: string): { count: number } } } }, k: number) => {
@@ -374,22 +377,23 @@ describe("the band, as it is built", () => {
     // In the player's own metres: 6 cm, which keeps the microphone off the face (the faceless test, band.js MIC). One at the face,
     // as it stood before #219, stood 2 cm before it, and one 0.027 across that stood off it as it did then, 0.065.
     for (const { plays, before } of gaps) expect([plays, before > 0.05 && before < 0.07]).toEqual([plays, true]);
-    // Its stand's foot, in the player's own frame and metres, whichever way they turn: with a guitar or the bass, 15 cm out to the
-    // player's right of their middle (-x) and 17 cm before the microphone's head (+z), each within a centimetre; at a keyboard,
-    // before its front by the stand's stoutness and more, 20 cm to one side of the middle, within a centimetre, and within the
-    // keyboard's ends. And a boom reaches from the stand's top to the head: one part comes within 5 cm of the line the stand
-    // stands on, across, and within 15 cm of the head, in their metres.
-    band.players.forEach((p: { plays: string; g: { scale: Vec } }, k: number) => {
+    // Its stand's foot, in the player's own frame and metres, whichever way they turn, each within a centimetre: with a guitar or the
+    // bass 18 cm further out to their right (-x) than the shoulder's joint, on the side they strum on, and 4 cm behind their middle
+    // (-z); at a keyboard 52 cm out to the side toward the stage's middle, the side the crowd sees behind their keyboard's inner end,
+    // and 10 cm behind. A boom reaches from the stand's top to the head: one part comes within 5 cm of the line the stand stands on,
+    // across, and within 15 cm of the head, in their metres. And it comes in to the mouth from below (band.js MIC): the stand's top
+    // stands 25 cm and more under the mouth (band.js `mouth`), and the boom rises from it 15 cm and more. With the top at the mouth's
+    // height, 1.6, as it stood before, the boom fell 5 to 6 cm to the microphone, level with the face.
+    band.players.forEach((p: { plays: string; mouth: Vec; look: { broad: number }; g: { scale: Vec; position: Vec; rotation: { y: number } } }, k: number) => {
       const found = microphoneOf(band, k);
       if (!found) return;
       const { foot, head, bars } = found, s = p.g.scale.x, at = own(band, k, foot), to = own(band, k, head);
-      if (p.plays === "keys") {
-        const still = band.still.geometry.getAttribute("position"), board: Vec[] = [];
-        for (const part of band.still.userData.parts as Part[]) if (part.of === "keyboard" && part.by === k) for (let i = part.from; i < part.from + part.count; i++) board.push(own(band, k, new THREE.Vector3().fromBufferAttribute(still, i)));
-        expect([Math.abs(Math.abs(at.x) - 0.2) < 0.01, Math.abs(at.x) < Math.max(...board.map((c) => Math.abs(c.x))), at.z > Math.max(...board.map((c) => c.z)) + 0.036]).toEqual([true, true, true]);
-      } else expect([p.plays, Math.abs(at.z - to.z - 0.17) < 0.01, Math.abs(at.x + 0.15) < 0.01]).toEqual([p.plays, true, true]);
+      const [side, beside, back] = p.plays === "keys" ? [-Math.sign(p.g.position.x), 0.52, -0.1] : [-1, 0.205 * p.look.broad + 0.18, -0.04];
+      expect([p.plays, Math.abs(at.z - back) < 0.01, Math.abs(at.x - side * beside) < 0.01, to.z > 0]).toEqual([p.plays, true, true, true]);
       const boom = bars.filter((corners) => Math.min(...corners.map((c) => Math.hypot(c.x - foot.x, c.z - foot.z))) < 0.05 * s && Math.min(...corners.map((c) => gap(c, head))) < 0.15 * s);
       expect([p.plays, boom.length]).toEqual([p.plays, 1]);
+      const top = Math.max(...bars[0].map((c) => own(band, k, c).y)), rises = Math.max(...boom[0].map((c) => own(band, k, c).y)) - top;
+      expect([p.plays, p.mouth.y - top >= 0.25, rises >= 0.15]).toEqual([p.plays, true, true]);
     });
   });
 });
@@ -803,7 +807,7 @@ describe("the band's look", () => {
   // is the head's front, seen from its middle: within FACE.side degrees of straight ahead, from FACE.low degrees under it to
   // FACE.high over it.
   const FACE = { side: 40, low: -40, high: 15 };
-  it("draws every head, in every line-up and era, as one smooth ellipsoid in its skin, the head's parts in its skin, its collar, its hair and its hat alone, and nothing of any colour on its face, the microphone before it and its stand with the rest", () => {
+  it("draws every head, in every line-up and era, as one smooth ellipsoid in its skin down to its jaw, the head's parts in its skin, its collar, its hair and its hat alone, and nothing of any colour on its face, the microphone before it and its stand with the rest", () => {
     for (const [key] of Object.entries(STAGING)) for (const { from } of ERAS) {
       const stage = new THREE.Group(), band: Band = buildBand(stage, FLOOR, key.split(" "), from);
       stage.updateMatrixWorld(true);
@@ -842,9 +846,10 @@ describe("the band's look", () => {
         const skin = tris.flat().filter((c) => c.colour === skinHex).map((c) => c.at);
         // The head's ellipsoid: 0.112 m round, 0.88 of it across, 1.12 up and 1 deep (band.js trunk), its middle under its crown,
         // the highest corner of skin over the neck (within 15 cm of the body's middle line, which takes in no hand); and what of that
-        // skin stands within 5 cm under the middle or over it, which no neck or collar reaches.
+        // skin stands within 3 cm under the middle or over it, which no neck or collar reaches. Below that the head narrows into its
+        // jaw (band.js skull), inside the ellipsoid.
         const [rx, ry, rz] = [0.112 * 0.88, 0.112 * 1.12, 0.112], crown = skin.filter((c) => Math.abs(c.x) < 0.15 && Math.abs(c.z - 0.005) < 0.15);
-        const mid = { x: 0, y: Math.max(...crown.map((c) => c.y)) - ry, z: 0.005 }, head = crown.filter((c) => c.y > mid.y - 0.05);
+        const mid = { x: 0, y: Math.max(...crown.map((c) => c.y)) - ry, z: 0.005 }, head = crown.filter((c) => c.y >= mid.y - 0.03);
         expect([key, from, k, head.length >= 40]).toEqual([key, from, k, true]);
         const offOf = (c: Vec) => ((c.x - mid.x) / rx) ** 2 + ((c.y - mid.y) / ry) ** 2 + ((c.z - mid.z) / rz) ** 2;
         for (const c of head) expect([key, from, k, Math.abs(offOf(c) - 1) < 1e-3]).toEqual([key, from, k, true]);
@@ -1145,18 +1150,19 @@ describe("a microphone's stand", () => {
 
 describe("the band's outlines, from the front, through four counts of playing", () => {
   const FROM = 0.6, UP = 2;
-  // Every triangle of the band as it stands: each corner's place across the stage and up the view, and whether its part moves.
-  function triangles({ stage, band }: { stage: { updateMatrixWorld(force: boolean): void }; band: Band }, tilt: number) {
+  // Every triangle of the band as it stands, but its microphones on their stands with `stands` false: each corner's place across
+  // the stage and up the view, and whether its part moves.
+  function triangles({ stage, band }: { stage: { updateMatrixWorld(force: boolean): void }; band: Band }, tilt: number, stands = true) {
     stage.updateMatrixWorld(true);
     const out: number[] = [], at = new THREE.Vector3(), c = Math.cos(tilt), sn = Math.sin(tilt);
-    const push = (corner: { count: number }, m: unknown, moving: number) => {
-      for (let i = 0; i < corner.count; i++) {
+    const push = (corner: { count: number }, m: unknown, moving: number, from = 0, count = corner.count) => {
+      for (let i = from; i < from + count; i++) {
         at.fromBufferAttribute(corner, i);
         if (m) at.applyMatrix4(m);
         out.push(at.x, FLOOR + (at.y - FLOOR) * c - at.z * sn, moving);
       }
     };
-    push(band.still.geometry.getAttribute("position"), null, 0);
+    for (const part of band.still.userData.parts as Part[]) if (stands || part.of !== "microphone") push(band.still.geometry.getAttribute("position"), null, 0, part.from, part.count);
     for (const p of band.players) push(p.body.geometry.getAttribute("position"), p.body.matrixWorld, 1);
     band.bones.forEach((_: Bone, k: number) => { band.limbs.getMatrixAt(k, matrix); push(band.limbs.geometry.getAttribute("position"), matrix, 1); });
     return out;
@@ -1217,14 +1223,14 @@ describe("the band's outlines, from the front, through four counts of playing", 
     return { thin, pockets };
   }
 
-  it("leaves few gaps under 3 px with a moving part at their edge: from the hill no more than 36 thin pixels and 3 small pockets in any of 16 poses, and from the front of the crowd 45 and 3", () => {
+  it("leaves few gaps under 3 px with a moving part at their edge, between the band's own parts, its stands left out: from the hill no more than 36 thin pixels and 3 small pockets in any of 16 poses, and from the front of the crowd 50 and 4", () => {
     const built = stand();
     built.play(1.5, 96);
     const most = { far: { thin: 0, pockets: 0 }, near: { thin: 0, pockets: 0 } };
     for (let sample = 0; sample < 16; sample++) {
       built.play(0.15, 96);
       for (const [view, px, tilt] of [["far", 0.12, 0.5], ["near", 0.04, 0.12]] as ["far" | "near", number, number][]) {
-        const found = gaps(triangles(built, tilt), px);
+        const found = gaps(triangles(built, tilt, false), px);
         most[view] = { thin: Math.max(most[view].thin, found.thin), pockets: Math.max(most[view].pockets, found.pockets) };
       }
     }
@@ -1240,8 +1246,17 @@ describe("the band's outlines, from the front, through four counts of playing", 
     // keyboard's other end, 33 and 1, and 48 and 2. A guitar's or the bass's 17 cm out to the player's right, not 15, counted 32
     // and 1, and 50 and 3.
     // Something is counted: a wedge's tip is thin wherever two parts part.
+    // Shaped as people, with elbows, closed hands and knees, 34 and 3, and 48 and 4. The bar from the front of the crowd is loosened
+    // from 45 and 3 to 50 and 4 under CLAUDE.md's "Motion and flashes": "The three rules below were set for the old bar. Each still
+    // holds, with its tests, but a later PR may loosen one with frames to show it, and owes no count." The PR's sheets show the band
+    // in play from the front of the crowd. With each microphone's stand beside its player, not before them, the band's own parts
+    // count 35 and 3, and 48 and 4, and the stands with them 56 and 5, and 78 and 5: the light between a stand, its boom and the
+    // arm or the head beside it. A stand is lit steel, which may cross another's outline (band-outline.ts), and the gaps beside it
+    // are left out for the same reason. With each skirt hanging over the legs under it (band.js `hangFrom`), 34 and 3, and 47 and 4;
+    // with the first guitarist's ankles each 2 cm nearer its middle, 37 to 39 and 3 from the hill: the light between its boots
+    // thinned. Its boots taper instead, to stay under its coat (band.js BOOT_TOP).
     expect(most.far.thin).toBeGreaterThan(10);
-    expect([most.far.thin <= 36, most.far.pockets <= 3, most.near.thin <= 45, most.near.pockets <= 3]).toEqual([true, true, true, true]);
+    expect([most.far.thin <= 36, most.far.pockets <= 3, most.near.thin <= 50, most.near.pockets <= 4]).toEqual([true, true, true, true]);
   });
 });
 

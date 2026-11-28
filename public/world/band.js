@@ -60,7 +60,7 @@ export const SCALE = 1.77;
    drummer's arm, nearly still, counted 11 swings in a second at one pixel under it at daybreak, with the edge within three
    thousandths of a pixel of the centre for 18 frames. So no limb stands a little off a trunk or an instrument: a guitarist's arm
    lies against the trunk to the elbow, a fretting arm's bend is filled to the neck, a drummer's elbows stand out with the bend
-   behind them filled, a cymbal stands well clear, and each microphone's stand rises on the crowd's line of sight to its singer.
+   behind them filled, a cymbal stands well clear, and each microphone's stand, beside its singer, joins them or stands whole on its base.
    What thin gaps are left are a wedge's tip where two parts part, the notches of an instrument's own outline, and gaps between
    parts that stand still (`band.test.ts` counts them).
 
@@ -85,6 +85,9 @@ export const HALF_OVER = 1.75, HALF_UNDER = 1.5;
    two counted 7 to 9 on a phone, and once in four both count 5 at the most. A strum takes STRUM, one way a count: down and up inside
    each count, riding the sway, it counted 6. Only a foot keeps the count itself, against the floor. */
 export const SLOW = 4, STRUM = 2;
+/* A lead guitar's solo comes and goes once in SOLO counts: through half of them its player leans over to the right about the mouth,
+   which stays at the microphone, the hips going out to the left, and the guitar's neck rises (`strummer`'s `solo`). */
+export const SOLO = 32;
 /* How long a move takes, in counts, at an even pace, so that no edge creeps (above): the GPU puts each corner of a triangle on a grid
    of 1/256 of a pixel, so an edge that creeps over a pixel's middle crosses it to and fro as its corners step. An edge that goes at
    an even pace crosses it once, and one that holds still flips nothing. */
@@ -133,6 +136,11 @@ const LEAN = 1.45;
 /* How long a lift takes, in counts: a hand goes a metre of the stage and more, and over MOVE it set off and stopped faster than a
    stick does. And a keyboard player's upper arm and forearm, long. */
 const LIFT_MOVE = 1;
+/* How far along the keys a keyboard player's hand stands from where it lifts, out toward its own end of them (`keyboardist`'s
+   `glide`): all of `glide` while the hand is down on its keys, none at the top of its lift, and between, at the lift's own even pace,
+   so a hand goes along the keys as it comes down to them and back as it leaves, at the same speed all the way. `slow` is the lift's
+   move (swing, 1 to -1) and `lead` the hand's turn in it, 1 the left hand's and -1 the right's. */
+export const glided = (glide, level, slow, lead) => (level * glide * (lead + slow)) / 2;
 const ARM = { upper: 0.29, fore: 0.26 };
 /* Where each of a standing keyboard player's wrists lifts to, in their own metres: as high as the chin, a little in front of the
    shoulder and out on its own side (the left the further out, since the keys player turns it from the crowd), so that from the front
@@ -147,9 +155,9 @@ const X = V(1, 0, 0), Y = V(0, 1, 0), BACK = V(-1, 0, 0), AHEAD = V(0, 0, 1);
 /* ---------- parts ---------- */
 
 /* A part as the band's meshes take it: its corners, each with its normal, which the band's light shades (LIGHT), and its colour
-   (`paint`). Nothing here is textured. A part with no colour is a mistake, and the build stops on it. */
+   (`paint`), under its name, if it has one. Nothing here is textured. A part with no colour is a mistake, and the build stops on it. */
 const bare = (geo) => {
-  const g = geo.index ? geo.toNonIndexed() : geo;
+  const g = geo.index ? Object.assign(geo.toNonIndexed(), { name: geo.name }) : geo;
   g.deleteAttribute("uv");
   if (!g.getAttribute("normal")) g.computeVertexNormals();
   if (!g.getAttribute("color")) throw new Error("band.js: a part with no colour");
@@ -199,8 +207,13 @@ const plate = (points, thick, round = true) => {
   return new THREE.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: false, curveSegments: 2 }).translate(0, 0, -thick / 2);
 };
 
-/* The one bar every moving limb is an instance of: 1 long up y from its thick end, 1 across there and tapering, its ends eased. */
-const LIMB = bare(paint(new THREE.LatheGeometry([[0, 0], [0.4, 0], [0.5, 0.07], [0.37, 0.95], [0.3, 1], [0, 1]].map(([r, y]) => new THREE.Vector2(r, y)), 6), tone(0xffffff)));
+/* The one bar every moving limb is an instance of: 1 long up y from its thick end, 0.94 across at its widest, a tenth of the way up,
+   tapering to three quarters of that, its ends rounded: an upper arm's swell to the elbow and a forearm's to the wrist, a thigh's to
+   the knee. Eight sides, so that from every side its outline is round; and as wide across its flats as the six-sided bar it
+   replaced (0.94 of it across its corners), so that no outline widens: a limb a full 1 across at its corners met a neighbour's
+   outline at a phone's lower rungs (band-outline.test.ts, "keeps each player an outline of their own"). */
+const LIMB_SIDES = 8;
+const LIMB = bare(paint(new THREE.LatheGeometry([[0, 0], [0.36, 0], [0.47, 0.1], [0.44, 0.45], [0.35, 0.9], [0.28, 1], [0, 1]].map(([r, y]) => new THREE.Vector2(r, y)), LIMB_SIDES), tone(0xffffff)));
 /* Where a limb lies, as a matrix on LIMB: from `a` to `b`, `wide` across at a along `ref` (made square to the limb) and `thick` the
    other way, running `pads` past a and b so that two limbs meeting at a joint cover its bend. */
 const side = V(), up = V(), along = V();
@@ -224,9 +237,77 @@ const web = (c, a, b, d) => {
   geo.computeVertexNormals();
   return paint(geo, c);
 };
-/* A trouser cuff round an ankle, `hem` in radius at its foot and `tall`, and a shoe from heel to toe, each in its colour. */
-const cuff = (c, ankle, hem = 0.084, tall = 0.14, top = 0.062) => paint(new THREE.CylinderGeometry(top, hem, tall, 8).translate(ankle.x, 0.055 + tall / 2, ankle.z), c);
-const shoe = (c, heel, toe) => limb(c, heel, toe, 0.105, 0.08);
+/* A smooth body through rings of corners, each ring as many as the next, closed round each ring and over its first and its last:
+   each corner's normal the mean of its faces', so that it shades round, not in facets. Its faces face out, whichever way its rings
+   run: wound the other way where the body they close has less than no volume so. */
+function tube(rings) {
+  const n = rings[0].length, at = rings.flat().flatMap((v) => [v.x, v.y, v.z]), index = [];
+  for (let r = 0; r + 1 < rings.length; r++) for (let k = 0; k < n; k++) {
+    const a = r * n + k, b = r * n + ((k + 1) % n);
+    index.push(a, b, b + n, a, b + n, a + n);
+  }
+  const mid = (ring) => ring.reduce((sum, v) => sum.add(v), V()).divideScalar(n), last = (rings.length - 1) * n, low = at.length / 3;
+  for (const c of [mid(rings[0]), mid(rings.at(-1))]) at.push(c.x, c.y, c.z);
+  for (let k = 0; k < n; k++) index.push(low, (k + 1) % n, k, low + 1, last + k, last + ((k + 1) % n));
+  let volume = 0;
+  const p = (i) => V(at[i * 3], at[i * 3 + 1], at[i * 3 + 2]);
+  for (let i = 0; i < index.length; i += 3) volume += p(index[i]).dot(V().crossVectors(p(index[i + 1]), p(index[i + 2])));
+  if (volume < 0) for (let i = 0; i < index.length; i += 3) [index[i + 1], index[i + 2]] = [index[i + 2], index[i + 1]];
+  const geo = new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(at, 3));
+  geo.setIndex(index);
+  geo.computeVertexNormals();
+  return geo;
+}
+/* A ring round a body, `sides` corners on an ellipse `w` across to either side and `d` deep before and behind its middle at `y`, `z`
+   forward; `shape(a)` scales it at the angle a from the front, and `drop(a)` lowers it there. */
+const ring = (y, w, d, z, sides, shape = () => 1, drop = () => 0) => Array.from({ length: sides }, (_, k) => {
+  const a = (2 * Math.PI * k) / sides, s = shape(a);
+  return V(w * s * Math.sin(a), y - drop(a), z + d * s * Math.cos(a));
+});
+/* A trouser cuff round an ankle, `hem` in radius at its foot and `tall` from CUFF's `foot`, in colour `c`. A boot is one, taller
+   (`stand`), tapering to BOOT_TOP in radius at its top, which reaches up under a coat's skirts: a lead guitar's, 0.074 at its top,
+   stood out of the side of its coat (band-bodies.test.ts), and its ankles each 2 cm nearer its middle thinned the light between its
+   boots from the hill (band.test.ts, "leaves few gaps"). */
+const CUFF = { foot: 0.055, tall: 0.14 }, BOOT_TOP = 0.054;
+const cuff = (c, ankle, hem = 0.084, tall = CUFF.tall, top = 0.062) => paint(new THREE.CylinderGeometry(top, hem, tall, 10).translate(ankle.x, CUFF.foot + tall / 2, ankle.z), c);
+/* A shoe from its heel to its toe, in colour `c`: flat on the floor, its upper rising over the instep behind the ankle, widest at the
+   ball of the foot, and rounding down to the toe; each ring across it a half-ellipse over a flat sole. */
+/* A standing player's foot, FOOT from heel to toe, its toe turned out by their `toes` (DEAL). Turned out twice as far and 2 cm longer,
+   a still shoe's toe stood a pixel apart from its ankle, corner to corner, from the back of the crowd on a phone at dusk, once no
+   microphone's base stood before it (band-outline.test.ts, "comes apart little"). */
+const FOOT = 0.25;
+const SHOE = [[-0.032, 0.036, 0.055], [0, 0.046, 0.085], [0.08, 0.048, 0.098], [0.17, 0.054, 0.07], [0.235, 0.05, 0.058], [0.275, 0.038, 0.045], [0.298, 0.018, 0.03]];
+function shoe(c, heel, toe) {
+  const way = V(toe.x - heel.x, 0, toe.z - heel.z), scale = way.length() / 0.27, turn = Math.atan2(way.x, way.z);
+  const rings = SHOE.map(([z, w, t]) => [0, 1, 2, 3, 4, 5, 6].map((k) => V(w * Math.cos((Math.PI * k) / 6), t * Math.sin((Math.PI * k) / 6), z * scale)));
+  return paint(tube(rings).rotateY(turn).translate(heel.x, 0, heel.z), c);
+}
+/* A hand closed on what it holds, as still parts in colour `c`: at `at`, the middle of the grip; the knuckles the way `ahead` from the
+   wrist, and what it holds running the way `across`. A palm, the fingers' mass curled over the held thing on the side the knuckles
+   turn to (ahead × across, or the other way with `flip`), and a thumb along it on the other; and the wrist it is held from, behind
+   the palm, which an arm ends in. */
+function fist(c, at, ahead, across, flip = false, big = 1) {
+  const f = ahead.clone().normalize(), a = across.clone().addScaledVector(f, -across.dot(f)).normalize(), u = V().crossVectors(f, a).multiplyScalar(flip ? -1 : 1);
+  const p = (x, y, z) => at.clone().addScaledVector(a, x * big).addScaledVector(f, y * big).addScaledVector(u, z * big);
+  const palm = new THREE.IcosahedronGeometry(1, 1).scale(0.042 * big, 0.05 * big, 0.034 * big).applyMatrix4(new THREE.Matrix4().makeBasis(a, f, u)).translate(at.x, at.y, at.z);
+  palm.name = "palm";
+  return { parts: [paint(palm, c), limb(c, p(-0.04, 0.035, 0.012), p(0.042, 0.03, 0.004), 0.05 * big, 0.04 * big, [0.008, 0.008], u),
+    limb(c, p(-0.02, -0.028, -0.03), p(0.035, 0.012, -0.034), 0.03 * big, 0.026 * big, [0, 0.004], f)], wrist: p(0, -0.055, 0) };
+}
+/* An arm that never moves, as still parts of a body: an upper arm from the shoulder to the elbow and a forearm to the wrist, the elbow
+   between them, in the sleeves the dress has (worn): a long sleeve to the wrist, with a cuff; a short one, a tee's, ending above the
+   elbow over the skin of the arm; or one rolled to under the elbow. */
+function armParts(dress, shoulder, elbow, wrist = null, wide = 0.118) {
+  const { skin, upper, fore, sleeve } = worn(dress), parts = [], at = (t) => shoulder.clone().lerp(elbow, t);
+  if (sleeve === "short") parts.push(limb(upper, shoulder, at(0.55), wide * 1.12, wide * 1.12, [0.02, 0]), limb(skin, at(0.4), elbow, wide * 0.9, wide * 0.9, [0, 0.02]));
+  else parts.push(limb(upper, shoulder, elbow, wide, wide, [0.02, 0.02]));
+  parts.push(paint(ball(elbow, wide * 0.38, 1, 1, 1, 1), sleeve === "short" ? skin : upper));
+  if (!wrist) return parts;
+  parts.push(limb(fore, elbow, wrist, wide * 0.88, wide * 0.8, [0.015, 0.01]));
+  if (sleeve === "long") parts.push(limb(fore, elbow.clone().lerp(wrist, 0.86), wrist, wide * 0.84, wide * 0.8, [0, 0.008]));
+  if (sleeve === "rolled") parts.push(limb(upper, elbow.clone().lerp(wrist, 0.04), elbow.clone().lerp(wrist, 0.24), wide * 0.98, wide * 0.92));
+  return parts;
+}
 
 /* The elbow of an arm from a shoulder (`from`) to a wrist (`to`), `upper` and `fore` long, bent toward `pole`, written to `elbow`. A
    wrist past the arm's reach, or nearer the shoulder than a folded arm brings it, is taken as at the nearest place the arm reaches. */
@@ -241,63 +322,124 @@ function elbowOf(elbow, from, to, upper, fore, pole) {
 
 /* A posture: how high the hips are, and how far over them the waist is, about which the body turns. */
 const STANDING = { hips: 0.92, waist: 0.01 }, SEATED = { hips: 0.6, waist: 0.02 };
+/* A leg under a skirt or a coat (`stand`), never seen, is as wide as this at the thigh and the shin: as wide as a leg in trousers,
+   0.2 and 0.148, a thigh stood out of the side of the bass's and the rhythm guitarist's skirts, and the lead guitar's thigh and
+   shin out of its coat (band-bodies.test.ts). */
+const HIDDEN_LEG = { thigh: 0.12, shin: 0.1 };
+/* How far a skirt's corners go from where its body has them, at most, as it hangs (buildBand's `hang`): a body's bounds take that
+   much more, so it is never culled while a skirt shows. */
+const HANG_SLACK = 0.2;
+const bound = (geo) => {
+  geo.computeBoundingSphere();
+  geo.boundingSphere.radius += geo.userData.slack ?? 0;
+};
+/* Sends `count` corners of a body's attribute `a` from `from` to the GPU on the next draw, and no more of it than the ranges sent so,
+   which three clears once they are sent: a skirt's each frame (buildBand's `hang`), and a neck's tip as the canvas changes (`fit`). */
+function send(a, from, count) {
+  for (let i = 0; i < a.updateRanges.length; i++) if (a.updateRanges[i].start === from * 3) { a.needsUpdate = true; return; }
+  a.addUpdateRange(from * 3, count * 3);
+  a.needsUpdate = true;
+}
+/* The torso, from under the hips to the neck's foot, as rings over the hips, each [up, half its width, half its depth, how far forward
+   its middle stands], in a player's own metres, the width times their build (`broad`): the hips; the waist, narrower; the chest,
+   deepest and forward; the shoulders' line, widest; and the slope up to the neck. A ring stands at each line where the clothes'
+   colours change (`trunk`: the belt's at 0.04, a check's rows at 0.223 and 0.337, the shoulders' at 0.49), since each face takes
+   the colour at its middle, and a line between two rings came out in teeth. */
+const TORSO = [[-0.1, 0.165, 0.12, 0], [0, 0.175, 0.125, 0], [0.04, 0.171, 0.122, 0.001], [0.08, 0.166, 0.118, 0.002], [0.16, 0.142, 0.106, 0.006],
+  [0.223, 0.152, 0.111, 0.011], [0.26, 0.164, 0.116, 0.014], [0.337, 0.186, 0.123, 0.019], [0.35, 0.19, 0.124, 0.02], [0.42, 0.205, 0.118, 0.014],
+  [0.47, 0.195, 0.1, 0.004], [0.49, 0.18, 0.094, 0.002], [0.51, 0.162, 0.086, 0], [0.54, 0.118, 0.072, -0.002], [0.56, 0.072, 0.06, -0.004]];
+/* How wide a front stands open at a height up the chest (`up`, 0 at the waist and 1 at the shoulders), as an angle from the front to
+   either side, in rad: a coat's down its front, wider at the top where its lapels turn back; a vest's in a deep V; an open shirt's. */
+const OPEN = { coat: (u) => 0.1 + 0.32 * Math.max(0, u - 0.3), vest: (u) => Math.max(0, 0.58 * (u - 0.3)), open: (u) => 0.08 + 0.26 * Math.max(0, u - 0.4) };
 /* A trunk and a head in a posture, facing +z, dressed as `dress` says (WARDROBES). `broad` widens it. A collar stands from the
    shoulders' slope to under the head's widest, behind the jaw's line, so no notch is open under the jaw from the front and nothing
    stands under the chin from the side. The hair is an outline and no more, and falls behind the jaw too: "short", "long" past the
    shoulders, a "bob" to them, a "tail" down the back, a "cap" with a peak, a "knot" on the crown, a "beanie", or "bunches" either
    side. `skirt` is the length of a skirt or a coat's skirts from the hips, 0 for none: a coat, `dress.coat`, closes over the trunk
-   and the arms, open down the front over what is under it. The head is a smooth form, with no eyes, nose or mouth, and the skin's
-   colour; the hair is the hair's, and a cap or a beanie the hat's. Returns the parts, the `pivot` at the waist, the `hip` and the
-   `shoulder` of a side (1 the player's left, +x, and -1 their right), and the mouth. */
+   and the arms, open down the front over what is under it, its lapels turned back. The head is a smooth form, with no eyes, nose or
+   mouth, and the skin's colour, its jaw under it; the hair is the hair's, and a cap or a beanie the hat's. Returns the parts, the
+   `pivot` at the waist, the `hip` and the `shoulder` of a side (1 the player's left, +x, and -1 their right), and the mouth. */
 function trunk({ hips: h, waist }, broad, hair, skirt = 0, dress) {
-  const head = V(0, h + 0.735, 0.005), { skin, shoulders, slope, under, pattern, collar } = worn(dress);
-  const parts = [
-    paint(new THREE.CylinderGeometry(0.17, 0.18, 0.2, 8).scale(broad, 1, 0.72).translate(0, h + 0.02, 0), dress.coat ?? (skirt ? dress.skirt : dress.lower)),
-    /* The chest, in three rows of eight faces, so a check or a print has squares to fall on (`pattern`). */
-    paintBy(new THREE.CylinderGeometry(0.2, 0.15, 0.34, 8, 3).scale(broad, 1, 0.62).translate(0, h + 0.28, 0), (at) => pattern(Math.atan2(at.x / broad, at.z / 0.62), (at.y - h - 0.11) / 0.34)),
-    paint(new THREE.CapsuleGeometry(0.07, 0.41 * broad, 2, 8).rotateZ(Math.PI / 2).scale(1, 1, 0.9).translate(0, h + 0.455, 0), shoulders),
-    paint(new THREE.CylinderGeometry(0.07, 0.2, 0.09, 8).scale(broad, 1, 0.62).translate(0, h + 0.495, 0), slope),
-  ];
-  /* What shows down the front of an open shirt, a vest or a coat: a strip that lies on the chest's front edge, wider at the top. */
-  if (under) parts.push(placket(h, broad, under));
-  /* The head, with its neck, its collar and its hair: its own list, since one who sings keeps theirs still (see buildBand). */
+  const head = V(0, h + 0.735, 0.005), { skin, shoulders, slope, under, pattern, collar, cut } = worn(dress);
+  const below = dress.coat ?? (skirt ? dress.skirt : dress.lower), open = under ? OPEN[dress.coat ? "coat" : cut] ?? OPEN.open : null;
+  /* The torso, sixteen corners round, in its garments: below the hips' line what is worn under it; over the shoulders' line the slope
+     to the neck; and between, the chest's pattern (a check's or a print's squares, `pattern`), but where a front stands open, which
+     shows what is under it, and a vest's armholes, which show the shirt's sleeves. */
+  const torso = paintBy(tube(TORSO.map(([y, w, d, z]) => ring(h + y, w * broad, d, z, 16))), (at) => {
+    const u = (at.y - h - 0.11) / 0.34, turn = Math.atan2(at.x / broad, at.z / 0.62);
+    if (at.y < h + 0.04) return below;
+    if (at.y > h + 0.49) return slope;
+    if (open && Math.abs(turn) < open(u)) return under;
+    if (cut === "vest" && !dress.coat && u > 0.75 && Math.abs(Math.abs(turn) - Math.PI / 2) < 0.4) return dress.second;
+    return pattern(turn, u);
+  });
+  torso.name = "torso";
+  const parts = [torso, ...[1, -1].map((s) => paint(ball(V(s * 0.188 * broad, h + 0.45, 0), 0.064, 1.05, 1.1, 1, 1), shoulders))];
+  /* A coat's lapels: a flap each side of its open front, from under the collar halfway down the chest, turned back over it. */
+  if (dress.coat) for (const s of [1, -1]) {
+    const on = (u, out, proud) => { const y = h + 0.11 + 0.34 * u, r = ringAt(y - h), a = s * (open(u) + out); return V(r.w * broad * Math.sin(a) * (1 + proud), y, r.z + r.d * Math.cos(a) * (1 + proud)); };
+    parts.push(web(dress.coat, on(1.05, 0, 0.04), on(0.55, 0, 0.04), on(0.62, 0.42, 0.1)), web(dress.coat, on(1.05, 0, 0.04), on(0.62, 0.42, 0.1), on(0.98, 0.36, 0.1)));
+  }
+  /* The head, with its neck, its collar, its jaw and its hair: its own list, since one who sings keeps theirs still (see buildBand).
+     The head is an ellipsoid of 180 faces, turned so that a corner stands at its crown, as band.test.ts's faceless test finds it. */
   const top = [
-    paint(new THREE.CylinderGeometry(0.05, 0.058, 0.17, 6).translate(0, h + 0.55, 0), skin),
-    paint(new THREE.CylinderGeometry(0.094, 0.115, 0.19, 8).scale(1, 1, 0.5).translate(0, h + 0.58, -0.035), collar),
-    paint(ball(head, 0.112, 0.88, 1.12, 1), skin),
+    paint(new THREE.CylinderGeometry(0.054, 0.062, 0.17, 10).translate(0, h + 0.55, -0.005), skin),
+    paint(new THREE.CylinderGeometry(0.094, 0.115, 0.19, 12).scale(1, 1, 0.5).translate(0, h + 0.58, -0.035), collar),
+    paint(skull(new THREE.IcosahedronGeometry(0.112, 2).rotateX(-Math.atan((1 + Math.sqrt(5)) / 2)).scale(0.88, 1.12, 1)).translate(head.x, head.y, head.z), skin),
   ];
   const lift = (x, y, z) => V(head.x + x, head.y + y, head.z + z);
   const tops = (...parts) => parts.map((part) => paint(part, dress.hair));
+  /* Hair over the crown, with its own volume: fuller at the crown and the back than the head under it. */
+  const crown = () => ball(lift(0, 0.028, -0.022), 0.117, 0.96, 1.02, 1.05, 2);
   /* Hair that falls: a dome over the crown, and a skirt from it down to `to` below the head's middle, `wide` at its hem. */
-  const fall = (to, wide) => tops(ball(lift(0, 0.012, -0.014), 0.124, 1, 1, 0.96),
-    new THREE.CylinderGeometry(0.123, wide, to + 0.01, 8).scale(1, 1, 0.66).translate(head.x, head.y + 0.005 - to / 2, head.z - 0.055));
-  if (hair === "short" || hair === "knot") top.push(...tops(ball(lift(0, 0.024, -0.018), 0.113, 0.93, 1, 1.02)));
-  if (hair === "knot") top.push(...tops(ball(lift(0, 0.085, -0.105), 0.068, 1.25, 0.85, 1)));
-  if (hair === "long") top.push(...fall(0.33, 0.152));
-  if (hair === "bob") top.push(...fall(0.215, 0.15));
-  if (hair === "tail") top.push(...tops(ball(lift(0, 0.024, -0.018), 0.113, 0.93, 1, 1.02), ball(lift(0, -0.01, -0.125), 0.05), bar(lift(0, -0.02, -0.13), lift(0, -0.2, -0.115), 0.036, 0.02)));
-  if (hair === "cap") top.push(...[new THREE.CylinderGeometry(0.096, 0.106, 0.08, 8).translate(head.x, head.y + 0.094, head.z), new THREE.BoxGeometry(0.16, 0.03, 0.1).rotateX(0.35).translate(head.x, head.y + 0.055, head.z + 0.14)].map((part) => paint(part, dress.hat)));
+  const fall = (to, wide) => tops(crown(),
+    paint(tube([0, 1, 2, 3].map((k) => ring(head.y + 0.005 - ((to + 0.01) * k) / 3, 0.124 + ((wide - 0.124) * k * k) / 9, (0.124 + ((wide - 0.124) * k * k) / 9) * 0.66, head.z - 0.055, 12))), dress.hair));
+  if (hair === "short" || hair === "knot") top.push(...tops(crown()));
+  if (hair === "knot") top.push(...tops(ball(lift(0, 0.088, -0.108), 0.068, 1.25, 0.85, 1, 2)));
+  if (hair === "long") top.push(...fall(0.33, 0.162));
+  if (hair === "bob") top.push(...fall(0.215, 0.158));
+  if (hair === "tail") top.push(...tops(crown(), ball(lift(0, -0.01, -0.128), 0.05, 1, 1, 1, 1), limb(dress.hair, lift(0, -0.02, -0.135), lift(0, -0.2, -0.12), 0.072, 0.06), limb(dress.hat, lift(0, -0.02, -0.134), lift(0, -0.05, -0.132), 0.078, 0.066)));
+  if (hair === "cap") top.push(...[new THREE.CylinderGeometry(0.098, 0.108, 0.08, 12).translate(head.x, head.y + 0.094, head.z), ball(lift(0, 0.13, 0), 0.098, 1, 0.3, 1, 1),
+    new THREE.BoxGeometry(0.16, 0.026, 0.1).rotateX(0.35).translate(head.x, head.y + 0.055, head.z + 0.14)].map((part) => paint(part, dress.hat)));
   /* A knitted cap with no brim, from the brow up, flat at the sides and rounded on top: the head stands taller and squarer than
      under hair. */
-  if (hair === "beanie") top.push(...[new THREE.CylinderGeometry(0.106, 0.12, 0.13, 8).translate(head.x, head.y + 0.05, head.z - 0.01), ball(lift(0, 0.115, -0.01), 0.106, 1, 0.55, 1)].map((part) => paint(part, dress.hat)));
+  if (hair === "beanie") top.push(...[new THREE.CylinderGeometry(0.106, 0.12, 0.13, 8).translate(head.x, head.y + 0.05, head.z - 0.01), ball(lift(0, 0.115, -0.01), 0.106, 1, 0.55, 1, 1)].map((part) => paint(part, dress.hat)));
   /* Two bunches of hair, one each side of the crown, behind the ears and over the jaw's line: from the front, a bump to either side. */
-  if (hair === "bunches") top.push(...tops(ball(lift(0, 0.024, -0.018), 0.113, 0.93, 1, 1.02), ...[1, -1].map((s) => ball(lift(s * 0.112, 0.035, -0.05), 0.052, 1, 1.15, 1))));
-  /* A skirt or a coat's skirts, `skirt` long from the hips: it hides the legs, which move under it, and closes the gap between them. */
-  if (skirt) parts.push(paint(new THREE.CylinderGeometry(0.175, 0.175 + 0.156 * skirt, skirt, 10).scale(broad, 1, 0.8).translate(0, h + 0.02 - skirt / 2, 0), dress.coat ?? dress.skirt));
+  if (hair === "bunches") top.push(...tops(crown(), ...[1, -1].map((s) => ball(lift(s * 0.112, 0.035, -0.05), 0.052, 1, 1.15, 1, 1))));
+  /* A skirt or a coat's skirts, `skirt` long from the hips, flaring to its hem, which closes the gap between the legs. A skirt's hem
+     falls in folds; a coat's skirts hang longer behind, part at the front over what is under, and are 0.93 as wide: as wide as a
+     skirt, from among the crowd on a desktop the first guitar's coat met the bass in the sevens (band-outline-1990.test.ts). Either
+     hangs from the hips over the legs, which stay under it as they move (buildBand's `hang`; band-bodies.test.ts). The torso and the
+     skirt are named, as the parts a skirt's legs stay inside. */
+  if (skirt) {
+    const rows = [0, 0.25, 0.5, 0.75, 1].map((t) => [h + 0.03 - (skirt + 0.01) * t, 0.178 + 0.153 * skirt * t ** 1.3]);
+    const folds = (a) => 1 + (dress.coat ? 0 : 0.035) * Math.cos(7 * a), tail = (a) => (dress.coat ? 0.035 * (1 - Math.cos(a)) : 0);
+    const geo = tube(rows.map(([y, r], k) => ring(y, r * broad * (dress.coat ? 0.93 : 1), r * 0.8, 0, 20, k ? folds : () => 1, k === 4 ? tail : () => 0)));
+    const skirts = bare(dress.coat ? paintBy(geo, (at) => (Math.abs(Math.atan2(at.x / broad, at.z)) < 0.1 ? dress.lower : dress.coat)) : paint(geo, dress.skirt));
+    skirts.name = "skirt";
+    parts.push(skirts);
+  }
+  for (const part of top) part.name = "head";
   return { parts, head: top, pivot: V(0, h + waist, 0), hip: (side) => V(side * 0.09 * broad, h - 0.02, 0), shoulder: (side) => V(side * 0.205 * broad, h + 0.455, 0), mouth: V(0, h + 0.685, 0.105) };
 }
-/* The strip down the front of a chest (trunk) of a player `broad`, whose hips are `h` high: on the chest's front edge, which is a
-   ridge of its eight faces, and folded back along the two faces either side of it, 3 mm proud, `c` in colour; from the waist to the
-   collar, wider at the top. */
-function placket(h, broad, c) {
-  const rows = [[h + 0.12, 0.035 * broad], [h + 0.44, 0.062 * broad]].map(([y, w]) => {
-    const r = 0.15 + (0.05 * (y - h - 0.11)) / 0.34, z = 0.62 * r + 0.003;
-    return [V(-w, y, z - (0.257 * w) / broad), V(0, y, z), V(w, y, z - (0.257 * w) / broad)];
-  });
-  const [[a, b, d], [e, f, g]] = rows, corners = [a, b, f, a, f, e, b, d, g, b, g, f];
-  const geo = new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(corners.flatMap((v) => [v.x, v.y, v.z]), 3));
+/* A head's ellipsoid (`trunk`), about its middle, shaped as a skull is: below 3 cm under its middle it narrows, to 0.72 of its width
+   and 0.9 of its depth at its foot, into a jaw and a chin, and the back of it more than the front, into the neck. All of it stays
+   inside the ellipsoid, and over that line it is the ellipsoid, which band.test.ts's faceless test holds. */
+function skull(geo) {
+  const at = geo.getAttribute("position"), ry = 0.112 * 1.12, from = -0.03;
+  for (let i = 0; i < at.count; i++) {
+    const y = at.getY(i);
+    if (y >= from) continue;
+    const t = (from - y) / (ry + from), z = at.getZ(i);
+    at.setXYZ(i, at.getX(i) * (1 - 0.28 * t * t), y, z * (1 - (z < 0 ? 0.2 : 0.1) * t * t));
+  }
   geo.computeVertexNormals();
-  return paint(geo, c);
+  return geo;
+}
+/* The torso's ring at height `y` over the hips' (TORSO), between the two it lies between. */
+function ringAt(y) {
+  const k = Math.max(1, TORSO.findIndex(([u]) => u >= y)), [ua, wa, da, za] = TORSO[k - 1], [ub, wb, db, zb] = TORSO[k], t = (y - ua) / (ub - ua);
+  return { w: wa + (wb - wa) * t, d: da + (db - da) * t, z: za + (zb - za) * t };
 }
 
 /* A guitar or a bass, held: flat in its own frame, x along the strings from the body's end toward the head and y across them, with the
@@ -321,7 +463,10 @@ function axe({ at, rise, yaw, big, strum, body, joint, nut, neck, head, face }, 
     paint(box(fret - joint + 0.04, neck, 0.028, (fret + joint - 0.04) / 2, 0, 0), finish.neck)];
   const ends = [paint(box(nut - fret + 0.02, neck, 0.028, (nut + fret - 0.02) / 2, 0, 0), finish.neck),
     paint(plate([[nut - 0.01, -neck / 2], [flare, -half], [tip, -half], [tip, half], [flare, half], [nut - 0.01, neck / 2]], 0.022, false), finish.head)];
-  for (const p of [...parts, ...ends]) p.applyMatrix4(hold);
+  for (const p of [...parts, ...ends]) {
+    p.applyMatrix4(hold);
+    p.name = "instrument";
+  }
   return { parts, tip: ends, hold, on: (x, y, z = 0) => V(x, y, z).applyMatrix4(hold) };
 }
 /* The sunburst on a body of outline `body`, `z` in front of its middle: an ellipse round the middle of the body's lower bout, two
@@ -361,29 +506,52 @@ const NECK_PX = 1.25, NECK_MOST = 3;
    stand is a dull steel (STUFF.steel), lit, so against a lit body it is a stand and no black bar, as it was in black; and no
    lighter, for where it stands at the outline against the panel it reads against it as a lit body does: in the kit's chrome the
    six of 1970-71's outline read 44 px of 180 from the back of the crowd on a phone at dusk, under its quarter (band-outline.ts
-   BAND_READS), and in this steel 47. The stand is the part buildBand's `fit` widens (the first). */
-const STAND = 0.036, MIC_BASE = 0.1, MIC_HEAD = 0.04;
+   BAND_READS), and in this steel 47. The stand is the part buildBand's `fit` widens (the first). The singer's microphone's head,
+   a ball MIC_HEAD in radius, `fit` widens no further than MIC_HEAD_MOST: as far as a stand, on a phone it stood before the singer's
+   face over the mouth (band-outline.ts `standsBefore`). */
+const STAND = 0.036, MIC_BASE = 0.1, MIC_HEAD = 0.04, MIC_HEAD_MOST = 0.05;
 /* Where a microphone stands, in the player's own frame and metres (`voice`). Its tip is MIC.off before the middle of the
    player at the mouth's height, 6 cm before the face, which keeps every corner and edge of it 0.42 of the head's radii off the face
    and more, over the 0.3 of band.test.ts's faceless test; it reaches MIC.long from there, out and down, its fall over its run
-   MIC.tip. The stand of one with a guitar or the bass stands MIC.beside to their right of their middle and MIC.fore before the
-   microphone's tip, just before the strumming hand, its top MIC.drop under the tip, and the boom reaches up and across from there
-   to the microphone. A keyboard player's stands MIC.clear before the front of the keyboard, MIC.aside from their middle toward
-   the hand that lifts out wide (`keyboardist`'s LIFT), its top MIC.high, over the keys, and the boom rises from there over the
-   keyboard to the microphone. Of the other places tried for it, on the roof's stage: past the keyboard's end toward the stage's edge,
-   it came within two pixels of a PA stack and stood before the lifted hand from the front (band-outline.ts); past the other end,
-   before the keyboard's middle, 5 cm nearer the middle or 5 cm further before the keyboard, it parted from the body by a pixel or
-   two from the front of the crowd (band.test.ts, the gaps); and as far toward the other hand, that hand lifted through the boom
-   (band.test.ts, "a microphone's stand"). */
-const MIC = { off: 0.16, tip: 0.5, long: 0.15, beside: 0.15, fore: 0.17, drop: 0.36, aside: 0.2, clear: 0.15, high: 1.05 };
-/* How far a keyboard's parts reach before its player, in their frame. */
-const frontOf = (parts) => Math.max(...parts.map((geo) => (geo.computeBoundingBox(), geo.boundingBox.max.z)));
+   MIC.tip. Its stand's top is `high`, under the chin, and a boom rises from there to the microphone's back, under the mouth: so from
+   every camera of the shoot it comes in to the mouth from below and beside, and stands before no head above the mouth and no
+   instrument (band-outline.ts `standsBefore`). With the top at the mouth's height, 1.6, the boom was a level bar over the lower face
+   from the front of the crowd, and the bass's guitar neck crossed it.
+   - A keyboard player's stand stands beside them, MIC.beside from their middle and MIC.back behind it, so that from the crowd it
+     stands beside the torso and never before it (band-bodies.test.ts), on their side toward the stage's middle: they stand at its
+     ends, turned in, and from the front the boom stands behind the hand at the top of its lift (band-outline.ts counts what shows of
+     a lift with the stands left out). Its top, MIC.high, is at the shoulders: 7.5 cm under their joints, 21.5 under the chin and
+     30.5 under the mouth (`trunk`), and the boom rises 24 cm.
+   - A guitarist's and the bass's stand stands beside them on the side they strum on (STRUMMING), STRUMMING.out further out than
+     the shoulder's joint, so that each stands as clear of their own torso, 37 to 40 cm from their middle, and STRUMMING.back behind
+     it. Its top is at the chest, 17.5 cm under the shoulders' joints, 31.5 under the chin and 40.5 under the mouth, and the boom
+     rises 34 cm, in front of the strumming shoulder, to the mouth. Their neck rises on the other side, where a boom rising to the
+     mouth crossed it from the front. With the top at the shoulders, as a keyboard player's, the rhythm's stood 26 cm across from
+     the second drummer's crash from the front, under the 35 of band.test.ts. With the top there, and each 38 cm out and 4 behind:
+     2 cm further out, the lead's, at the stage's end, came within two pixels of a PA stack from among the crowd (band-outline.ts);
+     2 cm further in, the rhythm's cuff stood over the base (band.test.ts), and 4 cm further in the lead's stood before the guitar
+     from the front on a phone (band-outline.ts); 4 cm further back the boom went through the body, and 12 cm further forward the
+     stand did; and behind the shoulder the boom went through it and came within 10 cm of the head (band.test.ts).
+   Of the other places tried: just before the strumming hand, or before a keyboard's front corner, it stood before the torso from
+   the crowd, the keyboard player's for their turn; on a keyboard player's side toward the stage's edge it came within two pixels of
+   a PA stack or the back wall (band-outline.ts); a keyboard player's further in, out of line with the lead's stand from among the
+   crowd, stood in their lifting arm's way, and behind their shoulder its boom went through it (band.test.ts); and a keyboard
+   player's with its top at 2, over the lifted hand, stood over the top third of the light panel (band-lineups.test.ts), its boom
+   within 10 cm of the head (band.test.ts), and at 1.1 the lifting hand went through the boom (band.test.ts). */
+const MIC = { off: 0.178, tip: 0.5, long: 0.15, beside: 0.52, back: -0.1, high: 1.3 }, STRUMMING = { out: 0.18, back: -0.04, high: 1.2 };
+/* A boom is BOOM in radius, 1 to 1.1 cm across in the player's metres, and `fit` widens it no further than BOOM_MOST. From every
+   camera of the outline tests, desktop and phone, `fit` would widen it further, to hold together from the back of the crowd, so it is drawn
+   4.2 to 4.9 cm across, under the width of a guitar's neck, 5.7 (TWO_HORNS and ONE_CUT at their `big`; the bass's is 6.3). At 0.022
+   in radius and widened as far as a stand, it was 7.2 to 8.5 cm across on a desktop and 12 to 14 on a phone, over twice a neck; and
+   capped at 3.9 to 4.6 cm, a keys player's boom came apart in two pixels at a phone's lowest rung from the front of the crowd
+   (band-outline.ts). */
+const BOOM = 0.006, BOOM_MOST = 0.026;
 function microphone(tip, back, top, foot) {
   const steel = tone(STUFF.steel), along = V().subVectors(tip, back).normalize(), end = back.clone().addScaledVector(along, 0.025);
   return [
     paint(bar(V(foot.x, 0, foot.z), top, STAND, STAND - 0.002, 6), steel),
     paint(bar(back, tip, 0.022, 0.03, 6), tone(STUFF.chrome)),
-    paint(bar(top, end, 0.024, 0.02, 5), steel),
+    paint(bar(top, end, BOOM, BOOM * 0.8, 5), steel),
     paint(new THREE.CylinderGeometry(0, MIC_BASE, 0.03, 6, 1, true).translate(foot.x, 0.015, foot.z), steel),
   ];
 }
@@ -410,15 +578,16 @@ const cymbal = (c, r, tip, roll = 0) => paint(drum(c, 0.03, r, 0.04, 14, tip, ro
 const POLE = 0.042;
 const pole = (x, z, top) => [paint(bar(V(x, 0, z), V(x, top, z), POLE, POLE, 8), tone(STUFF.chrome))];
 /* What stands clear of an outline a pixel or so across from the back of the crowd is fitted to the canvas as the world draws it
-   (buildBand's `fit`): a crash's pole, a microphone's stand, the singer's microphone and legs, an organ's legs, a keyboard
+   (buildBand's `fit`): a crash's pole, a microphone's stand and its boom, the singer's microphone and legs, an organ's legs, a keyboard
    player's lifted forearm and hand, a drummer's forearms (DRUM_FOREARM), and a tapping foot, whose toe stood a pixel off the floor
    as it lifted from the back of the crowd and came apart from the shin. Each is as stout as a pixel of it SEEN m off, as far as
    the path's pose stands from the band, so that it holds together from the back of the crowd however small the canvas, and no
-   thinner than it was built, nor than STOUT_MOST in radius.
+   thinner than it was built, nor stouter than STOUT_MOST in radius: a boom than BOOM_MOST, and the singer's microphone's head than
+   MIC_HEAD_MOST, which stand before a face.
    A drawn part is a pixel wide where its middle is a pixel's, so each is 5 % over a pixel across its flats (LIMB_FLATS of a
-   limb's width, for a limb's six). On a phone at full scale a crash's pole is 21 cm across and at half scale 38 cm, where each
+   limb's width: across the flats of its eight sides where it is narrowest, short of its rounded end, 0.7 across). On a phone at full scale a crash's pole is 21 cm across and at half scale 38 cm, where each
    crash stood alone in the air, its pole under half a pixel; and there a lifted hand stood apart from its arm. */
-const SEEN = 95, STOUT_MOST = 0.12, LIMB_FLATS = 0.74 * Math.cos(Math.PI / 6);
+const SEEN = 95, STOUT_MOST = 0.12, LIMB_FLATS = 0.7 * Math.cos(Math.PI / LIMB_SIDES);
 /* A drummer's forearm, fitted so, is no stouter than this across, the right and the left: its wrist's end, a pixel across from the
    back of the crowd on a phone as built, met the forearm only corner to corner through a stroke and came to the screen as a speck
    alone, the right's for up to a third of a second at a time, the left's for 3 ms. Any stouter, the right forearm swings more of
@@ -463,11 +632,13 @@ const PIANO_LIFT = { left: [0.14, 1.27, 0.3], right: [0.14, 1.27, 0.3], fingers:
    line-up with two. Within a line-up no two wear their hair alike, and no two who stand are of a height or a build
    (band.test.ts). */
 const DEAL = {
-  lead: { size: 1.035, broad: 0.93, hair: "cap", skirt: 0.58, coat: true, stance: 0.16, boots: 0.32, toes: 0.3, fret: 0.8, sway: 0.03, strum: 0.15, tap: 0.1, lag: 1,
+  lead: { size: 1.035, broad: 0.93, hair: "cap", skirt: 0.58, coat: true, stance: 0.16, boots: 0.32, toes: 0.15, fret: 0.8, sway: 0.03, strum: 0.15, tap: 0.1, lag: 1,
+    lean: 0.09, knee: 0.03, solo: 0.07,
     hold: { ...TWO_HORNS, at: V(-0.13, 0.99, 0.18), rise: 0.78, yaw: 0.2, big: 1.1 } },
-  bass: { size: 0.93, broad: 1.0, hair: "knot", skirt: 0.8, stance: 0.16, toes: 0.22, fret: 0.96, sway: -0.035, strum: 0.05, tap: 0.13, lag: 0,
+  bass: { size: 0.93, broad: 1.0, hair: "knot", skirt: 0.8, stance: 0.16, toes: 0.11, fret: 0.96, sway: -0.035, strum: 0.05, tap: 0.13, lag: 0,
+    knee: 0.05,
     hold: { ...BASS, at: V(-0.1, 0.9, 0.18), rise: 0.85, yaw: 0.22, big: 1.08 } },
-  rhythm: { size: 1.0, broad: 1.06, hair: "bob", skirt: 0.8, stance: 0.16, toes: 0.25, fret: 0.74, sway: 0.045, strum: 0.13, tap: 0.11, lag: 2,
+  rhythm: { size: 1.0, broad: 1.06, hair: "bob", skirt: 0.8, stance: 0.19, toes: 0.125, fret: 0.74, sway: 0.045, strum: 0.13, tap: 0.11, lag: 2, knee: 0.04,
     hold: { ...ONE_CUT, at: V(-0.12, 1.02, 0.18), rise: 0.95, yaw: 0.3, big: 1.1 } },
   drums: [
     { size: 0.99, broad: 1.04, hair: "tail", lag: 2, kick: 0.31, toms: { left: [-0.19, 0.19], right: [0.195, 0.205], deep: 0.22 }, tom: V(-0.19, 0.93, 0.58),
@@ -475,10 +646,10 @@ const DEAL = {
     { size: 1.02, broad: 1.0, hair: "long", lag: 3, kick: 0.3, toms: { left: [-0.17, 0.21], right: [0.21, 0.185], deep: 0.25 }, tom: V(-0.06, 0.93, 0.58),
       floor: { x: 0.33, r: 0.17 }, crash: { x: 0.72, y: 1.42, z: 0.5, r: 0.21, tip: 0.5 } },
   ],
-  keys: { size: 1.02, broad: 0.95, hair: "short", stance: 0.09, sway: 0.03, lean: 0.1, lag: 3, mic: true },
-  organ: { size: 0.98, broad: 0.9, hair: "beanie", stance: 0.1, sway: 0, lean: 0.1, lag: 0, still: true, mic: true },
+  keys: { size: 1.02, broad: 0.95, hair: "short", stance: 0.09, sway: 0.03, lean: 0.1, lag: 3, mic: true, glide: 0.025 },
+  organ: { size: 0.98, broad: 0.9, hair: "beanie", stance: 0.1, sway: 0, lean: 0.1, lag: 0, still: true, mic: true, glide: 0.04 },
   piano: { size: 0.97, broad: 1.08, hair: "bunches", stance: 0, sway: 0, lean: 0.12, lag: 1, still: true, mic: null },
-  voice: { size: 0.96, broad: 0.98, hair: "short", skirt: 0, stance: 0.13, toes: 0.24, sway: 0.03, tap: 0.1, lag: 3, mic: { foot: [0.42, 0.42], head: [0.03, -0.01, 0.19] } },
+  voice: { size: 0.96, broad: 0.98, hair: "short", skirt: 0, stance: 0.13, toes: 0.12, sway: 0.03, tap: 0.1, lag: 3, knee: 0.05, mic: { foot: [0.42, 0.42], head: [0.03, -0.01, 0.19] } },
 };
 
 /* What a player changes in a line-up that stands close (STAGING `close`), the sevens, for whom the light panel is narrow: the lead
@@ -512,7 +683,10 @@ const WEDGES = [[-4.5, 3.1, 0.2], [-2.3, 3.4, -0.1], [2.2, 3.3, 0.15]];
    and apart enough that from every pose of the shoot each is an outline of their own, at every rung a phone steps down to but
    where a line-up's test says two meet (band-outline.test.ts and the tests beside it, one a line-up). The places were found by a
    search over them against those tests, and a few were then moved by two to four centimetres, which keeps a part from coming apart
-   at the shoot's own place of the pixel grid. The six stand as #184 stood them, but the second guitar 5 cm further in, its neck
+   at the shoot's own place of the pixel grid. Two leads stand 3 cm further in since the guitarists' microphones stood beside the
+   strumming arm (STRUMMING): December 1971's, whose tapping foot, which the stand had stood beside, came apart from the shin from the
+   back of the crowd at a smaller phone's second rung; and 1990-92's, whose stand stood before the end of the keys' keyboard from
+   among the crowd (band-outline.ts `standsBefore`). The six stand as #184 stood them, but the second guitar 5 cm further in, its neck
    risen steeper (DEAL), so that the longer neck keeps clear of the second drummer's crash: a guitar a step back, the bass in front,
    the drummers behind, side by side, the second guitar in front and the keys back by the drummers. */
 export const STAGING = {
@@ -528,7 +702,7 @@ export const STAGING = {
     ["keys", 6.41, -2.2, -0.38]], monitors: WEDGES, close: true },
   "lead rhythm bass drums piano": { players: [["lead", -5.65, -1, 0.25], ["bass", -3.2, 1.5, 0.1], ["drums", -0.25, -2.5, 0],
     ["rhythm", 2.78, 0.9, -0.12], ["piano", 6.43, -2.2, -1.85]], monitors: WEDGES },
-  "lead rhythm bass drums organ piano": { players: [["organ", -6.22, -2.2, 0.38], ["lead", -3.95, -0.6, 0.25],
+  "lead rhythm bass drums organ piano": { players: [["organ", -6.22, -2.2, 0.38], ["lead", -3.92, -0.6, 0.25],
     ["bass", -1.87, 1.6, 0.1], ["drums", 0.46, -2.5, 0], ["rhythm", 3.26, 0.9, -0.12], ["piano", 6.75, -2.2, -1.85]],
     monitors: WEDGES },
   "lead rhythm bass drums organ piano voice": { players: [["organ", -6.21, -2.2, 0.38], ["lead", -4.05, -0.6, 0.25],
@@ -539,7 +713,7 @@ export const STAGING = {
   "lead rhythm bass drums drums piano voice": { players: [["lead", -5.98, -1.3, 0.25], ["bass", -3.76, 1.5, 0.1],
     ["voice", -2.15, 1.9, 0.05], ["drums", -0.91, -2.5, 0.06], ["drums", 1.59, -2.5, -0.06], ["rhythm", 3.7, 0.8, -0.12],
     ["piano", 6.9, -2.4, -1.85]], monitors: WEDGES, close: true },
-  "lead rhythm bass drums drums keys piano": { players: [["keys", -6.35, -2.2, 0.38], ["lead", -4.15, -0.4, 0.25],
+  "lead rhythm bass drums drums keys piano": { players: [["keys", -6.35, -2.2, 0.38], ["lead", -4.12, -0.4, 0.25],
     ["bass", -2.31, 1.7, 0.1], ["drums", -0.6, -2.6, 0.06], ["drums", 1.71, -2.6, -0.06], ["rhythm", 3.83, 0.8, -0.12],
     ["piano", 7.0, -2.4, -1.85]], monitors: WEDGES, close: true },
 };
@@ -688,15 +862,15 @@ export function dressOf(date, seat, role, coat = Boolean(DEAL[role]?.coat)) {
 export function worn(dress) {
   const { skin, top, second, cut, coat } = dress;
   const plain = () => top;
-  if (coat) return { skin, shoulders: coat, slope: coat, under: top, pattern: () => coat, collar: coat, upper: coat, fore: coat };
+  if (coat) return { skin, cut, sleeve: "long", shoulders: coat, slope: coat, under: top, pattern: () => coat, collar: coat, upper: coat, fore: coat };
   /* A check: squares of the two colours, eight round and three up; a print: the second colour in a scatter, a square in three. */
   const square = (turn, up) => [Math.floor(((turn + Math.PI) / (2 * Math.PI)) * 8 + 0.5), Math.min(2, Math.max(0, Math.floor(up * 3)))];
-  if (cut === "check") return { skin, shoulders: top, slope: top, under: null, pattern: (turn, up) => { const [a, b] = square(turn, up); return (a + b) % 2 ? second : top; }, collar: top, upper: top, fore: top };
-  if (cut === "print") return { skin, shoulders: top, slope: top, under: null, pattern: (turn, up) => { const [a, b] = square(turn, up); return (a * 5 + b * 3) % 3 === 0 ? second : top; }, collar: top, upper: top, fore: top };
-  if (cut === "vest") return { skin, shoulders: second, slope: top, under: second, pattern: plain, collar: second, upper: second, fore: second };
-  if (cut === "open") return { skin, shoulders: top, slope: top, under: second, pattern: plain, collar: top, upper: top, fore: skin };
-  if (cut === "tee") return { skin, shoulders: top, slope: top, under: null, pattern: plain, collar: skin, upper: top, fore: skin };
-  return { skin, shoulders: top, slope: top, under: null, pattern: plain, collar: top, upper: top, fore: top };
+  if (cut === "check") return { skin, cut, sleeve: "long", shoulders: top, slope: top, under: null, pattern: (turn, up) => { const [a, b] = square(turn, up); return (a + b) % 2 ? second : top; }, collar: top, upper: top, fore: top };
+  if (cut === "print") return { skin, cut, sleeve: "long", shoulders: top, slope: top, under: null, pattern: (turn, up) => { const [a, b] = square(turn, up); return (a * 5 + b * 3) % 3 === 0 ? second : top; }, collar: top, upper: top, fore: top };
+  if (cut === "vest") return { skin, cut, sleeve: "long", shoulders: second, slope: top, under: second, pattern: plain, collar: second, upper: second, fore: second };
+  if (cut === "open") return { skin, cut, sleeve: "rolled", shoulders: top, slope: top, under: second, pattern: plain, collar: top, upper: top, fore: skin };
+  if (cut === "tee") return { skin, cut, sleeve: "short", shoulders: top, slope: top, under: null, pattern: plain, collar: skin, upper: top, fore: skin };
+  return { skin, cut, sleeve: "long", shoulders: top, slope: top, under: null, pattern: plain, collar: top, upper: top, fore: top };
 }
 /* The colour of a bone (buildBand's `bone`) of a player in `dress`, by its name: an upper arm's sleeve, a forearm's sleeve or skin
    (worn), a hand's skin, a stick's wood, a leg's trousers and a tapping foot's shoe. */
@@ -777,7 +951,8 @@ function bandLight(stage) {
 
 /* Builds the band in the stage's group, whose floor is `floor` m up in the stage's own frame (+z toward the crowd), as the line-up
    `roles` (lineup.js) stands on the stage (STAGING): the six of 1979 to 1990, unless it is given another. Returns the `players`,
-   from the crowd's left (each `plays` its instrument in its `role`, and has its frame `g` and its `body`), the `limbs`' mesh and each
+   from the crowd's left (each `plays` its instrument in its `role`, and has its frame `g`, its `body` and its `mouth`, where the body
+   has it at rest in the player's frame), the `limbs`' mesh and each
    of its `bones`, the `still` mesh with the corners each of its parts holds (`still.userData.parts`: `of` what, `as` what in it, `by`
    whom), the `joints` each bone is held at, the `material` and its `uniforms`, `move`, which plays them, `fit`, which fits their
    thin parts to the canvas, and `light`, which lights them for the hour (LIGHT). They are dressed for the era of a show on `date`
@@ -786,7 +961,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
   const staging = STAGING[roles.join(" ")];
   if (!staging) throw new Error(`band.js: no staging for the line-up ${roles.join(", ")}`);
   const { material, uniforms, light } = bandLight(stage);
-  const players = [], bones = [], arms = [], legs = [], hinges = [], joints = [], fixed = [], stands = [], fitted = [], necks = [];
+  const players = [], bones = [], arms = [], legs = [], hinges = [], joints = [], fixed = [], stands = [], fitted = [], necks = [], hangs = [];
 
   /* A player's frame: where they stand on the floor, the way they face, and their size; and what they wear (dressOf). */
   function player(role, plays, [x, z], facing, size, dress) {
@@ -796,7 +971,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     g.scale.setScalar(SCALE * size);
     g.updateMatrix();
     stage.add(g);
-    const p = { role, plays, g, body: null, still: false, pivot: null, lean: 0, lag: 0, look: null, dress, at: players.length, pose: null };
+    const p = { role, plays, g, body: null, still: false, pivot: null, lean: 0, lag: 0, look: null, dress, at: players.length, pose: null, holds: null, drawn: [], mouth: null };
     players.push(p);
     return p;
   }
@@ -814,6 +989,11 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     } else {
       const all = [...parts, ...tip].map(bare), geo = mergeGeometries(all).translate(-pivot.x, -pivot.y, -pivot.z);
       p.body = new THREE.Mesh(geo, material);
+      /* Each part of the body with a name, a closed hand's palm (`fist`), the singer's tambourine, the torso, a skirt or the head
+         (`trunk`), or an instrument (`axe`), its neck's tip with it, as the run of the body's corners it is, in the order the parts
+         list them: so the tests measure a hand where it is drawn (band-bodies.test.ts) and what a microphone stands before
+         (band-outline.ts), and a skirt hangs (`hang`). */
+      for (let k = 0, from = 0; k < all.length; from += all[k].attributes.position.count, k++) if (all[k].name) p.drawn.push({ name: all[k].name, from, count: all[k].attributes.position.count });
       if (tip.length) {
         const from = all.slice(0, parts.length).reduce((n, g) => n + g.attributes.position.count, 0), corner = geo.getAttribute("position");
         const count = corner.count - from, base = corner.array.slice(from * 3), across = new Float32Array(count), back = hold.clone().invert(), at = V();
@@ -853,10 +1033,15 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     return a;
   }
   /* A leg: a thigh from a hip, which is the body's, and a shin down to an ankle, which stays where it is on the floor. The knee stands
-     halfway between them and a little forward, so the leg follows the hips as they sway and the foot never slides. */
-  function leg(p, name, hip, ankle) {
-    const thigh = bone(p, `${name} thigh`, 0.2, 0.2, [0.01, 0.03]), shin = bone(p, `${name} shin`, 0.148, 0.148, [0.03, 0]);
-    legs.push({ p, thigh, shin, hip: ofBody(p, hip), ankle: ankle.clone() });
+     halfway between them and `bend` forward at rest, and further forward as the hip comes down toward the ankle, KNEE_GIVE times as
+     far; so the leg bends at the knee as the weight comes onto it, follows the hips as they sway, and the foot never slides. (A knee that kept the thigh's and the shin's lengths
+     exactly moved several times as fast as the hip near a leg's full stretch, and shivered as a standing body breathed: band.test.ts,
+     "moves every part smoothly".) A leg under a skirt or a coat (`hidden`, `stand`) is never seen, and is HIDDEN_LEG across. */
+  const KNEE_GIVE = 2;
+  function leg(p, name, hip, ankle, bend = 0.06, hidden = false) {
+    const [upper, lower] = hidden ? [HIDDEN_LEG.thigh, HIDDEN_LEG.shin] : [0.2, 0.148];
+    const thigh = bone(p, `${name} thigh`, upper, upper, [0.01, 0.03]), shin = bone(p, `${name} shin`, lower, lower, [0.03, 0]);
+    legs.push({ p, thigh, shin, hip: ofBody(p, hip), ankle: ankle.clone(), bend, reach: hip.distanceTo(ankle) });
     joints.push({ bone: thigh.at, end: 0, of: p.at, on: true, at: ofBody(p, hip) }, { bone: shin.at, end: 0, of: p.at, to: thigh.at },
       { bone: shin.at, end: 1, of: p.at, on: false, at: ankle.clone() });
   }
@@ -870,20 +1055,43 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
   }
   /* The legs, the cuffs and the shoes of a player who stands with their ankles `stance` to either side: a shoe that stays down is a
      still part, and one that `taps` hinges at its heel, where a turn lifts its toe. With `boots`, each cuff is a boot that tall,
-     which reaches up into a coat: below a coat's hem a shin is too thin to join a cuff to it, from the back of the crowd on a phone. */
-  function stand(p, t, stance, toes, back, taps, boots = null) {
+     which reaches up into a coat: below a coat's hem a shin is too thin to join a cuff to it, from the back of the crowd on a phone.
+     Under a skirt or a coat, whose hem comes down past the cuffs' tops, a leg is never seen: it runs from the hip to the top of its
+     cuff or boot (`hidden`), slimmer than a leg in trousers, and the skirt hangs over it (`hangFrom`). */
+  function stand(p, t, stance, toes, back, taps, boots = null, knee = undefined) {
     let tap = null;
+    const hidden = p.look.skirt > 0, tall = boots ?? CUFF.tall;
     for (const s of [1, -1]) {
-      const ankle = V(s * stance, 0.1, back), heel = V(s * stance, 0.04, back - 0.075), toe = V(heel.x + s * 0.27 * Math.sin(toes), 0.04, heel.z + 0.27 * Math.cos(toes));
-      leg(p, s > 0 ? "left" : "right", t.hip(s), ankle);
-      keep(p, `${p.plays} cuff`, [boots ? cuff(p.dress.shoes, ankle, 0.086, boots, 0.074) : cuff(p.dress.lower, ankle)]);
+      const ankle = V(s * stance, 0.1, back), heel = V(s * stance, 0.04, back - 0.075), toe = V(heel.x + s * FOOT * Math.sin(toes), 0.04, heel.z + FOOT * Math.cos(toes));
+      leg(p, s > 0 ? "left" : "right", t.hip(s), hidden ? V(ankle.x, CUFF.foot + tall, ankle.z) : ankle, knee, hidden);
+      keep(p, `${p.plays} cuff`, [boots ? cuff(p.dress.shoes, ankle, 0.086, boots, BOOT_TOP) : cuff(p.dress.lower, ankle)]);
       if (taps && s > 0) {
-        tap = hinge(p, false, heel, BACK, [toe.clone().sub(heel)], [bone(p, "tapping foot", 0.105, 0.08)]);
-        fitted.push({ bone: tap.held[0], wide: 0.105, thick: 0.08 });
+        tap = hinge(p, false, heel, BACK, [toe.clone().sub(heel)], [bone(p, "tapping foot", 0.105, 0.085)]);
+        fitted.push({ bone: tap.held[0], wide: 0.105, thick: 0.085 });
       }
       else keep(p, `${p.plays} shoe`, [shoe(p.dress.shoes, heel, toe)]);
     }
+    if (hidden) hangFrom(p, t.hip(1).y, CUFF.foot + tall);
     return tap;
+  }
+  /* A skirt, or a coat's skirts, hangs from the hips over the legs under it, which run from the hips to the cuffs' or the boots' tops
+     (`stand`): each height of it goes with the hips as far as those legs do there, all the way from the hips up, not at all at the
+     cuffs' tops and below, and in proportion between; and it hangs straight down, as from a body upright at rest, never turning as
+     the body sways and leans. So the legs stay under it through every move, a lead guitar's solo included (band-bodies.test.ts). A
+     skirt that turned with the body, as all of the body did, swung its hem out over the planted feet as far again as the hips went,
+     and more: a bass's 2.15 times as far. In the solo a lead guitar's coat left a boot's top 16 cm out past its side; and one that
+     hung leaned, as its body leans at rest, stood back off its boots, which came out of its side. `hang` lays its corners each frame,
+     and its normals. */
+  function hangFrom(p, hips, foot) {
+    const run = p.drawn.find(({ name }) => name === "skirt");
+    if (!run || !p.body.geometry) return;
+    const geo = p.body.geometry, at = geo.getAttribute("position"), normal = geo.getAttribute("normal"), weight = new Float32Array(run.count);
+    for (let i = 0; i < run.count; i++) weight[i] = Math.max(0, Math.min(1, (at.getY(run.from + i) + p.pivot.y - foot) / (hips - foot)));
+    const rest = new THREE.Matrix4().makeTranslation(p.pivot.x, p.pivot.y, p.pivot.z);
+    hangs.push({ p, geo, from: run.from, count: run.count, weight, rest, hips: V(0, hips, 0).sub(p.pivot), still: V(0, hips, 0).sub(p.pivot).applyMatrix4(rest),
+      base: at.array.slice(run.from * 3, (run.from + run.count) * 3), normals: normal.array.slice(run.from * 3, (run.from + run.count) * 3) });
+    geo.userData.slack = HANG_SLACK;
+    bound(geo);
   }
   /* The legs, the cuffs and the shoes of one who sits, all still: each thigh from its hip to a knee `knee` in front, and each shin down
      to an ankle `ankle` in front, its foot on the floor. */
@@ -900,15 +1108,13 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
      middle flips it several times as it passes (a cap's top counted 8 swings in a second on a phone). The collar hides the join. */
   const keepHead = (p, t) => keep(p, "head", t.head.map((part) => (p.lean ? part.translate(-p.pivot.x, -p.pivot.y, -p.pivot.z).rotateX(p.lean).translate(p.pivot.x, p.pivot.y, p.pivot.z) : part)));
   /* A player's microphone on its stand (MIC), all in the player's own frame, whichever way they turn: the microphone before the
-     mouth where the body has it at rest, leaned with the body for one who leans; the stand at the player's right, or before their
-     keyboard, which reaches `front` before them. `keyboardist` swaps the lifts side for side for a player turned with a facing
-     over 0, so the hand that lifts out wide is their right hand there, and their left otherwise. */
-  function voice(p, t, front = null) {
-    const lean = (v) => (p.lean ? leaned(p, v) : v), down = V(0, -MIC.tip, 1).normalize(), wide = p.g.rotation.y > 0 ? -1 : 1;
-    const at = V(0, t.mouth.y - 0.005, MIC.off), tip = lean(at), back = lean(at.clone().addScaledVector(down, MIC.long));
-    const foot = front === null ? V(-MIC.beside, 0, at.z + MIC.fore) : V(wide * MIC.aside, 0, front + STAND + MIC.clear);
-    const top = V(foot.x, front === null ? at.y - MIC.drop : MIC.high, foot.z);
-    stands.push({ at: fixed.length, by: p, r: STAND, sides: 6 });
+     mouth where the body has it at rest, leaned with the body for one who leans; the stand `at` beside them (MIC, STRUMMING) on
+     `side`, 1 their left and -1 their right. */
+  function voice(p, t, side, at = MIC) {
+    const lean = (v) => (p.lean ? leaned(p, v) : v), down = V(0, -MIC.tip, 1).normalize();
+    const mouth = V(0, t.mouth.y - 0.005, MIC.off), tip = lean(mouth), back = lean(mouth.clone().addScaledVector(down, MIC.long));
+    const foot = V(side * at.beside, 0, at.back), top = V(foot.x, at.high, foot.z), end = back.clone().addScaledVector(V().subVectors(tip, back).normalize(), 0.025);
+    stands.push({ at: fixed.length, by: p, r: STAND, sides: 6 }, { at: fixed.length + 2, by: p, r: BOOM, most: BOOM_MOST, sides: 5, axis: V().subVectors(end, top).transformDirection(p.g.matrix), across: true });
     keep(p, "microphone", microphone(tip, back, top, foot));
   }
 
@@ -923,32 +1129,38 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
      pocket stands open between the arm and the neck. The right forearm lies over the instrument from its elbow: it turns there,
      `strum` rad either way, the hand crossing the strings one way on a count and back on the next, over the instrument from the
      front. The left foot taps, down on the count. */
-  function strummer(role, spot, facing, { size, broad, hair, skirt, stance, toes, hold, fret, sway, strum, tap, lag, boots, dress }) {
+  function strummer(role, spot, facing, { size, broad, hair, skirt, stance, toes, hold, fret, sway, strum, tap, lag, boots, lean = 0, knee, solo = 0, dress }) {
     const p = player(role, role === "bass" ? "bass" : "guitar", spot, facing, size, dress);
     p.lag = lag;
     p.look = { size, broad, hair, skirt: skirt ?? 0 };
     const t = trunk(STANDING, broad, hair, skirt, dress), a = axe(hold, fret, dress.finish), { upper, fore, skin, shoulders } = worn(dress);
     const left = t.shoulder(1), right = t.shoulder(-1);
-    const hand = a.on(fret, -0.005, -0.035), elbow = elbowOf(V(), left, hand, 0.29, 0.27, V(-0.2, -1, -0.5));
+    /* The fretting hand, closed round the neck at `fret`: the palm under it, the fingers' mass up over the fingerboard from below and
+       the thumb behind the neck; the elbow tucked under. */
+    const fretting = a.on(fret, -0.04, -0.008), grip = fist(skin, fretting, a.on(fret, 1, 0.25).sub(a.on(fret, 0, 0)), a.on(1, 0, 0).sub(a.on(0, 0, 0)), true);
+    const hand = grip.wrist, elbow = elbowOf(V(), left, hand, 0.29, 0.27, V(-0.2, -1, -0.5));
     /* The strumming arm: its wrist over the strings behind the hand's reach, its fingers at them. */
     const wrist = a.on(hold.strum - 0.05, 0.075, 0.06), fingers = a.on(hold.strum + 0.005, 0.01, 0.05);
     const tucked = elbowOf(V(), right, wrist, 0.29, 0.26, V(0.2, -1, -0.6));
-    embody(p, [...t.parts, ...a.parts, paint(bar(left, elbow, 0.058, 0.052), upper), paint(ball(elbow, 0.053, 1, 1, 1, 0), upper), paint(bar(elbow, hand, 0.052, 0.046), fore),
-      paint(ball(hand, 0.058, 1, 0.9, 1, 0), skin), paint(bar(right, tucked, 0.06, 0.053), upper), paint(ball(tucked, 0.055, 1, 1, 1, 0), upper),
+    embody(p, [...t.parts, ...a.parts, ...armParts(dress, left, elbow, hand, 0.112), ...grip.parts, ...armParts(dress, right, tucked, null, 0.116),
       web(fore, elbow, hand, a.on(hold.joint, 0, 0)), web(shoulders, left, elbow, a.on(hold.joint, 0, 0)), web(upper, left, elbow, hand), web(upper, right, tucked, wrist)], t.pivot,
-      0, { tip: a.tip, hold: a.hold, neck: hold.neck });
+      lean, { tip: a.tip, hold: a.hold, neck: hold.neck });
+    p.mouth = leaned(p, t.mouth);
     const face = a.on(0, 0, 1).sub(a.on(0, 0)).normalize();
     const strumming = hinge(p, true, ofBody(p, tucked), face, [wrist.clone().sub(tucked), fingers.clone().sub(wrist)],
       [bone(p, "strumming forearm", 0.1, 0.1, [0.03, 0.01]), bone(p, "strumming hand", 0.08, 0.05, [0.02, 0.012], face)]);
-    const foot = stand(p, t, stance, toes, 0, true, boots);
+    /* What the hands hold, for the tests (band-bodies.test.ts), in the body's own frame: the neck's line from its joint to its nut, and
+       the strings over the body where the strumming hand crosses them, with the way the face looks. */
+    p.holds = { neck: [ofBody(p, a.on(hold.joint, 0, 0)), ofBody(p, a.on(hold.nut, 0, 0))], strings: ofBody(p, a.on(hold.strum, 0, 0.0225)), face: face.clone() };
+    const foot = stand(p, t, stance, toes, 0, true, boots, knee);
     keepHead(p, t);
-    voice(p, t);
+    voice(p, t, -1, { ...STRUMMING, beside: STRUMMING.out - right.x });
     const { body, pivot } = p;
     p.pose = (count, level, time) => {
-      const slow = swing(count - lag, SLOW), across = swing(count - lag, STRUM), beat = swing(count - lag, 1);
+      const slow = swing(count - lag, SLOW), across = swing(count - lag, STRUM), beat = swing(count - lag, 1), rising = (level * solo * (1 - swing(count - lag, SOLO))) / 2;
       const shift = level * sway * slow + (1 - level) * SHIFT * Math.sin(time * (0.7 + 0.13 * p.at));
-      body.position.set(pivot.x + shift, pivot.y + breathe(level, time, BREATH), pivot.z);
-      body.rotation.set(level * 0.02 * slow, 0, LEAN * shift);
+      body.position.set(pivot.x + shift + rising / LEAN, pivot.y + breathe(level, time, BREATH), pivot.z);
+      body.rotation.set(p.lean + level * 0.02 * slow, 0, LEAN * shift + rising);
       strumming.turn = -level * strum * across;
       foot.turn = (level * tap * (1 - beat)) / 2;
     };
@@ -963,11 +1175,12 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
      at the piano, in front of the player's face, seen side-on.
 
      The hands take turns: every four counts one lifts from its keys (LIFT, or at the piano straight up off them, PIANO_LIFT) as the
-     other comes down to its keys, over LIFT_MOVE. The keys player's hips sway `sway` away from the lifted hand, under a head that
+     other comes down to its keys, over LIFT_MOVE, and each goes `glide` along the keys as it does (`glided`), so the hands play up
+     and down the keyboard as they take turns. The keys player's hips sway `sway` away from the lifted hand, under a head that
      stays at its microphone, as a guitarist's do, and the shoulders dip toward the keys with the left. The organ's player and the
      pianist hold their bodies `still`, among the still parts, and only their arms move: so a line-up of seven, with an organ and a
      second keyboard, or with the piano beside the keys, is drawn in eight draws (STAGING). */
-  function keyboardist(role, spot, facing, { size, broad, hair, stance, sway, lag, mic, lean, still = false, dress }) {
+  function keyboardist(role, spot, facing, { size, broad, hair, stance, sway, lag, mic, lean, still = false, glide = 0, dress }) {
     const seated = role === "piano", p = player(role, role, spot, facing, size, dress);
     p.lag = lag;
     p.look = { size, broad, hair, skirt: 0 };
@@ -975,7 +1188,8 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     /* A keyboard's top is its keys, white; the rest is its case's. */
     const keyed = (geo, c) => paintBy(geo, (_, n) => (n.y > 0.7 ? tone(STUFF.keys) : c));
     embody(p, t.parts, t.pivot, lean, { still });
-    let tips, front = null;
+    p.mouth = leaned(p, t.mouth);
+    let tips;
     if (role === "keys") {
       const { lower, upper, wide } = TWO_MANUALS;
       const rig = [keyed(box(wide, 0.09, 0.31, 0, lower.y, lower.z), tone(STUFF.keyboard)), keyed(new THREE.BoxGeometry(wide - 0.16, 0.08, 0.27).rotateX(0.22).translate(0.02, upper.y, upper.z), tone(STUFF.keyboard)),
@@ -986,7 +1200,6 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
          An X stand in front of the legs shut light in between its bars and the legs, and a leg or a column a pixel or so wide
          from the back of the crowd broke into specks. */
       rig.push(paint(box(SLIM.wide, lower.y - 0.02, SLIM.deep, 0.01, (lower.y - 0.02) / 2, SLIM.z), tone(STUFF.case)));
-      front = frontOf(rig);
       keep(p, "keyboard", rig);
       tips = [V(0.14, lower.y + 0.075, lower.z - 0.03), V(-0.12, upper.y + 0.085, upper.z - 0.05)];
     } else if (role === "organ") {
@@ -996,7 +1209,6 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
          light under it, where the keys are two thin boards on an X. Each leg is fitted to the canvas (`fit`). */
       const wood = tone(STUFF.organ);
       const organ = [keyed(box(wide, 0.08, 0.26, 0, y, z), wood), paint(box(wide, y - 0.02 - under, 0.42, 0, (y - 0.02 + under) / 2, z + 0.15), wood), paint(box(wide + 0.02, top - y, 0.28, 0, (top + y) / 2, z + 0.2), wood)];
-      front = frontOf(organ);
       keep(p, "keyboard", organ);
       for (const [s, back] of [[1, 0.01], [-1, 0.01], [1, 0.29], [-1, 0.29]]) {
         stands.push({ at: fixed.length, by: p, r: leg, sides: 8 });
@@ -1039,9 +1251,9 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
        the crowd on a phone and at its lower rungs, and at the piano, side-on, from the crowd on a desktop. */
     for (const { arm: a } of hands) fitted.push(...[a.bones[1], a.held[0]].map((b) => ({ bone: b, wide: b.wide, thick: b.thick })));
     if (seated) sit(p, t, 0.34, 0.42);
-    else stand(p, t, stance, 0.18, -0.02, false);
+    else stand(p, t, stance, 0.09, -0.02, false);
     keepHead(p, t);
-    if (mic) voice(p, t, front);
+    if (mic) voice(p, t, spot[0] > 0 ? -1 : 1);
     const { body, pivot } = p;
     p.pose = (count, level, time) => {
       const slow = swing(count - lag, 2 * SLOW, LIFT_MOVE), shift = level * sway * slow;
@@ -1054,6 +1266,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
         a.pole.copy(upper.from).applyAxisAngle(upper.axis, upper.angle * rise);
         forearm.copy(fore.from).applyAxisAngle(fore.axis, fore.angle * rise);
         a.to.copy(shoulder).addScaledVector(a.pole, ARM.upper).addScaledVector(forearm, ARM.fore);
+        a.to.x += glided(glide, level, slow, lead);
         a.carry.copy(hand.from).applyAxisAngle(hand.axis, hand.angle * rise).multiplyScalar(fingers);
       }
     };
@@ -1070,7 +1283,10 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
      hand at the microphone with it, two or three centimetres a sway; the tambourine rides the sway; one foot taps the count. The
      stand and the microphone's head are fitted to the canvas (`fit`): the stand widened across at each height, so its foot stays
      on the floor, and the head every way. */
-  function singer(role, spot, facing, { size, broad, hair, skirt, stance, toes, sway, tap, lag, mic, dress }) {
+  /* The singer's arms are a little stouter than a guitarist's, SINGER_ARM across at the shoulder: as thin, a hand came apart from its
+     forearm on a phone from the back of the crowd at dusk (band-outline-1972-06.test.ts, "comes apart little"). */
+  const SINGER_ARM = 0.128;
+  function singer(role, spot, facing, { size, broad, hair, skirt, stance, toes, sway, tap, lag, mic, knee, dress }) {
     const p = player(role, "voice", spot, facing, size, dress);
     p.lag = lag;
     p.look = { size, broad, hair, skirt: skirt ?? 0 };
@@ -1089,10 +1305,14 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     const bend = elbowOf(V(), other, hold, 0.29, 0.26, V(-side * 0.4, -0.6, -0.7));
     /* The tambourine: its rim's wood and its head's white, which faces the crowd. */
     const tambourine = paintBy(drum(ring, 0.11, 0.11, 0.035, 12, Math.PI / 2), (_, n) => (Math.abs(n.z) > 0.9 ? tone(STUFF.drumhead) : tone(STUFF.tambourine)));
-    embody(p, [...t.parts, paint(bar(shoulder, elbow, 0.06, 0.053), upper), paint(ball(elbow, 0.055, 1, 1, 1, 0), upper), paint(bar(elbow, grip, 0.052, 0.046), fore), paint(ball(grip, 0.058, 1, 0.9, 1, 0), skin),
-      web(upper, shoulder, elbow, grip), paint(bar(other, bend, 0.06, 0.053), upper), paint(ball(bend, 0.055, 1, 1, 1, 0), upper), paint(bar(bend, hold, 0.052, 0.046), fore), paint(ball(hold, 0.058, 1, 0.9, 1, 0), skin),
-      web(shoulders, other, bend, V(-side * 0.12 * broad, h + 0.2, 0)), web(fore, bend, hold, V(-side * 0.13 * broad, h + 0.05, 0)), tambourine], t.pivot);
-    const tapping = stand(p, t, stance, toes, 0, true);
+    tambourine.name = "tambourine";
+    /* Each hand closed: the one round the stand, the stand through its grip, and the other on the tambourine's rim. */
+    const onStand = fist(skin, grip, grip.clone().sub(elbow), lean, side < 0), onRim = fist(skin, hold, hold.clone().sub(bend), X, side > 0);
+    embody(p, [...t.parts, ...armParts(dress, shoulder, elbow, onStand.wrist, SINGER_ARM), ...onStand.parts, web(upper, shoulder, elbow, onStand.wrist),
+      ...armParts(dress, other, bend, onRim.wrist, SINGER_ARM), ...onRim.parts,
+      web(shoulders, other, bend, V(-side * 0.12 * broad, h + 0.2, 0)), web(fore, bend, onRim.wrist, V(-side * 0.13 * broad, h + 0.05, 0)), tambourine], t.pivot);
+    p.mouth = leaned(p, t.mouth);
+    const tapping = stand(p, t, stance, toes, 0, true, null, knee);
     /* The legs, in trousers, are fitted to the canvas (`fit`): from the back of the crowd at a phone's lower rungs a shin as built
        is a pixel wide, and came apart at the knee. A stand before the legs held them together; one beside them does not. */
     for (const l of legs) if (l.p === p) fitted.push(...[l.thigh, l.shin].map((b) => ({ bone: b, wide: b.wide, thick: b.thick })));
@@ -1100,7 +1320,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     /* The stand from its foot up into the head, its foot cut level with the floor; and the head, a ball. Each is fitted to the
        canvas about the stand's line. */
     const pole = leaning(foot, head.clone().addScaledVector(lean, -0.03), STAND, STAND - 0.002);
-    stands.push({ at: fixed.length, by: p, r: STAND, sides: 6, axis: pole.along.transformDirection(p.g.matrix) }, { at: fixed.length + 1, by: p, r: MIC_HEAD, sides: 8, round: true });
+    stands.push({ at: fixed.length, by: p, r: STAND, sides: 6, axis: pole.along.transformDirection(p.g.matrix) }, { at: fixed.length + 1, by: p, r: MIC_HEAD, most: MIC_HEAD_MOST, sides: 8, round: true });
     keep(p, "microphone", [paint(pole.geo, tone(STUFF.steel)), paint(ball(head, MIC_HEAD, 1, 1, 1, 1), tone(STUFF.chrome))]);
     const { body, pivot } = p;
     p.pose = (count, level, time) => {
@@ -1153,6 +1373,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
       return [web(shoulders, shoulder, elbow, V(side * 0.15 * broad, SEATED.hips + 0.12, 0)), web(upper, V(side * 0.1 * broad, SEATED.hips + 0.4, 0), shoulder, elbow)];
     });
     embody(p, [...t.parts, ...t.head, ...webs], t.pivot, DRUM_LEAN);
+    p.mouth = leaned(p, t.mouth);
     const kit = (as, ...parts) => keep(p, "kit", parts, as);
     /* A drum's heads are white, but for the bass drum's front head, which is its shell's colour halfway to white: lighter than the
        shell, so the kit's largest face shows as a drum's head and no dark disc, and of the kit's colour, so it is no pale disc of
@@ -1229,27 +1450,30 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
      across from the back of the crowd: each crash's pole and each microphone's stand, widened about its own upright axis from
      the corners it was built with, and the keyboard players' forearms and hands, the drummers' forearms and each tapping foot
      (`fitted`), each both ways as stout as a pixel of it SEEN m off at the least, and no stouter than STOUT_MOST, a drummer's
-     than DRUM_FOREARM; and the tip of each guitar's and the bass's neck, its head with it, widened across the strings to NECK_PX
+     than DRUM_FOREARM, a boom than BOOM_MOST and the singer's microphone's head than MIC_HEAD_MOST (`most`); and the tip of each guitar's and the bass's neck, its head with it, widened across the strings to NECK_PX
      of a pixel SEEN m off, and no more than NECK_MOST times as wide as built; and lays the bones again, for a band that stands
      still. */
   const corners = still.geometry.getAttribute("position");
-  const fits = stands.map(({ at, by, r, sides, axis = Y, round = false }) => {
+  const fits = stands.map(({ at, by, r, most = STOUT_MOST, sides, axis = Y, round = false, across = false }) => {
     const { from, count } = parts[at], base = corners.array.slice(from * 3, (from + count) * 3);
     let x = 0, y = 0, z = 0;
     for (let i = 0; i < count; i++) { x += base[i * 3] / count; y += base[i * 3 + 1] / count; z += base[i * 3 + 2] / count; }
-    return { from, count, base, x, y, z, axis, round, r, flats: 2 * Math.cos(Math.PI / sides), scale: by.g.scale.x };
+    return { from, count, base, x, y, z, axis, round, across, r, most, flats: 2 * Math.cos(Math.PI / sides), scale: by.g.scale.x };
   });
   function fit(perPx) {
     if (!(perPx > 0)) return;
     const seen = SEEN * perPx * 1.05;
     /* A stand is widened across at each height about where its line is there (`axis`, upright unless it leans), so a foot on the
-       floor stays on it; a microphone's head, `round`, every way about its middle. */
-    for (const { from, count, base, x, y, z, axis, round, r, flats, scale } of fits) {
-      const k = Math.min(STOUT_MOST, Math.max(r, seen / (flats * scale))) / r;
+       floor stays on it; a boom, `across`, square to its own line, which runs nearer level than upright; a microphone's head,
+       `round`, every way about its middle. */
+    for (const { from, count, base, x, y, z, axis, round, across, r, most, flats, scale } of fits) {
+      const k = Math.min(most, Math.max(r, seen / (flats * scale))) / r;
       for (let i = 0; i < count; i++) {
-        const along = round ? 0 : (base[i * 3 + 1] - y) / axis.y, ax = x + axis.x * along, az = z + axis.z * along;
+        const dx = base[i * 3] - x, dy = base[i * 3 + 1] - y, dz = base[i * 3 + 2] - z;
+        const along = round ? 0 : across ? dx * axis.x + dy * axis.y + dz * axis.z : dy / axis.y, ax = x + axis.x * along, az = z + axis.z * along;
         corners.array[(from + i) * 3] = ax + (base[i * 3] - ax) * k;
         if (round) corners.array[(from + i) * 3 + 1] = y + (base[i * 3 + 1] - y) * k;
+        else if (across) { const ay = y + axis.y * along; corners.array[(from + i) * 3 + 1] = ay + (base[i * 3 + 1] - ay) * k; }
         corners.array[(from + i) * 3 + 2] = az + (base[i * 3 + 2] - az) * k;
       }
     }
@@ -1261,8 +1485,8 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
         at.array[(from + i) * 3 + 1] = base[i * 3 + 1] + k * across[i] * way.y;
         at.array[(from + i) * 3 + 2] = base[i * 3 + 2] + k * across[i] * way.z;
       }
-      at.needsUpdate = true;
-      geo.computeBoundingSphere();
+      send(at, from, count);
+      bound(geo);
     }
     for (const { bone, wide, thick, most = STOUT_MOST * 3 } of fitted) {
       const least = Math.min(most, seen / (LIMB_FLATS * players[bone.of].g.scale.x));
@@ -1286,10 +1510,10 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
   const m = new THREE.Matrix4(), end = V(), swung = V();
   function place() {
     for (let k = 0; k < legs.length; k++) {
-      const { p, thigh, shin, hip, ankle } = legs[k];
+      const { p, thigh, shin, hip, ankle, bend, reach } = legs[k];
       thigh.a.copy(hip).applyQuaternion(p.body.quaternion).add(p.body.position);
       thigh.b.addVectors(thigh.a, ankle).multiplyScalar(0.5);
-      thigh.b.z += 0.03;
+      thigh.b.z += bend + KNEE_GIVE * (reach - thigh.a.distanceTo(ankle));
       shin.a.copy(thigh.b);
       shin.b.copy(ankle);
     }
@@ -1323,14 +1547,37 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     limbs.instanceMatrix.needsUpdate = true;
   }
 
+  /* Lays each skirt where it hangs (`hangFrom`), in its body's own frame: where it hangs from a body upright at rest, moved by its
+     share of how far the hips have gone. Only its corners and normals go to the GPU. */
+  const posed = new THREE.Matrix4(), toRest = new THREE.Matrix4(), turned = new THREE.Matrix3(), unturn = new THREE.Quaternion(), gone = V();
+  function hang() {
+    for (const { p, geo, from, count, weight, rest, hips, still, base, normals } of hangs) {
+      posed.compose(p.body.position, p.body.quaternion, p.body.scale);
+      toRest.copy(posed).invert().multiply(rest);
+      turned.setFromMatrix4(toRest);
+      gone.copy(hips).applyMatrix4(posed).sub(still).applyQuaternion(unturn.copy(p.body.quaternion).invert());
+      const e = toRest.elements, r = turned.elements, at = geo.getAttribute("position"), normal = geo.getAttribute("normal");
+      for (let i = 0; i < count; i++) {
+        const w = weight[i], x = base[i * 3], y = base[i * 3 + 1], z = base[i * 3 + 2], nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2], k = (from + i) * 3;
+        at.array[k] = e[0] * x + e[4] * y + e[8] * z + e[12] + w * gone.x;
+        at.array[k + 1] = e[1] * x + e[5] * y + e[9] * z + e[13] + w * gone.y;
+        at.array[k + 2] = e[2] * x + e[6] * y + e[10] * z + e[14] + w * gone.z;
+        normal.array[k] = r[0] * nx + r[3] * ny + r[6] * nz;
+        normal.array[k + 1] = r[1] * nx + r[4] * ny + r[7] * nz;
+        normal.array[k + 2] = r[2] * nx + r[5] * ny + r[8] * nz;
+      }
+      send(at, from, count);
+      send(normal, from, count);
+    }
+  }
   /* The band's count: the figures' beat, or half of it while that is fast (HALF_OVER), eased onto the beat again over RETUNE seconds
      after a change, so no one jumps. `rate` is the beat's own speed, in beats a second, smoothed over RATE_SMOOTH. */
   let level = 0, count = 0, last = null, rate = 0, half = false;
   /* Plays the band for a frame `dt` s long: `beats` is the figures' phase in beats, which the caller keeps (beat.js), and `time` the
      world's time in seconds. While the show plays they play, on their count; otherwise they stand, breathing on a 4-s cycle and
      shifting their weight. Each change eases over EASE seconds. Under reduced motion nothing calls this, so they stand as they were
-     built: at rest, their hands on their instruments. Nothing here makes anything: a frame's work is arithmetic on what the build
-     made. */
+     built: at rest, their hands on their instruments. Nothing here makes anything but the ranges of a body's corners it sends to the
+     GPU (`send`): a frame's work is arithmetic on what the build made. */
   function move(dt, time, beats, playing) {
     level = Math.max(0, Math.min(1, level + (playing ? dt : -dt) / EASE));
     const step = last === null ? 0 : Math.max(0, Math.min(1, beats - last));
@@ -1348,10 +1595,12 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     count = was + Math.max(0, Math.min(HALF_OVER * dt, count - was));
     for (let k = 0; k < players.length; k++) players[k].pose(count, level, time);
     place();
+    hang();
     return count;
   }
   for (let k = 0; k < players.length; k++) players[k].pose(0, 0, 0);
   place();
+  hang();
 
   return { players, limbs, bones, joints, still, material, uniforms, move, fit, light };
 }
