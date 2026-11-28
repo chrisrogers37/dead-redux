@@ -737,8 +737,8 @@ export function sourceOf(tint, cut) {
    between views, the stage's 0.11 rad inside the lowest and the steepest camera's 0.09 inside the highest: a figure seen past the
    views, under the level ones from the stage and over the steepest from the hill, was where the rule below failed (crowd.test.ts).
    It is drawn from its tier's own geometry (`kit`, buildCrowd's, of pieces): its body and each part it wears (`parts`) in the
-   form it wears it (`forms`), each face in the colour its tint takes for its cut (`cut`, sourceOf), and only the faces turned to the
-   eye and, at each pixel, the nearest.
+   form it wears it (`forms`) but the thin black poles it holds up or stands by (UNDRAWN), each face in the colour its tint takes
+   for its cut (`cut`, sourceOf), and only the faces turned to the eye and, at each pixel, the nearest.
    Each corner stands where the vertex shader stands it before it moves (DANCE, standerOf), by the figure's own numbers
    (`shape`, aCut, and `body`, aBody): its hair's length, its tails', its crown's and its brim's, an afro's puff and its head's size;
    its belly, its shoulders, its legs' girth and length; a shawl's hem raised, flared trousers flared, and a skirt's knee and hem
@@ -747,7 +747,8 @@ export function sourceOf(tint, cut) {
    does from the hips, its forearms resting as that way of sitting rests them. Standing, its arms hang; and how it stands, what it
    holds and how it moves are left out: drawnOf is for how much of it shows in each colour, and the unit tests hold that to the
    figures as the shader draws them (crowd.test.ts). Each view is [turn, tilt]: turned `turn` rad round it from the stage's bearing,
-   and looking down `tilt` rad. Each ring is [tilt, how many views round it]. */
+   and looking down `tilt` rad. Each ring is [tilt, how many views round it]. It draws DRAWN_VIEWS, or as many other views as
+   those (`looks`), as the unit tests draw a figure from where an eye stands. */
 export const DRAWN = 20, DRAWN_RINGS = [[0, 4], [0.4, 4], [0.8, 2], [1.2, 1]];
 export const DRAWN_VIEWS = [[0, -0.4], ...DRAWN_RINGS.flatMap(([tilt, turns]) => Array.from({ length: turns }, (_, k) => [(2 * Math.PI * k) / turns, tilt]))];
 /* The stage's bearing round a figure that stands at (x, z) turned `turn` (aSize.z): the turn from before it of the way to the stage. */
@@ -755,6 +756,11 @@ export const stageTurn = (x, z, turn) => {
   const dx = STAGE[0] - x, dz = STAGE[1] - z, c = Math.cos(turn), s = Math.sin(turn);
   return Math.atan2(c * dx - s * dz, s * dx + c * dz);
 };
+/* The parts drawnOf leaves out: the pole a figure holds a flag, a pennant, a star or a parasol up on, and a taper's stand. Black and
+   thin, a pole fills a tenth or more of a television's figure drawn finely and a twentieth of a desktop's, and the eye's test, which
+   draws a figure 40 pixels across with what it holds, catches it from some sides and misses it on others (crowd.test.ts); so the
+   rule below asks a figure's own colours to stand it apart, and never leans on a stick's black. */
+export const UNDRAWN = PART.POLE | PART.STAND;
 const DRAWN_X = 0.9, DRAWN_LOW = -0.4, DRAWN_HIGH = 3, DRAWN_ACROSS = Math.ceil(2 * DRAWN_X * DRAWN), DRAWN_UP = Math.ceil((DRAWN_HIGH - DRAWN_LOW) * DRAWN);
 const DRAWN_CELLS = DRAWN_ACROSS * DRAWN_UP, drawnDepth = new Float32Array(DRAWN_VIEWS.length * DRAWN_CELLS), drawnWhose = new Int8Array(DRAWN_VIEWS.length * DRAWN_CELLS);
 let drawnStood = new Float32Array(0), drawnSeen = new Float32Array(0);
@@ -857,13 +863,15 @@ export function standerOf({ parts, cut, shape: [hair, hem, crown, brim], body: [
   };
 }
 /** @param {Map<string, { position: Float32Array, mark: Float32Array, index: number[], tints: Int8Array }>} kit
-    @param {{ parts: number, forms?: Record<number, number>, cut: number, shape: number[] | Float32Array, body: number[] | Float32Array, seat?: string | null, stage?: number }} figure */
-export function drawnOf(kit, figure) {
+    @param {{ parts: number, forms?: Record<number, number>, cut: number, shape: number[] | Float32Array, body: number[] | Float32Array, seat?: string | null, stage?: number }} figure
+    @param {number[][]} [looks] */
+export function drawnOf(kit, figure, looks = DRAWN_VIEWS) {
+  if (looks.length > DRAWN_VIEWS.length) throw new Error(`drawnOf draws at most ${DRAWN_VIEWS.length} views`);
   const { parts, forms = {}, cut, stage = 0 } = figure, stand = standerOf(figure), tri = [[0, 0, 0]];
-  const worn = [[0, 0], ...Object.values(PART).filter((bit) => (parts & bit) !== 0).map((bit) => [bit, forms[bit] ?? 0])];
+  const worn = [[0, 0], ...Object.values(PART).filter((bit) => (parts & bit) !== 0 && (bit & UNDRAWN) === 0).map((bit) => [bit, forms[bit] ?? 0])];
   /* Whose colour each tint takes for this figure's cut, worked out once for the figure and not once a face for each view. */
   const whoseTint = Int8Array.from({ length: TINTS }, (_, tint) => sourceOf(tint, cut));
-  const views = DRAWN_VIEWS.map(([turn, tilt]) => ({ c: Math.cos(stage + turn), s: Math.sin(stage + turn), lean: Math.sin(tilt), level: Math.cos(tilt) }));
+  const views = looks.map(([turn, tilt]) => ({ c: Math.cos(stage + turn), s: Math.sin(stage + turn), lean: Math.sin(tilt), level: Math.cos(tilt) }));
   /* The box, in every view, round the faces drawn: only it is counted and cleared after, not the whole of each view. */
   let low = DRAWN_UP, high = -1, left = DRAWN_ACROSS, right = -1;
   for (const [bit, form] of worn) {
@@ -926,10 +934,14 @@ export function drawnOf(kit, figure) {
    it wears them; else one of them gives, the first of its legs, its things and its top that can: it takes the next of its era's on
    from the one it was dealt with which every side does. Where no one can, two give, the first two of those that can, each the
    nearest on from its own. Where no colours of its era can, as where one colour covers most of it, it wears those that bring its
-   lightest fifth that far apart from its darkest in the same way; where none can, its lightest tenth, as much as the eye's test
-   takes (ENDS), as for one reclining in a long skirt, seen level from the stage's side over four fifths skirt; and where none do even
-   that, as from steeply over one in a hat and a poncho, which show one colour, those that bring its tenth apart from the most sides,
-   and of those the ones that stand farthest apart from the side they do least from. Its skin, its hair and a shoe's
+   lightest fifth that far apart from its darkest in the same way, and where none can, its lightest tenth, as much as the eye's test
+   takes (ENDS), as for one reclining in a long skirt, seen level from the stage's side over four fifths skirt. Below the quarter a
+   figure is a hard one, and it takes its era's best, not the colours it was dealt nor the first that scrape through: of all that
+   bring that end apart from every side, those that bring the end above it apart from the most sides, and of those the ones that
+   stand farthest apart at its own end from the side they do least from; the first that scraped through stood under the eye's bar
+   from the hill or the stage, where the best stood well over it (crowd.test.ts). And where none do even the tenth, as from steeply
+   over one in a hat and a poncho, which show one colour, those that bring its tenth apart from the most sides, and of those the
+   ones that stand farthest apart from the side they do least from. Its skin, its hair and a shoe's
    black never give. A top gives to no colour that a figure within CLOSE m wears in the same top (`worn`), so that none is dressed
    like one that close (people), unless only such a colour can. */
 export const APART = 3, ENDS = [0.25, 0.2, 0.1];
@@ -946,8 +958,11 @@ export function dressFor(dress, person, drawn, worn = new Set()) {
   const colour = person.colour, dealt = { top: colour.top, legs: colour.legs, thing: colour.thing };
   const own = { self: lightOf(SKIN[colour.self]), hair: lightOf(HAIRS[colour.hair]), shoe: SHOE };
   const lightsOf = (chosen) => SOURCES.map((name) => (name in own ? own[name] : name === "top" ? topLight(dress.top[chosen.top]) : lightOf(dress[name][chosen[name]])));
-  /* How many sides a choice stands apart from, and how far apart it stands from the side it does least from. */
-  const score = (chosen, ends) => { const lights = lightsOf(chosen), each = drawn.map((shares) => apartOf(shares, lights, ends)); return [each.filter((by) => by >= APART).length, Math.min(...each)]; };
+  /* How many sides a choice stands apart from at `ends`, and how far apart it stands at `least` from the side it does least from. */
+  const score = (chosen, ends, least = ends) => {
+    const lights = lightsOf(chosen);
+    return [drawn.filter((shares) => apartOf(shares, lights, ends) >= APART).length, Math.min(...drawn.map((shares) => apartOf(shares, lights, least)))];
+  };
   const better = (p, q) => p[0] > q[0] || (p[0] === q[0] && p[1] > q[1]);
   /* Each colour a giver may take, the nearest on from its own first, and for a top those that close by wear last. */
   const waysOf = (gives) => {
@@ -956,18 +971,26 @@ export function dressFor(dress, person, drawn, worn = new Set()) {
   };
   const givers = GIVES.filter((gives) => drawn.some((shares) => shares[SOURCES.indexOf(gives)] > 0));
   const tries = [[], ...givers.map((gives) => [gives]), ...givers.flatMap((one, k) => givers.slice(k + 1).map((two) => [one, two]))];
-  /* Each choice in turn, until `visit` takes one: at each of ENDS, the first that stands apart from every side, a side it fails
-     ending its trial; and failing that, the best at the last of them. */
+  /* Each choice in turn, until `visit` takes one: at the first of ENDS, the first that stands apart from every side, a side it fails
+     ending its trial; at each after it, the best of those that do; and failing that, the best at the last of them. */
   const eachChoice = (visit) => {
     for (const [one, two] of tries) for (const k of one ? waysOf(one) : [null]) for (const q of two ? waysOf(two) : [null]) {
       if (visit({ ...dealt, ...(one ? { [one]: k } : {}), ...(two ? { [two]: q } : {}) })) return true;
     }
     return false;
   };
+  const apart = (chosen, ends) => { const lights = lightsOf(chosen); return drawn.every((shares) => apartOf(shares, lights, ends) >= APART); };
   let taken = dealt;
-  for (const ends of ENDS) {
-    const apart = (chosen) => { const lights = lightsOf(chosen); if (!drawn.every((shares) => apartOf(shares, lights, ends) >= APART)) return false; taken = chosen; return true; };
-    if (eachChoice(apart)) return taken;
+  if (eachChoice((chosen) => { if (!apart(chosen, ENDS[0])) return false; taken = chosen; return true; })) return taken;
+  for (let k = 1; k < ENDS.length; k++) {
+    let pick = null, most = null;
+    eachChoice((chosen) => {
+      if (!apart(chosen, ENDS[k])) return false;
+      const got = score(chosen, ENDS[k - 1], ENDS[k]);
+      if (!most || better(got, most)) { pick = chosen; most = got; }
+      return false;
+    });
+    if (pick) return pick;
   }
   let best = dealt, most = null;
   eachChoice((chosen) => { const got = score(chosen, ENDS[ENDS.length - 1]); if (!most || better(got, most)) { best = chosen; most = got; } return false; });
