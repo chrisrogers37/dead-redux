@@ -609,8 +609,10 @@ export const lyingOf = (big) => LYING + LYING_BIG * Math.max(big - 1, 0);
 const PAST = 0.5;
 /* The visitor's bear reaches 1.98 m from its middle, halfway between its feet and its head (bears.js, avatar.js). Lower down it
    reaches less, turned any way and at a run: under a metre up its hind legs, swung back, reach BEAR_LEGS from its middle, and under
-   two its tail BEAR_TAIL. The parting keeps its middle `hang` from a seated figure's axis (partingOptions), so what of the figure is
-   under a metre up keeps within hang - BEAR_LEGS of its axis, and under two within hang - BEAR_TAIL (crowd.test.ts, from bears.js). */
+   two the ends of its arms, swung to a run's widest, where they come down to two metres, BEAR_TAIL. That is named for its tail,
+   which reached it before the tail was sunk into the rump, and reaches 1.51 m now. The parting keeps its middle `hang` from a seated
+   figure's axis (partingOptions), so what of the figure is under a metre up keeps within hang - BEAR_LEGS of its axis, and under two
+   within hang - BEAR_TAIL (crowd.test.ts, from bears.js). */
 const BEAR = 1.98;
 export const BEAR_LEGS = 1.59, BEAR_TAIL = 1.66;
 /* The options buildCrowd hands parting() (seats.js) for figures at `scale`, up to the largest's size. A figure keeps 0.15 m past their
@@ -2058,9 +2060,10 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     return (x, z) => surface(p.x + wide * (cos * x + sin * z), p.z + wide * (cos * z - sin * x));
   };
   /* A figure sits only as the ground under it lets it rest on it, the way it faces, its contacts no more than FLOAT over it; lies
-     back only if its head then keeps clear of the bear's tail (lyingOf, BEAR_TAIL), and sits cross-legged or kneels only if its
-     knees keep clear of the bear's legs (LOW, BEAR_LEGS): a broad figure's head lying back went 9.8 cm into the bear's tail, and
-     its knees cross-legged 6.3 cm into its legs. With its knees up and apart, too, and where no way of sitting fits, it stands: sat
+     back only if its head then keeps clear of the bear under two metres (lyingOf, BEAR_TAIL), and sits cross-legged or kneels only
+     if its knees keep clear of the bear's legs (LOW, BEAR_LEGS): a broad figure's head lying back once went 9.8 cm into the bear's
+     tail, which reached furthest there then, and its knees cross-legged 6.3 cm into its legs. With its knees up and apart, too, and
+     where no way of sitting fits, it stands: sat
      with its knees up anywhere, one stood its seat 7.4 cm over a phone's ground. Two stand together as friends where each one's hand,
      standing still, rests on the other's back (ON_BACK): from where it rests in its own units (FRIEND_HAND), in metres as each stands
      on its ground, to the other's units. A stance adds nothing to a friend that sizes it (WEARS). */

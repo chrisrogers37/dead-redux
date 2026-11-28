@@ -1448,7 +1448,9 @@ describe("the crowd's shader", () => {
     // every height the triangle spans; all round, since it turns. A part of a seated figure, still, that stands further from its axis
     // at a height than hang less that reach would be in the bear. This test once held a seated figure under 0.65 units up to the
     // hanging arms' reach (HANG) and took the bear's belly to reach 1.3 m from its middle there: but its hind legs, swung back at a
-    // run, reach 1.59 m below a metre, and its tail 1.66 m below two, and a broad figure's head lying back went 9.8 cm into the tail
+    // run, reach 1.59 m below a metre, and its tail then 1.66 m below two (sunk into the rump since, it reaches 1.51 m, and the ends
+    // of the arms, swung to a run's widest, come down to two metres within a centimetre of 1.66 m), and a broad figure's head
+    // lying back went 9.8 cm into the tail
     // (seed 10) and a cross-legged one's knees 6.3 cm into the legs (seed 25). The ground is taken level between the seat and the
     // bear, as the parting takes it; where the hill rises between them it is not held (#207's text).
     const widest = Math.max(...Array.from({ length: 401 }, (_, k) => swingAt(k / 10))), n = Math.ceil(widest / 0.025);
