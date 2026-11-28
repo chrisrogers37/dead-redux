@@ -341,15 +341,16 @@ describe.each(lineups.map((roles) => [roles.join(", "), roles] as const))("the l
       const upright = bars[0].map((c) => own(band, k, c)), boom = bars[2].map((c) => own(band, k, c)), high = Math.max(...upright.map((c) => c.y));
       const top = middleOf(upright.filter((c) => c.y > high - 0.001)), far = Math.max(...boom.map((c) => gap(c, top))), end = middleOf(boom.filter((c) => gap(c, top) > far - 0.01));
       corners(built, (at, of, by) => { if (by === k && of === "body") body.push(own(band, k, at)); });
-      // A hand round the boom: where the body comes within 2 cm of the boom's line in its last 25 cm, it is 5 to 20 cm from its end
-      // along it, and none of the body is over the microphone's head. The hand closes on it 12 cm behind its end (band.js `singer`,
-      // DEAL.voice's `grip`), and its corners come within 2 cm of the line from 5.5 cm to 17 cm. (Further back the boom passes in
-      // front of the left shoulder, as a guitarist's does in front of the strumming shoulder.)
+      // A hand round the boom: the palm of the hand at the microphone (band.js `fist`, the first the singer's body draws) closes on the
+      // boom's line, its middle within a centimetre of it and 11 to 13 cm behind the boom's end, where `singer` closes it (DEAL.voice's
+      // `grip`, 12 cm); and none of the body is over the microphone's head. (band-bodies.test.ts holds the palm to the line as the
+      // singer sways.)
       const along = new THREE.Vector3().subVectors(end, top), length = along.length();
       along.normalize();
-      const on = body.map((c) => { const t = Math.min(length, Math.max(0, new THREE.Vector3().subVectors(c, top).dot(along))); return { off: gap(c, top.clone().addScaledVector(along, t)), back: length - t }; });
-      const held = on.filter((c) => c.off < 0.02 && c.back < 0.25).map((c) => c.back);
-      expect([held.length > 0, Math.min(...held) > 0.05 && Math.max(...held) < 0.2, Math.max(...body.map((c) => c.y)) < mic.y]).toEqual([true, true, true]);
+      const run = (p as Player & { drawn: { name: string; from: number; count: number }[] }).drawn.find((d) => d.name === "palm")!, corner = p.body.geometry!.getAttribute("position");
+      const palm = middleOf(Array.from({ length: run.count }, (_, i) => own(band, k, new THREE.Vector3().fromBufferAttribute(corner, run.from + i).applyMatrix4(p.body.matrixWorld))));
+      const t = new THREE.Vector3().subVectors(palm, top).dot(along), off = gap(palm, top.clone().addScaledVector(along, t));
+      expect([off < 0.01, length - t > 0.11 && length - t < 0.13, Math.max(...body.map((c) => c.y)) < mic.y]).toEqual([true, true, true]);
       // The tambourine, before the other thigh and out past it: the body 25 cm and more to that side of the middle under the hips,
       // and before the thigh, and nothing of the body as far out under the hips on the microphone's side.
       const hips = 0.92, low = body.filter((c) => c.y < hips + 0.05 && c.z > 0.1).map((c) => c.x * singerSide);

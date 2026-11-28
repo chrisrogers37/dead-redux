@@ -1112,9 +1112,9 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     const foot = V(side * at.beside, 0, at.back), top = V(foot.x, at.high, foot.z), end = back.clone().addScaledVector(V().subVectors(tip, back).normalize(), 0.025);
     return { tip, back, foot, top, end };
   }
-  /* A player's microphone on its stand, where micOf puts it: its stand and its boom fitted to the canvas (`fit`), the boom no wider
-     than BOOM_MOST. */
-  function voice(p, t, side, at = MIC, { tip, back, foot, top, end } = micOf(p, t, side, at)) {
+  /* A player's microphone on its stand, where micOf puts it (`mic`): its stand and its boom fitted to the canvas (`fit`), the boom
+     no wider than BOOM_MOST. */
+  function voice(p, { tip, back, foot, top, end }) {
     stands.push({ at: fixed.length, by: p, r: STAND, sides: 6 }, { at: fixed.length + 2, by: p, r: BOOM, most: BOOM_MOST, sides: 5, axis: V().subVectors(end, top).transformDirection(p.g.matrix), across: true });
     keep(p, "microphone", microphone(tip, back, top, foot));
   }
@@ -1155,7 +1155,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     p.holds = { neck: [ofBody(p, a.on(hold.joint, 0, 0)), ofBody(p, a.on(hold.nut, 0, 0))], strings: ofBody(p, a.on(hold.strum, 0, 0.0225)), face: face.clone() };
     const foot = stand(p, t, stance, toes, 0, true, boots, knee);
     keepHead(p, t);
-    voice(p, t, -1, { ...STRUMMING, beside: STRUMMING.out - right.x });
+    voice(p, micOf(p, t, -1, { ...STRUMMING, beside: STRUMMING.out - right.x }));
     const { body, pivot } = p;
     p.pose = (count, level, time) => {
       const slow = swing(count - lag, SLOW), across = swing(count - lag, STRUM), beat = swing(count - lag, 1), rising = (level * solo * (1 - swing(count - lag, SOLO))) / 2;
@@ -1254,7 +1254,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
     if (seated) sit(p, t, 0.34, 0.42);
     else stand(p, t, stance, 0.09, -0.02, false);
     keepHead(p, t);
-    if (mic) voice(p, t, spot[0] > 0 ? -1 : 1);
+    if (mic) voice(p, micOf(p, t, spot[0] > 0 ? -1 : 1));
     const { body, pivot } = p;
     p.pose = (count, level, time) => {
       const slow = swing(count - lag, 2 * SLOW, LIFT_MOVE), shift = level * sway * slow;
@@ -1319,7 +1319,7 @@ export function buildBand(stage, floor, roles = SIX, date = /** @type {string | 
        is a pixel wide, and came apart at the knee. */
     for (const l of legs) if (l.p === p) fitted.push(...[l.thigh, l.shin].map((b) => ({ bone: b, wide: b.wide, thick: b.thick })));
     keepHead(p, t);
-    voice(p, t, side, undefined, mic);
+    voice(p, mic);
     const { body, pivot } = p;
     p.pose = (count, level, time) => {
       const slow = swing(count - lag, SLOW), beat = swing(count - lag, 1);

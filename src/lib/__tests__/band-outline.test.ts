@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { SIX, STAGING } from "../../../public/world/band.js";
+import { buildBand, SIX, STAGING } from "../../../public/world/band.js";
 import { FACING, FIRST_EYE, height, SHELF_Y, STAGE } from "../../../public/world/ground.js";
 import { lineupOn } from "../../../public/world/lineup.js";
 import { budgetFor } from "../../../public/world/quality.js";
-import { PANEL } from "../../../public/world/stage.js";
+import { FLOOR, PANEL } from "../../../public/world/stage.js";
 // @ts-expect-error -- three ships no types
 import * as THREE from "three";
-import { type Built, type Camera, CAMERAS, DUSK, draw, filmOf, FLASH_CAMERAS, flickerOf, lens, liftShown, NIGHT, outlineChecks, PHASES, pieces, pixelOf, playing, POSES, RUNGS, specks, STAND_PART, standsBefore } from "./band-outline";
+import { bandTriangles, type Built, type Camera, CAMERAS, DUSK, draw, filmOf, FLASH_CAMERAS, flickerOf, lens, liftShown, NIGHT, outlineChecks, PHASES, pieces, pixelOf, playing, POSES, RUNGS, SHOWN, specks, STAND_PART, standsBefore } from "./band-outline";
 
 // The band's outlines as the shoot's devices draw them (band-outline.ts): the cameras the checks draw from, held to the shoot's poses,
 // and the six of 1979 to 1990 and of 1992 to 1995 (lineup.js), as the shoot's fixed day shows them, held to the checks every line-up
@@ -350,15 +350,55 @@ describe("what a microphone stands before", () => {
   it("finds a boom that comes down across its own player's face over the mouth, by the head rule alone", () => {
     expect(finds("desktop band", restand(4, [-0.397, -0.04], 1.9))).toEqual(["4's boom before its own head above the mouth"]);
   }, 60_000);
+  // A line-up on a day: each role's seat as STAGING numbers them, and what standsBefore's `torso` finds of it, each kind once, from
+  // the front of the crowd on a desktop.
+  const lineupAt = (day: string) => {
+    const roles = lineupOn(day).roles as string[], order = STAGING[roles.join(" ") as keyof typeof STAGING].players.map(([role]) => String(role));
+    const torso = (alter: ((built: Built) => void) | null) => [...new Set(standsBefore(roles, CAMERAS.filter((c) => c.name === "desktop band"), { date: day, alter, torso: true }).map((line) => line.slice(line.indexOf(": ") + 2, line.lastIndexOf(": "))))].sort();
+    return { seat: (role: string) => order.indexOf(role), torso };
+  };
   // A stand before its own player's torso from the front of the crowd (standsBefore's `torso`), with the six of 1972–74: the singer's
   // stand and base moved before them, 30 cm out from their middle at the mouth's side; and the lead's moved before their torso, 20
   // cm before their middle. The gate lets a stand stand before its own player's body, so only `torso` finds them.
   it("finds a stand before its own player's torso from the front of the crowd, the singer's or another's", () => {
-    const roles = lineupOn("1973-03-30").roles as string[], order = STAGING[roles.join(" ") as keyof typeof STAGING].players.map(([role]) => String(role));
-    const [singer, lead] = [order.indexOf("voice"), order.indexOf("lead")];
-    const torso = (alter: ((built: Built) => void) | null) => [...new Set(standsBefore(roles, CAMERAS.filter((c) => c.name === "desktop band"), { date: "1973-03-30", alter, torso: true }).map((line) => line.slice(line.indexOf(": ") + 2, line.lastIndexOf(": "))))].sort();
+    const { seat, torso } = lineupAt("1973-03-30"), [singer, lead] = [seat("voice"), seat("lead")];
     expect([torso(null), torso(restand(singer, [0, 0.3], 1.2)), torso(restand(lead, [0, 0.2], 1.2))]).toEqual([[], [`${singer}'s stand before its own torso`], [`${lead}'s stand before its own torso`]]);
   }, 60_000);
+  // The organ player holds still, their body among the still parts (band.js `embody`'s `still`). In each line-up with an organ, their
+  // stand moved before them, 30 cm before their middle, is found before their own torso, as a moving body's is: read off the moving
+  // bodies alone, the torso found nothing there. Each line-up's own outline test finds nothing of it as it stands. The pianist, who
+  // holds still too, has no microphone or pole of their own to stand before them.
+  it("finds a stand before its own player's torso where that player holds still among the still parts: the organ player's, in each line-up with an organ", () => {
+    const days = ["1966-06-01", "1968-03-01", "1969-04-17", "1971-12-15", "1972-05-03"];
+    const found = days.map((day) => { const { seat, torso } = lineupAt(day), organ = seat("organ"); return [day, organ, torso(restand(organ, [0, 0.3], 1.2))]; });
+    expect(found).toEqual(found.map(([day, organ]) => [day, organ, [`${organ}'s stand before its own torso`]]));
+  }, 300_000);
+  // Whose torso `torso` reads: each player's own (bandTriangles). In every line-up, what of a player shows as their torso lies inside
+  // their own drawn torso, the part `trunk` names "torso" in a body that moves, or the body among the still parts of one who holds
+  // still, and reaches from within 20 cm of its foot to within 20 cm of its top. Read off another player's, it stood 32 cm too high
+  // or too low wherever one who sits, a drummer or the pianist, is numbered beside one who stands.
+  it("reads each player's own torso, a body that moves or one among the still parts, in every line-up", () => {
+    type Player = { role: string; still: boolean; g: { matrixWorld: { clone(): { invert(): unknown } } }; body: { matrixWorld: unknown; geometry?: { getAttribute(name: string): unknown } }; drawn: { name: string; from: number; count: number }[] };
+    const off: string[] = [];
+    for (const key of Object.keys(STAGING)) {
+      const stage = new THREE.Group(), built = buildBand(stage, FLOOR, key.split(" ")), players = built.players as Player[];
+      stage.updateMatrixWorld(true);
+      const { owner, shown, mids } = bandTriangles(built, true), still = built.still.geometry.getAttribute("position");
+      players.forEach((p, k) => {
+        const back = p.g.matrixWorld.clone().invert(), drawn: Vec[] = [];
+        const read = (corners: unknown, world: unknown, from: number, count: number) => { for (let i = from; i < from + count; i++) drawn.push(new THREE.Vector3().fromBufferAttribute(corners, i).applyMatrix4(world).applyMatrix4(back)); };
+        if (p.still) for (const part of built.still.userData.parts as Part[]) { if (part.by === k && part.of === "body") read(still, built.still.matrixWorld, part.from, part.count); }
+        else { const run = p.drawn.find((d) => d.name === "torso")!; read(p.body.geometry!.getAttribute("position"), p.body.matrixWorld, run.from, run.count); }
+        const ys = drawn.map((c) => c.y), low = Math.min(...ys), high = Math.max(...ys), wide = Math.max(...drawn.map((c) => Math.abs(c.x)));
+        const torso = owner.flatMap((by, t) => (by === k && shown[t] === SHOWN.torso ? [{ x: mids[t * 3], y: mids[t * 3 + 1] }] : []));
+        const inside = torso.every((m) => m.y >= low && m.y <= high && Math.abs(m.x) <= wide + 0.07);
+        const shownYs = torso.map((m) => m.y), reach = torso.length > 0 && Math.min(...shownYs) <= low + 0.2 && Math.max(...shownYs) >= high - 0.2;
+        const span = torso.length ? `from ${Math.min(...shownYs).toFixed(2)} to ${Math.max(...shownYs).toFixed(2)}` : "none";
+        if (!inside || !reach) off.push(`${key}: ${k}, the ${p.role}, shows ${torso.length} triangles as its torso, ${span}, against its own from ${low.toFixed(2)} to ${high.toFixed(2)}`);
+      });
+    }
+    expect(off).toEqual([]);
+  });
   // The outlines' film looks again, frame by frame, wherever what moved changed what is solid there, under a stand too (filmOf). The
   // seven of 1968–70's rhythm guitarist and keys player, 5 and 6 as STAGING numbers them, meet at a phone's second and third rungs
   // (band-outline-1968.test.ts). With the keys' stand as it stood before, its top at the mouth's height, it stood over where they
