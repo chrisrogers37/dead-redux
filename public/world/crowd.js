@@ -937,8 +937,8 @@ export function drawnOf(kit, figure, looks = DRAWN_VIEWS) {
    a pattern to plain or from plain to a pattern, and four more to a colour that a figure within CLOSE m wears in the same top
    (`worn`), so that none is dressed like one that close (people). So a patterned top keeps a pattern where one can. Of the
    nearest, each giver's colours the nearest on from its own first, it takes the first that no figure dressed before it wears whole
-   (`taken`), and where every one of those is worn, the first such of those a step further (AWAY.spread): so that few of a crowd
-   wear the same three colours. Where no colours of its era bring its quarter apart, as where one colour covers most of it, it wears
+   (`taken`, as wholeOf counts them), and where every one of those is worn, the first such of those a step further (AWAY.spread),
+   or the nearest where those are all worn too: so that few of a crowd wear the same three colours. Where no colours of its era bring its quarter apart, as where one colour covers most of it, it wears
    those that bring its lightest fifth that far apart from its darkest in the same way, and where none can, its lightest tenth, as
    much as the eye's test takes (ENDS), as for one reclining in a long skirt, seen level from the stage's side over four fifths
    skirt. Below the quarter a figure is a hard one, and its colours keep the margin its era's best keep: of all that bring that end
@@ -979,6 +979,9 @@ function apartIn(order, shares, lights, ends) {
   if (low < 0) low = last;
   return lights[first] / lights[low];
 }
+/* The colours a figure wears whole (`one`, its top's, its legs' and its things' indices into palette `dress`), as one number: its top's,
+   then its legs', then its things', each counted in its own list's length, so that no two sets of three give the same. */
+export const wholeOf = (dress, one) => (one.top * dress.legs.length + one.legs) * dress.thing.length + one.thing;
 export function dressFor(dress, person, drawn, worn = new Set(), taken = new Set(), pick = 0) {
   const colour = person.colour, dealt = { top: colour.top, legs: colour.legs, thing: colour.thing }, palette = lightsOfPalette(dress);
   const hair = lightOf(HAIRS[colour.hair]), self = lightOf(SKIN[colour.self]);
@@ -1004,7 +1007,7 @@ export function dressFor(dress, person, drawn, worn = new Set(), taken = new Set
   const kindOf = (k) => dress.top[k][1], dealtKind = kindOf(dealt.top);
   const topStep = (k) => (k === dealt.top ? 0 : AWAY.top[kindOf(k) === dealtKind ? 0 : kindOf(k) !== PATTERN.PLAIN && dealtKind !== PATTERN.PLAIN ? 1 : 2] + (worn.has(k) ? AWAY.worn : 0));
   const rankOf = (top, legs, thing) => (legs !== dealt.legs ? 1 : 0) + (thing !== dealt.thing ? 1 : 0) + topStep(top);
-  const keyOf = (one) => one.top * 100 + one.legs * 10 + one.thing, result = (one) => ({ top: one.top, legs: one.legs, thing: one.thing });
+  const keyOf = (one) => wholeOf(dress, one), result = (one) => ({ top: one.top, legs: one.legs, thing: one.thing });
   /* The colours it was dealt, where they stand apart from every side at the quarter. */
   const asDealt = choiceOf(dealt.top, dealt.legs, dealt.thing);
   if (apart(asDealt, ENDS[0])) return dealt;
@@ -2219,7 +2222,7 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
       seat: sits ? dealt[i].sit : null, stage: stageTurn(p.x, p.z, turn) });
     const colours = (each.colours[i] = dressFor(palette, one, drawn, close, taken, dressPick(i)));
     tops[i] = colours.top;
-    taken.add(colours.top * 100 + colours.legs * 10 + colours.thing);
+    taken.add(wholeOf(palette, colours));
     const [shirt, pattern, second] = palette.top[colours.top];
     each.dress.set([tone(shirt), second === undefined ? 0 : tone(second), pattern + PATTERNS * seedOf(i)], 3 * i);
     each.aTone.set([tone(palette.legs[colours.legs]), tone(HAIRS[one.colour.hair]), tone(SKIN[one.colour.self]),

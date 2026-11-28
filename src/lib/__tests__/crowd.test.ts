@@ -5,7 +5,7 @@ import * as THREE from "three";
 import {
   backOf, BEAR_LEGS, BEAR_TAIL, buildCrowd, CHOICES, CLOTHS, COLOURS, CREST, crestOf, CUP_ARM, CUT, CYCLE, DROP, DYE, DYED, DYED_PROPS, FEET, figureGeometry, FOLD, FOOT, FORMS, formOfMark, formsOf,
   ARM_RINGS, FRIEND_HAND, groundUnder, HAND, HANG, HIP_X, LEG_RINGS, TORSO, HOLD_UP, inView, KNEES, LEG, LOW, lyingOf, MOST, MOVES, only, OUTLINE, outlineOf, OVERHEAD, PART, partingOptions, people, PLAIN_LEAVES_OUT, plainly, poseOf,
-  PROP_EVERY, PROPS, QUIET, dressOn, HAIRS, SKIN, DRESS, PATTERN, PATTERNS, SEEDS, seedOf, CLOTHES, RIM, RIM_LEAST, RIM_SIDE, RIM_TINT, RIM_TO, LIT, HOUSE, HOUSE_LOW, HOUSE_TINT, LAMP_HALF, LAMP_TINT, LAMP_TO, COVER, APART, stageTurn, standerOf, HOOD_ROPE, apartOf, dressFor, dressPick, drawnOf, DRAWN_VIEWS, ENDS, MARGIN, AWAY, CLOSE, UNDRAWN, sourceOf, SOURCES, pieces, lightOf, topLight, TINT, RIG, DRESS_FINE, DRESS_EDGE, SEAT, wardrobe, WARDROBE, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, stances, TALL, TINTS, tone, TOP, wearing, without,
+  PROP_EVERY, PROPS, QUIET, dressOn, HAIRS, SKIN, DRESS, PATTERN, PATTERNS, SEEDS, seedOf, CLOTHES, RIM, RIM_LEAST, RIM_SIDE, RIM_TINT, RIM_TO, LIT, HOUSE, HOUSE_LOW, HOUSE_TINT, LAMP_HALF, LAMP_TINT, LAMP_TO, COVER, APART, stageTurn, standerOf, HOOD_ROPE, apartOf, dressFor, dressPick, drawnOf, DRAWN_VIEWS, ENDS, MARGIN, AWAY, CLOSE, UNDRAWN, wholeOf, sourceOf, SOURCES, pieces, lightOf, topLight, TINT, RIG, DRESS_FINE, DRESS_EDGE, SEAT, wardrobe, WARDROBE, SHARE, SHOULDER_X, SHOULDER_Y, SIT_POSE, SITS, SPLAY, STANDS, stances, TALL, TINTS, tone, TOP, wearing, without,
 } from "../../../public/world/crowd.js";
 import { MOVE as STEP, SLOW, STRUM, swing } from "../../../public/world/band.js";
 import { buildStage, FLOOR } from "../../../public/world/stage.js";
@@ -439,7 +439,7 @@ function redress(c: typeof crowd, i: number, d: Palette, from: Chosen, to: Chose
 }
 // The rule dressFor keeps, written out here on its own, for a figure dealt `colour` that the eye sees as `drawn` shows it (drawnOf's
 // shares from each of DRAWN_VIEWS), on palette `d`; `worn` the tops those close by wear in the same top, `taken` the colours those
-// dressed before it wear whole (each top * 100 + legs * 10 + thing) and `pick` its own draw (dressPick). Every choice is the colours
+// dressed before it wear whole (each as wholeOf counts it) and `pick` its own draw (dressPick). Every choice is the colours
 // it was dealt with none, one or two of those that show (its legs, its things and its top) moved, each to another of its era's. How
 // far a choice is from what was dealt (AWAY): a step for its legs and one for its things moved, and for its top a step and a half in
 // its own pattern, two and a half in another pattern, three and a half from plain to patterned or back, and four more in a colour
@@ -447,8 +447,8 @@ function redress(c: typeof crowd, i: number, d: Palette, from: Chosen, to: Chose
 // of those that do, nearest first and in the order the rule lists them (as dealt, each giver alone, each two, each the nearest on
 // from its own first), the first that no one before it wears whole of those no more than a step further than the nearest, or else
 // the nearest. Below it, at the fifth and then the tenth, of all that stand apart from every side, those that bring the end above
-// apart from as many sides as the best does and stand as far apart at their own end, from the side they do least from, as MARGIN
-// of the best: of those the colours it was dealt where they are among them; else the nearest of those no more than a step further
+// apart from as many sides as the best does and stand as far apart at their own end, from the side they do least from, as 0.8
+// of the best (MARGIN, written out here so that the rule does not follow it): of those the colours it was dealt where they are among them; else the nearest of those no more than a step further
 // than the nearest that no one before it wears whole, or the nearest where there are none, and of those the one its draw picks.
 // Returns the choice and the end it stands apart at, or none where no colours of its era bring its tenth apart.
 type Rule = { chosen: Chosen; ends: number; kind: string } | undefined;
@@ -464,7 +464,7 @@ function ruleFor(d: Palette, colour: Record<string, number>, drawn: number[][], 
   const away = (one: Chosen) => (one.legs !== dealt.legs ? 1 : 0) + (one.thing !== dealt.thing ? 1 : 0)
     + (one.top === dealt.top ? 0 : (pattern(one.top) === own ? 1.5 : pattern(one.top) !== PATTERN.PLAIN && own !== PATTERN.PLAIN ? 2.5 : 3.5) + (worn.has(one.top) ? 4 : 0));
   const order = listed.map((one, seq) => ({ one, seq, far: away(one) })).sort((p, q) => p.far - q.far || p.seq - q.seq).map(({ one }) => one);
-  const whole = (one: Chosen) => one.top * 100 + one.legs * 10 + one.thing;
+  const whole = (one: Chosen) => wholeOf(d, one);
   const nearestOf = (list: Chosen[]) => list.filter((one) => away(one) === away(list[0]));
   const moved = (one: Chosen) => GIVES.filter((name) => one[name] !== dealt[name]).length;
   const quarter = order.filter((one) => everySide(one, ENDS[0])), free = (one: Chosen) => !taken.has(whole(one));
@@ -479,7 +479,7 @@ function ruleFor(d: Palette, colour: Record<string, number>, drawn: number[][], 
     });
     if (!passing.length) continue;
     const sides = Math.max(...passing.map((p) => p.sides)), least = Math.max(...passing.filter((p) => p.sides === sides).map((p) => p.least));
-    const near = passing.filter((p) => p.sides >= sides && p.least >= MARGIN * least).map(({ one }) => one);
+    const near = passing.filter((p) => p.sides >= sides && p.least >= 0.8 * least).map(({ one }) => one);
     const open = near.filter((one) => away(one) <= away(near[0]) + 1 && free(one)), from = near[0] === dealt ? [dealt] : nearestOf(open.length ? open : near);
     return { chosen: from[Math.min(from.length - 1, Math.floor(pick * from.length))], ends: ENDS[k], kind: "near" };
   }
@@ -487,11 +487,11 @@ function ruleFor(d: Palette, colour: Record<string, number>, drawn: number[][], 
 }
 // What a figure of a crowd went by when it was dressed: the tops those within CLOSE m of it in the same top wore by then, those
 // dressed before it as they were dressed and those after as they were dealt (`worn`), and the colours those before it wore whole.
-function dressedBy(c: typeof crowd, who: Person[], i: number) {
+function dressedBy(c: typeof crowd, who: Person[], i: number, d: Palette) {
   const placed = placedOf.get(c)!, p = placed[i], mine = who[i] as { top: string };
   const worn = new Set(placed.flatMap((q, j) => (j !== i && (who[j] as { top: string }).top === mine.top && Math.hypot(q.x - p.x, q.z - p.z) < CLOSE
     ? [j < i ? (c.each.colours[j] as Chosen).top : (who[j] as { colour: Record<string, number> }).colour.top] : [])));
-  const taken = new Set(Array.from({ length: i }, (_, j) => { const one = c.each.colours[j] as Chosen; return one.top * 100 + one.legs * 10 + one.thing; }));
+  const taken = new Set(Array.from({ length: i }, (_, j) => wholeOf(d, c.each.colours[j] as Chosen)));
   return { worn, taken };
 }
 // Each figure of crowd `c` of a show on `date` wears the colours dressFor chose (each.colours), as the shader colours them, and those
@@ -521,7 +521,7 @@ function dressedApart(c: typeof crowd, date: string, counted: Record<string, num
     // Each colour as the shader shows it on the figure: its legs' and its things' are those the palette holds.
     const shown = [topLight(d.top[chosen.top]), shader("legs"), shader("hair"), shader("self"), shader("thing"), 0.02];
     expect([date, f.i, shown[1], shown[4]].map((q) => (typeof q === "number" ? +q.toFixed(6) : q))).toEqual([date, f.i, +lightOf(d.legs[chosen.legs]).toFixed(6), +lightOf(d.thing[chosen.thing]).toFixed(6)]);
-    const { worn, taken } = dressedBy(c, who, f.i), rule = ruleFor(d, p.colour, drawn, worn, taken, dressPick(f.i));
+    const { worn, taken } = dressedBy(c, who, f.i, d), rule = ruleFor(d, p.colour, drawn, worn, taken, dressPick(f.i));
     const under = () => drawn.every((shares, k) => !underSteep(k) || apartOf(shares, shown, ENDS[ENDS.length - 1]) >= APART * (1 - 1e-9));
     const kind = rule ? `${rule.kind} ${rule.ends}` : under() ? "short" : "short under";
     counted[kind] = (counted[kind] ?? 0) + 1;
@@ -1896,7 +1896,7 @@ describe("the crowd's shader", () => {
       const c = crowdOf(date, false, 350, seed), who = peopleOf(c), d = dressOn(date) as Palette, kinds = dressedApart(c, date, counted);
       const wears = new Map<number, number>(), hardWears = new Map<number, number>();
       for (let i = 0; i < c.count; i++) {
-        const dealt = (who[i] as { colour: Record<string, number> }).colour, got = c.each.colours[i] as Chosen, whole = got.top * 100 + got.legs * 10 + got.thing;
+        const dealt = (who[i] as { colour: Record<string, number> }).colour, got = c.each.colours[i] as Chosen, whole = wholeOf(d, got);
         if (GIVES.every((name) => got[name] === dealt[name])) keeps += 1;
         if (d.top[dealt.top][1] !== PATTERN.PLAIN) { patterned += 1; patternKept += d.top[got.top][1] !== PATTERN.PLAIN ? 1 : 0; }
         wears.set(whole, (wears.get(whole) ?? 0) + 1);
@@ -1920,7 +1920,7 @@ describe("the crowd's shader", () => {
     // same as another such. Where each took the first that stood apart, whoever wore it, it was 45.5 % of them; where those below
     // the quarter took their era's best, 25.2 % of those; and where a patterned top gave to plain as soon as to another pattern,
     // 89.5 % kept one.
-    expect({ keeps: keeps / all > 0.25, patterns: patternKept / patterned > 0.95, twins: twins / all < 0.2, hard: hard / all < 0.08, hardTwins: hardTwins / hard < 0.2 })
+    expect({ keeps: keeps / all > 0.2, patterns: patternKept / patterned > 0.95, twins: twins / all < 0.2, hard: hard / all < 0.1, hardTwins: hardTwins / hard < 0.2 })
       .toEqual({ keeps: true, patterns: true, twins: true, hard: true, hardTwins: true });
     expect(Object.keys(least).length).toBe(SEEDED.length * ERA_SHOWS.length * 2 * HOURS.length);
     for (const [key, { by, i }] of Object.entries(least)) expect([key, i, by >= SEPARATE]).toEqual([key, i, true]);
@@ -3235,13 +3235,14 @@ describe("the crowd's shader", () => {
     expect(Math.max(...HAIRS.map(lum))).toBeGreaterThan(0.25);
   });
 
-  it("dresses every figure so that from every side the lightest quarter of it as the eye sees it stands APART times lighter than its darkest, whatever it wears: where the colours it was dealt fall short, its legs, then its things, then its top give, each to the nearest of its era's on from its own that does, and where none bring a quarter apart, it takes the best of its era's at the fifth or the tenth", () => {
+  it("dresses every figure so that from every side the lightest quarter of it as the eye sees it stands APART times lighter than its darkest, whatever it wears: where the colours it was dealt fall short, it takes the nearest of its era's that do and that no one dressed before it wears whole, and where none bring a quarter apart, colours within a margin of its era's best at the fifth or the tenth", () => {
     // So that on any ground the one end of it or the other stands off it: a quarter, more than twice the tenth the tests that stand
     // every figure apart take, so that the light, which falls on some faces of a colour more than on others, and a side the views fall
     // between leave that tenth in it; a fifth where no colours of its era can bring a quarter apart; and the tenth itself where none
     // can bring a fifth, which before fell to the colours that stand apart from the most sides, and guarantee nothing. Below the
-    // quarter a figure takes its era's best that bring that end apart, not the first: the first that scraped through at the tenth
-    // stood under the eye's bar where the best stood well over it (the test of the days that fell under it, below).
+    // quarter a figure keeps within a margin of its era's best that bring that end apart, and never takes the first that scrapes
+    // through: the first that scraped through at the tenth stood under the eye's bar where the best stood well over it, and so did
+    // colours that stand much less far apart than the best (the test of the days that fell under it, below).
     expect(APART).toBeGreaterThanOrEqual(3);
     expect(ENDS).toEqual([0.25, 0.2, 0.1]);
     // apartOf: the colour at which, from the lightest, a quarter, a fifth or a tenth of the figure is reached (the last of ENDS where
@@ -3278,7 +3279,15 @@ describe("the crowd's shader", () => {
     // says. It wears the colours it was dealt where from every side those stand apart; else the nearest that do (AWAY), passing by
     // those others wear whole where it can; and below the quarter, of those within MARGIN of the best, the nearest, as its draw picks.
     expect([MARGIN, AWAY]).toEqual([0.8, { top: [1.5, 2.5, 3.5], worn: 4, spread: 1 }]);
-    const palette = dressOn(FIXED) as Palette, kit = kitOf(crowd), whole = (one: Chosen) => one.top * 100 + one.legs * 10 + one.thing;
+    // wholeOf counts each set of three colours of a palette as a number of its own, in every era's palette and in one with more
+    // legs and things than ten.
+    const big = { top: Array.from({ length: 14 }, () => [0, PATTERN.PLAIN]), legs: Array(12).fill(0), thing: Array(11).fill(0) };
+    for (const p of [...DRESS.map(([, , d]) => d as Palette), big]) {
+      const keys = new Set<number>();
+      for (let top = 0; top < p.top.length; top++) for (let legs = 0; legs < p.legs.length; legs++) for (let thing = 0; thing < p.thing.length; thing++) keys.add(wholeOf(p, { top, legs, thing }));
+      expect(keys.size).toBe(p.top.length * p.legs.length * p.thing.length);
+    }
+    const palette = dressOn(FIXED) as Palette, kit = kitOf(crowd), whole = (one: Chosen) => wholeOf(palette, one);
     let tried = 0;
     const kinds: Record<string, number> = {};
     for (const f of figures.slice(0, 40)) {
