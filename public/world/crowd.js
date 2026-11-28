@@ -18,12 +18,44 @@ import { gathering, keepOuts, parting, PERSON, seats, wholeGroups } from "./seat
    shoot's renderer pays some 4 microseconds for each instance of a mesh besides, so a mesh for each kind of part cost more than it
    saved (counted, crowd alone, in that renderer). The price is memory: each corner repeats its figure's numbers, 172 bytes a corner. */
 
-/* One figure in its own units, standing on y = 0 and facing +z, TALL to the top of its head: two legs LEG tall on their feet HIP_X
-   either side, hips, a torso that widens to its shoulders, a neck, a head, and two arms at its sides ending in hands, hanging from
-   shoulders SHOULDER_X either side and SHOULDER_Y up and bending at the elbow, ELBOW down them. Each leg has a ring at the knee,
-   halfway up it, where it bends. Its head's middle stands at HEAD_Y, and nods about NECK_Y. */
-export const LEG = 0.86, SHOULDER_X = 0.285, SHOULDER_Y = 1.44, TALL = 1.8076;
-const HEAD_Y = 1.655, NECK_Y = 1.56, HIP_X = 0.095, ELBOW = 0.27, HAND_Y = SHOULDER_Y - 0.565, STAND_X = -0.14, STAND_Z = 0.22, SKIRT_X = 0.262;
+/* One figure in its own units, standing on y = 0 and facing +z, TALL to the top of its head: two legs LEG tall on their shoes HIP_X
+   either side, a torso with hips, a waist, a chest and shoulders that slope up to a neck, a head, and two arms at its sides ending in
+   hands, hanging from shoulders SHOULDER_X either side and SHOULDER_Y up and bending at the elbow, ELBOW down them. Each leg has a
+   ring at the knee, halfway up it, where it bends. Its head's middle stands at HEAD_Y, and nods about NECK_Y. */
+export const LEG = 0.86, SHOULDER_X = 0.285, SHOULDER_Y = 1.44, TALL = 1.8076, HIP_X = 0.095;
+const HEAD_Y = 1.655, NECK_Y = 1.56, ELBOW = 0.27, HAND_Y = SHOULDER_Y - 0.565, STAND_X = -0.14, STAND_Z = 0.22, SKIRT_X = 0.262;
+/* The body's shape, ring by ring, each ring out to the sides (rx), ahead (rz) and behind (rb). The torso from the neck down (TORSO,
+   each ring at its height y): the neck up inside the head, its foot (NECK_FOOT, where the skin ends), the slope of the shoulders, the
+   shoulders, the chest, the ribs, the waist (WAIST, where a top meets what is worn on the legs), the hips over the seat and the seat.
+   A leg from inside the hips (HIP_TOP, over its pivot at LEG, so that the hips riding up on a leg as a figure sways or shifts its
+   weight lift no seat off it) down (LEG_RINGS, [y, rx, rz, rb]): the thigh, a ring halfway down it where shorts end (SHORTS_HEM),
+   the knee, halfway, the calf (CALF), behind, and the ankle. An arm from the shoulder down (ARM_RINGS, [down, rx, rz, rb]): the upper
+   arm, a ring two thirds of the way down it where a short or rolled sleeve ends (SLEEVE_HEM), the elbow, its point behind, and the
+   forearm tapering to the wrist, inside the hand. Each hem's ring stands far enough from its joint that, as the shader bends the joint
+   and mitres the ring there, no corner of that ring passes the hem's, in any stance (crowd.test.ts): 4 cm over the knee, the mitre
+   folded a seated figure's knee over the hem by up to 12 cm. The cloth ends at the hem: the faces under it are the shin's and the
+   forearm's (TINT), bare on those who show them. OPEN is how far those two hems stand open on those who wear them (CUT.SHORTS, CUT.BARE),
+   times the limb there, as the shader opens them, and how much narrower than a trouser's hem a bare ankle is. A shoe from its heel to
+   its toe (SHOE_SECTIONS, [z, wide, high]): the heel, the instep, high at the ankle, and the toe, low. A phone and a television,
+   which see the crowd from further off, draw it with fewer: no ring at the neck's foot or the ribs, no shorts' hem, calf or sleeve's
+   hem, and a shoe from heel to toe in one (PLAIN_SHOE): a phone's frame has the least to spare for its crowd. And the skull (JAW):
+   how much narrower at the jaw, how far its lower half is drawn up, and how much fuller behind and tucked in at the nape. */
+const NECK_FOOT = 1.53, WAIST = 1.04, HIP_TOP = 0.9, SHORTS_HEM = 0.62, CALF = 0.2, SLEEVE_HEM = 0.18, FRINGE = 0.07;
+export const TORSO = [{ y: 1.62, rx: 0.052, rz: 0.05 }, { y: 1.535, rx: 0.064, rz: 0.058, rb: 0.064 }, { y: 1.5, rx: 0.165, rz: 0.09, rb: 0.11 },
+  { y: 1.445, rx: 0.25, rz: 0.135, rb: 0.1666 }, { y: 1.32, rx: 0.218, rz: 0.162, rb: 0.1496 }, { y: 1.17, rx: 0.172, rz: 0.135, rb: 0.1292 },
+  { y: WAIST, rx: 0.148, rz: 0.112, rb: 0.1115 }, { y: 0.92, rx: 0.18, rz: 0.12, rb: 0.13 }, { y: 0.845, rx: 0.17, rz: 0.126, rb: 0.126 }];
+export const LEG_RINGS = [[HIP_TOP, 0.09, 0.088, 0.09], [SHORTS_HEM, 0.082, 0.081, 0.078], [LEG / 2, 0.075, 0.075, 0.066], [CALF, 0.063, 0.068, 0.078], [0, 0.06, 0.062, 0.06]];
+export const ARM_RINGS = [[0, 0.056, 0.056, 0.056], [SLEEVE_HEM, 0.048, 0.05, 0.048], [ELBOW, 0.043, 0.043, 0.048], [0.54, 0.025, 0.031, 0.029]];
+export const OPEN = { sleeve: 1.2, shorts: 1.18, ankle: 0.72 };
+/* How much flatter a seated figure's coat's tail lies over its thighs before and under them behind than it hangs standing (a
+   skirt's, 0.45 both ways): flat enough to lie on them, and no flatter than leaves them inside it, with room: flattened 0.4
+   behind, it went into a kneeling figure's (crowd.test.ts). */
+export const COAT_SAT = [0.1, 0.2];
+/* A hood, down, as a rope through five points, each [x, y, z], at its own thickness: from inside one shoulder, over it, round the
+   back of the neck, where it lies on it, and over the other shoulder to inside it (crowd.test.ts). */
+export const HOOD_ROPE = { points: [[-0.135, 1.47, -0.02], [-0.105, 1.53, -0.1], [0, 1.565, -0.12], [0.105, 1.53, -0.1], [0.135, 1.47, -0.02]], radii: [0.035, 0.05, 0.06, 0.05, 0.035] };
+const SHOE_SECTIONS = [[-0.055, 0.075, 0.06], [0.035, 0.108, 0.085], [0.155, 0.08, 0.035]], PLAIN_SHOE = [[-0.055, 0.1, 0.07], [0.155, 0.095, 0.04]];
+const JAW = { narrow: 0.25, chin: 0.8, back: 0.06, nape: 0.2 };
 /* A seated figure's hand that holds a pole or a string slides HOLD_UP up it, straight up: the forearm, FOREARM from the elbow to
    the hand's middle, bent up at the elbow (HOLD[1], rad) and the upper arm turned back from the shoulder (HOLD[0]) as far as keeps
    the hand where it was below the shoulder, ahead and across, so that the pole stays as near the figure's axis as standing. */
@@ -38,7 +70,7 @@ export const HOLD = [-Math.atan2(FOREARM * Math.sin(holdBend), ELBOW + FOREARM *
 export const PART = {
   BRIM: 1, CROWN: 2, BILL: 4, BAND: 8, KNOT: 16, WREATH: 32, HAIR: 64, TAIL: 128, TAIL2: 256, BEARD: 512, SKIRT: 1024, PONCHO: 2048,
   PACK: 4096, ROLL: 8192, POLE: 16384, FLAG: 32768, STAND: 65536, BALLOON: 131072, HOOP: 262144, DRUM: 524288, RIDER: 1048576,
-  FINGER: 2097152, CUP: 4194304,
+  FINGER: 2097152, CUP: 4194304, HOOD: 8388608,
 };
 export const PLAIN_LEAVES_OUT = ["WREATH", "TAIL2", "BEARD", "ROLL", "HOOP", "DRUM"];
 /* Some parts come in several shapes, its forms, each its own piece of the one geometry: a figure that wears the part wears one of
@@ -47,9 +79,10 @@ export const PLAIN_LEAVES_OUT = ["WREATH", "TAIL2", "BEARD", "ROLL", "HOOP", "DR
    plume; a wreath is a lumpy ring or flowers that stand up from it; the hair down the back of the head is a tube, dreadlocks or a high
    bun; a pole stands straight up beside the head or leans in over it; on it flies a flag, cut square, with a swallowtail, as a
    pennant or as streamers, or stands a star, a moon, a parasol or a puppet's head; a balloon is one or three; and the hand held up
-   holds up a finger, a hat or a tambourine. A vertex carries its form in aMark.z, over the tint (TINTS). */
+   holds up a finger, a hat or a tambourine; a skirt is a coat's tail on some, open down the front, and a poncho may be fringed. A
+   vertex carries its form in aMark.z, over the tint (TINTS). */
 export const FORMS = {
-  CROWN: ["crown", "knit", "jester", "plume"], WREATH: ["wreath", "flowers"], HAIR: ["hair", "dreads", "bun"], POLE: ["straight", "lean"],
+  SKIRT: ["skirt", "coat"], PONCHO: ["poncho", "fringed"], CROWN: ["crown", "knit", "jester", "plume"], WREATH: ["wreath", "flowers"], HAIR: ["hair", "dreads", "bun"], POLE: ["straight", "lean"],
   FLAG: ["oblong", "swallowtail", "pennant", "streamer", "star", "moon", "parasol", "puppet"], BALLOON: ["one", "bunch"], FINGER: ["finger", "aloft", "tambourine"],
 };
 const FORM = Object.fromEntries(Object.entries(FORMS).map(([name, list]) => [name, Object.fromEntries(list.map((form, k) => [form, k]))]));
@@ -86,15 +119,16 @@ const STAND = Object.fromEntries(STANDS.map((name, k) => [name, k])), SITTING = 
    fewer kinds than the next one's place, and the whole of it is a whole number a float holds exactly. */
 const STYLE = { ARMS: 8, CUT: 64, STANCE: 16384, SITS: 16 };
 
-/* A tube of rings from the top down, each { y, rx, rz, cx, cz } and `sides` round, facing out; `dy(turn)` lets a ring's edge rise and
-   fall round it. */
-function tube(rings, sides, { top = false, bottom = false, dy = null } = {}) {
+/* A tube of rings from the top down, each { y, rx, rz, rb, cx, cz } and `sides` round, facing out: `rx` out to either side, `rz` ahead
+   and `rb` behind (`rz` where it has none), so a body's front and back can differ; `dy(turn)` lets a ring's edge rise and fall round it,
+   and `open` leaves that many sides out either side of straight ahead, a coat's open front. */
+function tube(rings, sides, { top = false, bottom = false, dy = null, open = 0 } = {}) {
   const at = (r, j, last) => {
-    const a = (2 * Math.PI * j) / sides;
-    return [(r.cx ?? 0) + r.rx * Math.sin(a), r.y + (last && dy ? dy(a) : 0), (r.cz ?? 0) + (r.rz ?? r.rx) * Math.cos(a)];
+    const a = (2 * Math.PI * j) / sides, deep = Math.cos(a) < 0 ? r.rb ?? r.rz ?? r.rx : r.rz ?? r.rx;
+    return [(r.cx ?? 0) + r.rx * Math.sin(a), r.y + (last && dy ? dy(a) : 0), (r.cz ?? 0) + deep * Math.cos(a)];
   };
   const out = [];
-  for (let i = 0; i + 1 < rings.length; i++) for (let j = 0; j < sides; j++) {
+  for (let i = 0; i + 1 < rings.length; i++) for (let j = open; j < sides - open; j++) {
     const last = i + 2 === rings.length;
     const a = at(rings[i], j, false), b = at(rings[i], j + 1, false), c = at(rings[i + 1], j, last), d = at(rings[i + 1], j + 1, last);
     out.push(...a, ...c, ...b, ...b, ...c, ...d);
@@ -123,6 +157,21 @@ function rope(points, radii, sides) {
 function slab(points, z, thick) {
   const shape = new THREE.Shape(points.map(([x, y]) => new THREE.Vector2(x, y)));
   return new THREE.ExtrudeGeometry(shape, { depth: thick, bevelEnabled: false, steps: 1, curveSegments: 1 }).translate(0, 0, z - thick / 2);
+}
+
+/* A shoe at `x`, from its heel to its toe through `sections` ([z, wide, high] each, from the back forward): each a pentagon standing
+   on the flat sole, its top a ridge along the middle, or, `square`, a box's end; closed at the heel and the toe. */
+function shoe(x, sections, square = false) {
+  const ring = ([z, w, h]) => (square ? [[-w / 2, 0], [w / 2, 0], [w / 2, h], [-w / 2, h]] : [[-w / 2, 0], [w / 2, 0], [w / 2, 0.6 * h], [0, h], [-w / 2, 0.6 * h]])
+    .map(([u, v]) => [x + u, v, z]);
+  const rings = sections.map(ring), m = rings[0].length, out = [];
+  for (let i = 0; i + 1 < rings.length; i++) for (let j = 0; j < m; j++) {
+    const a = rings[i][j], b = rings[i][(j + 1) % m], c = rings[i + 1][j], d = rings[i + 1][(j + 1) % m];
+    out.push(...a, ...b, ...c, ...b, ...d, ...c);
+  }
+  const heel = rings[0], toe = rings[rings.length - 1];
+  for (let j = 1; j + 1 < m; j++) out.push(...toe[0], ...toe[j], ...toe[j + 1], ...heel[0], ...heel[j + 1], ...heel[j]);
+  return new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(out), 3));
 }
 
 /* Where the hair starts on a head and a tail on its back, the foot of a hat's crown, a tail's place to one side, and how far a big
@@ -156,27 +205,42 @@ export function figureGeometry(plain = false) {
   };
   const round = (most, fewer) => (plain ? fewer : most);
 
-  /* The head, an egg whose top stands at TALL: its face its skin, smooth, the rest of it its hair's. */
-  const head = new THREE.IcosahedronGeometry(0.135, 1).scale(1, 1.13, 1.05);
+  /* The head, an egg whose top stands at TALL, shaped as a skull: narrower to the jaw, its chin raised clear of the neck, fuller behind
+     over the nape and tucked in at it, so that from the side the neck shows under it. Its face is its skin, smooth, with nothing on it,
+     and the rest of it its hair's. */
+  const head = new THREE.IcosahedronGeometry(0.135, 1).scale(1, 1.13, 1.05), skull = head.attributes.position;
+  for (let k = 0; k < skull.count; k++) {
+    const x = skull.getX(k), y = skull.getY(k), z = skull.getZ(k), u = y / (0.135 * 1.13), low = Math.max(-u, 0), jaw = low * low * (3 - 2 * low);
+    const back = z < 0 ? 1 + JAW.back * Math.max(0, 1 - ((u - 0.1) / 0.7) ** 2) - JAW.nape * jaw : 1;
+    skull.setXYZ(k, x * (1 - JAW.narrow * jaw), u < 0 ? y * JAW.chin : y, z * back);
+  }
   head.computeBoundingBox();
   head.translate(0, TALL - head.boundingBox.max.y, 0);
   add(head, RIG.HEAD, 0, (x, y, z) => (z > 0.045 && y < HEAD_Y + 0.06 ? TINT.SELF : TINT.SCALP), hairy);
   for (const side of [-1, 1]) {
     const arm = side < 0 ? RIG.ARM_L : RIG.ARM_R;
-    add(new THREE.CylinderGeometry(0.088, 0.062, LEG, 6, 2, true).translate(side * HIP_X, LEG / 2, 0), RIG.LEG, 0, (x, y) => (y > LEG / 2 ? TINT.LEGS : TINT.SHIN));
-    add(new THREE.BoxGeometry(0.11, 0.07, 0.21).translate(side * HIP_X, 0.035, 0.05), RIG.FOOT, 0, TINT.SHOE);
-    add(new THREE.CylinderGeometry(0.056, 0.042, 0.54, 6, 2, true).translate(side * SHOULDER_X, SHOULDER_Y - 0.27, 0), arm, 0, (x, y) => (y > SHOULDER_Y - ELBOW ? TINT.TOP : TINT.FOREARM));
-    add(new THREE.IcosahedronGeometry(0.05, 0).translate(side * SHOULDER_X, HAND_Y, 0), arm, 0, TINT.SELF);
+    /* A leg, from the hip down: the thigh, which tapers to the knee, the calf behind the shin, and the ankle, where a trouser's hem
+       is; with a ring halfway down the thigh where shorts end, which the shader opens for them (OPEN). Its knee is the ring
+       halfway up it, where the shader bends it. Its top is closed: seated, the thigh's top turns to face back under the seat. Six
+       sides on every tier, one straight behind: seated, a figure rests on the backs of its thighs, and with five a television's seats
+       stood 1.5 cm higher. */
+    add(tube(LEG_RINGS.filter(([y]) => !plain || (y !== CALF && y !== SHORTS_HEM)).map(([y, rx, rz, rb]) => ({ y, rx, rz, rb, cx: side * HIP_X })), 6, { top: true }), RIG.LEG, 0, (x, y) => (y > (plain ? LEG / 2 : SHORTS_HEM) - 0.005 ? TINT.LEGS : TINT.SHIN));
+    add(shoe(side * HIP_X, plain ? PLAIN_SHOE : SHOE_SECTIONS, plain), RIG.FOOT, 0, TINT.SHOE);
+    /* An arm, from the shoulder down: the upper arm, a ring over the elbow where a short or rolled sleeve ends, which the
+       shader opens for them (OPEN), the elbow, and the forearm down to the wrist; and the hand, a mitten turned in to the thigh, its
+       thumb ahead of it, or on a phone and a television eight faces and no thumb. */
+    add(tube(ARM_RINGS.filter(([down]) => !plain || down !== SLEEVE_HEM).map(([down, rx, rz, rb]) => ({ y: SHOULDER_Y - down, rx, rz, rb, cx: side * SHOULDER_X })), round(6, 5)), arm, 0,
+      (x, y) => (y > SHOULDER_Y - (plain ? ELBOW : SLEEVE_HEM) - 0.005 ? TINT.TOP : TINT.FOREARM));
+    add(new (plain ? THREE.OctahedronGeometry : THREE.IcosahedronGeometry)(0.05, 0).scale(0.6, 1, 0.95).translate(side * SHOULDER_X, HAND_Y, 0), arm, 0, TINT.SELF);
+    if (!plain) add(rope([[side * (SHOULDER_X - 0.008), HAND_Y + 0.018, 0.028], [side * (SHOULDER_X - 0.014), HAND_Y - 0.022, 0.05]], [0.014, 0.009], 3), arm, 0, TINT.SELF);
     /* The shoulder: a ball at the arm's pivot, part of the body, which the torso's top runs into and the arm's open top turns
        inside, so an arm that swings or lifts stays joined to its figure and shows no hollow from above. */
     add(new THREE.IcosahedronGeometry(0.064, 0).translate(side * SHOULDER_X, SHOULDER_Y, 0), RIG.BODY, 0, TINT.TOP);
   }
-  /* The hips, closed above and below: the torso's foot is narrower than their top, and a seated figure shows their underside. The
-     torso has a ring at its middle, so a belly can round it. */
-  add(new THREE.CylinderGeometry(0.165, 0.17, 0.17, 8).scale(1, 1, 0.74).translate(0, 0.93, 0), RIG.BODY, 0, TINT.LEGS);
-  add(new THREE.CylinderGeometry(0.25, 0.158, 0.46, 8, 2, true).scale(1, 1, 0.68).translate(0, 1.24, 0), RIG.BODY, 0, TINT.TOP);
-  add(new THREE.CylinderGeometry(0.075, 0.25, 0.075, 8, 1, true).scale(1, 1, 0.68).translate(0, 1.5075, 0), RIG.BODY, 0, TINT.TOP);
-  add(new THREE.CylinderGeometry(0.055, 0.062, 0.1, 6, 1, true).translate(0, 1.57, 0), RIG.BODY, 0, TINT.SELF);
+  /* The torso, one piece from the seat to the neck, closed under the seat, which a seated figure shows: the hips, the waist, the
+     chest, the shoulders sloping up to the neck, and the neck, its skin, up into the head. Its back stands as far behind the spine
+     as backOf says, and its waist is where a top meets what is worn on the legs. */
+  add(tube(plain ? TORSO.filter(({ y }) => y !== 1.535 && y !== 1.17) : TORSO, round(10, 8), { bottom: true }), RIG.BODY, 0, (x, y) => (y > NECK_FOOT ? TINT.SELF : y > WAIST ? TINT.TOP : TINT.LEGS));
 
   /* On the head. A hat is a brim and a crown, which the figure's own numbers widen, droop and raise into a brimmed hat, a floppy one
      or a top hat (aCut.zw); a cap is the crown and a bill. A band goes round the brow, with a knot's tail behind for a bandana; a
@@ -207,8 +271,27 @@ export function figureGeometry(plain = false) {
      A poncho, from the neck out over the shoulders to a hem that dips to a point before and behind; a shawl is the same cut short. */
   add(tube([{ y: 1.0, rx: 0.172, rz: 0.128 }, { y: LEG, rx: 0.2, rz: 0.16 }, { y: LEG / 2, rx: SKIRT_X, rz: 0.22 }, { y: 0.08, rx: 0.32, rz: 0.27 }], round(10, 8)),
     RIG.SKIRT, PART.SKIRT, TINT.SKIRT);
-  add(tube([{ y: 1.545, rx: 0.085, rz: 0.08 }, { y: 1.43, rx: 0.33, rz: 0.2 }, { y: 1.02, rx: 0.345, rz: 0.25 }], round(10, 8), { dy: (a) => -0.13 * Math.cos(2 * a) }),
-    RIG.BODY, PART.PONCHO, TINT.THING, (x, y) => (y < 1.3 ? 1 : 0));
+  const ponchoSides = round(10, 8), ponchoDip = (a) => -0.13 * Math.cos(2 * a), ponchoRings = [{ y: 1.545, rx: 0.085, rz: 0.08 }, { y: 1.43, rx: 0.33, rz: 0.2 }, { y: 1.02, rx: 0.345, rz: 0.25 }];
+  for (const form of [FORM.PONCHO.poncho, FORM.PONCHO.fringed]) {
+    add(tube(ponchoRings, ponchoSides, { dy: ponchoDip }), RIG.BODY, PART.PONCHO, TINT.THING, (x, y) => (y < 1.3 ? 1 : 0), form);
+  }
+  /* A fringe along a fringed poncho's hem: two tongues of it to each side of the hem, hanging FRINGE down. */
+  const hemAt = (a) => [0.345 * Math.sin(a), 1.02 + ponchoDip(a), 0.25 * Math.cos(a)], fringe = [];
+  for (let j = 0; j < ponchoSides; j++) {
+    const a = hemAt((2 * Math.PI * j) / ponchoSides), b = hemAt((2 * Math.PI * (j + 1)) / ponchoSides), at = (t) => a.map((v, k) => v + (b[k] - v) * t);
+    for (const [t0, t1] of [[0, 0.5], [0.5, 1]]) {
+      const p0 = at(t0), p1 = at(t1), tip = at((t0 + t1) / 2);
+      fringe.push(...p0, tip[0], tip[1] - FRINGE, tip[2], ...p1);
+    }
+  }
+  add(new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(fringe), 3)), RIG.BODY, PART.PONCHO, TINT.THING, () => 1, FORM.PONCHO.fringed);
+  /* A coat's tail, open down the front: from the ribs out over the hips to a hem that the figure's own number sets (aCut.y), its rings
+     at the ribs, the hips, the thigh and the hem, which follow the legs as a skirt's do. It is the top's colour, for the coat is the
+     top. */
+  add(tube([{ y: 1.17, rx: 0.155, rz: 0.12, rb: 0.115 }, { y: LEG, rx: 0.2, rz: 0.16 }, { y: 0.4, rx: 0.27, rz: 0.215, rb: 0.235 }, { y: 0.08, rx: 0.275, rz: 0.22, rb: 0.24 }],
+    round(10, 8), { open: 1 }), RIG.SKIRT, PART.SKIRT, TINT.TOP, null, FORM.SKIRT.coat);
+  /* A hood, down: a roll of the top's cloth round the back of the neck, from one shoulder to the other (HOOD_ROPE). */
+  add(rope(HOOD_ROPE.points, HOOD_ROPE.radii, round(6, 4)), RIG.BODY, PART.HOOD, TINT.TOP);
   /* On the back: a pack, and a bedroll across the top of it or alone. */
   add(new THREE.BoxGeometry(0.27, 0.36, 0.13).translate(0, 1.26, -0.205), RIG.BODY, PART.PACK, TINT.THING);
   add(new THREE.CylinderGeometry(0.062, 0.062, 0.36, 6).rotateZ(Math.PI / 2).translate(0, 1.5, -0.19), RIG.BODY, PART.ROLL, TINT.LEGS);
@@ -319,7 +402,7 @@ export function figureGeometry(plain = false) {
 
 /* The faces of a figure's geometry that are one form of one part's (`bit`, 0 for the body, and `form`), with their corners shared: a
    corner that several faces meet at with one mark is kept once, and worked out once a frame and not once for each face. `position`
-   and `mark` are the corners, three and four numbers each, and `index` three corners to a face. */
+   and `mark` are the corners, three and four numbers each, `index` three corners to a face, and `tints` each face's tint. */
 export const formOfMark = (z) => Math.floor(z / TINTS);
 export function pieces(figure, bit, form = 0) {
   const position = figure.getAttribute("position"), mark = figure.getAttribute("aMark"), at = [], marks = [], index = [], seen = new Map();
@@ -329,7 +412,9 @@ export function pieces(figure, bit, form = 0) {
     if (!seen.has(key)) { seen.set(key, at.length / 3); at.push(corner[0], corner[1], corner[2]); marks.push(corner[3], corner[4], corner[5], corner[6]); }
     index.push(seen.get(key));
   }
-  return { position: new Float32Array(at), mark: new Float32Array(marks), index };
+  /* And each face's tint, as drawnOf reads it. */
+  const tints = Int8Array.from({ length: index.length / 3 }, (_, t) => marks[4 * index[3 * t] + 2] % TINTS);
+  return { position: new Float32Array(at), mark: new Float32Array(marks), index, tints };
 }
 
 /* A leg is two bones of the same length, the thigh and the shin, from the hip down to the knee and on to the foot. The knee stands
@@ -524,8 +609,10 @@ export const lyingOf = (big) => LYING + LYING_BIG * Math.max(big - 1, 0);
 const PAST = 0.5;
 /* The visitor's bear reaches 1.98 m from its middle, halfway between its feet and its head (bears.js, avatar.js). Lower down it
    reaches less, turned any way and at a run: under a metre up its hind legs, swung back, reach BEAR_LEGS from its middle, and under
-   two its tail BEAR_TAIL. The parting keeps its middle `hang` from a seated figure's axis (partingOptions), so what of the figure is
-   under a metre up keeps within hang - BEAR_LEGS of its axis, and under two within hang - BEAR_TAIL (crowd.test.ts, from bears.js). */
+   two the ends of its arms, swung to a run's widest, where they come down to two metres, BEAR_TAIL. That is named for its tail,
+   which reached it before the tail was sunk into the rump, and reaches 1.51 m now. The parting keeps its middle `hang` from a seated
+   figure's axis (partingOptions), so what of the figure is under a metre up keeps within hang - BEAR_LEGS of its axis, and under two
+   within hang - BEAR_TAIL (crowd.test.ts, from bears.js). */
 const BEAR = 1.98;
 export const BEAR_LEGS = 1.59, BEAR_TAIL = 1.66;
 /* The options buildCrowd hands parting() (seats.js) for figures at `scale`, up to the largest's size. A figure keeps 0.15 m past their
@@ -639,30 +726,53 @@ export function sourceOf(tint, cut) {
     : tint === TINT.SCALP ? (cuts(CUT.BALD) ? SOURCE.self : SOURCE.hair) : tint === TINT.SHOE ? SOURCE.shoe : -1;
 }
 /* How much of a figure the eye sees in each colour from each side, as SOURCES lists them: for each of DRAWN_VIEWS, the share of its
-   pixels each fills at rest, DRAWN pixels to a unit. The views go round it, before it, to its sides and behind it, each level, as
-   from the stage, whose eye stands 17 degrees under to 7 over the figures' middles, and from 0.45 rad above, as from the hill
-   (TEST_POSES.crowd), 20 to 33 degrees over them: for a figure that sits in a gathering faces any way, and the eye walks round the
-   crowd. It is drawn from its tier's own geometry (`kit`, buildCrowd's, of pieces): its body and each part it wears (`parts`) in the
-   form it wears it (`forms`), each face in the colour its tint takes for its cut (`cut`, sourceOf), and only the faces turned to the
-   eye and, at each pixel, the nearest.
-   Each corner stands where the vertex shader stands it before it moves (DANCE), by the figure's own numbers
+   pixels each fills at rest, DRAWN pixels to a unit, which keeps them inside the bounds 30 did, for under half the pixels
+   (crowd.test.ts). The views span every way an eye looks at a figure, in the figure's own frame, its own height and breadth taken
+   out: from the stage, 0.29 rad under its middle to 0.12 over, the only eye that looks up at one, and from where the stage is round
+   it; from the hill (TEST_POSES.crowd), 0.33 to 0.62 over; and from each camera the shoot takes, first and third person on every
+   tier, 0.25 to 1.11 over, the most from a phone's boom over a figure 10 m off. Rings of them go round it every 0.4 rad from level
+   to 1.2 over, four round it on the two lowest and fewer higher up, where the turns draw together (DRAWN_RINGS), so that no two
+   neighbours on a ring stand further apart than the level ring's; and one 0.4 under, toward the stage. Each ring turns from the
+   stage's bearing round the figure (`stage`, stageTurn), for a figure that sits in a gathering faces any way. So every eye stands
+   between views, the stage's 0.11 rad inside the lowest and the steepest camera's 0.09 inside the highest: a figure seen past the
+   views, under the level ones from the stage and over the steepest from the hill, was where the rule below failed (crowd.test.ts).
+   It is drawn from its tier's own geometry (`kit`, buildCrowd's, of pieces): its body and each part it wears (`parts`) in the
+   form it wears it (`forms`) but the thin black poles it holds up or stands by (UNDRAWN), each face in the colour its tint takes
+   for its cut (`cut`, sourceOf), and only the faces turned to the eye and, at each pixel, the nearest.
+   Each corner stands where the vertex shader stands it before it moves (DANCE, standerOf), by the figure's own numbers
    (`shape`, aCut, and `body`, aBody): its hair's length, its tails', its crown's and its brim's, an afro's puff and its head's size;
    its belly, its shoulders, its legs' girth and length; a shawl's hem raised, flared trousers flared, and a skirt's knee and hem
    where its own number sets them; and, for one that sits (`seat`, the way it sits, SITS), its hips down, its knees and feet where
    that way of sitting puts them (SIT_POSE), the knees out to the sides and the shins crossed as it does, and its body leaning as it
    does from the hips, its forearms resting as that way of sitting rests them. Standing, its arms hang; and how it stands, what it
    holds and how it moves are left out: drawnOf is for how much of it shows in each colour, and the unit tests hold that to the
-   figures as the shader draws them (crowd.test.ts). Each view is [turn, tilt]: turned `turn` rad round it from before it, and
-   looking down `tilt` rad. */
-export const DRAWN = 30, DRAWN_VIEWS = [0, 0.5, 1, 1.5].flatMap((turn) => [[turn * Math.PI, 0], [turn * Math.PI, 0.45]]);
+   figures as the shader draws them (crowd.test.ts). Each view is [turn, tilt]: turned `turn` rad round it from the stage's bearing,
+   and looking down `tilt` rad. Each ring is [tilt, how many views round it]. It draws DRAWN_VIEWS, or as many other views as
+   those (`looks`), as the unit tests draw a figure from where an eye stands. */
+export const DRAWN = 20, DRAWN_RINGS = [[0, 4], [0.4, 4], [0.8, 2], [1.2, 1]];
+export const DRAWN_VIEWS = [[0, -0.4], ...DRAWN_RINGS.flatMap(([tilt, turns]) => Array.from({ length: turns }, (_, k) => [(2 * Math.PI * k) / turns, tilt]))];
+/* The stage's bearing round a figure that stands at (x, z) turned `turn` (aSize.z): the turn from before it of the way to the stage. */
+export const stageTurn = (x, z, turn) => {
+  const dx = STAGE[0] - x, dz = STAGE[1] - z, c = Math.cos(turn), s = Math.sin(turn);
+  return Math.atan2(c * dx - s * dz, s * dx + c * dz);
+};
+/* The parts drawnOf leaves out: the pole a figure holds a flag, a pennant, a star or a parasol up on, and a taper's stand. Black and
+   thin, a pole fills a tenth or more of a television's figure drawn finely and a twentieth of a desktop's, and the eye's test, which
+   draws a figure 40 pixels across with what it holds, catches it from some sides and misses it on others (crowd.test.ts); so the
+   rule below asks a figure's own colours to stand it apart, and never leans on a stick's black. */
+export const UNDRAWN = PART.POLE | PART.STAND;
 const DRAWN_X = 0.9, DRAWN_LOW = -0.4, DRAWN_HIGH = 3, DRAWN_ACROSS = Math.ceil(2 * DRAWN_X * DRAWN), DRAWN_UP = Math.ceil((DRAWN_HIGH - DRAWN_LOW) * DRAWN);
 const DRAWN_CELLS = DRAWN_ACROSS * DRAWN_UP, drawnDepth = new Float32Array(DRAWN_VIEWS.length * DRAWN_CELLS), drawnWhose = new Int8Array(DRAWN_VIEWS.length * DRAWN_CELLS);
 let drawnStood = new Float32Array(0), drawnSeen = new Float32Array(0);
+/* Clear between figures: each call clears the cells it drew on as it counts them. */
+drawnDepth.fill(Infinity); drawnWhose.fill(-1);
 const clamp01 = (v) => Math.min(Math.max(v, 0), 1);
-/** @param {Map<string, { position: Float32Array, mark: Float32Array, index: number[] }>} kit
-    @param {{ parts: number, forms?: Record<number, number>, cut: number, shape: number[] | Float32Array, body: number[] | Float32Array, seat?: string | null }} figure */
-export function drawnOf(kit, { parts, forms = {}, cut, shape: [hair, hem, crown, brim], body: [girth, wide, leg, big], seat = null }) {
+/* Where the vertex shader stands each corner of a figure at rest (DANCE), by the figure's own numbers, as drawnOf draws it: a
+   function that puts corner `k` of a piece of its tier's figure (`kit`'s), of part `bit` in form `form`, in `out`. */
+/** @param {{ parts: number, cut: number, shape: number[] | Float32Array, body: number[] | Float32Array, seat?: string | null }} figure */
+export function standerOf({ parts, cut, shape: [hair, hem, crown, brim], body: [girth, wide, leg, big], seat = null }) {
   const shawl = (cut & CUT.SHAWL) !== 0, bells = (cut & CUT.BELLS) !== 0, afro = (cut & CUT.AFRO) !== 0, mid = hem < 0.5 ? 0.5 : 0.5 * (1 + hem);
+  const shortLegs = (cut & CUT.SHORTS) !== 0, shortSleeves = (cut & CUT.BARE) !== 0;
   const up = LEG * leg - LEG, thick = 1 + 0.5 * (girth - 1), legL = LEG * leg;
   /* Seated: the hip, the knee and the foot, forward (z) and up (y), as the shader solves them, and how far the knee goes out. */
   const sat = seat && SIT_POSE[seat], lower = sat ? legL - sat.hip - 0.044 * Math.max(girth - 1, 0) : 0, hipY = legL - lower;
@@ -673,9 +783,7 @@ export function drawnOf(kit, { parts, forms = {}, cut, shape: [hair, hem, crown,
   const thighL = Math.max(Math.hypot(kneeZ, kneeY - hipY), 1e-5), shinL = Math.max(Math.hypot(footZ - kneeZ, footY - kneeY), 1e-5);
   const thighZ = -(kneeY - hipY) / thighL, thighY = kneeZ / thighL, shinZ = -(footY - kneeY) / shinL, shinY = (footZ - kneeZ) / shinL;
   const mitre = Math.max(thighZ * (thighZ + shinZ) + thighY * (thighY + shinY), 0.4), pitch = sat ? sat.pitch : 0;
-  const tri = [[0, 0, 0]];
-  /* A corner as the vertex shader stands it at rest. */
-  const stand = (piece, k, bit, form, out) => {
+  return (piece, k, bit, form, out) => {
     let x = piece.position[3 * k], y = piece.position[3 * k + 1], z = piece.position[3 * k + 2];
     const rig = piece.mark[4 * k], weight = piece.mark[4 * k + 3];
     if (rig === RIG.HEAD) {
@@ -695,20 +803,25 @@ export function drawnOf(kit, { parts, forms = {}, cut, shape: [hair, hem, crown,
       if (bit !== PART.PONCHO) x *= 1 + belly;
       z *= 1 + belly * (z < 0 ? 0.35 : bit === PART.PONCHO ? 0.5 : 1.5);
     }
-    if (core) { const t = clamp01((y - 1.2) / (SHOULDER_Y - 1.2)); x *= 1 + (wide - 1) * t * t * (3 - 2 * t); }
+    if (core || bit === PART.HOOD) { const t = clamp01((y - 1.2) / (SHOULDER_Y - 1.2)); x *= 1 + (wide - 1) * t * t * (3 - 2 * t); }
     if (bit === PART.PONCHO && shawl) y = 1.43 - (1.43 - y) * (1 - 0.58 * weight);
+    /* Which side it is on as built (the shader's legSide). */
+    const side = x > 0 ? 1 : -1;
     if (rig === RIG.LEG || rig === RIG.FOOT) {
-      const side = x > 0 ? 1 : -1, flare = rig === RIG.LEG && bells ? 1 + 0.9 * clamp01(1 - y / (LEG / 2)) : 1;
+      const flare = rig === RIG.LEG && shortLegs && Math.abs(y - SHORTS_HEM) < 0.001 ? OPEN.shorts
+        : rig === RIG.LEG && shortLegs && y < 0.001 ? OPEN.ankle : rig === RIG.LEG && bells ? 1 + 0.9 * clamp01(1 - y / (LEG / 2)) : 1;
       x = side * HIP_X * (0.5 + 0.5 * thick) + (x - side * HIP_X) * (rig === RIG.LEG ? thick * flare : 1);
       if (rig === RIG.LEG) { z *= thick * flare; y *= leg; }
     }
     if (rig === RIG.SKIRT) {
       if (y < 0.2) { const flare = 0.62 + (0.38 * (1 - hem)) / 0.907; x *= flare; z *= flare; y = hem * LEG; }
       else if (y < 0.6) { const full = 0.62 + 0.38 * clamp01((1 - mid) / 0.5); x *= full; z *= full; y = mid * LEG; }
+      if (form === FORM.SKIRT.coat && y < LEG - 0.001) { x *= thick; z *= thick; }
       y = y > LEG - 0.001 ? y + up : y * leg;
     } else if (rig !== RIG.LEG && rig !== RIG.FOOT && rig !== RIG.GROUND) y += up;
     if (rig === RIG.ARM_L || rig === RIG.ARM_R) {
       const side = rig === RIG.ARM_R ? 1 : -1;
+      if (shortSleeves && bit === 0 && Math.abs(y - up - SHOULDER_Y + SLEEVE_HEM) < 0.001) { x = side * SHOULDER_X + (x - side * SHOULDER_X) * OPEN.sleeve; z *= OPEN.sleeve; }
       if (!sat) x += side * SHOULDER_X * (wide - 1);
       else {
         /* Seated, its forearm on its knee: turned out at the shoulder, forward, and bent at the elbow toward its middle, as DANCE
@@ -726,7 +839,7 @@ export function drawnOf(kit, { parts, forms = {}, cut, shape: [hair, hem, crown,
       }
     }
     if (sat && (rig === RIG.LEG || rig === RIG.FOOT || (rig === RIG.SKIRT && y < legL + 0.001))) {
-      const sideL = x > 0 ? 1 : -1, t = clamp01(y / legL);
+      const sideL = side, t = clamp01(y / legL);
       if (rig === RIG.FOOT) {
         const middle = sideL * HIP_X * (0.75 + 0.25 * girth), about = Math.PI * sat.kneel, cu = Math.cos(about), su = Math.sin(about), mx = x - middle;
         x = middle + cu * mx + su * z; z = cu * z - su * mx;
@@ -735,9 +848,9 @@ export function drawnOf(kit, { parts, forms = {}, cut, shape: [hair, hem, crown,
         let overZ = t > 0.51 ? thighZ : t < 0.49 ? shinZ : (thighZ + shinZ) / mitre, overY = t > 0.51 ? thighY : t < 0.49 ? shinY : (thighY + shinY) / mitre;
         if (t < 0.01 && rig === RIG.LEG) { overZ = 1; overY = 0; }
         const atZ = t > 0.5 ? kneeZ + (0 - kneeZ) * (2 * t - 1) : footZ + (kneeZ - footZ) * 2 * t, atY = t > 0.5 ? kneeY + (hipY - kneeY) * (2 * t - 1) : footY + (kneeY - footY) * 2 * t;
-        const deep = rig === RIG.SKIRT ? z * 0.55 : z;
+        const deep = rig === RIG.SKIRT ? z * (1 - (form === FORM.SKIRT.coat ? COAT_SAT[z > 0 ? 0 : 1] : 0.45)) : z;
         z = atZ + deep * overZ; y = atY + deep * overY;
-        const spread = rig === RIG.SKIRT ? Math.min(Math.abs(x) / HIP_X, 1) * (1 - 0.5 * clamp01((Math.abs(x) - HIP_X) / (SKIRT_X - HIP_X))) : 1;
+        const spread = rig === RIG.SKIRT ? Math.min(Math.abs(x) / HIP_X, 1) * (form === FORM.SKIRT.coat ? 1 : 1 - 0.5 * clamp01((Math.abs(x) - HIP_X) / (SKIRT_X - HIP_X))) : 1;
         x += (x > 0 ? 1 : -1) * spread * outward * (t > 0.5 ? 2 - 2 * t : 2 * t);
         x += -sideL * sat.cross * Math.max(1 - 2 * t, 0);
       }
@@ -748,9 +861,19 @@ export function drawnOf(kit, { parts, forms = {}, cut, shape: [hair, hem, crown,
     }
     out[0] = x; out[1] = y; out[2] = z;
   };
-  const worn = [[0, 0], ...Object.values(PART).filter((bit) => (parts & bit) !== 0).map((bit) => [bit, forms[bit] ?? 0])];
-  const views = DRAWN_VIEWS.map(([turn, tilt]) => ({ c: Math.cos(turn), s: Math.sin(turn), lean: Math.sin(tilt), level: Math.cos(tilt) }));
-  drawnDepth.fill(Infinity); drawnWhose.fill(-1);
+}
+/** @param {Map<string, { position: Float32Array, mark: Float32Array, index: number[], tints: Int8Array }>} kit
+    @param {{ parts: number, forms?: Record<number, number>, cut: number, shape: number[] | Float32Array, body: number[] | Float32Array, seat?: string | null, stage?: number }} figure
+    @param {number[][]} [looks] */
+export function drawnOf(kit, figure, looks = DRAWN_VIEWS) {
+  if (looks.length > DRAWN_VIEWS.length) throw new Error(`drawnOf draws at most ${DRAWN_VIEWS.length} views`);
+  const { parts, forms = {}, cut, stage = 0 } = figure, stand = standerOf(figure), tri = [[0, 0, 0]];
+  const worn = [[0, 0], ...Object.values(PART).filter((bit) => (parts & bit) !== 0 && (bit & UNDRAWN) === 0).map((bit) => [bit, forms[bit] ?? 0])];
+  /* Whose colour each tint takes for this figure's cut, worked out once for the figure and not once a face for each view. */
+  const whoseTint = Int8Array.from({ length: TINTS }, (_, tint) => sourceOf(tint, cut));
+  const views = looks.map(([turn, tilt]) => ({ c: Math.cos(stage + turn), s: Math.sin(stage + turn), lean: Math.sin(tilt), level: Math.cos(tilt) }));
+  /* The box, in every view, round the faces drawn: only it is counted and cleared after, not the whole of each view. */
+  let low = DRAWN_UP, high = -1, left = DRAWN_ACROSS, right = -1;
   for (const [bit, form] of worn) {
     const piece = kit.get(`${bit} ${form}`);
     if (!piece) continue;
@@ -765,7 +888,7 @@ export function drawnOf(kit, { parts, forms = {}, cut, shape: [hair, hem, crown,
       }
       const depth = drawnDepth.subarray(view * DRAWN_CELLS, (view + 1) * DRAWN_CELLS), whoseAt = drawnWhose.subarray(view * DRAWN_CELLS, (view + 1) * DRAWN_CELLS);
       for (let t = 0; t < piece.index.length; t += 3) {
-        const whose = sourceOf(piece.mark[4 * piece.index[t] + 2] % TINTS, cut);
+        const whose = whoseTint[piece.tints[t / 3]];
         if (whose < 0) continue;
         const ia = 3 * piece.index[t], ib = 3 * piece.index[t + 1], ic = 3 * piece.index[t + 2];
         const ax = drawnSeen[ia], ay = drawnSeen[ia + 1], az = drawnSeen[ia + 2], bx = drawnSeen[ib], by = drawnSeen[ib + 1], bz = drawnSeen[ib + 2];
@@ -776,12 +899,15 @@ export function drawnOf(kit, { parts, forms = {}, cut, shape: [hair, hem, crown,
         if (whole <= 1e-9) continue;
         const x0 = Math.max(0, Math.floor(Math.min(ax, bx, cx))), x1 = Math.min(DRAWN_ACROSS - 1, Math.ceil(Math.max(ax, bx, cx)));
         const y0 = Math.max(0, Math.floor(Math.min(ay, by, cy))), y1 = Math.min(DRAWN_UP - 1, Math.ceil(Math.max(ay, by, cy)));
+        low = Math.min(low, y0); high = Math.max(high, y1); left = Math.min(left, x0); right = Math.max(right, x1);
         const ux = (cy - by) / whole, vx = (ay - cy) / whole;
         for (let py = y0; py <= y1; py++) {
           let u = ((cx - bx) * (py + 0.5 - by) - (cy - by) * (x0 + 0.5 - bx)) / whole, v = ((ax - cx) * (py + 0.5 - cy) - (ay - cy) * (x0 + 0.5 - cx)) / whole;
-          for (let px = x0; px <= x1; px++, u -= ux, v -= vx) {
+          /* A row crosses the face once: past its far edge, nothing more of the row is in it. */
+          for (let px = x0, inside = false; px <= x1; px++, u -= ux, v -= vx) {
             const w = 1 - u - v;
-            if (u < 0 || v < 0 || w < 0) continue;
+            if (u < 0 || v < 0 || w < 0) { if (inside) break; continue; }
+            inside = true;
             const d = u * az + v * bz + w * cz, at = py * DRAWN_ACROSS + px;
             if (d < depth[at]) { depth[at] = d; whoseAt[at] = whose; }
           }
@@ -791,7 +917,11 @@ export function drawnOf(kit, { parts, forms = {}, cut, shape: [hair, hem, crown,
   }
   return views.map((_, view) => {
     const sums = SOURCES.map(() => 0);
-    for (let at = view * DRAWN_CELLS; at < (view + 1) * DRAWN_CELLS; at++) if (drawnWhose[at] >= 0) sums[drawnWhose[at]] += 1;
+    for (let row = low; row <= high; row++) {
+      for (let at = view * DRAWN_CELLS + row * DRAWN_ACROSS + left, end = at + right - left; at <= end; at++) {
+        if (drawnWhose[at] >= 0) { sums[drawnWhose[at]] += 1; drawnWhose[at] = -1; drawnDepth[at] = Infinity; }
+      }
+    }
     const all = sums.reduce((sum, n) => sum + n, 0);
     return sums.map((n) => n / all);
   });
@@ -804,11 +934,17 @@ export function drawnOf(kit, { parts, forms = {}, cut, shape: [hair, hem, crown,
    it wears them; else one of them gives, the first of its legs, its things and its top that can: it takes the next of its era's on
    from the one it was dealt with which every side does. Where no one can, two give, the first two of those that can, each the
    nearest on from its own. Where no colours of its era can, as where one colour covers most of it, it wears those that bring its
-   lightest fifth that far apart from its darkest in the same way (ENDS); and where none do even that, those that do it from the
-   most sides, and of those the ones that stand farthest apart from the side they do least from. Its skin, its hair and a shoe's
+   lightest fifth that far apart from its darkest in the same way, and where none can, its lightest tenth, as much as the eye's test
+   takes (ENDS), as for one reclining in a long skirt, seen level from the stage's side over four fifths skirt. Below the quarter a
+   figure is a hard one, and it takes its era's best, not the colours it was dealt nor the first that scrape through: of all that
+   bring that end apart from every side, those that bring the end above it apart from the most sides, and of those the ones that
+   stand farthest apart at its own end from the side they do least from; the first that scraped through stood under the eye's bar
+   from the hill or the stage, where the best stood well over it (crowd.test.ts). And where none do even the tenth, as from steeply
+   over one in a hat and a poncho, which show one colour, those that bring its tenth apart from the most sides, and of those the
+   ones that stand farthest apart from the side they do least from. Its skin, its hair and a shoe's
    black never give. A top gives to no colour that a figure within CLOSE m wears in the same top (`worn`), so that none is dressed
    like one that close (people), unless only such a colour can. */
-export const APART = 3, ENDS = [0.25, 0.2];
+export const APART = 3, ENDS = [0.25, 0.2, 0.1];
 const GIVES = ["legs", "thing", "top"];
 /* How many times lighter the lightest `ends` of a figure is than its darkest, seen as `shares` (a view of drawnOf) shows it, with
    each of SOURCES as light as `lights` has it: the colour at which, from the lightest, that share of it is reached, over the one at
@@ -822,8 +958,11 @@ export function dressFor(dress, person, drawn, worn = new Set()) {
   const colour = person.colour, dealt = { top: colour.top, legs: colour.legs, thing: colour.thing };
   const own = { self: lightOf(SKIN[colour.self]), hair: lightOf(HAIRS[colour.hair]), shoe: SHOE };
   const lightsOf = (chosen) => SOURCES.map((name) => (name in own ? own[name] : name === "top" ? topLight(dress.top[chosen.top]) : lightOf(dress[name][chosen[name]])));
-  /* How many sides a choice stands apart from, and how far apart it stands from the side it does least from. */
-  const score = (chosen, ends) => { const lights = lightsOf(chosen), each = drawn.map((shares) => apartOf(shares, lights, ends)); return [each.filter((by) => by >= APART).length, Math.min(...each)]; };
+  /* How many sides a choice stands apart from at `ends`, and how far apart it stands at `least` from the side it does least from. */
+  const score = (chosen, ends, least = ends) => {
+    const lights = lightsOf(chosen);
+    return [drawn.filter((shares) => apartOf(shares, lights, ends) >= APART).length, Math.min(...drawn.map((shares) => apartOf(shares, lights, least)))];
+  };
   const better = (p, q) => p[0] > q[0] || (p[0] === q[0] && p[1] > q[1]);
   /* Each colour a giver may take, the nearest on from its own first, and for a top those that close by wear last. */
   const waysOf = (gives) => {
@@ -832,14 +971,29 @@ export function dressFor(dress, person, drawn, worn = new Set()) {
   };
   const givers = GIVES.filter((gives) => drawn.some((shares) => shares[SOURCES.indexOf(gives)] > 0));
   const tries = [[], ...givers.map((gives) => [gives]), ...givers.flatMap((one, k) => givers.slice(k + 1).map((two) => [one, two]))];
-  let best = dealt, most = null;
-  for (const ends of ENDS) for (const [one, two] of tries) {
-    for (const k of one ? waysOf(one) : [null]) for (const q of two ? waysOf(two) : [null]) {
-      const chosen = { ...dealt, ...(one ? { [one]: k } : {}), ...(two ? { [two]: q } : {}) }, got = score(chosen, ends);
-      if (got[0] === drawn.length) return chosen;
-      if (ends === ENDS[ENDS.length - 1] && (!most || better(got, most))) { best = chosen; most = got; }
+  /* Each choice in turn, until `visit` takes one: at the first of ENDS, the first that stands apart from every side, a side it fails
+     ending its trial; at each after it, the best of those that do; and failing that, the best at the last of them. */
+  const eachChoice = (visit) => {
+    for (const [one, two] of tries) for (const k of one ? waysOf(one) : [null]) for (const q of two ? waysOf(two) : [null]) {
+      if (visit({ ...dealt, ...(one ? { [one]: k } : {}), ...(two ? { [two]: q } : {}) })) return true;
     }
+    return false;
+  };
+  const apart = (chosen, ends) => { const lights = lightsOf(chosen); return drawn.every((shares) => apartOf(shares, lights, ends) >= APART); };
+  let taken = dealt;
+  if (eachChoice((chosen) => { if (!apart(chosen, ENDS[0])) return false; taken = chosen; return true; })) return taken;
+  for (let k = 1; k < ENDS.length; k++) {
+    let pick = null, most = null;
+    eachChoice((chosen) => {
+      if (!apart(chosen, ENDS[k])) return false;
+      const got = score(chosen, ENDS[k - 1], ENDS[k]);
+      if (!most || better(got, most)) { pick = chosen; most = got; }
+      return false;
+    });
+    if (pick) return pick;
   }
+  let best = dealt, most = null;
+  eachChoice((chosen) => { const got = score(chosen, ENDS[ENDS.length - 1]); if (!most || better(got, most)) { best = chosen; most = got; } return false; });
   return best;
 }
 
@@ -848,7 +1002,7 @@ export const seedOf = (i) => Math.imul(i + 1, 0x9e3779b1) >>> 24;
 
 /* What a figure can be, each list a choice made on its own with these weights, so the people there can be are the product of the
    lists and not their sum. */
-const CHOICES = {
+export const CHOICES = {
   stature: [["child", 6], ["teen", 4], ["short", 22], ["mid", 43], ["tall", 25]],
   build: [["slight", 22], ["average", 32], ["stout", 16], ["broad", 14], ["pear", 16]],
   legs: [["jeans", 28], ["bells", 20], ["shorts", 14], ["maxi", 14], ["dress", 12], ["tunic", 12]],
@@ -967,6 +1121,29 @@ function person(r, sits, prop, stature) {
     knit: [span(0.85, 1.3), 1], jester: [span(0.95, 1.1), 1], plumed: [span(1, 1.2), span(0.95, 1.1)] }[p.head] ?? [1, 1];
   p.colour = Object.fromEntries(Object.entries(COLOURS).map(([name, many]) => [name, Math.floor(r() * many)]));
   return p;
+}
+/* What some of a show's crowd wear besides, as its era does (WARDROBE, by eraOn, the 1980s' where no date is given): of the grown
+   ones in a shirt over trousers, flares or shorts with nothing at the hips, a share in a coat whose tail hangs below the waist, to a
+   hem of its own; of the rest in a shirt or a tee whose hair is short or up, with nothing rolled on its back or a child on its
+   shoulders, a share with a hood down behind the neck; and of those in a poncho or a shawl, a share with a fringe on it. Each
+   figure draws from a stream of its own, so whom people() deals is as it was. */
+export const WARDROBE = [
+  ["1965-06-01", "1970-12-31", { coat: 0.2, hood: 0, fringe: 0.7 }],
+  ["1971-01-01", "1979-12-31", { coat: 0.4, hood: 0, fringe: 0.35 }],
+  ["1980-01-01", "1989-12-31", { coat: 0.2, hood: 0.15, fringe: 0.1 }],
+  ["1990-01-01", "1995-07-09", { coat: 0.45, hood: 0.35, fringe: 0.1 }],
+];
+/** @template {{ stature: string, top: string, legs: string, prop: string, hair: string, back: string, hem: number }} P
+    @param {P[]} who @param {string | null} [date] */
+export function wardrobe(who, date = null) {
+  const shares = (date ? eraOn(WARDROBE, date) : WARDROBE[2])[2];
+  return who.map((p, i) => {
+    const r = stream(0x5bd1e995 * (i + 1)), [coat, hood, fringe, hem] = [r(), r(), r(), r()];
+    const coated = p.stature !== "child" && p.top === "shirt" && ["jeans", "bells", "shorts"].includes(p.legs) && !["hoop", "drum", "stand"].includes(p.prop) && coat < shares.coat;
+    const hooded = !coated && ["shirt", "tee"].includes(p.top) && ["bald", "crop", "bun"].includes(p.hair) && !["roll", "both"].includes(p.back) && p.prop !== "rider"
+      && hood < shares.hood;
+    return { ...p, coat: coated ? "coat" : "none", hem: coated ? 0.58 + 0.14 * hem : p.hem, hood: hooded ? "hood" : "none", fringe: WEARS.top[p.top] !== undefined && fringe < shares.fringe };
+  });
 }
 /* How alike two people look, for telling neighbours apart: more for sharing what shows from far off. */
 const ALIKE = { legs: 1.5, hair: 1.5, head: 1, build: 1, stature: 0.8, top: 0.8, back: 0.6, move: 1.2 };
@@ -1114,8 +1291,9 @@ export const FRIEND_HAND = { round: [0.754, 1.199, -0.12], waist: [0.8, 1.092, -
    by their seats alone, a pair on a slope or of two sizes rested a hand on the other's thighs, over its shoulders or 0.1 off its back,
    and dancing apart took it 0.27 off. */
 export const ON_BACK = { waist: [0.84, 1.25], round: [1.0, 1.42], across: [-0.13, 0.04], behind: [-0.025, 0.03] };
-/* How deep a figure's back is behind its spine at a height, in its own units: its hips, then its torso widening to its shoulders, and
-   a belly's share behind (figureGeometry, the crowd's shader). */
+/* How deep a figure's back is behind its spine at a height, in its own units: the torso's (TORSO) at its rings from the hips to the
+   shoulders, and as deep as the hips under the waist, and a belly's share behind (figureGeometry, the crowd's shader). The friends'
+   hands rest on it (ON_BACK), and the stances deal friends by it, so it keeps the depths the friends were dealt by. */
 export const backOf = (y, girth) => (y < 1.01 ? 0.74 * (0.17 - (0.005 * (y - 0.845)) / 0.17) : 0.68 * (0.158 + (0.092 * (y - 1.01)) / 0.46))
   * (1 + 0.35 * (girth - 1) * Math.max(1 - Math.abs(y - 1.02) / 0.4, 0));
 /* Whether one seated can lean its body back on its hands, its hair and hat within the seated reaches as it leans, and hug its knees
@@ -1124,7 +1302,8 @@ export const backOf = (y, girth) => (y < 1.01 ? 0.74 * (0.17 - (0.005 * (y - 0.8
    knit's tip bends back and the jester's points go out and up behind (figureGeometry), so a figure leaning back carries them past the
    seated reaches behind, and leaning forward carries them away from the knees, which a brim or a bill (hat, topper, floppy, plumed,
    cap) goes into. */
-const fitsBack = (p) => !["afro", "dreads"].includes(p.hair) && !["hat", "topper", "floppy", "bandana", "knit", "jester", "plumed"].includes(p.head) && p.back === "none";
+const fitsBack = (p) => !["afro", "dreads"].includes(p.hair) && !["hat", "topper", "floppy", "bandana", "knit", "jester", "plumed"].includes(p.head) && p.back === "none"
+  && p.hood !== "hood";
 const fitsForward = (p) => !["hat", "topper", "floppy", "cap", "plumed"].includes(p.head) && p.hair !== "afro" && ARMS[p.prop] !== ARMS.flag && p.top !== "poncho"
   && p.stoop < 0.05;
 const STANDING = { square: 4, left: 7, right: 7, hip: 8, akimbo: 6, folded: 7, cup: 6, behind: 5, pockets: 6 };
@@ -1227,6 +1406,8 @@ const WEARS = {
   hair: { bob: ["HAIR"], long: ["HAIR"], mane: ["HAIR"], tail: ["TAIL"], braids: ["TAIL", "TAIL2"], dreads: ["HAIR.dreads"], bun: ["HAIR.bun"] },
   legs: { maxi: ["SKIRT"], dress: ["SKIRT"], tunic: ["SKIRT"] },
   top: { poncho: ["PONCHO"], shawl: ["PONCHO"] },
+  coat: { coat: ["SKIRT.coat"] },
+  hood: { hood: ["HOOD"] },
   back: { pack: ["PACK"], roll: ["ROLL"], both: ["PACK", "ROLL"] },
   prop: { flag: ["POLE", "FLAG"], swallowtail: ["POLE", "FLAG.swallowtail"], pennant: ["POLE", "FLAG.pennant"], streamer: ["POLE", "FLAG.streamer"],
     star: ["POLE.lean", "FLAG.star"], moon: ["POLE.lean", "FLAG.moon"], parasol: ["POLE.lean", "FLAG.parasol"], puppet: ["POLE.lean", "FLAG.puppet"], stand: ["STAND"],
@@ -1258,6 +1439,7 @@ export function formsOf(p) {
     const [part, form] = name.split(".");
     if (form) forms[PART[part]] = FORM[part][form];
   }
+  if (p.fringe && WEARS.top[p.top]) forms[PART.PONCHO] = FORM.PONCHO.fringed;
   return forms;
 }
 
@@ -1287,6 +1469,7 @@ function reaches(p, wear, forms = formsOf(p)) {
   if (has("HAIR") || has("TAIL")) reach(0.26 * p.big + back);
   if (p.hair === "afro") reach(0.26 * p.big + back);
   if (has("PACK") || has("ROLL")) reach(0.315 + back);
+  if (has("HOOD")) reach(0.215 + back);
   if (has("POLE")) reach(0.335 + ahead);
   /* Seated, the arm that holds a pole or a string turns back from the shoulder (HOLD), and its elbow, 0.045 round, stands 0.18
      behind the shoulder, ELBOW turned back HOLD[0], and no further out than it, as the shader poses it sitting cross-legged,
@@ -1379,6 +1562,7 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x, form = floor(aMark.z / ${n(
   float cuts = mod(floor(aWear.y / ${n(STYLE.CUT)}), ${n(STYLE.STANCE / STYLE.CUT)}), stance = floor(aWear.y / ${n(STYLE.STANCE)});
   float st = mod(stance, ${n(STYLE.SITS)}), se = floor(stance / ${n(STYLE.SITS)});
   bool bells = ${has("cuts", CUT.BELLS)}, afro = ${has("cuts", CUT.AFRO)}, shawl = ${has("cuts", CUT.SHAWL)};
+  bool shortLegs = ${has("cuts", CUT.SHORTS)}, shortSleeves = ${has("cuts", CUT.BARE)};
   bool legRig = ${is("rig", RIG.LEG)}, footRig = ${is("rig", RIG.FOOT)}, armRig = (${is("rig", RIG.ARM_L)}) || (${is("rig", RIG.ARM_R)}), skirtRig = ${is("rig", RIG.SKIRT)};
   bool headRig = ${is("rig", RIG.HEAD)}, groundRig = ${is("rig", RIG.GROUND)}, core = ${is("rig", RIG.BODY)} && bit < 0.5;
   bool bobber = ${is("kind", MOVE.bob)}, swayer = ${is("kind", MOVE.sway)}, waver = ${is("kind", MOVE.wave)}, spinner = ${is("kind", MOVE.spin)};
@@ -1436,12 +1620,19 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x, form = floor(aMark.z / ${n(
     if (bit != ${B.PONCHO}) x *= 1.0 + belly;
     z *= 1.0 + belly * (z < 0.0 ? 0.35 : bit == ${B.PONCHO} ? 0.5 : 1.5);
   }
-  if (core) x *= 1.0 + (aBody.y - 1.0) * smoothstep(1.2, ${f(SHOULDER_Y)}, y);
+  if (core || bit == ${B.HOOD}) x *= 1.0 + (aBody.y - 1.0) * smoothstep(1.2, ${f(SHOULDER_Y)}, y);
   if (bit == ${B.PONCHO} && shawl) y = 1.43 - (1.43 - y) * (1.0 - 0.58 * aMark.w);
+  /* Which side a corner of a leg or a foot is on, as it is built, where every one of them is on its own leg's side: a flared cuff
+     opens past the middle, and its inner corner, taken for the other leg's, was thrown across with the other shin as a figure sat
+     cross-legged. */
+  float legSide = x > 0.0 ? 1.0 : -1.0;
   if (legRig || footRig) {
-    float side = x > 0.0 ? 1.0 : -1.0, thick = 1.0 + 0.5 * (girth - 1.0);
+    float thick = 1.0 + 0.5 * (girth - 1.0);
     float flare = legRig && bells ? 1.0 + 0.9 * clamp(1.0 - y / ${f(LEG / 2)}, 0.0, 1.0) : 1.0;
-    x = side * ${f(HIP_X)} * (0.5 + 0.5 * thick) + (x - side * ${f(HIP_X)}) * (legRig ? thick * flare : 1.0);
+    /* Shorts' hems stand open round the thigh, and the ankle under them is bare (OPEN). */
+    if (legRig && shortLegs && abs(y - ${f(SHORTS_HEM)}) < 0.001) flare = ${f(OPEN.shorts)};
+    if (legRig && shortLegs && y < 0.001) flare = ${f(OPEN.ankle)};
+    x = legSide * ${f(HIP_X)} * (0.5 + 0.5 * thick) + (x - legSide * ${f(HIP_X)}) * (legRig ? thick * flare : 1.0);
     if (legRig) { z *= thick * flare; y *= aBody.z; }
   }
   if (skirtRig) {
@@ -1456,6 +1647,9 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x, form = floor(aMark.z / ${n(
       float full = (0.62 + 0.38 * clamp((1.0 - mid) / 0.5, 0.0, 1.0)) * (1.0 + 0.5 * swirl);
       x *= full; z *= full; y = mid * ${f(LEG)};
     }
+    /* A coat's tail hangs outside the thighs, which a stout figure's are thicker: under the hips, it is as much broader (a skirt,
+       which the hips' and the knees' rings shape, is not). */
+    if (${is("form", FORM.SKIRT.coat)} && y < ${f(LEG - 0.001)}) { float thick = 1.0 + 0.5 * (girth - 1.0); x *= thick; z *= thick; }
     y = y > ${f(LEG - 0.001)} ? y + up : y * aBody.z;
   }
   if (!legRig && !footRig && !skirtRig && !groundRig) y += up;
@@ -1511,6 +1705,8 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x, form = floor(aMark.z / ${n(
     lift = mix(lift, ${f(ARM_UP)}, lifted); fore *= 1.0 - lifted; bend *= 1.0 - lifted;
     float sx = side * ${f(SHOULDER_X)} * aBody.y, sy = ${f(SHOULDER_Y)} + up;
     float px = x + side * ${f(SHOULDER_X)} * (aBody.y - 1.0) - sx, py = y - sy, pz = z;
+    /* A short or rolled sleeve's hem stands open round the arm (OPEN). */
+    if (shortSleeves && bit < 0.5 && abs(py + ${f(SLEEVE_HEM)}) < 0.001) { px *= ${f(OPEN.sleeve)}; pz *= ${f(OPEN.sleeve)}; }
     /* A cup stands upright in the fist however far the forearm is bent: turned about its middle the way CUP_ARM bends the forearm, as
        far as the forearm is less bent than that, so that let down by the parting it is held upright beside the hip. Lying the way
        the forearm hung, it lay flat there. */
@@ -1556,7 +1752,7 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x, form = floor(aMark.z / ${n(
     /* The hip, the foot and the knee between them, as forward (Z) and up (Y): the hip of the leg the figure's weight is off comes
        down, and its knee bends; seated, the feet stand where its stance puts them, and go down with the ground as it falls from the
        seat to them, with the rest of the figure (below). */
-    float sideL = x > 0.0 ? 1.0 : -1.0, t = clamp(y / legL, 0.0, 1.0);
+    float sideL = legSide, t = clamp(y / legL, 0.0, 1.0);
     float hipY = legL - lower - ${f(HIP_DROP)} * max(-weight * sideL, 0.0);
     float footZ = sit * sitFoot, footY = sit * ${f(FOOT[1])};
     float span = max(sqrt(footZ * footZ + (footY - hipY) * (footY - hipY)), 1e-4);
@@ -1587,11 +1783,16 @@ float rig = aMark.x, bit = aMark.y, parts = aWear.x, form = floor(aMark.z / ${n(
          skirt flared turning. Seated, they go with the shins. */
       if (t < 0.49 && skirtRig) { overZ = mix(1.0, overZ, sit); overY *= sit; }
       float atZ = t > 0.5 ? mix(kneeZ, 0.0, 2.0 * t - 1.0) : mix(footZ, kneeZ, 2.0 * t), atY = t > 0.5 ? mix(kneeY, hipY, 2.0 * t - 1.0) : mix(footY, kneeY, 2.0 * t);
-      float deep = skirtRig ? z * (1.0 - 0.45 * sit) : z;
+      /* Seated, a skirt lies flatter over the thighs and under them than it hangs round them standing; a coat's tail, which hangs
+         round both outside them, less so (COAT_SAT): as flat as a skirt, its corners over and under the middle of a thigh went 8 mm
+         into it, every way of sitting (crowd.test.ts). */
+      float deep = skirtRig ? z * (1.0 - (${is("form", FORM.SKIRT.coat)} ? (z > 0.0 ? ${f(COAT_SAT[0])} : ${f(COAT_SAT[1])}) : 0.45) * sit) : z;
       z = atZ + deep * overZ; y = atY + deep * overY;
       /* Out to the side with its knee, the knee all the way and the hip and the foot not at all. A skirt goes with the knees as far
-         as it hangs over a leg, and half as far at its sides, which so stand just past the knees and no further. */
-      float spread = skirtRig ? min(abs(x) / ${f(HIP_X)}, 1.0) * (1.0 - 0.5 * clamp((abs(x) - ${f(HIP_X)}) / ${f(SKIRT_X - HIP_X)}, 0.0, 1.0)) : 1.0;
+         as it hangs over a leg, and half as far at its sides, which so stand just past the knees and no further; but a coat's tail,
+         open before and hanging outside the thighs, goes with them all the way at its sides, for half as far left its hem's sides 4 cm
+         inside the thighs of one sitting cross-legged. */
+      float spread = skirtRig ? min(abs(x) / ${f(HIP_X)}, 1.0) * (${is("form", FORM.SKIRT.coat)} ? 1.0 : 1.0 - 0.5 * clamp((abs(x) - ${f(HIP_X)}) / ${f(SKIRT_X - HIP_X)}, 0.0, 1.0)) : 1.0;
       x += (x > 0.0 ? 1.0 : -1.0) * spread * wide * (t > 0.5 ? 2.0 - 2.0 * t : 2.0 * t);
       /* Crossed, the shin goes over to the other side, the foot all the way and the knee not at all; and the hip goes out over the
          foot the weight is on, the hip all the way and the foot not at all. */
@@ -1863,7 +2064,7 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     forms: new Array(n), colours: new Array(n), top: new Float32Array(n), offset: /** @type {Float32Array} */ (null), rising: /** @type {Float32Array} */ (null), ball: new Float32Array(4 * n) };
   const near = Math.min(...placed.map((p) => p.r)), far = Math.max(...placed.map((p) => p.r));
   const dummy = new THREE.Object3D();
-  const who = mix(people(placed), placed), palette = dressOn(date);
+  const who = wardrobe(mix(people(placed), placed), date), palette = dressOn(date);
   /* Each figure's size: as tall as it is, its head's top that share of PERSON over its feet whatever its legs' length, and no taller
      than TOP lets what it holds up stand; and as broad as its build, and no broader than HANG lets what it wears reach, or FEET its
      seated feet, which also keeps it no broader than the largest figure the reaches are for. One in a full poncho, which neither
@@ -1882,9 +2083,10 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     return (x, z) => surface(p.x + wide * (cos * x + sin * z), p.z + wide * (cos * z - sin * x));
   };
   /* A figure sits only as the ground under it lets it rest on it, the way it faces, its contacts no more than FLOAT over it; lies
-     back only if its head then keeps clear of the bear's tail (lyingOf, BEAR_TAIL), and sits cross-legged or kneels only if its
-     knees keep clear of the bear's legs (LOW, BEAR_LEGS): a broad figure's head lying back went 9.8 cm into the bear's tail, and
-     its knees cross-legged 6.3 cm into its legs. With its knees up and apart, too, and where no way of sitting fits, it stands: sat
+     back only if its head then keeps clear of the bear under two metres (lyingOf, BEAR_TAIL), and sits cross-legged or kneels only
+     if its knees keep clear of the bear's legs (LOW, BEAR_LEGS): a broad figure's head lying back once went 9.8 cm into the bear's
+     tail, which reached furthest there then, and its knees cross-legged 6.3 cm into its legs. With its knees up and apart, too, and
+     where no way of sitting fits, it stands: sat
      with its knees up anywhere, one stood its seat 7.4 cm over a phone's ground. Two stand together as friends where each one's hand,
      standing still, rests on the other's back (ON_BACK): from where it rests in its own units (FRIEND_HAND), in metres as each stands
      on its ground, to the other's units. A stance adds nothing to a friend that sizes it (WEARS). */
@@ -1947,7 +2149,7 @@ export function buildCrowd(scene, { count, path, line, landmarks, plain = false,
     /* Its colours, from what of it the eye sees in each as the numbers it carries shape it. */
     const close = new Set(placed.flatMap((q, j) => (j !== i && who[j].top === one.top && Math.hypot(q.x - p.x, q.z - p.z) < CLOSE ? [tops[j]] : [])));
     const drawn = drawnOf(kit, { parts: worn.parts, forms: each.forms[i], cut: cutOf(one), shape: each.aCut.subarray(4 * i, 4 * i + 4), body: each.aBody.subarray(4 * i, 4 * i + 4),
-      seat: sits ? dealt[i].sit : null });
+      seat: sits ? dealt[i].sit : null, stage: stageTurn(p.x, p.z, turn) });
     const colours = (each.colours[i] = dressFor(palette, one, drawn, close));
     tops[i] = colours.top;
     const [shirt, pattern, second] = palette.top[colours.top];
