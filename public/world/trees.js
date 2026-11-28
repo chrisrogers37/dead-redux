@@ -358,85 +358,154 @@ export function cameraWays({ line, height, marks = [], phone = false, bears = [5
 
 /* ---------- the shapes ---------- */
 
-/* A shape is built in a frame of its own: y runs from 0 at the trunk's sunk foot to 1 at the crown's top, and x and z are in crown
-   radii, so a tree's own height and width scale it. Every face is three corners of its own, each with a normal and a colour. */
-function shape() {
-  const position = [], normal = [], colour = [];
-  return {
-    /* One corner: its place, its normal and its colour. */
-    corner(p, n, c) {
-      position.push(p[0], p[1], p[2]);
-      const l = Math.hypot(n[0], n[1], n[2]) || 1;
-      normal.push(n[0] / l, n[1] / l, n[2] / l);
-      colour.push(c[0], c[1], c[2]);
-    },
-    geometry() {
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute("position", new THREE.Float32BufferAttribute(position, 3));
-      geo.setAttribute("normal", new THREE.Float32BufferAttribute(normal, 3));
-      geo.setAttribute("color", new THREE.Float32BufferAttribute(colour, 3));
-      return geo;
-    },
-  };
-}
+/* A shape is drawn in metres for a tree of the middle sizes, REF_WIDE m across its crown's half and REF_TALL m from its sunk foot to
+   its top, and kept in a frame of its own: y runs from 0 at the trunk's sunk foot to 1 at the crown's top, and x and z are in crown
+   radii, so a tree's own height and width scale it. A corner's normal is kept as that frame needs it: three's instancing divides a
+   normal by the instance's scale, which turns it back into the face's own. Every face is three corners of its own, each with a
+   normal and a colour, and faces out, whichever way round its corners are handed in: away from the point `from` where one is
+   given, the middle of the thing it is a face of, and else the way its corners' normals lean. */
+export const REF_WIDE = 3.4, REF_TALL = 16.6;
+/* The sizes every rule derives from, in those metres: how far out any corner stands, and where the crown starts. */
+const REACH_M = CROWN_REACH * REF_WIDE, BASE_M = BASE_FRAC * REF_TALL;
+
 const rgb = (hex) => new THREE.Color(hex).toArray();
 const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 const times = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
+const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const unit = (a) => times(a, 1 / (Math.hypot(a[0], a[1], a[2]) || 1));
 
-/* A limb: a tube of `sides` sides through `rings`, each { at: [x, y, z], r, shade }, open at both ends, which stand inside what it
-   joins. Its colour runs from `dark` at its first ring to `pale` at its last, a ring's `shade` deepening its own. */
-function limb(out, rings, sides, dark, pale) {
-  const ring = ({ at, r }) => Array.from({ length: sides }, (_, k) => {
-    const a = (k / sides) * 2 * Math.PI, n = [Math.cos(a), 0, Math.sin(a)];
-    return { p: [at[0] + n[0] * r, at[1], at[2] + n[2] * r], n };
+function shape() {
+  const position = [], normal = [], colour = [], leaf = [];
+  const corner = ({ p, n, c }, green) => {
+    position.push(p[0] / REF_WIDE, p[1] / REF_TALL, p[2] / REF_WIDE);
+    const u = [n[0] * REF_WIDE, n[1] * REF_TALL, n[2] * REF_WIDE], l = Math.hypot(u[0], u[1], u[2]) || 1;
+    normal.push(u[0] / l, u[1] / l, u[2] / l);
+    colour.push(c[0], c[1], c[2], 1);
+    leaf.push(green);
+  };
+  return {
+    /* A face of three corners, each { p, n, c }, its colour shaded by `shade`; `green` if it is leaves. It faces the way its corners'
+       normals do. */
+    tri(a, b, c, shade = 1, green = false, from = null) {
+      const face = cross(sub(b.p, a.p), sub(c.p, a.p));
+      const out = from ? sub(times(add(add(a.p, b.p), c.p), 1 / 3), from) : add(add(a.n, b.n), c.n);
+      const [p, q] = dot(face, out) < 0 ? [c, b] : [b, c];
+      for (const v of [a, p, q]) corner(shade === 1 ? v : { ...v, c: times(v.c, shade) }, green);
+    },
+    position, normal, colour, leaf,
+  };
+}
+
+/* A tube through `rings`, each { at: [x, y, z], r, c, rough }, of `sides` sides, open at both ends, which stand inside what it joins.
+   Each ring is square to the tube's way there, or level with `level`, and turned by `across`, a way the tube never runs along, so a
+   tube that bends does not twist. A ring's corners stand `r` m from its middle, each by its share in `rough` where it has one: the
+   flutes of a root's flare. Each corner's colour is its ring's. */
+function tube(out, rings, sides, { level = false, across = [1, 0, 0], spin = 0 } = {}) {
+  const at = rings.map((ring, s) => {
+    const t = level ? [0, 1, 0] : unit(sub(rings[Math.min(rings.length - 1, s + 1)].at, rings[Math.max(0, s - 1)].at));
+    const side = unit(sub(across, times(t, dot(across, t)))), other = cross(side, t);
+    return Array.from({ length: sides }, (_, k) => {
+      const a = spin + (k / sides) * 2 * Math.PI, n = add(times(side, Math.cos(a)), times(other, Math.sin(a)));
+      return { p: add(ring.at, times(n, ring.r * (ring.rough ? ring.rough[k] : 1))), n, c: ring.c };
+    });
   });
-  for (let s = 0; s < rings.length - 1; s++) {
-    const lower = ring(rings[s]), upper = ring(rings[s + 1]);
-    const cl = times(mix(dark, pale, s / (rings.length - 1)), rings[s].shade ?? 1), cu = times(mix(dark, pale, (s + 1) / (rings.length - 1)), rings[s + 1].shade ?? 1);
-    for (let k = 0; k < sides; k++) {
-      const a = lower[k], b = lower[(k + 1) % sides], c = upper[(k + 1) % sides], d = upper[k];
-      out.corner(a.p, a.n, cl); out.corner(d.p, d.n, cu); out.corner(c.p, c.n, cu);
-      out.corner(a.p, a.n, cl); out.corner(c.p, c.n, cu); out.corner(b.p, b.n, cl);
-    }
+  for (let s = 0; s < rings.length - 1; s++) for (let k = 0; k < sides; k++) {
+    const a = at[s][k], b = at[s][(k + 1) % sides], c = at[s + 1][(k + 1) % sides], d = at[s + 1][k];
+    out.tri(a, d, c); out.tri(a, c, b);
   }
 }
 
-/* A trunk's foot, the rings of its limb from the sunk foot up to where the trunk proper starts, `r` its half-width there: it stands
-   as wide as its sunk foot to FOOT_TOP of the tree's height, which is within a third of a metre of the ground on any tree (the
-   ground is SUNK of SUNK + TALL up it), and draws in to the trunk over the next metre or so, as a root's flare does; and it is a
-   shade darker than the bark, as in the grass's own shade. With fewer `rings` it is plainer: three leave out the flare's own bend, and two are a
-   foot that only tapers, dark at the ground, which is all a phone's triangles leave its broad-crowned tree. */
-export const FOOT_TOP = 0.1, FOOT_SHADE = 0.72;
-const foot = (wide, r, rings) => [
-  { at: [0, 0, 0], r: wide, shade: FOOT_SHADE }, ...(rings > 2 ? [{ at: [0, FOOT_TOP, 0], r: wide, shade: FOOT_SHADE }] : []),
-  ...(rings > 3 ? [{ at: [0, 0.13, 0], r: (wide + 2 * r) / 3 }] : []), { at: [0, 0.165, 0], r },
-];
+/* The middle line of a level tube at height `y`: between the middles of the rings it lies between, or past its last. */
+function middleAt(rings, y) {
+  for (let s = 0; s < rings.length - 1; s++) if (y <= rings[s + 1].at[1]) return mix(rings[s].at, rings[s + 1].at, clamp01((y - rings[s].at[1]) / (rings[s + 1].at[1] - rings[s].at[1])));
+  const { at } = rings[rings.length - 1];
+  return [at[0], y, at[2]];
+}
+
+/* A cone of `sides` sides from a ring { at, r, c } up to its point { p, c }, with its underside closed where `closed`. */
+function cone(out, ring, point, sides, closed, spin = 0) {
+  const rim = Array.from({ length: sides }, (_, k) => {
+    const a = spin + (k / sides) * 2 * Math.PI, n = [Math.cos(a), 0.6, Math.sin(a)];
+    return { p: add(ring.at, [Math.cos(a) * ring.r, 0, Math.sin(a) * ring.r]), n, c: ring.c };
+  });
+  const top = { p: point.p, n: [0, 1, 0], c: point.c };
+  for (let k = 0; k < sides; k++) out.tri(top, rim[k], rim[(k + 1) % sides], 1, true, ring.at);
+  if (closed) {
+    const under = { p: add(ring.at, [0, -0.1, 0]), n: [0, -1, 0], c: times(ring.c, 0.5) };
+    for (let k = 0; k < sides; k++) out.tri(under, { ...rim[k], n: [0, -1, 0] }, { ...rim[(k + 1) % sides], n: [0, -1, 0] }, 1, true, add(ring.at, [0, 0.3, 0]));
+  }
+}
+
+/* A trunk's bark by its height `y` m, from `stops`, each [a height, a colour], dark at the foot: the same for the foot and the trunk
+   over it, so the one runs into the other with no edge. */
+const barkAt = (stops, y) => {
+  for (let s = 0; s < stops.length - 1; s++) if (y <= stops[s + 1][0]) return mix(stops[s][1], stops[s + 1][1], clamp01((y - stops[s][0]) / (stops[s + 1][0] - stops[s][0])));
+  return stops[stops.length - 1][1];
+};
+
+/* A trunk's foot: its rings from the sunk foot to over the ground, `r` m across its half there, fluted into ROOTS roots that spread
+   into the ground and draw into the trunk, `trunk` m across its half, by FOOT_IN of its height, the flare bending in as a root's
+   does. It stands as wide as its sunk foot to FOOT_TOP of the tree's height, which is within a third of a metre of the ground on any
+   tree (the ground is SUNK of SUNK + TALL up it), and takes its bark's colour (`bark`, by height), darkest at the ground. Each
+   root's reach is its own (`salt`). A phone's foot has five corners, three of them roots', and draws straight in from the sunk foot,
+   with no ring at FOOT_TOP and no bend in its flare. */
+export const FOOT_TOP = 0.1, FOOT_IN = 0.16, ROOTS = 5;
+function foot(r, trunk, bark, salt, phone) {
+  const sides = phone ? 5 : 2 * ROOTS, bend = (FOOT_TOP + FOOT_IN) / 2;
+  /* A root's corner stands at the foot's whole width, by its own share of it, and the corner between two roots `deep` in from it. */
+  const rough = (deep) => Array.from({ length: sides }, (_, k) => (phone ? 1 - (deep * [0, 0.26, 0.06, 0.3, 0.12][k]) / 0.38 : k % 2 === 0 ? 1 - 0.1 * chance(k, salt, 81) : 1 - deep));
+  const ring = (y, half, deep) => ({ at: [0, y * REF_TALL, 0], r: half, c: bark(y * REF_TALL), rough: rough(deep) });
+  return {
+    sides,
+    rings: [
+      ring(0, r, 0.38),
+      ...(phone ? [] : [ring(FOOT_TOP, r, 0.38), ring(bend, trunk + 0.3 * (r - trunk), 0.3)]),
+      ring(FOOT_IN, trunk * 0.96, 0.12),
+    ],
+  };
+}
+
+/* The forms each kind is drawn in. A tree's form is FORMS numbers, each from 0 to 1, which its own seed gives it (formOf), and each
+   moves the kind's shape its own way (drawPine, drawBroad): its asymmetry, the heights of its whorls or masses, which of them are
+   full, the bend of its trunk, and the shade of its bark. */
+export const FORMS = 7;
+/* How far a trunk bends at the most, in metres: a pine's along its whole height, a broad-crowned tree's under its crown. */
+export const BEND = { pine: 0.3, broad: 0.2 };
+/* A trunk's bend at height `y` m, as a share of its most: next to none by a walker's head, most some two thirds of the way up, and
+   back by the top, a pine's over its whole height, a broad-crowned tree's to its crown. */
+const bendAt = (kind, y) => {
+  const t = clamp01((y - SUNK) / ((kind === "pine" ? REF_TALL : BASE_M) - SUNK));
+  return 1.727 * t * Math.sin(Math.PI * t);
+};
 
 /* How far down from its top a lobe's last ring stands, in rad: past its widest, so its rim tucks in under it. And how far a lobe's
    corners stand in or out of its radii. */
 const TUCK = 1.85;
-export const LOBE_ROUGH = 0.14;
-
-/* A lobe of a broad crown: a dome of leaves round `at`, `rad` its radii, of `sides` sides and `rings` rings under its top, the last of
-   them tucked in under its widest (TUCK rad down from its top) and drooping unevenly, and closed underneath, where it bellies down
-   a little (with `belly`; flat without). Its corners stand in or out by up to `rough` of its radii, each by its own number, and
-   none further from the tree's middle line than CROWN_REACH. It takes the light as a round thing of its own does, a share `round`
-   of each corner's normal being the whole crown's (`heart` its middle, `span` its radii), so a crown reads as one soft thing made
-   of several. Its colour runs from `over` on its top, down its flanks to `flank` at its widest, and to `under` beneath, so that from
-   above each lobe shows its own round top and from below the crown is in its own shade; the lower a lobe sits in the crown (`low`
-   to `high`), the deeper its colour; each corner mottled, each face a shade of its own. `top` moves the dome's top up to that
-   height exactly. */
-function lobe(out, at, rad, sides, rings, salt, { rough, heart, span, round, under, flank, over, low, high }, { belly = false, top = null } = {}) {
-  const corner = (unit, k, drop, mottle) => {
-    const p = [at[0] + unit[0] * rad[0] * k, at[1] + (unit[1] * k - drop) * rad[1], at[2] + unit[2] * rad[2] * k];
+const LOBE_ROUGH = 0.14;
+/* A mass of leaves or needles: a dome round `at`, in metres, `rad` its radii along the way `turn` (rad, from x toward z), up and
+   across, of `sides` sides and `rings` rings under its top, the last of them tucked in under its widest and drooping unevenly, and
+   closed underneath, where it bellies down a little. Its corners stand in or out by up to `rough` of its radii, each by its own
+   number, none further from the tree's middle line than its reach and none lower than its crown's base. It takes the light as a
+   round thing of its own does, a share `round` of each corner's normal being the whole crown's (`heart` its middle, `span` its
+   radii), so a crown reads as one soft thing made of several. Its colour runs from `over` on its top, down its flanks to `flank` at
+   its widest, and to `under` beneath, so that from above each mass shows its own round top and from below the crown is in its own
+   shade; the lower a mass sits in the crown (`low` to `high` m), the deeper its colour; each corner mottled, each face a shade of its
+   own. `top` moves the dome's top up to that height exactly. */
+function lobe(out, at, rad, sides, rings, salt, { rough, heart, span, round, under, flank, over, low, high }, top = null, turn = 0) {
+  const c = Math.cos(turn), s = Math.sin(turn), spin = ([x, y, z]) => [x * c - z * s, y, x * s + z * c];
+  const corner = (u, k, drop, mottle) => {
+    const p = add(at, spin([u[0] * rad[0] * k, (u[1] * k - drop) * rad[1], u[2] * rad[2] * k]));
     const far = Math.hypot(p[0], p[2]);
-    if (far > CROWN_REACH) { p[0] *= CROWN_REACH / far; p[2] *= CROWN_REACH / far; }
-    /* Its own normal, a dome's; and the whole crown's there. */
-    const own = [unit[0] / rad[0], unit[1] / rad[1], unit[2] / rad[2]], l = Math.hypot(...own) || 1;
-    const whole = [(p[0] - heart[0]) / (span[0] * span[0]), (p[1] - heart[1]) / (span[1] * span[1]), (p[2] - heart[2]) / (span[2] * span[2])], w = Math.hypot(...whole) || 1;
-    const tone = unit[1] >= 0 ? mix(flank, over, unit[1] ** 1.4) : mix(flank, under, Math.min(1, -3 * unit[1]));
+    if (far > REACH_M) { p[0] *= REACH_M / far; p[2] *= REACH_M / far; }
+    p[1] = Math.max(p[1], BASE_M);
+    const own = unit(spin([u[0] / rad[0], u[1] / rad[1], u[2] / rad[2]]));
+    const whole = unit([(p[0] - heart[0]) / (span[0] * span[0]), (p[1] - heart[1]) / (span[1] * span[1]), (p[2] - heart[2]) / (span[2] * span[2])]);
+    const tone = u[1] >= 0 ? mix(flank, over, u[1] ** 1.4) : mix(flank, under, Math.min(1, -3 * u[1]));
     const deep = 0.8 + 0.2 * clamp01((p[1] - low) / (high - low));
-    return { p, c: times(tone, deep * (0.86 + 0.28 * mottle)), n: [(own[0] / l) * (1 - round) + (whole[0] / w) * round, (own[1] / l) * (1 - round) + (whole[1] / w) * round, (own[2] / l) * (1 - round) + (whole[2] / w) * round] };
+    return { p, c: times(tone, deep * (0.86 + 0.28 * mottle)), n: add(times(own, 1 - round), times(whole, round)) };
   };
   const apex = corner([0.08 * (chance(salt, 0, 71) - 0.5), 1, 0.08 * (chance(salt, 0, 72) - 0.5)], 1 - rough + 2 * rough * chance(salt, 0, 73), 0, chance(salt, 0, 74));
   if (top !== null) apex.p[1] = top;
@@ -446,102 +515,210 @@ function lobe(out, at, rad, sides, rings, salt, { rough, heart, span, round, und
     return corner([Math.sin(down) * Math.cos(turn), Math.cos(down), Math.sin(down) * Math.sin(turn)], 1 - rough + 2 * rough * chance(i, j, salt + 1), j === rings - 1 ? 0.25 * chance(i, j, salt + 2) : 0, chance(i, j, salt + 3));
   }));
   let face = 0;
-  const tri = (a, b, c) => { const shade = 0.95 + 0.1 * chance(face++, salt, 41); for (const { p, n, c: tone } of [a, b, c]) out.corner(p, n, times(tone, shade)); };
+  const tri = (a, b, c) => out.tri(a, b, c, 0.95 + 0.1 * chance(face++, salt, 41), true, at);
   for (let i = 0; i < sides; i++) tri(apex, ring[0][(i + 1) % sides], ring[0][i]);
   for (let j = 0; j < rings - 1; j++) for (let i = 0; i < sides; i++) {
-    /* The ring below is turned half a side one way or the other, and the faces between the two follow it. */
     const upper = ring[j], lower = ring[j + 1], i1 = (i + 1) % sides, shift = j % 2 === 0 ? 0 : 1, l0 = lower[(i + shift) % sides], l1 = lower[(i + shift + 1) % sides];
     tri(upper[i], upper[i1], l0); tri(upper[i1], l1, l0);
   }
-  /* Underneath: in the crown's own shade, and facing down. */
+  /* Underneath: in the crown's own shade, facing down, and bellying down a little. */
   const rim = ring[rings - 1].map(({ p, n }) => ({ p, c: times(under, 1.35), n: [n[0] * 0.5, n[1] * 0.5 - 0.5, n[2] * 0.5] }));
-  if (belly) {
-    const foot = { p: [at[0], Math.min(...rim.map(({ p }) => p[1])) - 0.2 * rad[1], at[2]], c: under, n: [0, -1, 0] };
-    for (let i = 0; i < sides; i++) tri(foot, rim[i], rim[(i + 1) % sides]);
-  } else for (let i = 1; i < sides - 1; i++) tri(rim[0], rim[i], rim[i + 1]);
+  const belly = { p: [at[0], Math.max(BASE_M, Math.min(...rim.map(({ p }) => p[1])) - 0.2 * rad[1]), at[2]], c: under, n: [0, -1, 0] };
+  for (let i = 0; i < sides; i++) tri(belly, rim[i], rim[(i + 1) % sides]);
 }
 
-/* A pine: a straight trunk on a flared foot, bare but for a few dead stubs, and a crown of tiers of boughs, each a cone whose rim droops in points and
-   is closed underneath, since a walker under it looks up into it. A phone's has fewer tiers and sides. */
-export function pineGeometry(phone) {
-  const out = shape(), bark = rgb(0x7a5a44), barkDark = rgb(0x4a382c);
-  const sides = phone ? 5 : 6;
-  /* A phone's trunk ends just inside its lowest tier of boughs, which hide the rest of it. */
-  limb(out, [...foot(0.19, 0.135, phone ? 3 : 4), ...(phone ? [{ at: [0.02, 0.7, 0.01], r: 0.078 }] : [{ at: [0.02, 0.68, 0.01], r: 0.08 }, { at: [0.06, 0.94, 0], r: 0.02 }])], sides, barkDark, bark);
-  const needle = rgb(0x44664a), needleDark = rgb(0x1c2e22), tip = rgb(0x6d8c55);
-  const tiers = phone
-    ? [[0.665, 0.85, 0.97], [0.775, 0.94, 0.7], [0.875, 1.0, 0.42]]
-    : [[0.665, 0.815, 0.97], [0.735, 0.88, 0.82], [0.805, 0.935, 0.65], [0.87, 0.975, 0.47], [0.93, 1.0, 0.29]];
-  const points = phone ? 7 : 10;
-  tiers.forEach(([foot, apex, r], t) => {
-    /* Each tier stands a little further down the wind than the one under it. */
-    const cx = 0.025 * t, top = [cx + 0.012, apex, 0], hub = [cx, foot + 0.03, 0];
-    const rim = Array.from({ length: points }, (_, k) => {
-      const a = ((k + 0.37 * t + 0.3 * (chance(k, t, 55) - 0.5)) / points) * 2 * Math.PI, long = k % 2 === 0;
-      const far = r * (long ? 0.8 + 0.2 * chance(k, t, 51) : 0.56 + 0.16 * chance(k, t, 52));
-      /* No corner further out than CROWN_REACH, the tier's own step down the wind counted. */
-      const p = [cx + far * Math.cos(a), foot + (long ? 0 : 0.02) + 0.012 * chance(k, t, 53), far * Math.sin(a)], out_ = Math.hypot(p[0], p[2]);
-      if (out_ > CROWN_REACH) { p[0] *= CROWN_REACH / out_; p[2] *= CROWN_REACH / out_; }
-      return { p, a, long };
-    });
-    for (let k = 0; k < points; k++) {
-      const a = rim[k], b = rim[(k + 1) % points];
-      /* A tier's side leans up and out; its normal there, in this frame, where a unit of y is some five of x. */
-      const up = (r / (apex - foot)) * 0.05;
-      const na = [Math.cos(a.a), up, Math.sin(a.a)], nb = [Math.cos(b.a), up, Math.sin(b.a)], mid = (a.a + (b.a < a.a ? b.a + 2 * Math.PI : b.a)) / 2;
-      const shade = 0.86 + 0.28 * chance(k, t, 54);
-      out.corner(top, [Math.cos(mid), up * 3, Math.sin(mid)], times(needle, shade));
-      out.corner(b.p, nb, times(b.long ? tip : needle, shade));
-      out.corner(a.p, na, times(a.long ? tip : needle, shade));
-      /* Underneath, dark. */
-      out.corner(hub, [0, -1, 0], needleDark);
-      out.corner(a.p, [Math.cos(a.a) * 0.2, -1, Math.sin(a.a) * 0.2], times(needleDark, 1.3));
-      out.corner(b.p, [Math.cos(b.a) * 0.2, -1, Math.sin(b.a) * 0.2], times(needleDark, 1.3));
+/* A pine's bark: dark at its foot, warming up the trunk to the orange of an old pine's upper bark; and, with its form's last number,
+   greyer and paler. Its needles: dark under each clump, mid along its flanks, paler on top. */
+const PINE = { bark: [[0, rgb(0x33271f)], [FOOT_TOP * REF_TALL, rgb(0x3d2f25)], [3.2, rgb(0x5f4535)], [7, rgb(0x7a5840)], [12, rgb(0x9a6743)]], grey: rgb(0x8a8076) };
+const NEEDLES = { rough: 0.16, heart: [0, 13.6, 0], span: [3.0, 3.0, 3.0], round: 0.3, under: rgb(0x16261b), flank: rgb(0x3f6146), over: rgb(0x6a8a52), low: 11, high: 16.6 };
+/* A pine's whorls, each [its height in metres, its boughs, how far its boughs reach]: the lowest at the crown's base, each shorter than
+   the one under it. A phone's has three. */
+const PINE_WHORLS = {
+  desktop: [[11.45, 3, 2.45], [12.35, 3, 2.25], [13.2, 3, 1.95], [14.0, 3, 1.6], [14.75, 2, 1.25], [15.4, 2, 0.9]],
+  phone: [[11.6, 3, 2.6], [13.2, 2, 2.05], [14.55, 1, 1.4]],
+};
+/* Two ways a pine's whorls stand at heights of their own, each in metres a whorl, at its form's second and third numbers. */
+const PINE_WHORL_A = [0, 0.38, -0.25, 0.3, -0.22, 0.1], PINE_WHORL_B = [0, -0.22, 0.36, 0.22, -0.3, 0];
+
+/* A bough of a pine: a limb from the trunk's middle at `from`, out the way `turn`, to a clump of needles some three fifths of its
+   `long` m out, flattened, wider along the bough than across it; the lowest whorl's clumps hang under where their boughs leave the
+   trunk, as an old pine's lowest boughs droop, and the others' stand over it. Its size is `size` of a full one's. A phone's clump
+   has fewer sides and one ring, and no limb, and is deeper and wider, as it has fewer to fill the crown. */
+function bough(out, { from, turn, long, k, size, limbed }, salt, phone, bark) {
+  const way = [Math.cos(turn), 0, Math.sin(turn)], lift = (k === 0 ? -0.1 : k === 1 ? 0 : 0.1) * long;
+  const deep = phone ? 1.6 : 1, wide = phone ? 1.3 : 1;
+  const rad = [(0.42 * long + 0.3) * size, (0.11 * long + 0.3) * (0.6 + 0.4 * size) * deep, (0.3 * long + 0.3) * size * wide];
+  /* A clump with no limb to hold it reaches as far, but from half a metre past the trunk, so the trunk runs up through it. */
+  let out0 = 0.6 * long;
+  if (phone || !limbed) {
+    const far = out0 + Math.sin(TUCK) * rad[0];
+    out0 = (far - 0.5) / 2;
+    rad[0] = (far + 0.5) / 2 / Math.sin(TUCK);
+  }
+  const at = add(from, add(times(way, out0), [0, lift, 0]));
+  if (limbed && !phone) tube(out, [{ at: from, r: 0.13, c: bark }, { at, r: 0.06, c: bark }], 3, { across: [-way[2], 0, way[0]] });
+  lobe(out, at, rad, phone ? 5 : k >= 4 ? 5 : 6, phone ? 1 : 2, salt, NEEDLES, null, turn);
+}
+
+/* A pine: a trunk on a fluted foot that runs on up to its top through whorls of boughs at uneven heights, each whorl's boughs turned
+   their own ways and reaching their own lengths, each ending in a flat clump of needles, with sky between the whorls and between the
+   clumps; and a leader at the top. Its form's numbers, at 1: its boughs reach further on one side and less on the other; its whorls
+   stand at heights of their own, two ways; a third of its boughs, and another third, are small tufts near the trunk; its trunk
+   bends; and its bark is greyer. A phone's has fewer whorls, boughs and sides. */
+function drawPine(phone, form) {
+  const out = shape(), [reach, whorlA, whorlB, tuftA, tuftB, bend, grey] = form;
+  const bark = (y) => mix(barkAt(PINE.bark, y), PINE.grey, 0.55 * grey);
+  const at = (y) => [0.07, y, 0.03 + BEND.pine * bend * bendAt("pine", y)];
+  const { sides, rings } = foot(0.19 * REF_WIDE, 0.135 * REF_WIDE, bark, 3, phone);
+  /* The trunk, from inside the foot to just under the leader's point; a phone's runs on from the foot's own rings. */
+  const trunk = phone
+    ? [...rings, { at: at(15.8), r: 0.07, c: bark(15.8) }]
+    : [[1.0, 0.36], [2.4, 0.45], [6.0, 0.36], [10.5, 0.27], [13.8, 0.16], [16.0, 0.035]].map(([y, r], s) => ({ at: s === 0 ? [0, y, 0] : at(y), r, c: bark(y) }));
+  if (!phone) tube(out, rings, sides, { level: true });
+  tube(out, trunk, phone ? sides : 6, { level: true });
+  /* The boughs, whorl by whorl. */
+  const whorls = PINE_WHORLS[phone ? "phone" : "desktop"];
+  whorls.forEach(([y0, count, long0], k) => {
+    const y = y0 + whorlA * PINE_WHORL_A[k] + whorlB * PINE_WHORL_B[k], spin = 2.4 * k + 0.35 * whorlA - 0.3 * whorlB;
+    for (let j = 0; j < count; j++) {
+      const turn = spin + (2 * Math.PI * (j + 0.35 * (chance(j, k, 52) - 0.5))) / count;
+      const tuft = (j + k) % 3 === 0 ? tuftA : (j + k) % 3 === 1 ? tuftB : 0;
+      const long = long0 * (0.9 + 0.2 * chance(j, k, 53)) * (1 + 0.2 * reach * Math.cos(turn)) * (1 - 0.45 * tuft);
+      bough(out, { from: middleAt(trunk, y), turn, long, k, size: 1 - 0.3 * tuft, limbed: k < 3 }, 10 * k + j, phone, bark(y));
     }
   });
-  /* The stubs of boughs long dead, down the bare trunk. */
-  for (const [y, a, long] of phone ? [] : [[0.52, 0.6, 0.105], [0.58, 3.9, 0.085], [0.63, 2.2, 0.1]]) {
-    const dx = Math.cos(a), dz = Math.sin(a), r = 0.085, end = [dx * (r + long), y + 0.014, dz * (r + long)];
-    const root = [0, 1, 2].map((k) => { const b = (k / 3) * 2 * Math.PI; return [dx * r * 0.6 - dz * 0.035 * Math.cos(b), y + 0.007 * Math.sin(b), dz * r * 0.6 + dx * 0.035 * Math.cos(b)]; });
-    for (let k = 0; k < 3; k++) {
-      const p = root[k], q = root[(k + 1) % 3], b = ((k + 0.5) / 3) * 2 * Math.PI, n = [dx * 0.3 - dz * Math.cos(b), 0.2 * Math.sin(b), dz * 0.3 + dx * Math.cos(b)];
-      out.corner(p, n, barkDark); out.corner(end, n, bark); out.corner(q, n, barkDark);
-    }
-  }
-  return out.geometry();
+  /* The leader: the trunk's last metre in needles, to the tree's top. */
+  cone(out, { at: middleAt(trunk, 15.55), r: 0.5, c: NEEDLES.flank }, { p: middleAt(trunk, REF_TALL), c: NEEDLES.over }, phone ? 3 : 5, true);
+  return out;
 }
 
-/* The lobes of a broad crown, each [its middle, its radii, its sides, its rings, its salt] (lobe). The first tops the trunk; the
-   others stand round it, each lower than it by its own measure and far enough out that its own top shows from above. A phone's
-   crown has fewer, of fewer sides. */
-export const broadLobes = (phone) => phone
-  ? [
-    [[0.03, 0.885, 0.03], [0.5, 0.115, 0.48], 7, 2, 61], [[-0.5, 0.83, 0.26], [0.45, 0.085, 0.43], 5, 2, 62],
-    [[0.44, 0.862, -0.36], [0.45, 0.085, 0.43], 5, 2, 63], [[0.12, 0.806, 0.54], [0.41, 0.075, 0.39], 5, 2, 64],
-  ]
-  : [
-    [[0.03, 0.885, 0.0], [0.5, 0.115, 0.48], 9, 3, 61], [[-0.5, 0.83, 0.24], [0.45, 0.088, 0.43], 7, 3, 62],
-    [[0.45, 0.862, -0.34], [0.45, 0.085, 0.43], 7, 3, 63], [[0.13, 0.806, 0.55], [0.41, 0.075, 0.4], 7, 2, 64],
-    [[-0.19, 0.846, -0.54], [0.41, 0.085, 0.39], 7, 2, 65], [[0.58, 0.83, 0.2], [0.36, 0.07, 0.36], 6, 2, 66],
-  ];
+/* A broad-crowned tree's bark and leaves. */
+const BROAD = { bark: [[0, rgb(0x372a21)], [FOOT_TOP * REF_TALL, rgb(0x3f3127)], [3.2, rgb(0x66503d)], [7, rgb(0x80654d)]], grey: rgb(0x8e877c) };
+const LEAVES = { rough: LOBE_ROUGH, heart: [0.1, 14.0, 0], span: [3.2, 2.6, 3.2], round: 0.3, under: rgb(0x26331b), flank: rgb(0x46592a), over: rgb(0x8a9c4a), low: 11.5, high: 16.6 };
+/* A broad crown's masses, each [the way round from the trunk it stands, how far out, its height, its radii across and up, its sides,
+   its rings, its salt], in metres: the first over the trunk and topping the crown, a ring round it, and lower ones further out between
+   those, each overlapping its neighbours. The ring's first three each end a limb from the fork; the others end the limbs those carry.
+   A phone's crown has fewer, of fewer sides, which overlap the first. */
+export const BROAD_MASSES = {
+  desktop: [
+    [0, 0.1, 15.15, [1.9, 1.45], 9, 3, 61],
+    [0.2, 1.5, 14.15, [1.5, 1.12], 7, 2, 62], [2.7, 1.55, 14.4, [1.55, 1.15], 7, 2, 63], [5.0, 1.45, 13.85, [1.45, 1.08], 7, 2, 64],
+    [1.45, 1.5, 13.55, [1.4, 1.02], 7, 2, 65], [3.85, 1.5, 14.05, [1.38, 1.0], 7, 2, 66],
+    [0.85, 1.85, 12.0, [1.15, 0.92], 7, 2, 67], [3.25, 1.85, 11.75, [1.2, 0.95], 7, 2, 68], [5.65, 1.8, 12.15, [1.1, 0.88], 7, 2, 69],
+  ],
+  phone: [
+    [0, 0.1, 15.1, [1.95, 1.5], 6, 2, 61],
+    [0.3, 1.6, 13.6, [1.6, 1.15], 5, 2, 62], [2.4, 1.65, 13.0, [1.55, 1.1], 5, 2, 63], [4.5, 1.6, 13.85, [1.55, 1.12], 5, 2, 64],
+  ],
+};
+/* Which limb carries each mass past the ring's first three: the nearest of those, by the way round. */
+const apart = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+const carrier = (masses, m) => [1, 2, 3].reduce((best, k) => (apart(masses[m].turn, masses[k].turn) < apart(masses[m].turn, masses[best].turn) ? k : best), 1);
+/* How each mass of the ring and under it stands higher or lower, in metres, at its form's third number; and the two sets of masses
+   its fourth and fifth make smaller. */
+const BROAD_HEIGHTS = [0, 0.4, -0.35, 0.3, -0.4, 0.25, -0.25, 0.3, -0.2];
+const BROAD_GAPS_A = [4, 2, 8], BROAD_GAPS_B = [5, 6, 3];
 
-/* A broad-crowned tree, as a stone pine grows: a trunk on a flared foot that bends a little and forks high up into boughs that fan out and up, each
-   holding a lobe of leaves, the lobes at heights of their own round a dome at the top, so the crown is an umbrella with an outline
-   of its own from every side, a canopy of round tops from above, and the sky shows between its boughs. */
-export function broadGeometry(phone) {
-  const out = shape(), bark = rgb(0x86694f), barkDark = rgb(0x4d3b2e);
-  const sides = phone ? 5 : 6, fork = [0.035, 0.685, 0.01];
-  limb(out, [...foot(TRUNK_FOOT, 0.14, phone ? 2 : 4), ...(phone ? [] : [{ at: [-0.035, 0.42, 0.02], r: 0.115 }]), { at: fork, r: 0.085 }], sides, barkDark, bark);
-  const leaf = { rough: LOBE_ROUGH, heart: [0.04, 0.84, 0], span: [1, 0.16, 1], round: 0.3, under: rgb(0x26331b), flank: rgb(0x46592a), over: rgb(0x8a9c4a), low: 0.78, high: 1 };
-  const lobes = broadLobes(phone);
-  lobes.forEach(([at, rad, around, rings, salt], k) => lobe(out, at, rad, around, rings, salt, leaf, { belly: !phone, top: k === 0 ? 1 : null }));
-  /* The trunk's own top goes on up into the first lobe, and a bough from the fork out and up into each of the others. */
-  limb(out, [{ at: fork, r: 0.075 }, { at: [0.05, lobes[0][0][1] - 0.01, 0.0], r: 0.035 }], 3, bark, bark);
-  for (const [at] of lobes.slice(1)) {
-    const rings = [{ at: [fork[0], BASE_FRAC + 0.006, fork[2]], r: 0.06 }, { at: [at[0] * 0.5, at[1] - 0.075, at[2] * 0.5], r: 0.042 }, { at: [at[0] * 0.92, at[1] - 0.008, at[2] * 0.92], r: 0.02 }];
-    limb(out, phone ? [rings[0], rings[2]] : rings, 3, bark, bark);
+/* A broad-crowned tree: a trunk on a fluted foot that bends a little and forks under its crown into stout limbs that rise and fork
+   again, each holding a mass of leaves, the masses at heights and sizes of their own round one over the trunk, with gaps between
+   them the sky shows through. Its form's numbers, at 1: the masses round the top spread out and down, an umbrella's; they reach
+   further on one side; they stand at heights of their own; two sets of them are smaller and drawn in, so more sky shows; the trunk
+   bends under the crown; and the bark is greyer. A phone's has three masses round the top, and its limbs go straight from a higher
+   fork to them. */
+function drawBroad(phone, form) {
+  const out = shape(), [spread, reach, heights, gapsA, gapsB, bend, grey] = form;
+  const bark = (y) => mix(barkAt(BROAD.bark, y), BROAD.grey, 0.55 * grey);
+  const at = (y) => [0.05, y, 0.02 + BEND.broad * bend * bendAt("broad", y)];
+  const forkY = phone ? 10.2 : 8.2, fork = at(forkY);
+  /* The masses, as this form has them. */
+  const masses = BROAD_MASSES[phone ? "phone" : "desktop"].map(([turn, far0, y0, [across, upward], sides, rings, salt], m) => {
+    if (m === 0) return { turn, at: [0.1, y0 - 0.15 * spread, 0], rad: [across, upward * (1 - 0.15 * spread), across * 0.97], sides, rings, salt };
+    const small = 1 - 0.35 * Math.min(1, (BROAD_GAPS_A.includes(m) ? gapsA : 0) + (BROAD_GAPS_B.includes(m) ? gapsB : 0));
+    const far = (far0 * (1 + 0.12 * spread) + 0.3 * reach * Math.cos(turn)) * (0.85 + 0.15 * small);
+    const size = (1 + 0.08 * spread) * (1 + 0.1 * reach * Math.cos(turn)) * small;
+    return { turn, at: [far * Math.cos(turn), y0 - 0.35 * spread + heights * BROAD_HEIGHTS[m] - 0.2 * (1 - small), far * Math.sin(turn)], rad: [across * size, upward * size, across * size * 0.95], sides, rings, salt };
+  });
+  /* The foot, and the trunk up past the fork, where it narrows inside its limbs; a phone's ends at its fork. */
+  const { sides, rings } = foot(TRUNK_FOOT * REF_WIDE, 0.14 * REF_WIDE, bark, 4, phone);
+  const trunk = phone
+    ? [...rings, { at: fork, r: 0.22, c: bark(forkY) }]
+    : [[1.0, 0.38], [2.4, 0.47], [5.2, 0.4], [forkY, 0.34], [forkY + 1.1, 0.14]].map(([y, r], s) => ({ at: s === 0 ? [0, y, 0] : at(y), r, c: bark(y) }));
+  if (!phone) tube(out, rings, sides, { level: true });
+  tube(out, trunk, phone ? sides : 6, { level: true });
+  /* The limbs: from the fork up through the crown's base, near the trunk, then out to a mass of the ring; the trunk's own leader up
+     into the top; and from each of those limbs, a bough out to each mass it carries. */
+  const limb = (from, mid, to, r, n, turn) => tube(out, [
+    { at: from, r: r[0], c: bark(forkY) }, ...(mid ? [{ at: mid, r: r[1], c: bark(forkY) }] : []), { at: to, r: r[2], c: mix(bark(forkY), bark(0), 0.25) },
+  ], n, { across: [-Math.sin(turn), 0, Math.cos(turn)] });
+  const into = (mass) => add(mass.at, [0, -0.35 * mass.rad[1], 0]);
+  const rising = (turn, y, off) => add(at(y), [off * Math.cos(turn), 0, off * Math.sin(turn)]);
+  for (const m of [1, 2, 3]) {
+    const mass = masses[m];
+    if (phone) limb(add(fork, [0, -0.2, 0]), null, add(into(mass), [-0.4 * mass.rad[0] * Math.cos(mass.turn), 0, -0.4 * mass.rad[0] * Math.sin(mass.turn)]), [0.22, 0, 0.13], 3, mass.turn);
+    else limb(add(fork, [0, -0.4, 0]), rising(mass.turn, BASE_M - 0.25, 0.3), into(mass), [0.23, 0.18, 0.12], 5, mass.turn);
   }
-  return out.geometry();
+  if (!phone) {
+    limb(add(fork, [0, -0.3, 0]), null, add(masses[0].at, [0, -0.3 * masses[0].rad[1], 0]), [0.2, 0, 0.12], 4, 1.1);
+    for (let m = 4; m < masses.length; m++) {
+      const parent = masses[carrier(masses, m)], start = mix(rising(parent.turn, BASE_M - 0.25, 0.3), into(parent), 0.45);
+      limb(start, null, into(masses[m]), [0.13, 0, 0.08], 4, masses[m].turn);
+    }
+  }
+  masses.forEach((mass, m) => lobe(out, mass.at, mass.rad, mass.sides, mass.rings, mass.salt, LEAVES, m === 0 ? REF_TALL : null));
+  return out;
+}
+
+/* Draws a kind's shape (`draw(phone, form)`) in each of its forms, as one geometry: the shape in the form of every number 0, and FORMS
+   morph targets, each what one number at 1 changes of every corner's place, normal and colour, kept relative, so a tree's own
+   numbers add their shares of each (InstancedMesh setMorphAt, formOf). A drawing has the same corners in the same order in every form.
+   The numbers may come in any measure together, so a corner whose changes would together carry it past the sizes every rule derives
+   from has them cut back, all alike, until in no measure do they: no further out than CROWN_REACH, no higher than the top and no
+   lower than the foot; a leaf no lower than BASE_FRAC; and a corner that may stand under BASE_FRAC no further from the middle line
+   than TRUNK_FOOT. A colour has four parts, the last always 1: three's shader blends a morph's colour only so. */
+function formed(draw, phone) {
+  const zero = Array(FORMS).fill(0), base = draw(phone, zero);
+  const targets = zero.map((_, k) => draw(phone, zero.map((v, j) => (j === k ? 1 : 0))));
+  const count = base.position.length / 3, d = targets.map((t) => t.position.map((v, i) => v - base.position[i]));
+  /* The lowest and highest a corner stands, and its furthest from the middle line, over every measure of its changes cut to `s`:
+     at the corners of the measures, as each is a straight line in each number. */
+  const range = (i, s) => {
+    let low = Infinity, high = -Infinity, far = 0;
+    for (let m = 0; m < 1 << FORMS; m++) {
+      let x = base.position[3 * i], y = base.position[3 * i + 1], z = base.position[3 * i + 2];
+      for (let k = 0; k < FORMS; k++) if (m & (1 << k)) { x += s * d[k][3 * i]; y += s * d[k][3 * i + 1]; z += s * d[k][3 * i + 2]; }
+      low = Math.min(low, y); high = Math.max(high, y); far = Math.max(far, Math.hypot(x, z));
+    }
+    return { low, high, far };
+  };
+  const fits = (i, s) => {
+    const { low, high, far } = range(i, s);
+    if (far > CROWN_REACH + 1e-9 || high > 1 + 1e-9 || low < -1e-9) return false;
+    return base.leaf[i] ? low >= BASE_FRAC - 1e-9 : low >= BASE_FRAC || far <= TRUNK_FOOT + 1e-9;
+  };
+  for (let i = 0; i < count; i++) {
+    if (fits(i, 1)) continue;
+    let lo = 0, hi = 1;
+    for (let step = 0; step < 30; step++) { const s = (lo + hi) / 2; if (fits(i, s)) lo = s; else hi = s; }
+    for (const t of d) for (let c = 0; c < 3; c++) t[3 * i + c] *= lo;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(base.position, 3));
+  geo.setAttribute("normal", new THREE.Float32BufferAttribute(base.normal, 3));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute(base.colour, 4));
+  geo.morphAttributes.position = d.map((t) => new THREE.Float32BufferAttribute(t, 3));
+  geo.morphAttributes.normal = targets.map((t) => new THREE.Float32BufferAttribute(t.normal.map((v, i) => v - base.normal[i]), 3));
+  geo.morphAttributes.color = targets.map((t) => new THREE.Float32BufferAttribute(t.colour.map((v, i) => v - base.colour[i]), 4));
+  geo.morphTargetsRelative = true;
+  return geo;
+}
+
+export const pineGeometry = (phone) => formed(drawPine, phone);
+export const broadGeometry = (phone) => formed(drawBroad, phone);
+
+/* A tree's own form, by its own seed, its foot's place: FORMS numbers from 0 to 1. */
+export function formOf({ x, z }) {
+  const i = Math.round(x * 1000), j = Math.round(z * 1000);
+  return Array.from({ length: FORMS }, (_, k) => chance(i, j, 90 + k));
 }
 
 /* ---------- the meshes ---------- */
@@ -610,7 +787,7 @@ function keepOuts(spots) {
 export function buildTrees(scene, spots, { lit, phone }) {
   const dummy = new THREE.Object3D(), turn = new THREE.Quaternion(), axis = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), tint = new THREE.Color();
   const material = lit(new THREE.MeshLambertMaterial({ vertexColors: true }), { sunk: SUNK, share: GLOW_SHARE });
-  const meshes = [];
+  const meshes = [], form = { morphTargetInfluences: [] };
   for (const [kind, geometry] of [["pine", pineGeometry], ["broad", broadGeometry]]) {
     const mine = spots.filter((s) => s.kind === kind);
     if (mine.length === 0) continue;
@@ -627,7 +804,11 @@ export function buildTrees(scene, spots, { lit, phone }) {
       /* Each a shade of its own, and from a yellower green to a bluer one. */
       const shade = 0.86 + 0.28 * ((hue * 7) % 1);
       mesh.setColorAt(k, tint.setRGB(shade * (1.08 - 0.16 * hue), shade, shade * (0.88 + 0.2 * hue)));
+      /* And its own form, by its own seed (formOf), set once: nothing changes it again. */
+      form.morphTargetInfluences = formOf(mine[k]);
+      mesh.setMorphAt(k, form);
     });
+    mesh.morphTexture.needsUpdate = true;
     /* An instanced mesh is culled by its geometry's bounds, one tree's; the trees stand all over the island. */
     mesh.frustumCulled = false;
     scene.add(mesh);
