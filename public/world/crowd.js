@@ -924,12 +924,13 @@ export function drawnOf(kit, figure) {
    it wears them; else one of them gives, the first of its legs, its things and its top that can: it takes the next of its era's on
    from the one it was dealt with which every side does. Where no one can, two give, the first two of those that can, each the
    nearest on from its own. Where no colours of its era can, as where one colour covers most of it, it wears those that bring its
-   lightest fifth that far apart from its darkest in the same way (ENDS); and where none do even that, as from steeply over one in a
-   hat and a poncho, which show one colour, those that do it from the most sides, and of those the ones that stand farthest apart
-   from the side they do least from. Its skin, its hair and a shoe's
+   lightest fifth that far apart from its darkest in the same way; where none can, its lightest tenth, as much as the eye's test
+   takes (ENDS), as for one reclining in a long skirt, seen level from the stage's side over four fifths skirt; and where none do even
+   that, as from steeply over one in a hat and a poncho, which show one colour, those that bring its tenth apart from the most sides,
+   and of those the ones that stand farthest apart from the side they do least from. Its skin, its hair and a shoe's
    black never give. A top gives to no colour that a figure within CLOSE m wears in the same top (`worn`), so that none is dressed
    like one that close (people), unless only such a colour can. */
-export const APART = 3, ENDS = [0.25, 0.2];
+export const APART = 3, ENDS = [0.25, 0.2, 0.1];
 const GIVES = ["legs", "thing", "top"];
 /* How many times lighter the lightest `ends` of a figure is than its darkest, seen as `shares` (a view of drawnOf) shows it, with
    each of SOURCES as light as `lights` has it: the colour at which, from the lightest, that share of it is reached, over the one at

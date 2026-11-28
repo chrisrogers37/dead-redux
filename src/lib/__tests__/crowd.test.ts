@@ -282,8 +282,8 @@ const light = ({ r, g, b }: Rgb) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 // corner it wears worked out once, its faces turned to the eye. A figure stands apart by the more of its lightest tenth over what is
 // past it at its brightest, worn or not and the stage light at its highest, and of that at its darkest over its darkest tenth.
 const SEEN_SHARE = 0.1, SEEN_N = 40;
-// How near drawnOf draws each figure to the shader (its test): the share of figures' sides on which its verdict on the figure's ends
-// standing APART is not the shader's, how far its shares are off on the whole and on seated figures alone, and how far any one
+// How near drawnOf draws each figure to the shader (its test): the share of figures' sides on which its verdict on the figure's fifths
+// (ENDS) standing APART is not the shader's, how far its shares are off on the whole and on seated figures alone, and how far any one
 // colour's share leans, more or less than the shader's, on the whole, standing and seated or seated alone.
 const DRAWN_AGREE = { differ: 0.005, mean: 0.025, seated: 0.0225, lean: 0.02 };
 // The hours each figure is seen at: the show's start, its first half, the deep of the night, the first light and daybreak.
@@ -420,13 +420,14 @@ const figureNumbers = (f: Figure) => ({ parts: f.wear.x, forms: f.forms ?? {}, c
   body: [f.body.x, f.body.y, f.body.z, f.body.w], seat: f.fig.x > 0.5 ? SITS[Math.floor(Math.floor(f.wear.y / 16384) / 16)] : null,
   stage: stageTurn(f.place!.x, f.place!.z, f.size!.z) });
 // Each figure of crowd `c` of a show on `date` wears the colours dressFor chose (each.colours), as the shader colours them. From every
-// side drawnOf draws it from (DRAWN_VIEWS), from its tier's own figure and its own numbers, its lightest quarter or fifth (ENDS)
+// side drawnOf draws it from (DRAWN_VIEWS), from its tier's own figure and its own numbers, its lightest quarter, fifth or tenth (ENDS)
 // stands APART times lighter than its darkest (apartOf), in the tones the shader gives the tints that show them (a patterned top's on the whole,
 // topLight), at the first of ENDS at which one or two of its legs', things' and top's colours of its era bring that about. It wears
 // the colours it was dealt where those do; else one moved where one can, the first of its legs, its things and its top that can, and
 // its legs or its things to the nearest of its era's on from its own that does; else two. Counts in `counted` how many wear their
 // colours as dealt, how many moved one and how many two, at each of ENDS, and how many no colours of its era bring apart from every
-// side at either: `short` where in the colours it wears it stands apart from every side under STEEP, and `short under` where not.
+// side at any: `short` where in the colours it wears it stands apart from every side under STEEP, and `short under` where not; and
+// returns each figure's, by its index.
 type Chosen = { top: number; legs: number; thing: number };
 type Palette = { top: number[][]; legs: number[]; thing: number[] };
 const GIVES = ["legs", "thing", "top"] as const;
@@ -435,7 +436,7 @@ const GIVES = ["legs", "thing", "top"] as const;
 const STEEP = 0.8;
 const underSteep = (k: number) => (DRAWN_VIEWS[k] as number[])[1] < STEEP;
 function dressedApart(c: typeof crowd, date: string, counted: Record<string, number>) {
-  const kit = kitOf(c), who = peopleOf(c), d = dressOn(date) as Palette, out: Rgb = { r: 0, g: 0, b: 0 };
+  const kit = kitOf(c), who = peopleOf(c), d = dressOn(date) as Palette, out: Rgb = { r: 0, g: 0, b: 0 }, kinds: string[] = [];
   const whose: Record<string, number> = { legs: TINT.LEGS, hair: TINT.HAIR, self: TINT.SELF, thing: TINT.THING };
   for (const f of figuresOf(c)) {
     const p = who[f.i] as { colour: Record<string, number> }, chosen = c.each.colours[f.i] as Chosen, drawn = drawnOf(kit, figureNumbers(f)) as number[][];
@@ -463,10 +464,12 @@ function dressedApart(c: typeof crowd, date: string, counted: Record<string, num
     const under = () => drawn.every((shares, k) => !underSteep(k) || apartOf(shares, shown, ENDS[ENDS.length - 1]) >= APART * (1 - 1e-9));
     const kind = found ? `${found.kind} ${found.ends}` : under() ? "short" : "short under";
     counted[kind] = (counted[kind] ?? 0) + 1;
+    kinds[f.i] = kind;
     if (!found) continue;
     expect([date, f.i, kind, everySide(shown, found.ends), moved]).toEqual([date, f.i, kind, true, found.moved]);
     if (found.at !== undefined) expect([date, f.i, chosen[found.moved[0] as keyof Chosen]]).toEqual([date, f.i, found.at]);
   }
+  return kinds;
 }
 
 describe("the crowd, as buildCrowd builds it", () => {
@@ -1830,10 +1833,12 @@ describe("the crowd's shader", () => {
       // A desktop's crowd holds some 26 MB of corners: none is kept.
       placedOf.delete(c);
     }
-    // Under 4 % of these figures no colours of their era bring apart from every side, most of them from over STEEP alone, and the few
-    // others seated in a long skirt or a poncho, which covers the most of them from before them (dressedApart).
+    // Of these 17,520 figures, 92.5 % stand apart from every side at the quarter, 4.7 % at the fifth and 2.7 % at the tenth; the 10
+    // that no colours of their era bring apart even at the tenth are in a floppy hat and a poncho, which from over STEEP show one
+    // colour, and stand apart from every side under it (dressedApart).
     const all = Object.values(counted).reduce((sum, n) => sum + n, 0), short = counted.short ?? 0, under = counted["short under"] ?? 0;
-    expect([all > 15000, (short + under) / all < 0.04, under / all < 0.006]).toEqual([true, true, true]);
+    const tenth = Object.entries(counted).filter(([kind]) => kind.endsWith(" 0.1")).reduce((sum, [, n]) => sum + n, 0);
+    expect([all > 15000, tenth > 0.01 * all, (short + under) / all < 0.005, under / all < 0.001]).toEqual([true, true, true, true]);
     expect(Object.keys(least).length).toBe(SEEDED.length * ERA_SHOWS.length * 2 * HOURS.length);
     for (const [key, { by, i }] of Object.entries(least)) expect([key, i, by >= SEPARATE]).toEqual([key, i, true]);
   }, 240000);
@@ -3076,15 +3081,18 @@ describe("the crowd's shader", () => {
   it("dresses every figure so that from every side the lightest quarter of it as the eye sees it stands APART times lighter than its darkest, whatever it wears: where the colours it was dealt fall short, its legs, then its things, then its top give, each to the nearest of its era's on from its own that does", () => {
     // So that on any ground the one end of it or the other stands off it: a quarter, more than twice the tenth the tests that stand
     // every figure apart take, so that the light, which falls on some faces of a colour more than on others, and a side the views fall
-    // between leave that tenth in it; and a fifth where no colours of its era can bring a quarter apart.
+    // between leave that tenth in it; a fifth where no colours of its era can bring a quarter apart; and the tenth itself where none
+    // can bring a fifth, which before fell to the colours that stand apart from the most sides, and guarantee nothing.
     expect(APART).toBeGreaterThanOrEqual(3);
-    expect(ENDS).toEqual([0.25, 0.2]);
-    // apartOf: the colour at which, from the lightest, a quarter or a fifth of the figure is reached, over the one at which it is from
-    // the darkest.
+    expect(ENDS).toEqual([0.25, 0.2, 0.1]);
+    // apartOf: the colour at which, from the lightest, a quarter, a fifth or a tenth of the figure is reached (the last of ENDS where
+    // none is given), over the one at which it is from the darkest.
     expect(apartOf([0.5, 0.3, 0.2, 0, 0, 0], [0.3, 0.1, 0.03, 9, 9, 9])).toBeCloseTo(0.3 / 0.03, 9);
-    expect(apartOf([0.5, 0.3, 0.15, 0, 0, 0.05], [0.3, 0.1, 0.03, 9, 9, 0.02])).toBeCloseTo(0.3 / 0.03, 9);
-    expect(apartOf([0.5, 0.35, 0.1, 0, 0, 0.05], [0.3, 0.1, 0.03, 9, 9, 0.02])).toBeCloseTo(0.3 / 0.1, 9);
-    expect(apartOf([0.85, 0.15, 0, 0, 0, 0], [0.3, 0.1, 9, 9, 9, 9])).toBeCloseTo(1, 9);
+    expect(apartOf([0.5, 0.3, 0.15, 0, 0, 0.05], [0.3, 0.1, 0.03, 9, 9, 0.02], 0.2)).toBeCloseTo(0.3 / 0.03, 9);
+    expect(apartOf([0.5, 0.35, 0.1, 0, 0, 0.05], [0.3, 0.1, 0.03, 9, 9, 0.02], 0.2)).toBeCloseTo(0.3 / 0.1, 9);
+    expect(apartOf([0.5, 0.35, 0.1, 0, 0, 0.05], [0.3, 0.1, 0.03, 9, 9, 0.02])).toBeCloseTo(0.3 / 0.03, 9);
+    expect(apartOf([0.85, 0.15, 0, 0, 0, 0], [0.3, 0.1, 9, 9, 9, 9], 0.2)).toBeCloseTo(1, 9);
+    expect(apartOf([0.85, 0.15, 0, 0, 0, 0], [0.3, 0.1, 9, 9, 9, 9])).toBeCloseTo(3, 9);
     expect(apartOf([0.5, 0.28, 0.22, 0, 0, 0], [0.3, 0.1, 0.03, 9, 9, 9], 0.2)).toBeCloseTo(0.3 / 0.03, 9);
     expect(apartOf([0.5, 0.28, 0.22, 0, 0, 0], [0.3, 0.1, 0.03, 9, 9, 9], 0.25)).toBeCloseTo(0.3 / 0.1, 9);
     // A top's light is its colour's, or on the whole its pattern's two (COVER), as the tone draws them.
@@ -3144,12 +3152,13 @@ describe("the crowd's shader", () => {
       }
     }
     expect(tried).toBe(40 * 14 * SKIN.length * Math.ceil(HAIRS.length / 2));
-    // Each way of giving comes up. A figure no colours of its era bring apart from every side is one that from over STEEP shows little
-    // but one colour, a hat and a poncho: some 6 % of these, which four of the 40 are in, and one that falls short from under STEEP,
-    // in what dressFor gives it, is rare.
+    // Each way of giving comes up, and a tenth of these stand apart from every side only at the fifth or the tenth. A figure no
+    // colours of its era bring apart from every side even at the tenth is one that from over STEEP shows little but one colour, a hat
+    // and a poncho, which four of the 40 are in; and at the tenth none of these is.
     for (const kind of ["dealt", "legs", "thing", "top"]) expect([kind, (kinds[kind] ?? 0) > 20]).toEqual([kind, true]);
     expect(Object.keys(kinds).filter((kind) => kind.includes(" ")).reduce((sum, kind) => sum + kinds[kind], 0)).toBeGreaterThan(0);
-    expect((kinds.short ?? 0) / tried).toBeLessThan(0.08);
+    expect((kinds.fifth ?? 0) / tried).toBeGreaterThan(0.05);
+    expect((kinds.short ?? 0) / tried).toBeLessThan(0.005);
     expect((kinds.under ?? 0) / tried).toBeLessThan(0.005);
     // And as the shader colours them, on the three shows' crowds, desktop and phone (dressedApart, above; the test of other days'
     // gatherings also runs it on theirs): most figures wear the colours they were dealt or move one, a few move two, and all but a
@@ -3162,7 +3171,17 @@ describe("the crowd's shader", () => {
     expect(at("two 0.25")).toBeGreaterThan(0);
     expect(at("short")).toBeLessThan(0.04 * total);
     expect(at("short under")).toBe(0);
-  }, 60000);
+    // The tenth is for such as figure 227 of seed 661's crowd in the nineties' clothes: reclining in a long skirt, with a pack and a
+    // roll, it shows its skirt over four fifths of it seen level from the stage's side, and no colours of its era bring its lightest
+    // quarter or fifth apart from every side; its tenth, they do. In the colours of the most sides it stood 1.2 apart from what is
+    // seen past it from the stage at hour 0.25 (HOURS), under SEPARATE; dressed at the tenth it stands apart.
+    const nineties = crowdOf("1990-12-09", false, 350, 661), reclining = figuresOf(nineties)[227], skirt = drawnOf(kitOf(nineties), figureNumbers(reclining)) as number[][];
+    expect([figureNumbers(reclining).seat, carries(reclining, PART.SKIRT as number), Math.max(...skirt.map((shares) => shares[SOURCES.indexOf("legs")])) > 0.75]).toEqual(["recline", true, true]);
+    expect(dressedApart(nineties, "1990-12-09", {})[227]).toMatch(/ 0\.1$/);
+    const fromStage = seenApart(nineties, ["stage"], [0.25]).each.find(({ i }) => i === 227)!;
+    expect(fromStage.by).toBeGreaterThanOrEqual(SEPARATE);
+    placedOf.delete(nineties);
+  }, 90000);
 
   it("takes each face's colour from the figure as the shader's tones do, whatever it bares or covers: sourceOf", () => {
     // A figure whose every colour is its own: its top, its legs, its hair, its skin and its things each a tone no other is. For each
@@ -3187,7 +3206,7 @@ describe("the crowd's shader", () => {
     expect(SOURCES).toEqual(["top", "legs", "hair", "self", "thing", "shoe"]);
   });
 
-  it("draws what of each figure shows in each colour from each side as the shader draws it: drawnOf's shares are the shader's within a few per cent on the whole and on seated figures alone, no colour's share leans either way, and where they are not, its verdict on the figure's ends standing apart is the shader's on nearly every side of every figure", () => {
+  it("draws what of each figure shows in each colour from each side as the shader draws it: drawnOf's shares are the shader's within a few per cent on the whole and on seated figures alone, no colour's share leans either way, and where they are not, its verdict on the figure's fifths standing apart is the shader's on nearly every side of every figure", () => {
     // Each figure of the three shows' crowds, desktop and phone, as seenApart draws it from far off each way DRAWN_VIEWS looks at it,
     // turned with the figure (aSize.z), its pixels by whose colour each face shows (sourceOf); and as drawnOf draws it, from its
     // tier's own figure and the numbers it carries (figureNumbers), its vertex shader's shaping of it at rest mirrored (crowd.js),
@@ -3211,7 +3230,7 @@ describe("the crowd's shader", () => {
           for (const lean of [leans[0], ...(f.fig.x > 0.5 ? [leans[1]] : [])]) {
             shares.forEach((share, j) => { if (share > 0 || drawn[k][j] > 0) { lean[j].sum += share - drawn[k][j]; lean[j].n += 1; } });
           }
-          tally[(apartOf(shares, lights) >= APART) === (apartOf(drawn[k], lights) >= APART) ? "same" : "differ"] += 1;
+          tally[(apartOf(shares, lights, ENDS[1]) >= APART) === (apartOf(drawn[k], lights, ENDS[1]) >= APART) ? "same" : "differ"] += 1;
         });
       }
     }
