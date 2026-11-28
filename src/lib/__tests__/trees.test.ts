@@ -100,8 +100,14 @@ beforeAll(() => {
   WORLDS = [...DESKTOP, ...PHONE];
   fixed = DESKTOP.find((w) => w.date === FIXED)!;
   fixedPhone = PHONE.find((w) => w.date === FIXED)!;
-  made = built(fixed.trees);
-  phones = built(fixedPhone.trees, true);
+  // A build that threw here would fail this hook and skip every test unnamed; so a throw is kept, and each test that uses the fixed
+  // day's built trees fails by its own name, with it.
+  try {
+    made = built(fixed.trees);
+    phones = built(fixedPhone.trees, true);
+  } catch (error) {
+    made = phones = new Proxy({}, { get: () => { throw error; } }) as ReturnType<typeof built>;
+  }
 }, 120000);
 
 const eachTree = (see: (tree: Spot, w: World) => void) => { for (const w of WORLDS) for (const tree of w.trees) see(tree, w); };
@@ -1245,20 +1251,65 @@ describe("the trees' shapes", () => {
     }
   });
 
+  it("keep every face turned its own way in every form: at every corner of the box of forms and in 3,000 forms between, no face's normal turns a right angle or more from its own in the form of every number 0, on a desktop and a phone, for both kinds", () => {
+    // Forms between the box's corners, each number its own, the same every run.
+    let seed = 7;
+    const next = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const forms = [...BOX, ...Array.from({ length: 3000 }, () => NONE.map(next))];
+    for (const phone of [false, true]) for (const [kind] of shapes) {
+      const geo = geometryOf(kind, phone), name = nameOf(kind, phone), place = geo.getAttribute("position"), moves = geo.morphAttributes.position, count = place.count;
+      // Each corner's place and each number's change to it, in metres on a tree of the middle size.
+      const scale = [REF_WIDE, REF_TALL, REF_WIDE], at = new Float64Array(3 * count), by = moves.map(() => new Float64Array(3 * count));
+      for (let i = 0; i < count; i++) for (let c = 0; c < 3; c++) {
+        at[3 * i + c] = place[AXES[c]](i) * scale[c];
+        moves.forEach((m, k) => { by[k][3 * i + c] = m[AXES[c]](i) * scale[c]; });
+      }
+      const normals = (form: number[]) => {
+        const p = Float64Array.from(at);
+        form.forEach((w, k) => { if (w !== 0) for (let j = 0; j < p.length; j++) p[j] += w * by[k][j]; });
+        const n = new Float64Array(count);
+        for (let f = 0; f < count; f += 3) {
+          const ax = p[3 * f + 3] - p[3 * f], ay = p[3 * f + 4] - p[3 * f + 1], az = p[3 * f + 5] - p[3 * f + 2], bx = p[3 * f + 6] - p[3 * f], by_ = p[3 * f + 7] - p[3 * f + 1], bz = p[3 * f + 8] - p[3 * f + 2];
+          n[f] = ay * bz - az * by_; n[f + 1] = az * bx - ax * bz; n[f + 2] = ax * by_ - ay * bx;
+        }
+        return n;
+      };
+      const own = normals(NONE);
+      let least = Infinity;
+      for (const form of forms) {
+        const now = normals(form);
+        for (let f = 0; f < count; f += 3) {
+          const a = Math.hypot(own[f], own[f + 1], own[f + 2]), b = Math.hypot(now[f], now[f + 1], now[f + 2]);
+          if (a > 0 && b > 0) least = Math.min(least, (own[f] * now[f] + own[f + 1] * now[f + 1] + own[f + 2] * now[f + 2]) / a / b);
+        }
+      }
+      // The cosine of the most any face turns, over every form tried.
+      expect(least, name).toBeGreaterThan(0);
+    }
+  });
+
   it("run a pine's trunk up through its crown to a leader at its top, and fork a broad-crowned tree's trunk into limbs that reach out on every side into its crown", () => {
     for (const phone of [false, true]) {
-      const pine = read(geometryOf("pine", phone)), broad = read(geometryOf("broad", phone)), bark = (all: Corner[]) => all.filter((c) => !c.leaf);
-      // The pine's trunk runs on near its middle line to within a metre of its top, and its leader's point is its top.
-      const trunk = bark(pine).filter((c) => out(c) < 0.1);
-      expect((1 - Math.max(...trunk.map((c) => c.y))) * REF_TALL).toBeLessThan(1);
+      const pine = read(geometryOf("pine", phone)), name = phone ? "phone" : "desktop";
+      // The pine's trunk is the bark that rises from under its crown's base (a bough's limb starts in the crown): of those parts, the
+      // one that reaches highest. It runs on near its middle line to within a metre of its top; and its leader's point is its top.
+      const high = (part: { tris: number[] }) => Math.max(...part.tris.filter((_, i) => i % 3 === 1));
+      const trunk = partsOf(geometryOf("pine", phone), NONE).filter((p) => !p.leaf && p.low < BASE_FRAC).sort((p, q) => high(q) - high(p))[0];
+      expect(REF_TALL - high(trunk), name).toBeLessThan(1);
+      for (let i = 0; i < trunk.tris.length; i += 3) if (trunk.tris[i + 1] > BASE_FRAC * REF_TALL) expect(Math.hypot(trunk.tris[i], trunk.tris[i + 2]) / REF_WIDE, name).toBeLessThan(0.1);
       const top = pine.find((c) => c.y === Math.max(...pine.map((p) => p.y)))!;
       expect(top.leaf).toBe(true);
       expect(out(top)).toBeLessThan(0.05);
-      // The broad tree's bark leaves its middle line under its crown and reaches out into it, a quarter of its radius and more,
-      // on every side: no half of the way round without a limb.
-      const limbs = [...new Set(bark(broad).filter((c) => c.y > BASE_FRAC && out(c) > 0.25).map((c) => Math.round(Math.atan2(c.z, c.x) * 1e3) / 1e3))].sort((p, q) => p - q);
-      expect(limbs.length).toBeGreaterThan(phone ? 4 : 12);
-      limbs.forEach((a, k) => expect((limbs[(k + 1) % limbs.length] - a + 2 * Math.PI) % (2 * Math.PI)).toBeLessThan(Math.PI));
+      // The broad tree's bark leaves its middle line under its crown and reaches out into it, a quarter of its radius and more, on
+      // every side and in every form: round the trunk, no gap between its limbs wider than 0.4 of a half turn on a desktop, or a
+      // third of a turn on a phone, which has three limbs.
+      const broad = geometryOf("broad", phone);
+      for (const form of BOX) {
+        const limbs = [...new Set(read(broad, form).filter((c) => !c.leaf && c.y > BASE_FRAC && out(c) > 0.25).map((c) => Math.round(Math.atan2(c.z, c.x) * 1e3) / 1e3))].sort((p, q) => p - q);
+        expect(limbs.length, name).toBeGreaterThan(phone ? 4 : 12);
+        const gap = Math.max(...limbs.map((a, k) => (limbs[(k + 1) % limbs.length] - a + 2 * Math.PI) % (2 * Math.PI) || 2 * Math.PI));
+        expect(gap, `${name}, ${form}`).toBeLessThan(phone ? (2 * Math.PI) / 3 : 0.4 * Math.PI);
+      }
     }
   });
 
@@ -1403,8 +1454,10 @@ describe("the trees as they are built", () => {
     for (const [w, own] of [[fixed, made], [fixedPhone, phones]] as const) {
       byKind(w.trees).forEach((mine, k) => {
         const mesh = own.meshes[k];
-        // A morph target's share for each tree, as the GPU reads it: its form, every number within 0 and 1.
+        // A morph target's share for each tree, as the GPU reads it: its form, every number within 0 and 1. The texture that holds
+        // them is marked to go to the GPU: it starts at version 0, and three uploads a texture only once it is past that.
         expect(mesh.morphTexture).not.toBeNull();
+        expect(mesh.morphTexture!.version).toBeGreaterThan(0);
         mine.forEach((tree, i) => {
           const form = formOf(tree) as number[];
           expect(form).toHaveLength(FORMS);
@@ -1548,7 +1601,7 @@ describe("the trees as they are built", () => {
     expect(TREE_REACH).toBeCloseTo(3.418, 9);
   });
 
-  it("stand still: one material for both meshes, with no time in it and nothing that moves a corner, which takes the stage's glow no more strongly than level ground at a tree's foot does, and a share of that", () => {
+  it("stand still: one material for both meshes, with no time in it and nothing that moves a corner over time, which takes the stage's glow no more strongly than level ground at a tree's foot does, and a share of that", () => {
     const uPool = { value: new THREE.Color(0xff7a30) }, scene = new THREE.Scene();
     const asked: unknown[] = [];
     const lit = (material: unknown, stands: unknown) => { asked.push(stands); return takesPool(material, uPool, stands); };

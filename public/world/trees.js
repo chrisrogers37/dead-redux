@@ -590,7 +590,9 @@ function bough(out, { from, turn, long, size, droop }, salt, bark) {
    the top one the leader. A tier's top is the needles' lit side and slopes out and down, as a bough's clump does; under it, the tier
    rises back in to the trunk, to three fifths of its drop under its top, so from beside it shows no flat lid. Its form's numbers, at
    1: the rims reach further on one side; the tiers stand at heights of their own, two ways; two sets of the rims' corners draw in,
-   so each rim is notched its own way; and the trunk bends. Each corner of a rim reaches and droops by its own measure. */
+   so each rim is notched its own way; and the trunk bends. Each corner of a rim reaches and droops by its own measure. With their
+   heights the tiers also turn a little round the trunk: a morph moves a corner in a straight line, so that shears a tier a little,
+   though none of its faces turns over (unlike a desktop's fans; see the boughs in drawPine). */
 const PINE_TIERS = [[13.6, 2.6, 2.7], [14.8, 2.2, 2.1], [15.8, 1.8, 1.55], [REF_TALL, 1.4, 1.0]], PINE_TIER_SIDES = 7;
 function tiers(out, trunk, [reach, whorlA, whorlB, tuftA, tuftB]) {
   PINE_TIERS.forEach(([y0, drop, far], k) => {
@@ -637,9 +639,10 @@ function drawPine(phone, form) {
     tiers(out, trunk, form);
     return out;
   }
-  /* The boughs, whorl by whorl. */
+  /* The boughs, whorl by whorl, each whorl turned its own way round. A form moves a whorl up or down but never round: a morph moves
+     each corner in a straight line, so a turn added to a tuft's shrinking would shear a fan, and turn some of its faces over. */
   PINE_WHORLS.forEach(([y0, count, long0], k) => {
-    const y = y0 + whorlA * PINE_WHORL_A[k] + whorlB * PINE_WHORL_B[k], spin = 2.4 * k + 0.35 * whorlA - 0.3 * whorlB;
+    const y = y0 + whorlA * PINE_WHORL_A[k] + whorlB * PINE_WHORL_B[k], spin = 2.4 * k;
     for (let j = 0; j < count; j++) {
       const turn = spin + (2 * Math.PI * (j + 0.35 * (chance(j, k, 52) - 0.5))) / count;
       const tuft = (j + k) % 3 === 0 ? tuftA : (j + k) % 3 === 1 ? tuftB : 0;
@@ -861,13 +864,16 @@ export function buildTrees(scene, spots, { lit, phone }) {
       dummy.scale.set(wide, tall + SUNK, wide * (0.87 + 0.13 * hue));
       dummy.updateMatrix();
       mesh.setMatrixAt(k, dummy.matrix);
-      /* Each a shade of its own, and from a yellower green to a bluer one. */
+      /* Each a shade of its own, and from a yellower green to a bluer one. The shade tints the tree's own colours but not what its
+         form changes in them, its bark's grey: three adds a morph's colour after it multiplies by the instance's. The tint is within a
+         quarter of 1 on each part, so a grey bark is at most that much the less tinted. */
       const shade = 0.86 + 0.28 * ((hue * 7) % 1);
       mesh.setColorAt(k, tint.setRGB(shade * (1.08 - 0.16 * hue), shade, shade * (0.88 + 0.2 * hue)));
       /* And its own form, by its own seed (formOf), set once: nothing changes it again. */
       form.morphTargetInfluences = formOf(mine[k]);
       mesh.setMorphAt(k, form);
     });
+    /* Marked for the GPU: the texture setMorphAt makes starts at version 0, and three uploads a texture only once it is past that. */
     mesh.morphTexture.needsUpdate = true;
     /* An instanced mesh is culled by its geometry's bounds, one tree's; the trees stand all over the island. */
     mesh.frustumCulled = false;
