@@ -1004,10 +1004,10 @@ describe("the band's look", () => {
 // A microphone's stand among the band (band.js `microphone`, `voice` and `singer`), in every line-up and era, as the band rests.
 // Every part of the band is triangles on the stage: each still part's, an instrument, a keyboard, a kit, a wedge, a shoe, a head or
 // a stand; each body's; and each bone's. A stand's parts are, as band.js builds them in turn, its stand, its microphone, its boom
-// and its base, and the singer's its stand and the microphone's head. Two triangles meet where an edge of one crosses the other.
+// and its base, the singer's as the rest. Two triangles meet where an edge of one crosses the other.
 describe("a microphone's stand", () => {
   type Tri = { at: Vec[]; of: string; by: number | null; stand: boolean; lo: Vec; hi: Vec };
-  const PARTS = ["stand", "microphone", "boom", "base"], SINGERS = ["stand", "microphone's head"];
+  const PARTS = ["stand", "microphone", "boom", "base"];
   const tri = (at: Vec[], of: string, by: number | null, stand = false): Tri => ({
     at, of, by, stand,
     lo: new THREE.Vector3(Math.min(...at.map((c) => c.x)), Math.min(...at.map((c) => c.y)), Math.min(...at.map((c) => c.z))),
@@ -1037,9 +1037,9 @@ describe("a microphone's stand", () => {
     const corner = band.still.geometry.getAttribute("position");
     for (const part of still ? (band.still.userData.parts as Part[]) : []) {
       if (part.of !== "microphone") { add(corner, part.from, part.count, part.as === part.of ? part.of : `${part.of} ${part.as}`, part.by); continue; }
-      const n = seen.get(part.by!) ?? 0, singer = band.players[part.by!].role === "voice";
+      const n = seen.get(part.by!) ?? 0;
       seen.set(part.by!, n + 1);
-      add(corner, part.from, part.count, (singer ? SINGERS : PARTS)[n], part.by, true);
+      add(corner, part.from, part.count, PARTS[n], part.by, true);
     }
     band.players.forEach((p: { body: { geometry: { getAttribute(name: string): { count: number } } | null; matrixWorld: unknown } }, k: number) => {
       if (p.body.geometry) add(p.body.geometry.getAttribute("position"), 0, p.body.geometry.getAttribute("position").count, "body", k, false, p.body.matrixWorld);
@@ -1071,8 +1071,8 @@ describe("a microphone's stand", () => {
       if (s.at.some((c) => Math.hypot(c.x, c.z) > edge || c.y < FLOOR - 1e-6)) note(`${named(band, s)} off the floor`);
       for (const o of by) {
         if ((o.stand && o.by === s.by) || !near(s, o)) continue;
-        // The singer's hand holds their stand: what of the singer's body their stand meets is that hand's, round it.
-        const holds = band.players[s.by!].role === "voice" && s.of === "stand" && o.by === s.by && o.of === "body";
+        // The singer's hand holds their microphone's boom: what of the singer's body their boom meets is that hand's, round it.
+        const holds = band.players[s.by!].role === "voice" && s.of === "boom" && o.by === s.by && o.of === "body";
         const at = meeting(s, o);
         if (at && holds) held.push(at);
         else if (at) note(`${named(band, s)} through ${named(band, o)}`);
@@ -1080,10 +1080,12 @@ describe("a microphone's stand", () => {
     }
   }
 
-  // The singer's hand round their stand: something of the singer's body meets the stand, the hand, and all that does lies within a
-  // hand's breadth of one point, 7 cm in the singer's metres, and under the microphone's head. A trunk that swayed into the stand
-  // would meet it far from the hand: with the singer's sway 10 cm and not 3 (band.js DEAL), the body meets the stand 7.1 cm from
-  // that point as the band plays. What meets it now lies 5.7 cm from it at the most at rest, and 6.2 cm as the band plays.
+  // The singer's hand round their microphone's boom: something of the singer's body meets the boom, the hand, and all that does lies
+  // 4 to 20 cm behind the boom's end at the microphone, along it, in the singer's metres, and under the microphone. The hand closes
+  // on it 12 cm behind (band.js DEAL.voice's `grip`), and the boom passes through the fist and the wrist, which meet it from 5.5 to
+  // 16.5 cm behind as the band rests. With the stand 4 cm behind the singer's middle, as a guitarist's, the boom went through
+  // the upper arm 30 to 34 cm behind; a trunk that swayed into the boom would meet it as far. The singer's stand leaned in to the
+  // mouth before them, and the hand held it under the jaw (#224).
   function holding(band: Band, stands: Tri[], held: Vec[], out: Map<string, Set<string>>, as: string) {
     const note = (what: string, how = "") => out.set(what, (out.get(what) ?? new Set<string>()).add(as + how));
     const singer = band.players.findIndex((p: { role: string }) => p.role === "voice");
@@ -1091,14 +1093,16 @@ describe("a microphone's stand", () => {
       if (held.length) note("a stand held with no singer");
       return;
     }
-    if (!held.length) return note("the voice's hand off its stand");
-    const s = band.players[singer].g.scale.x, mid = middleOf(held), spread = Math.max(...held.map((c) => gap(c, mid))) / s;
-    const head = Math.min(...stands.filter((t) => t.stand && t.by === singer && t.of === SINGERS[1]).flatMap((t) => t.at.map((c) => c.y)));
-    if (spread >= 0.07) note("the voice's body round its stand over more than a hand's breadth", `, ${spread.toFixed(3)} m from one point`);
-    if (mid.y >= head) note("the voice's hand round its stand at or over the microphone's head");
+    if (!held.length) return note("the voice's hand off its boom");
+    const s = band.players[singer].g.scale.x, mine = (of: string) => stands.filter((t) => t.stand && t.by === singer && t.of === of).flatMap((t) => t.at);
+    const upright = mine("stand"), boom = mine("boom"), high = Math.max(...upright.map((c) => c.y)), top = middleOf(upright.filter((c) => c.y > high - 1e-3));
+    const far = Math.max(...boom.map((c) => gap(c, top))), end = middleOf(boom.filter((c) => gap(c, top) > far - 0.01 * s)), along = new THREE.Vector3().subVectors(top, end).normalize();
+    const behind = held.map((c) => new THREE.Vector3().subVectors(c, end).dot(along) / s), head = Math.min(...mine("microphone").map((c) => c.y));
+    if (Math.min(...behind) < 0.04 || Math.max(...behind) > 0.2) note("the voice's body on its boom elsewhere than a hand 4 to 20 cm behind its end", `, ${Math.min(...behind).toFixed(3)} to ${Math.max(...behind).toFixed(3)} m behind`);
+    if (middleOf(held).y >= head) note("the voice's hand round its boom at or over the microphone");
   }
 
-  it("stands every microphone, in every line-up and era, clear of the band and on the floor: no part of a stand, its base, stand, boom or microphone, passes through an instrument, a keyboard, a kit, a wedge, a shoe, a head, a body or a limb at rest, or another's stand, nor stands out past the floor's edge or down into it; but for the singer's hand, round their stand under its head", () => {
+  it("stands every microphone, in every line-up and era, clear of the band and on the floor: no part of a stand, its base, stand, boom or microphone, passes through an instrument, a keyboard, a kit, a wedge, a shoe, a head, a body or a limb at rest, or another's stand, nor stands out past the floor's edge or down into it; but for the singer's hand, round their boom under the microphone", () => {
     const out = new Map<string, Set<string>>();
     for (const key of Object.keys(STAGING)) for (const { from } of ERAS) {
       const stage = new THREE.Group(), band: Band = buildBand(stage, FLOOR, key.split(" "), from);
@@ -1126,8 +1130,8 @@ describe("a microphone's stand", () => {
   // And as the band plays, its moving parts: a keyboard player's hands lift past their microphone's boom, which comes down to the
   // microphone over them (band.js MIC). Through sixteen counts at 96 a minute in every line-up, from rest, in which each hand of
   // a keyboard's player lifts twice (band.js LIFT), a pose every tenth of a second. The singer's hand, which holds
-  // their stand, sways round it with the hips (`singer`), and is held to it in each pose as at rest (`holding`).
-  it("lets nothing that moves pass through a stand as the band plays, in any line-up: no hand that lifts, nor any other, and the singer's hand stays round their stand", () => {
+  // their microphone's boom, sways round it with the hips (`singer`), and is held to it in each pose as at rest (`holding`).
+  it("lets nothing that moves pass through a stand as the band plays, in any line-up: no hand that lifts, nor any other, and the singer's hand stays round their boom", () => {
     const out = new Map<string, Set<string>>();
     for (const key of Object.keys(STAGING)) {
       const stage = new THREE.Group(), band: Band = buildBand(stage, FLOOR, key.split(" "));
